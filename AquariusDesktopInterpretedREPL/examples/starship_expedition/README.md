@@ -36,5 +36,5 @@ dotnet run --project AquariusDesktopInterpretedREPL -- AquariusDesktopInterprete
 都出現在範例中，且每個識別字都使用中文名稱：
 
 ```powershell
-dotnet test AquariusDesktopInterpretedREPL --filter FullyQualifiedName~StarshipExpeditionTest
+dotnet test AquariusLangTesting --filter FullyQualifiedName~StarshipExpeditionTest
 ```

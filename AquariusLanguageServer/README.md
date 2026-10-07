@@ -19,4 +19,6 @@ buffers. Closing a document clears its diagnostics. Unsupported requests return
 JSON-RPC MethodNotFound; unsupported notifications are ignored.
 
 See [VS Code setup and limitations](../editors/vscode/README.md) and the integration
-tests in `tests/lsp.test.js`. No source is executed during analysis.
+tests in [tests/lsp.test.js](tests/lsp.test.js). Run them from the repository root
+with `node --test AquariusLanguageServer/tests/lsp.test.js` after the Release build.
+No source is executed during analysis.

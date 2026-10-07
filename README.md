@@ -6,6 +6,22 @@
 
 VSCode 擴充套件: https://marketplace.visualstudio.com/items?itemName=aquariuslang.aquariuslang-tw
 
+## 專案結構
+
+| 目錄／專案 | 職責 |
+| --- | --- |
+| `AquariusLangInterpreted` | 共用語言核心：詞法分析、語法分析、AST、物件與求值器。 |
+| `AquariusDesktopInterpretedREPL` | 桌面執行入口、REPL、桌面內建函式、圖學支援與可執行範例。 |
+| `AquariusLanguageServer` | LSP 語言伺服器；協定整合測試位於其 `tests/` 目錄。 |
+| `AquariusLangTesting` | 全部 .NET 單元與整合測試；桌面測試位於 `desktop/interpret` 與 `desktop/graphics`。 |
+| `native` | 原生圖學橋接、第三方原始碼、建置腳本與 OpenGL 綁定產生器。 |
+| `editors/vscode` | VS Code 擴充套件及其建置、打包腳本與測試。 |
+| `website` | 介紹網站與部署文件。 |
+
+桌面直譯器與語言伺服器各自參考共用語言核心；測試專案參考核心與桌面直譯器。
+範例保留在桌面專案中，測試建置時會複製到測試輸出目錄。
+測試指令與環境需求請見 [測試專案說明](AquariusLangTesting/README.md)。
+
 ## 名稱與寓意
 
 **星泉**是 AquariusLang 的中文名稱，希望讓人以熟悉的文字表達想法，

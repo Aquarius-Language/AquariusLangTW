@@ -16,28 +16,28 @@ public class InterpreterTest {
     
     [Fact]
     public void TestForLoop() {
-        IObject evaluated = Interpreter.Interpret("../../../examples/for_loop.aqua");
+        IObject evaluated = Interpreter.Interpret(Path.Combine(AppContext.BaseDirectory, "examples/for_loop.aqua"));
         Assert.IsType<IntegerObj>(evaluated);
         Assert.Equal(-20, ((IntegerObj)evaluated).Value);
     }
 
     [Fact]
     public void TestNestedFunc() {
-        IObject evaluated = Interpreter.Interpret("../../../examples/nested_func.aqua");
+        IObject evaluated = Interpreter.Interpret(Path.Combine(AppContext.BaseDirectory, "examples/nested_func.aqua"));
         Assert.IsType<IntegerObj>(evaluated);
         Assert.Equal(59, ((IntegerObj)evaluated).Value);
     }
 
     [Fact]
     public void TestChineseIncrementExample() {
-        IObject evaluated = Interpreter.Interpret("../../../examples/increment.aqua");
+        IObject evaluated = Interpreter.Interpret(Path.Combine(AppContext.BaseDirectory, "examples/increment.aqua"));
         Assert.Equal(7, Assert.IsType<IntegerObj>(evaluated).Value);
     }
 
     [Fact]
     public void TestIncrementAndPlusEqualExample() {
         string examplePath = Path.Combine(AppContext.BaseDirectory,
-            "../../../examples/increment_and_plus_equal.aqua");
+            "examples/increment_and_plus_equal.aqua");
         IObject evaluated = Interpreter.Interpret(examplePath);
         Assert.True(Assert.IsType<BooleanObj>(evaluated).Value,
             "The ++ and += example reported a failed check. See the interpreter output for details.");
@@ -47,7 +47,7 @@ public class InterpreterTest {
     [InlineData("長度", 3)]
     [InlineData("最後一個", 3)]
     public void TestChineseArrayBuiltins(string name, int expected) {
-        DesktopBuiltins builtins = new DesktopBuiltins();
+        using DesktopBuiltins builtins = new DesktopBuiltins();
         IObject evaluated = builtins.BuiltinFuncs[name].Fn(new IObject[] {
             new ArrayObj(new IObject[] { new IntegerObj(1), new IntegerObj(2), new IntegerObj(3) })
         });
@@ -56,7 +56,7 @@ public class InterpreterTest {
 
     [Fact]
     public void TestNumOperationsCasting() {
-        IObject evaluated = Interpreter.Interpret("../../../examples/num_operations_casting.aqua");
+        IObject evaluated = Interpreter.Interpret(Path.Combine(AppContext.BaseDirectory, "examples/num_operations_casting.aqua"));
         Assert.IsType<ArrayObj>(evaluated);
         ArrayObj evaluatedArr = (ArrayObj)evaluated;
         Assert.True(testArrayObjEquals(evaluatedArr.Elements, new IObject[]{new IntegerObj(-20), new FloatObj(20.38f)}));
@@ -64,7 +64,7 @@ public class InterpreterTest {
 
     [Fact]
     public void TestModuleImport() {
-        IObject evaluated = Interpreter.Interpret("../../../examples/using_modules/main.aqua");
+        IObject evaluated = Interpreter.Interpret(Path.Combine(AppContext.BaseDirectory, "examples/using_modules/main.aqua"));
         Assert.IsType<ArrayObj>(evaluated);
         ArrayObj evaluatedArr = (ArrayObj)evaluated;
         
@@ -77,7 +77,7 @@ public class InterpreterTest {
 
     [Fact]
     public void TestCheckOSPlatform() {
-        IObject evaluated = Interpreter.Interpret("../../../examples/check_os_platform.aqua");
+        IObject evaluated = Interpreter.Interpret(Path.Combine(AppContext.BaseDirectory, "examples/check_os_platform.aqua"));
         Assert.IsType<ArrayObj>(evaluated);
         ArrayObj evaluatedArr = (ArrayObj)evaluated;
         
@@ -92,16 +92,16 @@ public class InterpreterTest {
 
     [Fact]
     public void TestExecuteFile() {
-        IObject evaluated = Interpreter.Interpret("../../../examples/execute_file.aqua");
+        IObject evaluated = Interpreter.Interpret(Path.Combine(AppContext.BaseDirectory, "examples/execute_file.aqua"));
         Assert.IsType<BooleanObj>(evaluated);
         _testOutputHelper.WriteLine(evaluated.Inspect());
     }
 
     [Fact]
     public void TestScriptAndScriptDirPath() {
-        string scriptRelativePath = "../../../examples/dir_paths/main.aqua";
-        string dirRelativePath = "../../../examples/dir_paths";
-        IObject evaluated = Interpreter.Interpret(scriptRelativePath);
+        string scriptPath = Path.Combine(AppContext.BaseDirectory, "examples/dir_paths/main.aqua");
+        string directoryPath = Path.GetDirectoryName(scriptPath)!;
+        IObject evaluated = Interpreter.Interpret(scriptPath);
         
         Assert.IsType<ArrayObj>(evaluated);
         
@@ -110,8 +110,7 @@ public class InterpreterTest {
         
         IObject[] elements = evaluatedArrObj.Elements;
 
-        Assert.True(Path.GetFullPath(Path.Combine(System.Environment.CurrentDirectory, dirRelativePath))
-            .Equals(Path.GetFullPath(((StringObj)elements[0]).Value)));
+        Assert.Equal(Path.GetFullPath(directoryPath), Path.GetFullPath(((StringObj)elements[0]).Value));
 
         Assert.True(Directory.Exists(((StringObj)elements[0]).Value));
         Assert.True(Directory.Exists(((StringObj)elements[1]).Value));

@@ -64,7 +64,7 @@ public class GraphicsTest {
     }
     [Fact]
     public void CubeParsesWithoutNativeLibraries() {
-        string path = Path.Combine(AppContext.BaseDirectory, "../../../examples/opengl_cube/main.aqua");
+        string path = Path.Combine(AppContext.BaseDirectory, "examples/opengl_cube/main.aqua");
         var lexer = Lexer.NewInstance(File.ReadAllText(path));
         var parser = Parser.NewInstance(lexer); parser.ParseAST();
         Assert.Empty(lexer.Errors); Assert.Empty(parser.Errors);
@@ -98,7 +98,7 @@ public class OpenGlIntegrationTest {
     }
     [OpenGlFact]
     public void CubeCompilesShadersLoadsTextureRendersAndCleansUp() {
-        string path = Path.Combine(AppContext.BaseDirectory, "../../../examples/opengl_cube/main.aqua");
+        string path = Path.Combine(AppContext.BaseDirectory, "examples/opengl_cube/main.aqua");
         string capture = Path.Combine(Path.GetTempPath(), "aquarius-cube-" + Guid.NewGuid() + ".ppm");
         string? oldFrames = System.Environment.GetEnvironmentVariable("AQUARIUS_GRAPHICS_FRAMES");
         string? oldCapture = System.Environment.GetEnvironmentVariable("AQUARIUS_GRAPHICS_CAPTURE");

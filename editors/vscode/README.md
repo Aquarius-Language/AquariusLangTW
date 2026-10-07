@@ -98,7 +98,7 @@ From the repository root:
 ```powershell
 dotnet test AquariusLang.sln
 dotnet build AquariusLanguageServer/AquariusLanguageServer.csproj -c Release
-node --test tests/lsp.test.js
+node --test AquariusLanguageServer/tests/lsp.test.js
 ```
 
 The protocol tests launch the actual server and cover lifecycle, byte framing,

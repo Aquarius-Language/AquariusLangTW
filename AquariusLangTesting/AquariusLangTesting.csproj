@@ -6,6 +6,7 @@
         <Nullable>enable</Nullable>
 
         <IsPackable>false</IsPackable>
+        <IsTestProject>true</IsTestProject>
     </PropertyGroup>
 
     <ItemGroup>
@@ -23,6 +24,14 @@
 
     <ItemGroup>
       <ProjectReference Include="..\AquariusLangInterpreted\AquariusLangInterpreted.csproj" />
+      <ProjectReference Include="..\AquariusDesktopInterpretedREPL\AquariusDesktopInterpretedREPL.csproj" />
+    </ItemGroup>
+
+    <ItemGroup>
+      <None Include="../AquariusDesktopInterpretedREPL/examples/**/*"
+            Exclude="../AquariusDesktopInterpretedREPL/examples/**/.idea/**/*"
+            Link="examples/%(RecursiveDir)%(Filename)%(Extension)"
+            CopyToOutputDirectory="PreserveNewest" />
     </ItemGroup>
 
 </Project>

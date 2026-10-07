@@ -7,7 +7,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { pathToFileURL } = require('node:url');
 
-const server = process.env.AQUARIUS_SERVER || path.resolve(__dirname, '../AquariusLanguageServer/bin/Release/net8.0/AquariusLanguageServer.dll');
+const server = process.env.AQUARIUS_SERVER || path.resolve(__dirname, '../bin/Release/net8.0/AquariusLanguageServer.dll');
 const uri = 'file:///test/example.aqua';
 
 class Session {
@@ -190,7 +190,7 @@ test('closing a document clears errors and invalid feature positions return erro
 test('all repository examples parse through the LSP server without executing them', async t => {
   const s = new Session(t);
   await s.initialize();
-  const root = path.resolve(__dirname, '../AquariusDesktopInterpretedREPL/examples');
+  const root = path.resolve(__dirname, '../../AquariusDesktopInterpretedREPL/examples');
   for (const file of fs.readdirSync(root, { recursive: true }).filter(name => name.endsWith('.aqua'))) {
     const fullPath = path.join(root, file);
     const diagnostics = await s.open(fs.readFileSync(fullPath, 'utf8'), pathToFileURL(fullPath).href);

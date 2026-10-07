@@ -194,7 +194,7 @@ with transpose=`假`. `Multiply(a,b)` means `a * b` for GLSL column vectors;
 ```powershell
 dotnet test AquariusLang.sln
 $env:AQUARIUS_OPENGL_TESTS = '1'
-dotnet test AquariusDesktopInterpretedREPL
+dotnet test AquariusLangTesting --filter FullyQualifiedName~AquariusREPL.Graphics
 ```
 
 Native GPU integration is opt-in so normal tests work without a display/driver

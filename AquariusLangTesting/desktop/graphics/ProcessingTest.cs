@@ -52,7 +52,7 @@ public class ProcessingTest {
         }
     }
     [Fact] public void ShowcaseParses() {
-        var lexer=Lexer.NewInstance(File.ReadAllText(Path.Combine(AppContext.BaseDirectory,"../../../examples/processing_showcase/main.aqua")));var parser=Parser.NewInstance(lexer);parser.ParseAST();Assert.Empty(lexer.Errors);Assert.Empty(parser.Errors);
+        var lexer=Lexer.NewInstance(File.ReadAllText(Path.Combine(AppContext.BaseDirectory,"examples/processing_showcase/main.aqua")));var parser=Parser.NewInstance(lexer);parser.ParseAST();Assert.Empty(lexer.Errors);Assert.Empty(parser.Errors);
     }
     [Fact] public void PngEncodingPreservesDimensionsAndPixelPayload() {
         string path=Path.Combine(Path.GetTempPath(),Guid.NewGuid()+".png");
@@ -93,7 +93,7 @@ public class ProcessingIntegrationTest {
         Assert.True(Assert.IsType<BooleanObj>(ProcessingTest.Evaluate(@"變數 p=匯入(""Processing"");p.size(16,16);p.close();真;")).Value);
     }
     [OpenGlFact] public void ShowcaseRendersFiniteFramesAndCapturesAPng() {
-        string path=Path.Combine(AppContext.BaseDirectory,"../../../examples/processing_showcase/main.aqua"),capture=Path.Combine(Path.GetTempPath(),Guid.NewGuid()+".png");
+        string path=Path.Combine(AppContext.BaseDirectory,"examples/processing_showcase/main.aqua"),capture=Path.Combine(Path.GetTempPath(),Guid.NewGuid()+".png");
         string? frames=System.Environment.GetEnvironmentVariable("AQUARIUS_GRAPHICS_FRAMES"),oldCapture=System.Environment.GetEnvironmentVariable("AQUARIUS_GRAPHICS_CAPTURE");
         try {System.Environment.SetEnvironmentVariable("AQUARIUS_GRAPHICS_FRAMES","2");System.Environment.SetEnvironmentVariable("AQUARIUS_GRAPHICS_CAPTURE",capture);
             string source=File.ReadAllText(path).Replace("畫.run(設定, 繪製);","變數 檢查=匯入(\"GL\");畫.run(設定,函式(){繪製();如果(檢查.glGetError()!=0){繪圖錯誤;}});");

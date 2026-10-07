@@ -1,7 +1,7 @@
 ﻿##
-This path is relative path from the .NET project's built executable. Please run this from the project's unit testing.
+Resolve the module relative to this script so it works from any working directory.
 ##
-變數 moduleA = 匯入("../../../examples/using_modules/module_folder/module.aqua");
+變數 moduleA = 匯入(目前工作目錄 + "/module_folder/module.aqua");
 
 變數 addResult = moduleA.add(5, 3);
 變數 minusResult = moduleA.minus(12, 5);

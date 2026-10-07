@@ -15,7 +15,7 @@ public class StarshipConsoleCollection { }
 [Collection("Starship console output")]
 public class StarshipExpeditionTest {
     private static readonly string ExampleDirectory = Path.GetFullPath(Path.Combine(
-        AppContext.BaseDirectory, "../../../examples/starship_expedition"));
+        AppContext.BaseDirectory, "examples/starship_expedition"));
 
     [Fact]
     public void ExpeditionProducesExpectedResultsAndChineseOutput() {
