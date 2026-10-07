@@ -298,19 +298,23 @@ namespace AquariusLang.Object {
 
     /// <summary>
     /// A function retains the environment where it was defined, allowing lexical closures.
-    /// Parameters and the AST body remain available for inspection; VmEvaluator associates
-    /// each VM-created closure with its compiled body instructions.
+    /// Source functions retain an AST body; loaded functions retain inspection text instead.
+    /// VmEvaluator associates each VM-created closure with compiled instructions and builtins.
     /// </summary>
     public class FunctionObj : IObject {
         private Identifier[] parameters;
-        private BlockStatement body;
+        private BlockStatement? body;
         private Environment env;
+        private readonly string? compiledBodyDisplay;
 
         public FunctionObj(Identifier[] parameters, BlockStatement body, Environment env) {
             this.parameters = parameters;
             this.body = body;
             this.env = env;
         }
+
+        internal FunctionObj(Identifier[] parameters, BlockStatement? body, Environment env, string? bodyDisplay)
+            : this(parameters, body!, env) { compiledBodyDisplay = bodyDisplay; }
 
         public string Type() {
             return ObjectType.FUNCTION_OBJ;
@@ -328,7 +332,7 @@ namespace AquariusLang.Object {
                 .Append('(')
                 .Append(string.Join(", ", parameters))
                 .Append(") {\n")
-                .Append(body.String())
+                .Append(compiledBodyDisplay ?? body?.String())
                 .Append("\n}");
 
             return builder.ToString();
@@ -339,7 +343,7 @@ namespace AquariusLang.Object {
             set => parameters = value;
         }
 
-        public BlockStatement Body {
+        public BlockStatement? Body {
             get => body;
             set => body = value;
         }

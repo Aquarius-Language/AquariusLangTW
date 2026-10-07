@@ -11,12 +11,18 @@ namespace AquariusLang.VM;
 public sealed class VmEvaluator {
     private static readonly ConditionalWeakTable<INode, Bytecode> compiled = new();
     private static readonly ConditionalWeakTable<FunctionObj, Bytecode> functions = new();
+    private static readonly ConditionalWeakTable<FunctionObj, Builtins> functionBuiltins = new();
     private readonly VirtualMachine machine;
     private VmEvaluator(Builtins builtins) { machine = new VirtualMachine(builtins); }
     public static VmEvaluator NewInstance(Builtins builtins) => new(builtins);
     internal static Bytecode GetCompiled(INode node) => compiled.GetValue(node, key => new VmCompiler().Compile(key));
-    internal static Bytecode GetFunctionCode(FunctionObj function) => functions.GetValue(function, key => GetCompiled(key.Body));
-    internal static void Register(FunctionObj function, Bytecode program) => functions.Add(function, program);
+    internal static Bytecode GetFunctionCode(FunctionObj function) => functions.GetValue(function,
+        key => GetCompiled(key.Body ?? throw new InvalidOperationException("Function has no AST body or registered bytecode.")));
+    internal static Builtins? GetFunctionBuiltins(FunctionObj function) => functionBuiltins.TryGetValue(function, out var value) ? value : null;
+    internal static void Register(FunctionObj function, Bytecode program, Builtins builtins) {
+        functions.Add(function, program);
+        functionBuiltins.Add(function, builtins);
+    }
 
     public IObject Eval(INode node, AquaEnvironment environment) {
         try { return machine.Execute(GetCompiled(node), environment); }

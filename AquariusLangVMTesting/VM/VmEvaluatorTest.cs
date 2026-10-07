@@ -480,7 +480,7 @@ public class VmEvaluatorTest {
         
         Assert.Equal("x", functionObj.Parameters[0].String());
         
-        Assert.Equal("(x + 2)", functionObj.Body.String());
+        Assert.Equal("(x + 2)", Assert.IsType<AquariusLang.ast.BlockStatement>(functionObj.Body).String());
     }
 
     struct FunctionApplicationTest {

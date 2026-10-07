@@ -22,14 +22,20 @@ Console.WriteLine(result.Inspect()); // 42
 
 Compile once and call `Execute` repeatedly with separate environments. Arrays,
 hashes and closures are created on each execution. Instructions are in-memory
-bytecode; `Disassemble` is a readable listing, not a serialized executable format.
+bytecode; `Disassemble` is a readable listing. `BytecodeSerializer.Write(program,
+stream)` saves a versioned binary `.rius` file, and `BytecodeSerializer.Read(stream)`
+restores it without parsing source. Both operations leave the supplied stream
+open. The desktop CLI packages these files into ZIP-compatible `.bottle` archives
+using `-c` or `-cr`; direct source execution continues to use in-memory bytecode.
 
 For a persistent session, create `Builtins` from `AquariusLang.runtime`, use
 `VmEvaluator.NewInstance(builtins)` and call
 `Evaluate(source, environment)` or `Eval(tree, environment)`. `Invoke` runs Aquarius
 functions passed to native libraries, including callbacks that reenter the VM.
-`FunctionObj` retains its parameters, AST body and lexical environment for
-inspection; its compiled body is associated with the closure by `VmEvaluator`.
+`FunctionObj` retains its parameters and lexical environment. Functions compiled
+from source retain their AST body for inspection; functions loaded from `.rius`
+use saved inspection text and have no AST body. `VmEvaluator` associates compiled
+instructions and builtin context with each closure, including native callbacks.
 Runtime failures produce `ErrorObj`; invalid source passed directly
 to the compiler raises `VmCompilationException`.
 

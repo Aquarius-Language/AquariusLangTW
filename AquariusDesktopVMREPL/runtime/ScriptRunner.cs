@@ -50,6 +50,7 @@ public class ScriptRunner {
     /// </summary>
     /// <param name="fileName">Path of file.</param>
     public static IObject RunFile(string fileName) {
+        if (fileName.EndsWith(".bottle", StringComparison.OrdinalIgnoreCase)) return RunBottle(fileName);
         using DesktopBuiltins desktopBuiltins = newDefaultBuiltins(fileName);
         
         string contents = File.ReadAllText(fileName);
@@ -58,7 +59,7 @@ public class ScriptRunner {
         AbstractSyntaxTree tree = parser.ParseAST();
         if (parser.Errors.Count != 0 || lexer.Errors.Count != 0) {
             printParserErrors(lexer.Errors.Select(error => error.Message).Concat(parser.Errors).ToArray());
-            return null;
+            return new ErrorObj(string.Join("\n", lexer.Errors.Select(error => error.Message).Concat(parser.Errors)));
         }
         VmEvaluator evaluator = VmEvaluator.NewInstance(desktopBuiltins);
         IObject evaluated = evaluator.Eval(tree, Environment.NewEnvironment());
@@ -73,6 +74,15 @@ public class ScriptRunner {
         DesktopBuiltins builtins = new DesktopBuiltins();
         builtins.NewDefaultBuiltins(filePath);
         return builtins;
+    }
+
+    /// <summary>Load .rius instructions from a bottle and execute its default or selected entry point.</summary>
+    public static IObject RunBottle(string fileName, string? entryPoint = null) {
+        var package = BottlePackage.Load(fileName);
+        using var runtime = new BottleRuntime(package, fileName);
+        var result = runtime.Execute(entryPoint ?? package.EntryPoint);
+        if (result != null) Console.WriteLine(result.Inspect());
+        return result;
     }
 
     private static void printParserErrors(string[] errors) {

@@ -13,8 +13,14 @@ using AquariusREPL.Graphics;
 namespace AquariusREPL;
 
 public class DesktopBuiltins : Builtins, IDisposable {
-    private readonly GraphicsRuntime graphics = new();
-    public DesktopBuiltins() {
+    private readonly GraphicsRuntime graphics;
+    private readonly bool ownsGraphics;
+    internal Func<string, IObject>? ScriptImport { get; set; }
+    public DesktopBuiltins() : this(new GraphicsRuntime(), true) { }
+    internal DesktopBuiltins(GraphicsRuntime graphics) : this(graphics, false) { }
+    private DesktopBuiltins(GraphicsRuntime graphics, bool ownsGraphics) {
+        this.graphics = graphics;
+        this.ownsGraphics = ownsGraphics;
         graphics.InvokeAqua = (callback, args) => {
             if (callback is BuiltinObj builtin) return builtin.Fn(args);
             if (callback is not FunctionObj function) return new ErrorObj("Expected an Aquarius function callback.");
@@ -101,6 +107,7 @@ public class DesktopBuiltins : Builtins, IDisposable {
                     
                     if (args[0] is StringObj stringObj) {
                         if (graphics.TryImport(stringObj.Value, out ModuleObj nativeModule)) return nativeModule;
+                        if (ScriptImport != null) return ScriptImport(stringObj.Value);
                         try {
                             String fileStr = File.ReadAllText(stringObj.Value);
                             Lexer lexer = Lexer.NewInstance(fileStr);
@@ -181,7 +188,7 @@ public class DesktopBuiltins : Builtins, IDisposable {
                 : new StringObj(Path.GetDirectoryName(Path.Combine(System.Environment.CurrentDirectory, filePath))));
     }
 
-    public void Dispose() => graphics.Dispose();
+    public void Dispose() { if (ownsGraphics) graphics.Dispose(); }
 
     private ErrorObj checkArgsCount(string funcName, int expected, int actual) {
         if (expected != actual) {

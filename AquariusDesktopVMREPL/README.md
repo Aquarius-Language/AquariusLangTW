@@ -39,6 +39,73 @@ result when one is present. Syntax or runtime errors set exit code 1.
 `--disassemble` compiles and prints instructions without executing the script;
 it does not load imports or initialize graphics.
 
+## Compiled bottles
+
+Source execution and the REPL still compile directly into memory. Use `-c` to
+save bytecode without running any scripts, or `-cr` to save a bottle and then load
+and execute it. The default output is the first input's basename with `.bottle`
+in the current directory; `-o` selects another output path. The first input is the
+default entry point. Other inputs are packaged modules, executed when imported;
+they are not automatically run in sequence.
+
+```powershell
+./AquariusDesktopVMREPL.exe -c ./test1.aqua ./test/test2.aqua ./test/test3.aqua
+./AquariusDesktopVMREPL.exe test1.bottle
+./AquariusDesktopVMREPL.exe -cr -o app.bottle ./test1.aqua ./test/test2.aqua ./test/test3.aqua
+./AquariusDesktopVMREPL.exe --entry test/test2.rius app.bottle
+```
+
+The resulting ZIP-compatible `.bottle` contains:
+
+```text
+bottle.json
+test1.rius
+test/test2.rius
+test/test3.rius
+```
+
+Paths are relative to the current directory by default, use forward slashes in
+the archive, and replace only the source extension. Use `--root directory` to
+choose another source root, for example:
+
+```powershell
+./AquariusDesktopVMREPL.exe -c --root ./src -o app.bottle ./src/main.aqua ./src/lib/helper.aqua
+```
+
+This creates `main.rius` and `lib/helper.rius`. Input paths and the output path
+are resolved from the command's current directory, even when `--root` is set.
+All inputs must be `.aqua` files under the source root. List every script that
+the application imports; imports are resolved at runtime, so dependencies are
+not automatically discovered during compilation. Duplicate paths (ignoring
+case), sources outside the root, missing sources and syntax errors fail without
+replacing an existing bottle. A successful compilation replaces the output.
+Use `--` before positional inputs whose names start with `-`.
+
+Run a bottle by passing its path, or use `--entry path/script.rius bottle.bottle`
+to select another packaged script. Bytecode loads directly into memory, with no
+source parsing or archive extraction. Bottles can be moved and executed after
+the `.aqua` sources are removed. Script imports accept `.aqua` or `.rius` names;
+relative imports resolve from the importing script's package directory.
+`目前工作目錄` is the bottle's containing directory plus the script's relative
+directory, so existing imports built with that identifier continue to work.
+Module functions and returned closures retain their script's import context.
+Missing modules, circular imports and runtime errors return exit code 1.
+Successful scripts that produce no final value return exit code 0.
+CLI output uses UTF-8, including when redirected to a file or another process.
+
+Native modules such as `GLM`, `GLFW` and `Processing` remain provided by the
+desktop runtime. Images and other non-script assets are not bundled; distribute
+them beside the bottle using the same relative directories. Native dependencies
+are still required for graphics execution.
+
+`bottle.json` identifies the `aquarius-bottle` format, version 1, and entry point.
+Each `.rius` is a versioned binary file beginning with `RIUS`, storing instructions,
+typed constants and nested function bytecode. Function inspection text is kept
+for display; it is never parsed or evaluated. Loaders reject unsupported versions,
+malformed instructions, invalid stack/loop control flow and unsafe archive paths.
+Version 1 limits a bottle to 10,000 scripts and 256 MiB of uncompressed entries,
+with at most 64 MiB and 128 nested bytecode levels per `.rius` file.
+
 When piping Chinese source into the REPL from PowerShell, use matching UTF-8
 input and pipe encodings:
 

@@ -6,6 +6,7 @@ using AquariusLang.ast;
 namespace AquariusLang.VM;
 
 /// <summary>The instruction set executed by the Aquarius stack machine.</summary>
+// Numeric opcode values are persisted in .rius files; do not reorder them without a format-version change.
 public enum OpCode : byte {
     Constant, Void, Null, Pop, Load, Declare, Assign,
     Add, Subtract, Multiply, Divide, Less, Greater, LessEqual, GreaterEqual,
@@ -60,12 +61,16 @@ public sealed class Bytecode {
 
 internal sealed class FunctionCode {
     internal Identifier[] Parameters { get; }
-    internal BlockStatement Body { get; }
+    internal BlockStatement? Body { get; }
+    internal string? BodyDisplay { get; }
     internal Bytecode BodyCode { get; }
     internal FunctionCode(FunctionLiteral function) {
         Parameters = function.Parameters;
         Body = function.Body;
         BodyCode = new VmCompiler().Compile(function.Body);
+    }
+    internal FunctionCode(Identifier[] parameters, string bodyDisplay, Bytecode bodyCode) {
+        Parameters = parameters; BodyDisplay = bodyDisplay; BodyCode = bodyCode;
     }
 }
 

@@ -244,6 +244,11 @@ CLI 部署選項請見 [Microsoft 自包含發佈文件](https://learn.microsoft
 # 不帶參數進入 REPL
 ./dist/win-x64/vm/AquariusDesktopVMREPL.exe
 
+# 編譯成 .bottle（內含保留相對路徑的 .rius 位元組碼），或編譯後立即執行
+./dist/win-x64/vm/AquariusDesktopVMREPL.exe -c -o app.bottle ./main.aqua ./lib/helper.aqua
+./dist/win-x64/vm/AquariusDesktopVMREPL.exe app.bottle
+./dist/win-x64/vm/AquariusDesktopVMREPL.exe -cr -o app.bottle ./main.aqua ./lib/helper.aqua
+
 # 執行隨附的中文程式與圖學範例（圖學視窗按 Esc 關閉）
 ./dist/win-x64/vm/AquariusDesktopVMREPL.exe ./dist/win-x64/vm/examples/increment.aqua
 ./dist/win-x64/vm/AquariusDesktopVMREPL.exe ./dist/win-x64/vm/examples/opengl_cube/main.aqua

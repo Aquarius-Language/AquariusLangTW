@@ -9,6 +9,16 @@ imports and callbacks.
 - `VM/VmEvaluatorTest.cs` covers runtime language behavior through `VmEvaluator`.
 - `VM/CompilerAndMachineTest.cs` and `VM/DesktopImportTest.cs` cover compilation, execution and imports.
 - `desktop/runtime/` covers the script runner, desktop builtins and Starship example.
+- `VM/BytecodeSerializerTest.cs` covers versioned `.rius` round trips, nested
+  closures, module member resolution, control flow, truncated/corrupt data,
+  instruction operands and stack/loop validation.
+- `desktop/runtime/BottlePackageTest.cs` and `BottleRuntimeTest.cs` cover archive
+  layout, Unicode paths, atomic replacement, invalid manifests, relocated bottles,
+  source-free imports, deferred imports from closures, circular imports and the
+  comprehensive Starship example.
+- `desktop/runtime/BottleCliSmokeTest.cs` launches the desktop executable in a
+  separate process to check `-c`, `-cr`, later execution, entry selection, output,
+  exit codes, invalid options and existing REPL/source/disassembly commands.
 - `desktop/graphics/` covers OpenGL and Processing, with optional GPU integration.
 
 The desktop assembly grants the test assembly access to internal graphics types
@@ -24,6 +34,9 @@ reentry and explicit expected results for control flow, assignment and boolean o
 ```powershell
 dotnet test AquariusLang.sln -c Release -m:1
 dotnet test AquariusLangVMTesting -c Release -m:1
+
+# Bytecode packaging unit and process smoke tests
+dotnet test AquariusLangVMTesting -c Release -m:1 --filter 'FullyQualifiedName~BytecodeSerializerTest|FullyQualifiedName~Bottle'
 ```
 
 The existing external-process test requires `python` on PATH. Enable native GPU

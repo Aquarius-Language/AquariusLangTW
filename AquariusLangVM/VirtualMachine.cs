@@ -24,7 +24,7 @@ public sealed class VirtualMachine {
             return new ErrorObj($"Function expects {closure.Parameters.Length} arguments, got {arguments.Length}.");
         var environment = AquaEnvironment.NewEnclosedEnvironment(closure.Env);
         for (int i = 0; i < arguments.Length; i++) environment.Create(closure.Parameters[i].Value, arguments[i]);
-        IObject result = Execute(VmEvaluator.GetFunctionCode(closure), environment);
+        IObject result = new Execution(VmEvaluator.GetFunctionBuiltins(closure) ?? builtins).Run(VmEvaluator.GetFunctionCode(closure), environment)!;
         return result is ReturnValueObj returned ? returned.Value : result;
     }
 
@@ -33,9 +33,10 @@ public sealed class VirtualMachine {
         internal readonly int Base;
         internal int Position;
         internal AquaEnvironment Environment;
+        internal readonly Builtins Builtins;
         internal readonly Stack<LoopScope> Loops = new();
-        internal Frame(Bytecode program, AquaEnvironment environment, int stackBase) {
-            Program = program; Environment = environment; Base = stackBase;
+        internal Frame(Bytecode program, AquaEnvironment environment, int stackBase, Builtins builtins) {
+            Program = program; Environment = environment; Base = stackBase; Builtins = builtins;
         }
     }
     private sealed class LoopScope {
@@ -63,7 +64,7 @@ public sealed class VirtualMachine {
         private IObject? Pop() { var value = stack[--count]; stack[count] = null; return value; }
         private void Reset(int size) { System.Array.Clear(stack, size, count - size); count = size; }
         private void Fail(string message) => throw new RuntimeError(new ErrorObj(message));
-        private IObject? Load(string name, AquaEnvironment environment) {
+        private IObject? Load(string name, AquaEnvironment environment, Builtins builtins) {
             if (builtins.BuiltinFuncs.TryGetValue(name, out var function)) return function;
             if (builtins._Builtins.TryGetValue(name, out var value)) return value;
             value = environment.Get(name, out bool found);
@@ -72,7 +73,7 @@ public sealed class VirtualMachine {
         }
 
         internal IObject? Run(Bytecode program, AquaEnvironment environment) {
-            frames.Push(new Frame(program, environment, 0));
+            frames.Push(new Frame(program, environment, 0, builtins));
             try {
                 while (frames.Count > 0) {
                     Frame frame = frames.Peek();
@@ -97,7 +98,7 @@ public sealed class VirtualMachine {
                         case OpCode.Void: Push(null); break;
                         case OpCode.Null: Push(RepeatedPrimitives.NULL); break;
                         case OpCode.Pop: Pop(); break;
-                        case OpCode.Load: Push(Load((string)pool[operand], frame.Environment)); break;
+                        case OpCode.Load: Push(Load((string)pool[operand], frame.Environment, frame.Builtins)); break;
                         case OpCode.Declare: frame.Environment.Create((string)pool[operand], Pop()!); Push(null); break;
                         case OpCode.Assign: {
                             var value = Pop(); Pop();
@@ -105,7 +106,7 @@ public sealed class VirtualMachine {
                         }
                         case OpCode.CompoundAssign: {
                             var right = Pop(); Pop(); var assignment = (Assignment)pool[operand];
-                            var value = VmOperations.Compound(assignment.Operation, Load(assignment.Name, frame.Environment), right);
+                            var value = VmOperations.Compound(assignment.Operation, Load(assignment.Name, frame.Environment, frame.Builtins), right);
                             if (value is ErrorObj error) throw new RuntimeError(error);
                             Set(frame.Environment, assignment.Name, value); Push(null); break;
                         }
@@ -134,8 +135,8 @@ public sealed class VirtualMachine {
                         case OpCode.JumpIfBreak: if (stack[count - 1] is BreakObj) frame.Position = operand; break;
                         case OpCode.Closure: {
                             var function = (FunctionCode)pool[operand];
-                            var closure = new FunctionObj(function.Parameters, function.Body, frame.Environment);
-                            VmEvaluator.Register(closure, function.BodyCode);
+                            var closure = new FunctionObj(function.Parameters, function.Body, frame.Environment, function.BodyDisplay);
+                            VmEvaluator.Register(closure, function.BodyCode, frame.Builtins);
                             Push(closure); break;
                         }
                         case OpCode.Call: Call(frame, operand); break;
@@ -150,7 +151,10 @@ public sealed class VirtualMachine {
                             break;
                         case OpCode.Hash: {
                             var pairs = new Dictionary<HashKey, HashPair>(); var values = Arguments(operand * 2);
-                            for (int i = 0; i < values.Length; i += 2) pairs[((IHashable)values[i]).HashKey()] = new HashPair(values[i], values[i + 1]);
+                            for (int i = 0; i < values.Length; i += 2) {
+                                if (!(values[i] is IHashable)) Fail($"Unusable as hash key: {values[i]?.Type() ?? "NULL"}");
+                                pairs[((IHashable)values[i]).HashKey()] = new HashPair(values[i], values[i + 1]);
+                            }
                             Push(new HashObj(pairs)); break;
                         }
                         case OpCode.Index: { var index = Pop(); Push(VmOperations.Index(Pop(), index)); break; }
@@ -159,14 +163,16 @@ public sealed class VirtualMachine {
                             if (error != null) throw new RuntimeError(error); break;
                         }
                         case OpCode.WriteIndex: {
-                            var value = Pop(); var index = (IntegerObj)Pop()!; var array = (ArrayObj)Pop()!;
-                            array.Elements[index.Value] = value!; Push(value); break;
+                            var value = Pop(); var index = Pop(); var array = Pop();
+                            var error = VmOperations.CheckArrayWrite(array, index);
+                            if (error != null) throw new RuntimeError(error);
+                            ((ArrayObj)array!).Elements[((IntegerObj)index!).Value] = value!; Push(value); break;
                         }
                         case OpCode.Member: case OpCode.MemberFunction: {
                             var receiver = Pop(); string name = (string)pool[operand];
                             if (!(receiver is ModuleObj)) Fail($"Cannot access member of {receiver?.Type() ?? "NULL"}");
                             var module = (ModuleObj)receiver!;
-                            if (instruction.Code == OpCode.MemberFunction) Push(Load(name, module._Environment));
+                            if (instruction.Code == OpCode.MemberFunction) Push(Load(name, module._Environment, frame.Builtins));
                             else {
                                 var member = module._Environment.Get(name, out bool found);
                                 if (!found) Fail($"Module member not found: {name}");
@@ -177,7 +183,7 @@ public sealed class VirtualMachine {
                         case OpCode.ResolveMemberFunction: {
                             var receiver = Pop();
                             if (!(receiver is ModuleObj)) Fail($"Cannot access member of {receiver?.Type() ?? "NULL"}");
-                            frames.Push(new Frame((Bytecode)pool[operand], ((ModuleObj)receiver!)._Environment, count)); break;
+                            frames.Push(new Frame((Bytecode)pool[operand], ((ModuleObj)receiver!)._Environment, count, frame.Builtins)); break;
                         }
                         case OpCode.EnterLoop:
                             frame.Loops.Push(new LoopScope(frame.Environment, count, operand < 0 ? null : (string)pool[operand]));
@@ -226,7 +232,7 @@ public sealed class VirtualMachine {
             if (function.Parameters.Length != arguments.Length) Fail($"Function expects {function.Parameters.Length} arguments, got {arguments.Length}.");
             var scope = AquaEnvironment.NewEnclosedEnvironment(function.Env);
             for (int i = 0; i < arguments.Length; i++) scope.Create(function.Parameters[i].Value, arguments[i]);
-            frames.Push(new Frame(VmEvaluator.GetFunctionCode(function), scope, count));
+            frames.Push(new Frame(VmEvaluator.GetFunctionCode(function), scope, count, VmEvaluator.GetFunctionBuiltins(function) ?? frame.Builtins));
         }
     }
 }
