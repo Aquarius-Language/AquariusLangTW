@@ -298,3 +298,8 @@ macOS 請安裝 Xcode 命令列工具，並將安裝路徑與發佈 RID 換成 `
 GitHub Pages 網址（部署後）：https://aquarius-language.github.io/AquariusLangTW/
 
 推送或合併 `website/` 的變更至 `main`，會自動建置並部署；pull request 會先執行網站建置檢查。首次啟用請將儲存庫 **Settings → Pages → Source** 設為 **GitHub Actions**。詳細設定與本機操作請見 [網站部署指南](website/docs/github-pages.md)。
+
+## 授權
+
+本專案採用 [MIT License](LICENSE)，Copyright (c) 2026 Temple Lin。
+第三方相依套件保留各自的授權，相關授權檔位於 `native/vendor/`。
