@@ -1,5 +1,5 @@
-using Evaluator = AquariusLang.VM.VmEvaluator;
-using AquariusLang.evaluator;
+using AquariusLang.VM;
+using AquariusLang.runtime;
 using AquariusLang.lexer;
 using AquariusLang.Object;
 using AquariusLang.parser;
@@ -11,7 +11,7 @@ public class ModuleMemberTest {
     private static IObject Evaluate(string source, AquaEnvironment environment) {
         var parser = Parser.NewInstance(Lexer.NewInstance(source));
         var tree = parser.ParseAST(); Assert.Empty(parser.Errors);
-        return Evaluator.NewInstance(new Builtins()).Eval(tree, environment);
+        return VmEvaluator.NewInstance(new Builtins()).Eval(tree, environment);
     }
     [Fact]
     public void ModuleCallsEvaluateArgumentsInCallerScopeAndFunctionsInModuleScope() {

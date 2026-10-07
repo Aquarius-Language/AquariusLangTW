@@ -9,5 +9,5 @@ editors/vscode/server/
 *.vsix
 .graphics-build/
 native/build/
-AquariusDesktopInterpretedREPL/runtimes/
+AquariusDesktopVMREPL/runtimes/
 /dist

@@ -1,6 +1,6 @@
-using Evaluator = AquariusLang.VM.VmEvaluator;
+using AquariusLang.VM;
 using System.Numerics;
-using AquariusLang.evaluator;
+using AquariusLang.runtime;
 using AquariusLang.lexer;
 using AquariusLang.Object;
 using AquariusLang.parser;
@@ -12,7 +12,7 @@ namespace AquariusREPL.Graphics;
 public class ProcessingTest {
     internal static IObject Evaluate(string source) {
         using var builtins=new DesktopBuiltins();var lexer=Lexer.NewInstance(source);var parser=Parser.NewInstance(lexer);var tree=parser.ParseAST();
-        Assert.Empty(lexer.Errors);Assert.Empty(parser.Errors);return Evaluator.NewInstance(builtins).Eval(tree,AquaEnvironment.NewEnvironment());
+        Assert.Empty(lexer.Errors);Assert.Empty(parser.Errors);return VmEvaluator.NewInstance(builtins).Eval(tree,AquaEnvironment.NewEnvironment());
     }
     [Fact] public void ColorsTransformsImagesVectorsAndMathWorkWithoutLoadingNativeGraphics() {
         var result=Assert.IsType<ArrayObj>(Evaluate(@"
@@ -99,7 +99,7 @@ public class ProcessingIntegrationTest {
         try {System.Environment.SetEnvironmentVariable("AQUARIUS_GRAPHICS_FRAMES","2");System.Environment.SetEnvironmentVariable("AQUARIUS_GRAPHICS_CAPTURE",capture);
             string source=File.ReadAllText(path).Replace("畫.run(設定, 繪製);","變數 檢查=匯入(\"GL\");畫.run(設定,函式(){繪製();如果(檢查.glGetError()!=0){繪圖錯誤;}});");
             using var builtins=new DesktopBuiltins();builtins.NewDefaultBuiltins(path);var parser=Parser.NewInstance(Lexer.NewInstance(source));var tree=parser.ParseAST();Assert.Empty(parser.Errors);
-            Assert.True(Assert.IsType<BooleanObj>(Evaluator.NewInstance(builtins).Eval(tree,AquaEnvironment.NewEnvironment())).Value);var bytes=File.ReadAllBytes(capture);Assert.True(bytes.Length>10000);
+            Assert.True(Assert.IsType<BooleanObj>(VmEvaluator.NewInstance(builtins).Eval(tree,AquaEnvironment.NewEnvironment())).Value);var bytes=File.ReadAllBytes(capture);Assert.True(bytes.Length>10000);
         }finally{System.Environment.SetEnvironmentVariable("AQUARIUS_GRAPHICS_FRAMES",frames);System.Environment.SetEnvironmentVariable("AQUARIUS_GRAPHICS_CAPTURE",oldCapture);File.Delete(capture);}
     }
 }

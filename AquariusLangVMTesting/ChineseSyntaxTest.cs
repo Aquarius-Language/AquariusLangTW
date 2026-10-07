@@ -1,6 +1,6 @@
-using Evaluator = AquariusLang.VM.VmEvaluator;
+using AquariusLang.VM;
 using AquariusLang.ast;
-using AquariusLang.evaluator;
+using AquariusLang.runtime;
 using AquariusLang.lexer;
 using AquariusLang.Object;
 using AquariusLang.parser;
@@ -150,6 +150,6 @@ public class ChineseSyntaxTest {
         Parser parser = Parser.NewInstance(Lexer.NewInstance(input));
         AbstractSyntaxTree tree = parser.ParseAST();
         Assert.Empty(parser.Errors);
-        return Evaluator.NewInstance(new Builtins()).Eval(tree, Environment.NewEnvironment());
+        return VmEvaluator.NewInstance(new Builtins()).Eval(tree, Environment.NewEnvironment());
     }
 }

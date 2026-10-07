@@ -1,6 +1,6 @@
 ﻿# 星泉（AquariusLang）
 
-以 C# 實作的程式語言，提供 AST 直譯器與位元碼虛擬機（VM）兩種執行引擎，
+以 C# 實作的程式語言，將原始碼編譯為位元碼，再由堆疊虛擬機（VM）執行，
 支援中文變數、函式與參數名稱。
 
 作者：林天牧 / Temple Lin
@@ -11,33 +11,29 @@ VSCode 擴充套件: https://marketplace.visualstudio.com/items?itemName=aquariu
 
 | 目錄／專案 | 職責 |
 | --- | --- |
-| `AquariusLangInterpreted` | 共用語言核心：詞法分析、語法分析、AST、物件與求值器。 |
-| `AquariusDesktopInterpretedREPL` | 桌面執行入口、REPL、桌面內建函式、圖學支援與可執行範例。 |
-| `AquariusLangVM` | 將語法樹編譯為位元碼，以堆疊虛擬機執行；共用現有詞法、語法與物件核心。 |
-| `AquariusDesktopVMREPL` | VM 桌面入口與 REPL，共用全部桌面函式庫、匯入及圖學功能。 |
-| `AquariusLangVMTesting` | 複製既有 .NET 測試，透過 VM 執行；另含 VM 回歸測試與效能比較。 |
+| `AquariusLangVM` | 詞法分析、語法分析、AST、物件、環境與內建函式介面，以及位元碼編譯器和堆疊 VM。 |
+| `AquariusDesktopVMREPL` | VM 桌面入口、REPL、桌面內建函式、腳本匯入、圖學支援與可執行範例。 |
+| `AquariusLangVMTesting` | 語言核心、VM 與桌面功能的 .NET 單元及整合測試，另含可選的效能量測。 |
 | `AquariusLanguageServer` | LSP 語言伺服器；協定整合測試位於其 `tests/` 目錄。 |
-| `AquariusLangTesting` | 全部 .NET 單元與整合測試；桌面測試位於 `desktop/interpret` 與 `desktop/graphics`。 |
 | `native` | 原生圖學橋接、第三方原始碼、建置腳本與 OpenGL 綁定產生器。 |
 | `editors/vscode` | VS Code 擴充套件及其建置、打包腳本與測試。 |
 | `website` | 介紹網站與部署文件。 |
 
-桌面直譯器、VM 核心與語言伺服器各自參考共用語言核心；兩個測試專案分別驗證直譯器與 VM。
-範例保留在 `AquariusDesktopInterpretedREPL/examples`，兩種引擎皆可執行；
-VM 桌面專案會將範例與原生圖學函式庫複製到建置及發佈目錄。
-測試指令與環境需求請見 [直譯器測試](AquariusLangTesting/README.md) 與
-[VM 測試](AquariusLangVMTesting/README.md)。
+桌面入口與語言伺服器皆參考 `AquariusLangVM`；語言伺服器只使用詞法與語法分析，不執行程式。
+範例位於 `AquariusDesktopVMREPL/examples`，原生函式庫安裝至該專案的 `runtimes/`；
+兩者會複製到桌面入口的建置、發佈與測試輸出目錄。
+測試指令與環境需求請見 [VM 測試](AquariusLangVMTesting/README.md)。
 
-## VM 版本
+## VM 執行流程
 
-`AquariusLangVM` 將語法樹編譯為位元碼，再由堆疊虛擬機執行。
-函式本體先編譯再執行，遞迴使用 VM 呼叫框架；執行時不呼叫 AST 求值器。
+執行流程為原始碼 → token → AST → 位元碼 → VM。
+`VmCompiler` 編譯語法樹及函式本體，`VirtualMachine` 以運算元堆疊和明確的呼叫框架執行，
+遞迴不累積 C# 呼叫堆疊。閉包保留定義時的環境；REPL 在多次輸入之間保留全域變數。
 VM 核心支援 .NET 6、.NET 8 與 .NET Standard 2.1，桌面入口目前使用 .NET 6。
 
-`AquariusDesktopVMREPL` 提供相同語法、桌面內建函式、腳本匯入與擴充函式庫，
-包含 OpenGL 與 Processing；匯入的腳本及 Processing 回呼也透過 VM 執行。
-詳細架構請見 [VM 核心](AquariusLangVM/README.md)、
-[VM 桌面入口](AquariusDesktopVMREPL/README.md) 與 [VM 測試](AquariusLangVMTesting/README.md)。
+`AquariusDesktopVMREPL` 提供桌面內建函式、腳本匯入與擴充函式庫，包含 OpenGL 與 Processing；
+匯入的腳本及 Processing 回呼也透過 VM 執行。
+詳細架構請見 [VM 核心](AquariusLangVM/README.md) 與 [VM 桌面入口](AquariusDesktopVMREPL/README.md)。
 
 在專案根目錄執行（需要 .NET 8 SDK 與 .NET 6 Runtime）：
 
@@ -45,15 +41,16 @@ VM 核心支援 .NET 6、.NET 8 與 .NET Standard 2.1，桌面入口目前使用
 # 不帶參數進入 VM REPL
 dotnet run --project AquariusDesktopVMREPL
 
-# 執行既有的中文程式
-dotnet run --project AquariusDesktopVMREPL -- AquariusDesktopInterpretedREPL/examples/increment.aqua
+# 執行中文程式
+dotnet run --project AquariusDesktopVMREPL -- AquariusDesktopVMREPL/examples/increment.aqua
 
 # 只顯示編譯後的指令，不執行程式
-dotnet run --project AquariusDesktopVMREPL -- --disassemble AquariusDesktopInterpretedREPL/examples/increment.aqua
+dotnet run --project AquariusDesktopVMREPL -- --disassemble AquariusDesktopVMREPL/examples/increment.aqua
 ```
 
 `--disassemble` 的輸出是可閱讀的位元碼指令列表，目前不提供序列化的位元碼執行檔格式。
-相容性、回歸測試及效能比較請見 [VM 測試說明](AquariusLangVMTesting/README.md)。
+語言語意與開發注意事項請見 [語言核心指南](AquariusLangVM/LANGUAGE.md)，
+回歸測試及效能量測請見 [VM 測試說明](AquariusLangVMTesting/README.md)。
 
 ## 名稱與寓意
 
@@ -124,13 +121,13 @@ dotnet run --project AquariusDesktopVMREPL -- --disassemble AquariusDesktopInter
 | `currWorkingDir` | `目前工作目錄` |
 
 其他功能包含全域及區域變數、閉包、函式呼叫、陣列、雜湊表與模組。
-完整中文範例位於 `AquariusDesktopInterpretedREPL/examples`。
-綜合範例 [星艦遠征](AquariusDesktopInterpretedREPL/examples/starship_expedition/README.md)
+完整中文範例位於 `AquariusDesktopVMREPL/examples`。
+綜合範例 [星艦遠征](AquariusDesktopVMREPL/examples/starship_expedition/README.md)
 以繁體中文名稱展示全部現有語法，印出質數航點、費氏航線與能量報告，並納入單元測試。
 
 ## OpenGL 電腦圖學
 
-桌面直譯器與 VM 均提供 `匯入("GLFW")`、`匯入("GLAD")`、`匯入("GL")`、
+桌面 VM 提供 `匯入("GLFW")`、`匯入("GLAD")`、`匯入("GL")`、
 `匯入("GLM")` 與 `匯入("STBImage")` 原生模組。
 `GL` 包含完整的 **344 個 OpenGL 3.3 core 函式**與常數；`GLM` 是以
 System.Numerics 實作的 GLM 風格向量／矩陣模組，`STBImage` 提供圖片載入。
@@ -139,35 +136,30 @@ System.Numerics 實作的 GLM 風格向量／矩陣模組，`STBImage` 提供圖
 
 ```powershell
 ./native/build.ps1
-dotnet run --project AquariusDesktopInterpretedREPL -- AquariusDesktopInterpretedREPL/examples/opengl_cube/main.aqua
+dotnet run --project AquariusDesktopVMREPL -- AquariusDesktopVMREPL/examples/opengl_cube/main.aqua
 ```
 
-使用 VM 時，將執行指令中的 `--project AquariusDesktopInterpretedREPL` 換成
-`--project AquariusDesktopVMREPL`；兩者共用原生函式庫與相同的範例路徑。
-
-[旋轉材質立方體](AquariusDesktopInterpretedREPL/examples/opengl_cube/README.md)
+[旋轉材質立方體](AquariusDesktopVMREPL/examples/opengl_cube/README.md)
 以 Aquarius 編寫頂點、索引、GLSL 著色器、紋理、材質、光源與動畫迴圈。
 按 **Esc** 離開、**空白鍵**暫停／繼續旋轉；支援調整視窗大小。
 建置、平台限制、API 與測試說明請見 [圖學支援指南](native/README.md)。
 
 ## Processing 風格繪圖函式庫
 
-兩種桌面引擎的 `匯入("Processing")` 均提供以 OpenGL 3.3 實作的創意程式設計 API：
+桌面 VM 的 `匯入("Processing")` 提供以 OpenGL 3.3 實作的創意程式設計 API：
 2D 圖形、曲線、多邊形與孔洞、顏色、矩陣與樣式堆疊、圖片與像素、文字、
 PGraphics 離屏畫布、PShape 可重用圖形、3D 立方體／球體、光源與材質、
 GLSL 著色器、滑鼠／鍵盤事件、動畫迴圈、亂數、Perlin noise 與 PVector。
 
 ```powershell
 ./native/build.ps1
-dotnet run --project AquariusDesktopInterpretedREPL -- AquariusDesktopInterpretedREPL/examples/processing_showcase/main.aqua
+dotnet run --project AquariusDesktopVMREPL -- AquariusDesktopVMREPL/examples/processing_showcase/main.aqua
 ```
 
-VM 版本可使用 `--project AquariusDesktopVMREPL` 執行同一範例。
-
-[六面板展示](AquariusDesktopInterpretedREPL/examples/processing_showcase/README.md)
+[六面板展示](AquariusDesktopVMREPL/examples/processing_showcase/README.md)
 支援空白鍵暫停、滑鼠吸引粒子、S 儲存 PNG、Esc 離開。
 完整 API 與和 Java Processing 的差異請見
-[Processing 使用指南](AquariusDesktopInterpretedREPL/graphics/Processing.md)。
+[Processing 使用指南](AquariusDesktopVMREPL/graphics/Processing.md)。
 
 ## Visual Studio Code 與 Language Server Protocol
 
@@ -184,24 +176,27 @@ VM 版本可使用 `--project AquariusDesktopVMREPL` 執行同一範例。
 
 ## 執行與測試
 
-建置完整方案需要 .NET 8 SDK；執行桌面直譯器、VM 與兩者的測試另需 .NET 6 Runtime。
+建置完整方案需要 .NET 8 SDK；執行桌面 VM 與 .NET 測試另需 .NET 6 Runtime。
 
 ```powershell
-dotnet run --project AquariusDesktopInterpretedREPL -- AquariusDesktopInterpretedREPL/examples/increment.aqua
-dotnet run --project AquariusDesktopVMREPL -- AquariusDesktopInterpretedREPL/examples/increment.aqua
+dotnet build AquariusLang.sln -c Release
+dotnet test AquariusLang.sln -c Release --no-build
 
-# 完整方案包含直譯器與 VM 測試
-dotnet test AquariusLang.sln -c Release -m:1
-
-# 只執行 VM 相容性與回歸測試
+# 直接執行 VM 測試專案
 dotnet test AquariusLangVMTesting -c Release -m:1
+
+# 語言伺服器與編輯器的 Node.js 測試
+node --test AquariusLanguageServer/tests/lsp.test.js
+npm --prefix editors/vscode run check
 ```
+
+外部程式測試需要 PATH 上有 `python`；GPU 測試的啟用方式請見 [VM 測試說明](AquariusLangVMTesting/README.md)。
 
 ## 正式發佈：.NET 自包含部署（Self-contained）
 
 自包含部署會將 .NET 執行階段與程式一起發佈，使用者可直接執行，無需另外安裝 .NET。
-請在專案根目錄操作，先建置完整方案，再分別發佈桌面直譯器、VM 與語言伺服器；
-`AquariusLangInterpreted` 與 `AquariusLangVM` 核心函式庫會隨各入口的專案參考一起建置並包含在發佈結果中。
+請在專案根目錄操作，先建置完整方案，再分別發佈桌面 VM 與語言伺服器；
+`AquariusLangVM` 核心函式庫會隨各入口的專案參考一起建置並包含在發佈結果中。
 測試專案用於驗證，不需要另外發佈。
 
 ### 建置環境
@@ -209,47 +204,37 @@ dotnet test AquariusLangVMTesting -c Release -m:1
 - .NET 8 SDK（僅安裝 Runtime 無法建置）；執行目前的測試另需 .NET 6 Runtime。
 - 完整圖學功能需要 CMake 3.20 以上與 C 編譯器；Windows 請安裝 Visual Studio C++ 建置工具。
 - 首次還原 NuGet 套件、下載自包含執行階段與建置 GLFW 需要網路連線。
-- 目前桌面直譯器與 VM 入口目標為 `net6.0`，語言伺服器為 `net8.0`。
+- 目前桌面 VM 與測試目標為 `net6.0`，語言伺服器為 `net8.0`。
   自包含發佈保留各自的目標版本；安裝較新的 SDK 不會自動升級目標框架。
   [.NET 6 已於 2024 年 11 月 12 日終止支援](https://dotnet.microsoft.com/en-us/platform/support/policy/dotnet-core)，
-  正式上線前應將兩種桌面入口與測試遷移至受支援的 .NET 版本並重新驗證。
+  正式上線前應將桌面入口與測試遷移至受支援的 .NET 版本並重新驗證。
   以下指令適用於目前專案設定。
 
 ### Windows x64 完整建置與發佈
 
-先建置原生圖學函式庫，再建置與測試 Release 方案。測試中的外部程式範例需要 PATH 上有 `python`；
-一般測試不會開啟圖學視窗，GPU 測試的啟用方式請見 [圖學支援指南](native/README.md)。
-每一步成功後才執行下一步。
+先建置原生圖學函式庫，再建置與測試 Release 方案，每一步成功後才執行下一步。
+一般測試不會開啟圖學視窗。
 
 ```powershell
 ./native/build.ps1 -Runtime win-x64
 dotnet build AquariusLang.sln -c Release
 dotnet test AquariusLang.sln -c Release --no-build
 
-# 桌面直譯器：含核心語言、桌面內建函式與已建置的原生圖學函式庫
-dotnet publish AquariusDesktopInterpretedREPL/AquariusDesktopInterpretedREPL.csproj -c Release -f net6.0 -r win-x64 --self-contained true -p:UseAppHost=true -p:PublishSingleFile=false -p:PublishTrimmed=false -o dist/win-x64/interpreter
-
-# 桌面 VM：含 VM 與共用核心、桌面函式、原生圖學函式庫及範例
+# 桌面 VM：含語言核心、桌面函式、原生圖學函式庫及範例
 dotnet publish AquariusDesktopVMREPL/AquariusDesktopVMREPL.csproj -c Release -f net6.0 -r win-x64 --self-contained true -p:UseAppHost=true -p:PublishSingleFile=false -p:PublishTrimmed=false -o dist/win-x64/vm
 
 # 語言伺服器：供支援 LSP 的編輯器直接啟動
 dotnet publish AquariusLanguageServer/AquariusLanguageServer.csproj -c Release -f net8.0 -r win-x64 --self-contained true -p:UseAppHost=true -p:PublishSingleFile=false -p:PublishTrimmed=false -o dist/win-x64/language-server
 
-# 直譯器需手動附上範例；VM 專案會自動複製範例
-Copy-Item AquariusDesktopInterpretedREPL/examples -Destination dist/win-x64/interpreter/examples -Recurse -Force
-
-# 兩個桌面套件都附上原生相依套件授權
-foreach ($packagePath in @('dist/win-x64/interpreter', 'dist/win-x64/vm')) {
-    New-Item -ItemType Directory -Path "$packagePath/licenses" -Force | Out-Null
-    Copy-Item native/vendor/GLFW-LICENSE.md "$packagePath/licenses/GLFW-LICENSE.md"
-    Copy-Item native/vendor/glad/LICENSE "$packagePath/licenses/GLAD-LICENSE.txt"
-    Copy-Item native/vendor/stb/LICENSE "$packagePath/licenses/STB-LICENSE.txt"
-}
+# VM 套件自動包含範例；另附原生相依套件授權
+New-Item -ItemType Directory -Path dist/win-x64/vm/licenses -Force | Out-Null
+Copy-Item native/vendor/GLFW-LICENSE.md dist/win-x64/vm/licenses/GLFW-LICENSE.md
+Copy-Item native/vendor/glad/LICENSE dist/win-x64/vm/licenses/GLAD-LICENSE.txt
+Copy-Item native/vendor/stb/LICENSE dist/win-x64/vm/licenses/STB-LICENSE.txt
 ```
 
-附加範例的複製指令以新的發佈目錄為準；再次打包時請使用新的輸出目錄，避免混入前次發佈的檔案。
-兩種桌面專案都會將 `runtimes/**/*` 複製到發佈目錄，Windows x64 圖學函式庫應位於
-各套件的 `runtimes/win-x64/native/aquarius_graphics.dll`，例如
+再次打包時請使用新的輸出目錄，避免混入前次發佈的檔案。
+桌面 VM 會將 `runtimes/**/*` 複製到發佈目錄，Windows x64 圖學函式庫應位於
 `dist/win-x64/vm/runtimes/win-x64/native/aquarius_graphics.dll`。
 `--self-contained true` 明確包含 .NET 執行階段；`UseAppHost=true` 產生可直接啟動的執行檔。
 此流程採用資料夾發佈，保留原生函式庫的路徑，並關閉尚未驗證相容性的單檔打包與 trimming。
@@ -261,21 +246,15 @@ CLI 部署選項請見 [Microsoft 自包含發佈文件](https://learn.microsoft
 
 ```powershell
 # 不帶參數進入 REPL
-./dist/win-x64/interpreter/AquariusDesktopInterpretedREPL.exe
 ./dist/win-x64/vm/AquariusDesktopVMREPL.exe
 
 # 執行隨附的中文程式與圖學範例（圖學視窗按 Esc 關閉）
-./dist/win-x64/interpreter/AquariusDesktopInterpretedREPL.exe ./dist/win-x64/interpreter/examples/increment.aqua
-./dist/win-x64/interpreter/AquariusDesktopInterpretedREPL.exe ./dist/win-x64/interpreter/examples/opengl_cube/main.aqua
-./dist/win-x64/interpreter/AquariusDesktopInterpretedREPL.exe ./dist/win-x64/interpreter/examples/processing_showcase/main.aqua
-
-# VM 套件也可執行隨附的範例
 ./dist/win-x64/vm/AquariusDesktopVMREPL.exe ./dist/win-x64/vm/examples/increment.aqua
 ./dist/win-x64/vm/AquariusDesktopVMREPL.exe ./dist/win-x64/vm/examples/opengl_cube/main.aqua
 ./dist/win-x64/vm/AquariusDesktopVMREPL.exe ./dist/win-x64/vm/examples/processing_showcase/main.aqua
 ```
 
-交付時依所需引擎打包整個 `interpreter` 或 `vm` 目錄，包含執行檔、DLL、設定檔、`runtimes`、範例與授權；
+交付時打包整個 `vm` 目錄，包含執行檔、DLL、設定檔、`runtimes`、範例與授權；
 需要 LSP 功能時另附完整的 `language-server` 目錄。
 在沒有安裝 .NET 的目標機器上再次驗證執行結果。
 自包含部署包含 .NET，但圖學功能仍需要作業系統原生相依套件與支援 OpenGL 3.3 的驅動程式；
@@ -298,20 +277,18 @@ Linux x64 範例（先安裝 GLFW 所需的 X11／Wayland 開發套件）：
 ```sh
 cmake -S native -B native/build -DCMAKE_BUILD_TYPE=Release
 cmake --build native/build --config Release --parallel
-cmake --install native/build --config Release --prefix AquariusDesktopInterpretedREPL/runtimes/linux-x64/native
+cmake --install native/build --config Release --prefix AquariusDesktopVMREPL/runtimes/linux-x64/native
 dotnet build AquariusLang.sln -c Release
 dotnet test AquariusLang.sln -c Release --no-build
-dotnet publish AquariusDesktopInterpretedREPL/AquariusDesktopInterpretedREPL.csproj -c Release -f net6.0 -r linux-x64 --self-contained true -p:UseAppHost=true -p:PublishSingleFile=false -p:PublishTrimmed=false -o dist/linux-x64/interpreter
 dotnet publish AquariusDesktopVMREPL/AquariusDesktopVMREPL.csproj -c Release -f net6.0 -r linux-x64 --self-contained true -p:UseAppHost=true -p:PublishSingleFile=false -p:PublishTrimmed=false -o dist/linux-x64/vm
 dotnet publish AquariusLanguageServer/AquariusLanguageServer.csproj -c Release -f net8.0 -r linux-x64 --self-contained true -p:UseAppHost=true -p:PublishSingleFile=false -p:PublishTrimmed=false -o dist/linux-x64/language-server
-./dist/linux-x64/interpreter/AquariusDesktopInterpretedREPL AquariusDesktopInterpretedREPL/examples/increment.aqua
 ./dist/linux-x64/vm/AquariusDesktopVMREPL ./dist/linux-x64/vm/examples/increment.aqua
 ```
 
-Linux／macOS 的執行檔沒有 `.exe` 副檔名；交付前同樣需附上範例與授權。
+Linux／macOS 的執行檔沒有 `.exe` 副檔名；交付前同樣需附上授權，範例會自動複製。
 macOS 請安裝 Xcode 命令列工具，並將安裝路徑與發佈 RID 換成 `osx-x64` 或 `osx-arm64`。
 目前 Windows x64 的圖學建置已驗證，Linux／macOS 尚待實機驗證，平台功能差異請見
-[圖學支援指南](native/README.md) 與 [Processing 使用指南](AquariusDesktopInterpretedREPL/graphics/Processing.md)。
+[圖學支援指南](native/README.md) 與 [Processing 使用指南](AquariusDesktopVMREPL/graphics/Processing.md)。
 
 ## 星泉介紹網站
 

@@ -41,5 +41,5 @@ for name, value in re.findall(r'^#define (GL_\w+) (0x[0-9A-Fa-f]+|[0-9]+)\s*$', 
         cs.append(f'        GlEnvironment.Create("{name}", new AquariusLang.Object.DoubleObj({integer}d));')
 cs.extend(['    }'] + delegates + ['}'])
 (root / 'gl_table.inc').write_text('\n'.join(c) + '\n')
-(root.parent / 'AquariusDesktopInterpretedREPL/graphics/GlBindings.Generated.cs').write_text('\n'.join(cs) + '\n')
+(root.parent / 'AquariusDesktopVMREPL/graphics/GlBindings.Generated.cs').write_text('\n'.join(cs) + '\n')
 print(f'Generated {len(entries)} OpenGL entry points.')

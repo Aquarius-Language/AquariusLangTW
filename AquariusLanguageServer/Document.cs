@@ -89,7 +89,7 @@ internal sealed class Document
         scope.Declarations.Add(declaration);
     }
 
-    // Use the interpreter AST for declarations; hash braces and strings never become scopes.
+    // Use the language frontend's AST for declarations; hash braces and strings never become scopes.
     // Conditional blocks share their environment, while functions and loops introduce one.
     private void Walk(INode? node, Scope scope)
     {

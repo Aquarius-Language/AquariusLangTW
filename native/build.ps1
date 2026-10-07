@@ -30,7 +30,7 @@ if (-not $PSBoundParameters.ContainsKey('CMake')) {
     if (-not $cachedCMake) { $cachedCMake = $originalCache['CMAKE_COMMAND'] }
     if ($cachedCMake -and (Test-Path -LiteralPath $cachedCMake)) { $CMake = $cachedCMake }
 }
-$installPath = Join-Path $nativeRoot "../AquariusDesktopInterpretedREPL/runtimes/$Runtime/native"
+$installPath = Join-Path $nativeRoot "../AquariusDesktopVMREPL/runtimes/$Runtime/native"
 $arguments = @('-S', $nativeRoot, '-B', $buildPath, '-DCMAKE_BUILD_TYPE=Release')
 if ($Generator) { $arguments += @('-G', $Generator) }
 & $CMake @arguments

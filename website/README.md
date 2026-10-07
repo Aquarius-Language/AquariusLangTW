@@ -25,9 +25,9 @@ npm run preview
 ## 內容與互動
 
 - 語言內容依據 [AquariusLangTW 官方 README](https://github.com/Aquarius-Language/AquariusLangTW)，查閱日期：2026-10-07。
-- 包含命名寓意、中文關鍵字、Unicode 識別字、函式與閉包、陣列與模組，以及現有 OpenGL、Processing、VS Code／LSP 與桌面直譯器能力。
+- 包含命名寓意、中文關鍵字、Unicode 識別字、函式與閉包、陣列與模組，以及現有 OpenGL、Processing、VS Code／LSP 與桌面 VM 能力。
 - 未來方向依照本網站需求列出，皆標示為「未來計畫」，未承諾完成時間。
-- 三組語法示例可切換、複製；輸出是示例的預期結果，網站不在瀏覽器內執行星泉直譯器。
+- 三組語法示例可切換、複製；輸出是示例的預期結果，網站不在瀏覽器內執行星泉 VM。
 - 3D 場景可拖曳旋轉、暫停動畫、重設視角。場景離開畫面或分頁隱藏時停止繪製。
 - 尊重 `prefers-reduced-motion`，預設暫停 3D 動畫並移除捲動動畫。不支援 WebGL 時呈現 SVG 水瓶插畫。
 - 手機導覽、鍵盤語法分頁、可見焦點、跳至主要內容與生態系狀態播報。
@@ -40,4 +40,4 @@ npm run preview
 - `src/style.css`：版型、視覺、響應式排版與減少動畫偏好。
 - `vite.config.js`：相對資源路徑與 3D 程式碼分包。
 
-語言作者：林天牧 / Temple Lin。這個目錄是星泉的介紹網站，與直譯器原始碼一同維護於 AquariusLangTW 儲存庫。
+語言作者：林天牧 / Temple Lin。這個目錄是星泉的介紹網站，與 VM 原始碼一同維護於 AquariusLangTW 儲存庫。

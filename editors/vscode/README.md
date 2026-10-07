@@ -78,17 +78,17 @@ absolute paths appropriate to that host. Paths may contain spaces.
 ## Run a program
 
 Editor language support does not run or debug programs. To execute using this
-repository's existing interpreter, install the .NET 6 runtime alongside your
+repository's VM desktop host, install the .NET 6 runtime alongside your
 build SDK and run this from the repository root:
 
 ```powershell
-dotnet run --project AquariusDesktopInterpretedREPL -- AquariusDesktopInterpretedREPL/examples/increment.aqua
+dotnet run --project AquariusDesktopVMREPL -- AquariusDesktopVMREPL/examples/increment.aqua
 ```
 
-Or run an already-built interpreter:
+Or run an already-built VM host:
 
 ```powershell
-dotnet AquariusDesktopInterpretedREPL/bin/Debug/net6.0/AquariusDesktopInterpretedREPL.dll AquariusDesktopInterpretedREPL/examples/increment.aqua
+dotnet AquariusDesktopVMREPL/bin/Debug/net6.0/AquariusDesktopVMREPL.dll AquariusDesktopVMREPL/examples/increment.aqua
 ```
 
 ## Tests
@@ -127,7 +127,7 @@ the extension in your normal profile.
   starts after you trust it. Runtime analysis only parses source and never
   executes it or imports modules.
 - Diagnostics currently report syntax/lexical errors. Dynamic type errors,
-  undefined names, and runtime errors remain the interpreter's responsibility.
+  undefined names, and runtime errors remain the VM's responsibility.
 - Completion and definitions resolve declarations in the current document's
   function and loop scopes. Imported module members and cross-file navigation
   are not yet implemented. Static visibility follows source order and cannot

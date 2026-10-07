@@ -1,13 +1,13 @@
 using System;
 using System.Runtime.CompilerServices;
 using AquariusLang.ast;
-using AquariusLang.evaluator;
+using AquariusLang.runtime;
 using AquariusLang.Object;
 using AquaEnvironment = AquariusLang.Object.Environment;
 
 namespace AquariusLang.VM;
 
-/// <summary>Evaluator-compatible entry point backed exclusively by compiled VM instructions.</summary>
+/// <summary>Source and AST entry point backed exclusively by compiled VM instructions.</summary>
 public sealed class VmEvaluator {
     private static readonly ConditionalWeakTable<INode, Bytecode> compiled = new();
     private static readonly ConditionalWeakTable<FunctionObj, Bytecode> functions = new();

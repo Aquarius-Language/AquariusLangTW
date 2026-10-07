@@ -40,7 +40,7 @@ document.querySelector("#app").innerHTML = `
       <div class="hero-bottom"><a href="#about" class="scroll-link"><span>向下探索</span><span>↓</span></a><span class="hero-footnote">A LANGUAGE. A SPRING. A UNIVERSE.</span><span class="edition">01 — 無限可能</span></div>
     </section>
 
-    <div class="feature-ribbon"><span>熟悉的文字，新的可能</span><div><span>繁體中文語法</span><span class="ribbon-star">✧</span><span>C# 直譯器</span><span class="ribbon-star">✧</span><span>OpenGL 3.3</span><span class="ribbon-star">✧</span><span>Processing</span><span class="ribbon-star">✧</span><span>VS Code + LSP</span></div></div>
+    <div class="feature-ribbon"><span>熟悉的文字，新的可能</span><div><span>繁體中文語法</span><span class="ribbon-star">✧</span><span>C# 位元碼 VM</span><span class="ribbon-star">✧</span><span>OpenGL 3.3</span><span class="ribbon-star">✧</span><span>Processing</span><span class="ribbon-star">✧</span><span>VS Code + LSP</span></div></div>
 
     <section id="about" class="section about-section reveal">
       <div class="section-marker"><span>01 / ORIGIN</span><span>名字裡的宇宙</span></div>
@@ -57,9 +57,9 @@ document.querySelector("#app").innerHTML = `
 
     <section id="capabilities" class="section capabilities-section reveal"><div class="section-marker"><span>03 / RIGHT NOW</span><span>現在，就能開始創作</span></div><div class="section-heading"><h2>從文字，走向光影。</h2><p>星泉已經有自己的圖學與開發工具。<br>這些是目前實作的能力，也是生態系的起點。</p></div><div class="capabilities">
       <a class="capability-row" href="${repo}#opengl-電腦圖學" target="_blank" rel="noopener noreferrer"><span class="capability-number">01</span><span class="capability-icon">◇</span><div><h3>OpenGL 電腦圖學</h3><p>344 個 OpenGL 3.3 core 函式；GLFW、GLAD、GLM、STBImage 原生模組。從視窗、矩陣到紋理與著色器。</p></div><span class="status">已支援</span>${outward}</a>
-      <a class="capability-row" href="${repo}/blob/main/AquariusDesktopInterpretedREPL/graphics/Processing.md" target="_blank" rel="noopener noreferrer"><span class="capability-number">02</span><span class="capability-icon">◌</span><div><h3>Processing 風格繪圖</h3><p>2D／3D 圖形、圖片、像素、文字、光源與材質。用滑鼠、鍵盤、動畫迴圈與 Perlin noise 創作互動。</p></div><span class="status">已支援</span>${outward}</a>
+      <a class="capability-row" href="${repo}/blob/main/AquariusDesktopVMREPL/graphics/Processing.md" target="_blank" rel="noopener noreferrer"><span class="capability-number">02</span><span class="capability-icon">◌</span><div><h3>Processing 風格繪圖</h3><p>2D／3D 圖形、圖片、像素、文字、光源與材質。用滑鼠、鍵盤、動畫迴圈與 Perlin noise 創作互動。</p></div><span class="status">已支援</span>${outward}</a>
       <a class="capability-row" href="${repo}/blob/main/editors/vscode/README.md" target="_blank" rel="noopener noreferrer"><span class="capability-number">03</span><span class="capability-icon">⌘</span><div><h3>VS Code 與 LSP</h3><p>.aqua 語法上色、程式碼片段、即時語法錯誤、補完、滑鼠提示、同檔案定義跳轉與大綱。</p></div><span class="status">已支援</span>${outward}</a>
-      <a class="capability-row" href="${repo}#桌面內建函式" target="_blank" rel="noopener noreferrer"><span class="capability-number">04</span><span class="capability-icon">↳</span><div><h3>桌面直譯器與模組</h3><p>以 C# 實作的直譯器，提供 REPL、檔案執行、模組匯入、作業系統判斷與外部程式執行。</p></div><span class="status">已支援</span>${outward}</a>
+      <a class="capability-row" href="${repo}#桌面內建函式" target="_blank" rel="noopener noreferrer"><span class="capability-number">04</span><span class="capability-icon">↳</span><div><h3>桌面 VM 與模組</h3><p>以 C# 實作的位元碼虛擬機，提供 REPL、檔案執行、模組匯入、作業系統判斷與外部程式執行。</p></div><span class="status">已支援</span>${outward}</a>
     </div><p class="capability-note">圖學功能需先建置原生函式庫，並具備 OpenGL 3.3 支援。Windows x64 已驗證；Linux／macOS 尚待實機驗證。<a href="${repo}/blob/main/native/README.md" target="_blank" rel="noopener noreferrer">平台與建置說明 ↗</a></p></section>
 
     <section id="ecosystem" class="section ecosystem-section reveal"><div class="section-marker"><span>04 / CONSTELLATION</span><span>每個想法，都有自己的軌道</span></div><div class="section-heading"><h2>一門語言，<br>一片生長中的星系。</h2><p>從核心語言出發，串起工具、函式庫與作品。<br>點選一顆星，看看它與星泉的連結。</p></div>
@@ -197,7 +197,7 @@ const nodes = {
     title: "語言核心",
     status: "已支援",
     description:
-      "繁體中文是表達邏輯的起點。以 C# 實作的直譯器，將熟悉的文字變成能執行的程式。",
+      "繁體中文是表達邏輯的起點。以 C# 實作的位元碼虛擬機，將熟悉的文字編譯成能執行的程式。",
     features: [
       "中文關鍵字與 Unicode 識別字",
       "函式、閉包、陣列與雜湊表",

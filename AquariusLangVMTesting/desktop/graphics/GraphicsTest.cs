@@ -1,6 +1,6 @@
-using Evaluator = AquariusLang.VM.VmEvaluator;
+using AquariusLang.VM;
 using System.Globalization;
-using AquariusLang.evaluator;
+using AquariusLang.runtime;
 using AquariusLang.lexer;
 using AquariusLang.Object;
 using AquariusLang.parser;
@@ -15,7 +15,7 @@ public class GraphicsTest {
         var lexer = Lexer.NewInstance(source);
         var parser = Parser.NewInstance(lexer); var tree = parser.ParseAST();
         Assert.Empty(parser.Errors); Assert.Empty(lexer.Errors);
-        return Evaluator.NewInstance(builtins).Eval(tree, AquaEnvironment.NewEnvironment());
+        return VmEvaluator.NewInstance(builtins).Eval(tree, AquaEnvironment.NewEnvironment());
     }
     [Fact]
     public void MathUsesOpenGlDepthAndColumnVectorComposition() {
@@ -91,7 +91,7 @@ public class OpenGlIntegrationTest {
                 視窗庫.MakeContextCurrent(視窗); 載入.Load();
                 繪圖.CreateProgram(""invalid GLSL"", ""invalid GLSL"");"));
             var tree = parser.ParseAST(); Assert.Empty(parser.Errors);
-            var result = Evaluator.NewInstance(builtins).Eval(tree, AquaEnvironment.NewEnvironment());
+            var result = VmEvaluator.NewInstance(builtins).Eval(tree, AquaEnvironment.NewEnvironment());
             Assert.Contains("Shader compile failed", Assert.IsType<ErrorObj>(result).Message);
         }
         using var next = new GraphicsRuntime(); Assert.True(next.TryImport("GLFW", out var glfw));
@@ -109,12 +109,12 @@ public class OpenGlIntegrationTest {
             System.Environment.SetEnvironmentVariable("AQUARIUS_GRAPHICS_FRAMES", "3");
             System.Environment.SetEnvironmentVariable("AQUARIUS_GRAPHICS_CAPTURE", capture);
             Console.SetOut(output);
-            Assert.True(Assert.IsType<BooleanObj>(interpret.Interpreter.Interpret(path)).Value);
+            Assert.True(Assert.IsType<BooleanObj>(AquariusREPL.runtime.ScriptRunner.RunFile(path)).Value);
             Assert.Contains("OpenGL error: 0", output.ToString());
             byte[] image = File.ReadAllBytes(capture);
             Assert.True(image.Length > 960 * 720 * 3);
             Assert.True(image.Distinct().Count() > 64, "A lit cube should have more colors than the cleared background.");
-            // Interpreter disposal permits another independent graphics session.
+            // Script runner disposal permits another independent graphics session.
             using var runtime = new GraphicsRuntime(); Assert.True(runtime.TryImport("GLFW", out var glfw));
             var init = (BuiltinObj)glfw._Environment.Get("Init", out _);
             Assert.True(Assert.IsType<BooleanObj>(init.Fn(System.Array.Empty<IObject>())).Value);

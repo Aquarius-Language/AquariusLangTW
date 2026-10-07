@@ -1,5 +1,5 @@
 using AquariusLang.ast;
-using AquariusLang.evaluator;
+using AquariusLang.runtime;
 using AquariusLang.lexer;
 using AquariusLang.Object;
 using AquariusLang.parser;
@@ -131,20 +131,18 @@ public class CompilerAndMachineTest {
     }
 
     [Theory]
-    [InlineData("變數 值 = 3; 值 += 值++; 值;")]
-    [InlineData("變數 加 = 函式(甲) { 函式(乙) { 甲 + 乙; }; }; 加(2)(3);")]
-    [InlineData("變數 值 = 0; 假 && (值++ == 1); 值;")]
-    [InlineData("1 && 2;")]
-    [InlineData("中斷; 42;")]
-    [InlineData("如果 (真) { 中斷; 9; } 42;")]
-    [InlineData("變數 函 = 函式() { 中斷; 9; }; 函();")]
-    [InlineData("回傳 如果 (真) { 42; } 否則 { 0; };")]
-    [InlineData("變數 函 = 函式() { 迴圈 (變數 值=0; 值<5; 值++) { 如果 (值==2) { 回傳 值; } } }; 函();")]
-    public void ResultsMatchTheTreeInterpreter(string source) {
-        var tree = Parse(source);
-        var interpreted = AquariusLang.evaluator.Evaluator.NewInstance(new Builtins()).Eval(tree, AquaEnvironment.NewEnvironment());
-        var virtualized = new VirtualMachine().Execute(new VmCompiler().Compile(tree));
-        Assert.Equal(interpreted?.Type(), virtualized?.Type());
-        Assert.Equal(interpreted?.Inspect(), virtualized?.Inspect());
+    [InlineData("變數 值 = 3; 值 += 值++; 值;", ObjectType.INTEGER_OBJ, "7")]
+    [InlineData("變數 加 = 函式(甲) { 函式(乙) { 甲 + 乙; }; }; 加(2)(3);", ObjectType.INTEGER_OBJ, "5")]
+    [InlineData("變數 值 = 0; 假 && (值++ == 1); 值;", ObjectType.INTEGER_OBJ, "1")]
+    [InlineData("1 && 2;", ObjectType.ERROR_OBJ, "ERROR: Unknown operator: INTEGER && INTEGER")]
+    [InlineData("中斷; 42;", ObjectType.INTEGER_OBJ, "42")]
+    [InlineData("如果 (真) { 中斷; 9; } 42;", ObjectType.INTEGER_OBJ, "42")]
+    [InlineData("變數 函 = 函式() { 中斷; 9; }; 函();", ObjectType.BREAK_OBJ, "中斷")]
+    [InlineData("回傳 如果 (真) { 42; } 否則 { 0; };", ObjectType.INTEGER_OBJ, "42")]
+    [InlineData("變數 函 = 函式() { 迴圈 (變數 值=0; 值<5; 值++) { 如果 (值==2) { 回傳 值; } } }; 函();", ObjectType.INTEGER_OBJ, "2")]
+    public void ExecutionPreservesLanguageSemantics(string source, string expectedType, string expectedValue) {
+        var result = Run(source);
+        Assert.Equal(expectedType, result.Type());
+        Assert.Equal(expectedValue, result.Inspect());
     }
 }

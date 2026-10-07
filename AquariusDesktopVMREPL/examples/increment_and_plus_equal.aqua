@@ -1,0 +1,91 @@
+# Run: dotnet run --project AquariusDesktopVMREPL -- AquariusDesktopVMREPL/examples/increment_and_plus_equal.aqua
+# Every check prints PASS or FAIL. The final result is true only if all checks pass.
+變數 通過 = 0;
+變數 失敗 = 0;
+變數 檢查 = 函式(名稱, 實際, 預期) {
+    如果 (實際 == 預期) {
+        通過 += 1;
+        印出("PASS", 名稱);
+    } 否則 {
+        失敗 += 1;
+        印出("FAIL", 名稱, "actual:", 實際, "expected:", 預期);
+    }
+};
+
+# Postfix returns the old value; prefix returns the new value.
+變數 計數 = 0;
+變數 原值 = 計數++;
+檢查("postfix result", 原值, 0);
+檢查("postfix mutation", 計數, 1);
+變數 新值 = ++計數;
+檢查("prefix result", 新值, 2);
+檢查("prefix mutation", 計數, 2);
+計數++;
+檢查("standalone ++", 計數, 3);
+
+# ++ also works inside arithmetic and function arguments.
+變數 算式 = 計數++ * 2 + ++計數;
+檢查("++ in arithmetic", 算式, 11);
+檢查("arithmetic mutation", 計數, 5);
+變數 原樣 = 函式(值) { 回傳 值; };
+檢查("postfix argument", 原樣(計數++), 5);
+檢查("prefix argument", 原樣(++計數), 7);
+檢查("argument mutation", 計數, 7);
+
+# += updates integers and preserves the destination numeric type.
+計數 += 3;
+檢查("integer +=", 計數, 10);
+計數 += 2.5d;
+檢查("integer += double truncates", 計數, 12);
+變數 單精度 = 1.5f;
+檢查("float postfix result", 單精度++, 1.5f);
+檢查("float prefix result", ++單精度, 3.5f);
+單精度 += 0.5d;
+檢查("float += double", 單精度, 4.0f);
+變數 倍精度 = 2.25d;
+檢查("double postfix result", 倍精度++, 2.25d);
+檢查("double prefix result", ++倍精度, 4.25d);
+倍精度 += 0.75f;
+檢查("double += float", 倍精度, 5.0d);
+變數 文字 = "Aquarius";
+文字 += "Lang";
+# String == compares object identity, so use a hash key to check exact content.
+變數 預期文字 = {"AquariusLang": 真};
+檢查("string += content", 預期文字[文字], 真);
+檢查("string += length", 長度(文字), 12);
+
+# Mix += and ++, including a right operand with an increment side effect.
+變數 加數 = 2;
+計數 += 加數++;
+檢查("+= postfix operand", 計數, 14);
+檢查("+= operand mutation", 加數, 3);
+計數 += ++加數;
+檢查("+= prefix operand", 計數, 18);
+
+# Exercise all three loop update forms and updates to an outer variable.
+變數 後置總和 = 0;
+迴圈 (變數 索引 = 0; 索引 < 5; 索引++) {
+    後置總和 += 索引;
+}
+檢查("postfix loop update", 後置總和, 10);
+變數 前置總和 = 0;
+迴圈 (變數 索引 = 0; 索引 < 5; ++索引) {
+    前置總和 += 索引;
+}
+檢查("prefix loop update", 前置總和, 10);
+變數 次數 = 0;
+迴圈 (變數 索引 = 0; 索引 < 6; 索引 += 2) {
+    次數++;
+}
+檢查("+= loop update and ++ body", 次數, 3);
+
+變數 更新計數 = 函式() {
+    計數++;
+    計數 += 2;
+    回傳 計數;
+};
+檢查("function updates outer variable", 更新計數(), 21);
+檢查("outer mutation persists", 計數, 21);
+
+印出("Passed:", 通過, "Failed:", 失敗);
+回傳 失敗 == 0;

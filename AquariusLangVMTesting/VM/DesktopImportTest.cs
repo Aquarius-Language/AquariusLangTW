@@ -32,7 +32,7 @@ public class DesktopImportTest {
     public void ModuleFunctionsKeepCompiledBodiesAndCanBeReturnedToTheCaller() {
         var environment = AquaEnvironment.NewEnvironment();
         var module = AquaEnvironment.NewEnvironment();
-        var evaluator = VmEvaluator.NewInstance(new AquariusLang.evaluator.Builtins());
+        var evaluator = VmEvaluator.NewInstance(new AquariusLang.runtime.Builtins());
         evaluator.Evaluate("變數 建立 = 函式(甲) { 函式(乙) { 甲 + 乙; }; };", module);
         environment.Create("模組", new ModuleObj(module));
         var result = evaluator.Evaluate("變數 增加 = 模組.建立(2); 增加(40);", environment);

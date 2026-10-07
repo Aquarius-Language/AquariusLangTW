@@ -5,7 +5,4 @@
     <LangVersion>10</LangVersion>
     <RootNamespace>AquariusLang.VM</RootNamespace>
   </PropertyGroup>
-  <ItemGroup>
-    <ProjectReference Include="../AquariusLangInterpreted/AquariusLangInterpreted.csproj" />
-  </ItemGroup>
 </Project>

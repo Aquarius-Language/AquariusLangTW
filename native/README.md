@@ -1,14 +1,16 @@
 # Aquarius desktop graphics
 
-The desktop interpreter supports a complete **OpenGL 3.3 core** function surface:
+The desktop VM host supports a complete **OpenGL 3.3 core** function surface:
 344 entry points and the constants from the vendored GLAD header. This includes
 VAO/VBO/EBOs, GLSL, uniforms, textures, samplers, depth/stencil/blending, FBOs,
 renderbuffers, queries, sync objects, transform feedback and instanced drawing.
 OpenGL 4.x and extension entry points are not generated in this version.
 
-The portable language library (`AquariusLangInterpreted`) has no native graphics
+The portable language library (`AquariusLangVM`) has no native graphics
 dependency. Modules are registered only by the desktop host; importing them or
 using math/buffer helpers does not initialize GLFW or load the graphics DLL.
+Aquarius functions passed to Processing run as compiled VM callbacks through
+`VmEvaluator.Invoke`, retaining their closure environments.
 
 | Aquarius import | Implementation |
 | --- | --- |
@@ -19,8 +21,8 @@ using math/buffer helpers does not initialize GLFW or load the graphics DLL.
 | `STBImage` | stb_image 2.30; PNG/JPEG/BMP/TGA/PNM and other supported formats |
 | `Processing` | Processing-style 2D/3D drawing, sketch loop/input, images/pixels/text, offscreen canvases, retained shapes, lights/materials and GLSL shaders |
 
-See the [Processing API guide](../AquariusDesktopInterpretedREPL/graphics/Processing.md)
-and [interactive showcase](../AquariusDesktopInterpretedREPL/examples/processing_showcase/README.md).
+See the [Processing API guide](../AquariusDesktopVMREPL/graphics/Processing.md)
+and [interactive showcase](../AquariusDesktopVMREPL/examples/processing_showcase/README.md).
 Rebuild the native library when updating to this module: its event loop uses
 new bridge exports for window size, character input, wheel input and fullscreen.
 
@@ -37,7 +39,7 @@ From the repository root on Windows with Visual Studio C++ tools installed:
 ```powershell
 ./native/build.ps1
 dotnet build AquariusLang.sln
-dotnet run --project AquariusDesktopInterpretedREPL -- AquariusDesktopInterpretedREPL/examples/opengl_cube/main.aqua
+dotnet run --project AquariusDesktopVMREPL -- AquariusDesktopVMREPL/examples/opengl_cube/main.aqua
 ```
 
 `build.ps1` accepts `-CMake <path>`, `-Generator <name>` and `-Runtime <rid>`.
@@ -55,7 +57,7 @@ and/or Wayland development libraries; macOS Xcode command-line tools), then:
 ```sh
 cmake -S native -B native/build -DCMAKE_BUILD_TYPE=Release
 cmake --build native/build --parallel
-cmake --install native/build --prefix AquariusDesktopInterpretedREPL/runtimes/linux-x64/native
+cmake --install native/build --prefix AquariusDesktopVMREPL/runtimes/linux-x64/native
 dotnet build AquariusLang.sln
 ```
 
@@ -66,10 +68,10 @@ host. Generated binaries/build directories are ignored by Git. Windows x64 has
 been built and exercised; Linux/macOS builds are supported by the source but
 have not been exercised here.
 
-## Windows Application Control blocks the interpreter (0x800711C7)
+## Windows Application Control blocks the VM host (0x800711C7)
 
 If Windows reports `An Application Control policy has blocked this file` for
-`AquariusDesktopInterpretedREPL.dll`, check the Windows Code Integrity event log.
+`AquariusDesktopVMREPL.dll`, check the Windows Code Integrity event log.
 Event 3077 with policy `VerifiedAndReputableDesktop` identifies Smart App Control.
 This happens before Aquarius or OpenGL initializes: newly compiled, unsigned
 binaries may have insufficient reputation to run under this policy.
@@ -110,11 +112,11 @@ Initialization requests OpenGL 3.3 core and forward compatibility. Override
 hints after `Init` and before `CreateWindow`. `GLAD.Load()` returns GLAD's encoded
 driver version (major * 10000 + minor), or an Aquarius error if 3.3 is unavailable.
 The runtime supports one live window/context at a time and one GLFW-owning
-interpreter per process. Use all graphics calls on the owning execution thread;
+desktop host per process. Use all graphics calls on the owning execution thread;
 on macOS, GLFW requires the process main thread. Multiple contexts, monitor/
 joystick APIs and callback registration are not part of the GLFW wrapper.
 
-`DesktopBuiltins` is disposable. The command-line interpreter automatically
+`DesktopBuiltins` is disposable. The command-line VM host automatically
 disposes it, releasing buffers and destroying the context even when evaluation
 returns an error. Embedding hosts must likewise dispose `DesktopBuiltins`.
 Explicit GL object deletion is recommended; context destruction also releases
@@ -194,7 +196,7 @@ with transpose=`假`. `Multiply(a,b)` means `a * b` for GLSL column vectors;
 ```powershell
 dotnet test AquariusLang.sln
 $env:AQUARIUS_OPENGL_TESTS = '1'
-dotnet test AquariusLangTesting --filter FullyQualifiedName~AquariusREPL.Graphics
+dotnet test AquariusLangVMTesting --filter FullyQualifiedName~AquariusREPL.Graphics
 ```
 
 Native GPU integration is opt-in so normal tests work without a display/driver

@@ -7,6 +7,6 @@
     <RollForward>Major</RollForward>
   </PropertyGroup>
   <ItemGroup>
-    <ProjectReference Include="../AquariusLangInterpreted/AquariusLangInterpreted.csproj" />
+    <ProjectReference Include="../AquariusLangVM/AquariusLangVM.csproj" />
   </ItemGroup>
 </Project>

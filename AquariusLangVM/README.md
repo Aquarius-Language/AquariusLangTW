@@ -1,10 +1,10 @@
 # AquariusLangVM
 
-Aquarius bytecode compiler and stack virtual machine. Targets .NET 6, .NET 8 and
-.NET Standard 2.1, matching the interpreted language core.
+Aquarius language core, bytecode compiler and stack virtual machine. Targets
+.NET 6, .NET 8 and .NET Standard 2.1 with no project or native graphics dependencies.
 
-The project references `AquariusLangInterpreted` for its lexer, parser, AST,
-environments, objects and builtin interface. It never invokes the tree evaluator.
+This project owns the lexer, parser, AST, environments, objects and builtin
+interface. Source flows through the lexer and parser to an AST, then to bytecode.
 `VmCompiler` translates all language constructs into a compact instruction stream
 with a constant pool. `VirtualMachine` executes those instructions with an operand
 stack and explicit call frames; Aquarius recursion does not recurse on the C# stack.
@@ -24,11 +24,13 @@ Compile once and call `Execute` repeatedly with separate environments. Arrays,
 hashes and closures are created on each execution. Instructions are in-memory
 bytecode; `Disassemble` is a readable listing, not a serialized executable format.
 
-For a persistent session, use `VmEvaluator.NewInstance(builtins)` and call
+For a persistent session, create `Builtins` from `AquariusLang.runtime`, use
+`VmEvaluator.NewInstance(builtins)` and call
 `Evaluate(source, environment)` or `Eval(tree, environment)`. `Invoke` runs Aquarius
 functions passed to native libraries, including callbacks that reenter the VM.
-The existing `FunctionObj` metadata remains available for inspection and library
-compatibility. Runtime failures produce `ErrorObj`; invalid source passed directly
+`FunctionObj` retains its parameters, AST body and lexical environment for
+inspection; its compiled body is associated with the closure by `VmEvaluator`.
+Runtime failures produce `ErrorObj`; invalid source passed directly
 to the compiler raises `VmCompilationException`.
 
 Language behavior includes Chinese syntax, integer/float/double promotion,
@@ -37,6 +39,7 @@ conditional expressions, loops and break, return, lexical closures, recursion,
 mutable array writes, hash indexing and module member calls. Loop declarations
 persist between iterations; body declarations get a fresh scope each iteration.
 
+Frontend development and language semantics: [language core guide](LANGUAGE.md).
 Desktop integration: [AquariusDesktopVMREPL](../AquariusDesktopVMREPL/README.md).
-Compatibility, regression tests and benchmarks:
+Language coverage, VM regression tests and benchmarks:
 [AquariusLangVMTesting](../AquariusLangVMTesting/README.md).

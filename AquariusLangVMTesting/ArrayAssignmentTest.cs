@@ -1,5 +1,5 @@
-using Evaluator = AquariusLang.VM.VmEvaluator;
-using AquariusLang.evaluator;
+using AquariusLang.VM;
+using AquariusLang.runtime;
 using AquariusLang.lexer;
 using AquariusLang.Object;
 using AquariusLang.parser;
@@ -11,7 +11,7 @@ namespace AquariusLangVMTesting;
 public class ArrayAssignmentTest {
     private static IObject Eval(string source) {
         var parser=Parser.NewInstance(Lexer.NewInstance(source));var tree=parser.ParseAST();Assert.Empty(parser.Errors);
-        return Evaluator.NewInstance(new Builtins()).Eval(tree,AquaEnvironment.NewEnvironment());
+        return VmEvaluator.NewInstance(new Builtins()).Eval(tree,AquaEnvironment.NewEnvironment());
     }
     [Fact] public void IndexedWritesMutateAliasesAndEvaluateOperandsOnce() {
         var result=Assert.IsType<ArrayObj>(Eval(@"變數 a=[0,0];變數 alias=a;變數 count=0;變數 index=0;
