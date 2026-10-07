@@ -101,6 +101,10 @@ namespace AquariusLang.token {
 
         public string Literal;
 
+        // UTF-16 source offsets, matching the default LSP position encoding.
+        public int Start;
+        public int Length;
+
         public override string ToString() {
             return $"Type: {Type}, Literal: {Literal}";
         }

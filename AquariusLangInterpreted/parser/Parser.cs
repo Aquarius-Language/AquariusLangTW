@@ -6,6 +6,12 @@ using AquariusLang.utils;
 
 namespace AquariusLang.parser {
 
+    public sealed class ParseError {
+        public string Message { get; }
+        public Token Token { get; }
+        public ParseError(string message, Token token) { Message = message; Token = token; }
+    }
+
     public static class Precedence {
         /// <summary>
         /// These are operator precedence.
@@ -87,6 +93,13 @@ namespace AquariusLang.parser {
     public class Parser {
         private Lexer lexer;
         private List<string> errors;
+        private readonly List<ParseError> diagnostics = new List<ParseError>();
+        private int expressionDepth;
+        public IReadOnlyList<ParseError> Diagnostics => diagnostics;
+        private void addError(string message, Token token) {
+            errors.Add(message);
+            diagnostics.Add(new ParseError(message, token));
+        }
 
         /// <summary>
         /// curToken and peekToken act exactly like the two “pointers” our lexer has: position and peekPosition.
@@ -211,12 +224,12 @@ namespace AquariusLang.parser {
         /// <param name="tokenType"></param>
         private void peekError(string tokenType) {
             string msg = $"Expected next token to be {tokenType}, got {peekToken.Type} instead.";
-            errors.Add(msg);
+            addError(msg, peekToken);
         }
 
         private void noPrefixParseFnError(Token token) {
             string msg = $"No prefix parse function for {token.Type}({token.Literal}) found.";
-            errors.Add(msg);
+            addError(msg, token);
         }
 
         private IStatement parseStatement() {
@@ -297,6 +310,15 @@ namespace AquariusLang.parser {
         }
 
         private IExpression parseExpression(int precedence) {
+            if (expressionDepth >= 256) {
+                throw new System.InvalidOperationException("Expression nesting exceeds the limit of 256.");
+            }
+            expressionDepth++;
+            try { return parseExpressionCore(precedence); }
+            finally { expressionDepth--; }
+        }
+
+        private IExpression parseExpressionCore(int precedence) {
             // Console.WriteLine($"Get prefixParseFns for currToken.Type: {currToken.Type}");
             bool hasKey = prefixParseFns.TryGetValue(currToken.Type, out PrefixParseFn prefixParseFn);
 
@@ -363,7 +385,7 @@ namespace AquariusLang.parser {
             bool parseSuccess = int.TryParse(currToken.Literal, out int value);
             if (!parseSuccess) {
                 string msg = $"Could not parse{currToken.Literal} as integer.";
-                errors.Add(msg);
+                addError(msg, currToken);
                 return null;
             }
 
@@ -380,7 +402,7 @@ namespace AquariusLang.parser {
             }
 
             string msg = $"Could not parse{currToken.Literal} as float.";
-            errors.Add(msg);
+            addError(msg, currToken);
             return null;
         }
 
@@ -393,7 +415,7 @@ namespace AquariusLang.parser {
             }
 
             string msg = $"Could not parse{currToken.Literal} as double.";
-            errors.Add(msg);
+            addError(msg, currToken);
             return null;
         }
 
@@ -463,7 +485,7 @@ namespace AquariusLang.parser {
 
         private IExpression createIncrementExpression(Token token, IExpression operand, bool isPrefix) {
             if (!(operand is Identifier)) {
-                errors.Add("++ 的運算元必須是變數名稱。");
+                addError("++ 的運算元必須是變數名稱。", currToken);
                 return null;
             }
             return new IncrementExpression(token, operand, isPrefix);
@@ -584,6 +606,7 @@ namespace AquariusLang.parser {
             }
 
             block.Statements = statements.ToArray();
+            if (currTokenIs(TokenType.EOF)) addError("Expected closing } before end of file.", currToken);
             return block;
         }
 
@@ -597,22 +620,19 @@ namespace AquariusLang.parser {
                 return null;
             }
 
-            nextToken();
-
+            if (!expectPeek(TokenType.LET)) return null;
             forLoopLiteral.DeclareStatement = parseLetStatement();
-            // Console.WriteLine($"DeclareStatement: {forLoopLiteral.DeclareStatement.TokenLiteral()}");
+            if (!currTokenIs(TokenType.SEMICOLON)) {
+                addError("Expected ; after loop variable declaration.", currToken);
+                return null;
+            }
             nextToken();
-
             forLoopLiteral.ConditionalExpression = parseExpression((int)Precedence.OperatorPrecedence.LOWEST);
-            // Console.WriteLine($"ConditionalExpression type: {forLoopLiteral.ConditionalExpression.GetType()}");
-            // Console.WriteLine($"ConditionalExpression: {forLoopLiteral.ConditionalExpression.TokenLiteral()}");
+            if (!expectPeek(TokenType.SEMICOLON)) return null;
             nextToken();
-            nextToken();
-
             forLoopLiteral.ValueChangeStatement = parseStatement();
-            nextToken();
-            nextToken();
-
+            if (!expectPeek(TokenType.RPAREN)) return null;
+            if (!expectPeek(TokenType.LBRACE)) return null;
             forLoopLiteral.Body = parseBlockStatement();
 
             return forLoopLiteral;
@@ -643,12 +663,20 @@ namespace AquariusLang.parser {
             }
 
             nextToken();
+            if (!currTokenIs(TokenType.IDENT)) {
+                addError("Expected a parameter name.", currToken);
+                return null;
+            }
             Identifier identifier = new Identifier(currToken, currToken.Literal);
             identifiers.Add(identifier);
 
             while (peekTokenIs(TokenType.COMMA)) {
                 nextToken();
                 nextToken();
+                if (!currTokenIs(TokenType.IDENT)) {
+                    addError("Expected a parameter name.", currToken);
+                    return null;
+                }
                 identifier = new Identifier(currToken, currToken.Literal);
                 identifiers.Add(identifier);
             }

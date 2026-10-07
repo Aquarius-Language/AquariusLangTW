@@ -462,7 +462,7 @@ public class ParserTest {
                     變數 a = 0;
                 }
                 ", 
-                expected = "迴圈((變數 i = 0)(i < 5)(i += 1)){(變數 a = 0)}"
+                expected = "迴圈((變數 i = 0)(i < 5)(i++)){(變數 a = 0)}"
             }, 
             new () {
                 input = @"
@@ -473,7 +473,7 @@ public class ParserTest {
                                 }
                             }
                         } ",
-                expected = "迴圈((變數 a = 5)(a < 10)(a += 1)){迴圈((變數 b = 0)(b < 5)(b += 1)){如果(a > 6) {(中斷)}}}"
+                expected = "迴圈((變數 a = 5)(a < 10)(a++)){迴圈((變數 b = 0)(b < 5)(b++)){如果(a > 6) {(中斷)}}}"
             }
         };
         foreach (ForLoopLiteralTest test in tests) {

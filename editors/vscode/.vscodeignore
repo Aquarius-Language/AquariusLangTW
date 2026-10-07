@@ -1,0 +1,8 @@
+node_modules/**
+src/**
+scripts/**
+test/**
+.vscode/**
+package-lock.json
+server/*.pdb
+**/*.vsix

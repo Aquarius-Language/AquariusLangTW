@@ -3,38 +3,47 @@ using AquariusLang.token;
 
 namespace AquariusLang.lexer {
 
+    public sealed class LexicalError {
+        public string Message { get; }
+        public int Start { get; }
+        public int Length { get; }
+        public LexicalError(string message, int start, int length) {
+            Message = message; Start = start; Length = length;
+        }
+    }
+
     public class Lexer {
-        private string? input;
+        private string input = "";
         private int position; // current position in input (points to current char)
         private int readPosition; // current reading position in input (after current char)
         private char ch; // current char under examination
+        private readonly System.Collections.Generic.List<LexicalError> lexicalErrors = new System.Collections.Generic.List<LexicalError>();
+        public System.Collections.Generic.IReadOnlyList<LexicalError> Errors => lexicalErrors;
 
         /// <summary>
         /// Singleton.
         /// </summary>
         /// <param name="input"></param>
         public static Lexer NewInstance(string? input) {
-            Lexer l = new Lexer() { input = input };
+            Lexer l = new Lexer() { input = input ?? "" };
             l.readChar();
             return l;
         }
 
         public Token NextToken() {
+            // Avoid recursive comment skipping in large documents.
+            skipWhitespace();
+            while (ch == '#') {
+                skipComments();
+                skipWhitespace();
+            }
+            int start = position;
             Token token = new Token() {
                 Type = TokenType.ILLEGAL,
                 Literal = ""
             };
 
-            /*
-             * There might be whitespaces before and after comments.
-             */
-            skipWhitespace();
-
             switch (ch) {
-                case '#':
-                    skipComments();
-                    return NextToken();
-
                 case '=':
                     if (peekChar() == '=') {
                         readChar();
@@ -139,6 +148,7 @@ namespace AquariusLang.lexer {
                     break;
                 case '"':
                     token = newToken(TokenType.STRING, readString());
+                    if (ch == 0) token.Type = TokenType.ILLEGAL;
                     break;
                 case '[':
                     token = newToken(TokenType.LBRACKET, ch);
@@ -182,10 +192,14 @@ namespace AquariusLang.lexer {
                         string literal = readIdentifier();
                         string type = TokenLookup.LookupIdentifier(literal);
                         token = newToken(type, literal);
+                        token.Start = start;
+                        token.Length = position - start;
                         return token;
                     } else if (isDigit(ch)) { // Check if is number. (int, float, double...)
                         string literal = readNumber(out string numberType);
                         token = newToken(numberType, literal);
+                        token.Start = start;
+                        token.Length = position - start;
                         return token;
                     } else {
                         token = newToken(TokenType.ILLEGAL, ch);
@@ -195,6 +209,8 @@ namespace AquariusLang.lexer {
             }
 
             readChar();
+            token.Start = System.Math.Min(start, input.Length);
+            token.Length = token.Type == TokenType.EOF ? 0 : System.Math.Min(position, input.Length) - start;
             return token;
         }
 
@@ -211,6 +227,7 @@ namespace AquariusLang.lexer {
         }
 
         private void skipComments() {
+            int commentStart = position;
             if (ch == '#') {
                 if (peekChar() != '#') {
                     while (ch != '\n' && ch != 0) {
@@ -219,13 +236,15 @@ namespace AquariusLang.lexer {
                 } else {
                     readChar();
                     readChar();
-                    while (ch != '#' && peekChar() != '#') {
+                    while (ch != 0 && !(ch == '#' && peekChar() == '#')) {
                         readChar();
                     }
-
-                    readChar();
-                    readChar();
-                    readChar();
+                    if (ch == 0) {
+                        lexicalErrors.Add(new LexicalError("Unterminated block comment.", commentStart, input.Length - commentStart));
+                    } else {
+                        readChar();
+                        readChar();
+                    }
                 }
             }
         }
@@ -234,7 +253,7 @@ namespace AquariusLang.lexer {
             // while (ch is ' ' or '\t' or '\n' or '\r') {
             //     readChar();
             // }
-            while (ch == ' ' || ch == '\t' || ch == '\n' || ch == '\r') {
+            while (ch == ' ' || ch == '\t' || ch == '\n' || ch == '\r' || (position == 0 && ch == '\uFEFF')) {
                 readChar();
             }
         }

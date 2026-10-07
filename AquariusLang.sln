@@ -6,6 +6,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "AquariusDesktopInterpretedR
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "AquariusLangTesting", "AquariusLangTesting\AquariusLangTesting.csproj", "{41F69F36-1912-459D-B6D2-A2ACD1B974A1}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "AquariusLanguageServer", "AquariusLanguageServer\AquariusLanguageServer.csproj", "{5F2C392F-6AD4-4071-810C-A6DA2DC5E9C2}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -24,5 +26,9 @@ Global
 		{41F69F36-1912-459D-B6D2-A2ACD1B974A1}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{41F69F36-1912-459D-B6D2-A2ACD1B974A1}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{41F69F36-1912-459D-B6D2-A2ACD1B974A1}.Release|Any CPU.Build.0 = Release|Any CPU
+		{5F2C392F-6AD4-4071-810C-A6DA2DC5E9C2}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{5F2C392F-6AD4-4071-810C-A6DA2DC5E9C2}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{5F2C392F-6AD4-4071-810C-A6DA2DC5E9C2}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{5F2C392F-6AD4-4071-810C-A6DA2DC5E9C2}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 EndGlobal

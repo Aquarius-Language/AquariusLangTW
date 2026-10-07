@@ -1,0 +1,7 @@
+{
+  "Variable": { "prefix": ["變數", "let"], "body": "變數 ${1:名稱} = ${2:0};", "description": "Declare a variable" },
+  "Function": { "prefix": ["函式", "fn"], "body": ["變數 ${1:名稱} = 函式(${2:參數}) {", "\t$0", "};"], "description": "Declare a function" },
+  "Conditional": { "prefix": ["如果", "if"], "body": ["如果 (${1:條件}) {", "\t$2", "} 否則 {", "\t$0", "}"], "description": "Conditional branches" },
+  "For loop": { "prefix": ["迴圈", "for"], "body": ["迴圈 (變數 ${1:索引} = 0; $1 < ${2:10}; $1++) {", "\t$0", "}"], "description": "For loop" },
+  "Print": { "prefix": ["印出", "print"], "body": "印出($0);", "description": "Print values" }
+}

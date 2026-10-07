@@ -63,9 +63,22 @@
 其他功能包含全域及區域變數、閉包、函式呼叫、陣列、雜湊表與模組。
 完整中文範例位於 `AquariusDesktopInterpretedREPL/examples`。
 
+## Visual Studio Code 與 Language Server Protocol
+
+已提供獨立的 .NET 8 LSP 語言伺服器與 VS Code 擴充套件，支援 `.aqua` 語法上色、
+程式碼片段、即時語法錯誤、補完、滑鼠提示、同檔案定義跳轉與大綱。
+
+安裝 .NET 8 Runtime（或更新版本）後，在 VS Code 選擇 **Extensions → … → Install from VSIX…**，
+安裝 `editors/vscode/aquariuslang-tw-0.1.0.vsix`，再開啟可信任資料夾中的 `.aqua` 檔案。
+擴充套件已包含伺服器，使用者不需要另外設定伺服器路徑。
+
+完整的安裝、從原始碼打包、執行程式、設定與疑難排解請見
+[VS Code 操作指南](editors/vscode/README.md)。其他支援 LSP 的編輯器可參考
+[語言伺服器說明](AquariusLanguageServer/README.md)。
+
 ## 執行與測試
 
-需要 .NET 6 SDK。
+建置完整方案需要 .NET 8 SDK；執行現有桌面直譯器與其測試另需 .NET 6 Runtime。
 
 ```powershell
 dotnet run --project AquariusDesktopInterpretedREPL -- AquariusDesktopInterpretedREPL/examples/increment.aqua

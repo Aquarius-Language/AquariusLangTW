@@ -240,8 +240,7 @@ public class LexerTest {
             new ExpectedTest(){ExpectedType = TokenType.SEMICOLON,    ExpectedLiteral = ";"},
             
             new ExpectedTest(){ExpectedType = TokenType.IDENT,    ExpectedLiteral = "i"},
-            new ExpectedTest(){ExpectedType = TokenType.PLUS_EQ,    ExpectedLiteral = "+="},
-            new ExpectedTest(){ExpectedType = TokenType.INT,    ExpectedLiteral = "1"},
+            new ExpectedTest(){ExpectedType = TokenType.INCREMENT,    ExpectedLiteral = "++"},
             new ExpectedTest(){ExpectedType = TokenType.RPAREN,    ExpectedLiteral = ")"},
             new ExpectedTest(){ExpectedType = TokenType.LBRACE,    ExpectedLiteral = "{"},
             new ExpectedTest(){ExpectedType = TokenType.RBRACE,    ExpectedLiteral = "}"},
