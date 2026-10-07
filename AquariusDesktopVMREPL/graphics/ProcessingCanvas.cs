@@ -1,20 +1,21 @@
 using System.Numerics;
-using System.Runtime.InteropServices;
 using AquariusLang.Object;
 
 namespace AquariusREPL.Graphics;
 
 internal sealed partial class ProcessingCanvas : IDisposable {
-    private readonly Func<string,IObject[],IObject> call;
+    internal WgpuDevice Device=null!;
+    internal WgpuTarget Target=null!;
+    private WgpuShader? program;
     internal readonly GraphicsRuntime Owner;
-    internal int Width, Height, PixelWidth, PixelHeight, Framebuffer;
+    internal int Width, Height, PixelWidth, PixelHeight;
     internal ProcessingImage? Surface;
     internal ProcessingStyle Style=new();
     internal Matrix4x4 Model=Matrix4x4.Identity, View=Matrix4x4.Identity, Projection;
     internal readonly Stack<Matrix4x4> Matrices=new();
     internal readonly Stack<ProcessingStyle> Styles=new();
-    private int program, vao, vbo, depth;
-    internal int CustomProgram;
+
+    internal WgpuShader? CustomProgram;
     internal bool Is3D, Drawing, Disposed;
     internal int Detail=32, SphereU=24, SphereV=16, ShapeMode=-1, TextureMode;
     internal float Tightness;
@@ -29,36 +30,19 @@ internal sealed partial class ProcessingCanvas : IDisposable {
     internal Vector4? Clip;
     internal ModuleObj? Module;
 
-    internal ProcessingCanvas(GraphicsRuntime owner,Func<string,IObject[],IObject> call,int w,int h,bool threeD) {
-        Owner=owner; this.call=call; Width=PixelWidth=w; Height=PixelHeight=h; Is3D=threeD; DefaultCamera();
+    internal ProcessingCanvas(GraphicsRuntime owner,int w,int h,bool threeD) {
+        Owner=owner; Width=PixelWidth=w; Height=PixelHeight=h; Is3D=threeD; DefaultCamera();
     }
-    internal IObject GL(string name,params object[] args) => call(name,args.Select(Convert).ToArray());
-    private static IObject Convert(object o) => o switch {
-        IObject value=>value, int n=>new IntegerObj(n), uint n=>new DoubleObj(n), float n=>new FloatObj(n),
-        double n=>new DoubleObj(n), bool b=>new BooleanObj(b), string s=>new StringObj(s),
-        Matrix4x4 m=>GraphicsRuntime.Numbers(m.M11,m.M12,m.M13,m.M14,m.M21,m.M22,m.M23,m.M24,m.M31,m.M32,m.M33,m.M34,m.M41,m.M42,m.M43,m.M44),
-        _=>throw new ArgumentException("Unsupported renderer argument.")
-    };
-    private int Gen(string name) { var a=GraphicsRuntime.Numbers(0); GL(name,1,a); return GraphicsRuntime.Int(a.Elements[0]); }
-    internal void Initialize(bool offscreen=false) {
+    internal void Initialize(WgpuDevice device,bool offscreen=false) {
+        Device=device;
         try {
-            program=GraphicsRuntime.Int(GL("CreateProgram",VertexShader,FragmentShader));
-            vao=Gen("glGenVertexArrays"); vbo=Gen("glGenBuffers");
-            GL("glBindVertexArray",vao); GL("glBindBuffer",0x8892,vbo);
-            int[] sizes={3,3,2,4}; int offset=0;
-            for(int i=0;i<4;i++) { GL("glVertexAttribPointer",i,sizes[i],0x1406,false,48,offset); GL("glEnableVertexAttribArray",i); offset+=sizes[i]*4; }
+            Target=new(device,PixelWidth,PixelHeight);program=new(device,WgpuShaders.Vertex,WgpuShaders.Fragment);
             if(offscreen) {
-                Surface=ProcessingImage.Create(Owner,Width,Height); Surface.Upload(this);
-                Framebuffer=Gen("glGenFramebuffers"); depth=Gen("glGenRenderbuffers");
-                GL("glBindFramebuffer",0x8D40,Framebuffer); GL("glFramebufferTexture2D",0x8D40,0x8CE0,0x0DE1,Surface.Texture,0);
-                GL("glBindRenderbuffer",0x8D41,depth); GL("glRenderbufferStorage",0x8D41,0x88F0,Width,Height);
-                GL("glFramebufferRenderbuffer",0x8D40,0x821A,0x8D41,depth);
-                if(GraphicsRuntime.Int(GL("glCheckFramebufferStatus",0x8D40))!=0x8CD5) throw new InvalidOperationException("Offscreen framebuffer is incomplete.");
-                Surface.Flipped=true;
-                Surface.Premultiplied=true;
+                Surface=ProcessingImage.Create(Owner,Width,Height);Surface.GpuTexture=Target.Color;
+                Surface.Dirty=false;Surface.Premultiplied=true;
             }
-            Bind(); Background(new Vector4(.8f,.8f,.8f,1));
-        } catch { Dispose(); throw; }
+            Bind();Background(new Vector4(.8f,.8f,.8f,1));
+        } catch {Dispose();throw;}
     }
     internal void RequireDrawing() {
         if(Disposed) throw new InvalidOperationException("Canvas has been disposed.");
@@ -66,12 +50,9 @@ internal sealed partial class ProcessingCanvas : IDisposable {
         if(ShapeMode!=-1) throw new InvalidOperationException("Finish beginShape() with endShape() before drawing another primitive.");
     }
     internal void Bind() {
-        GL("glBindFramebuffer",0x8D40,Framebuffer); GL("glViewport",0,0,PixelWidth,PixelHeight);
-        GL("glEnable",0x0BE2); GL("glBlendFuncSeparate",BlendMode switch{2=>0x0306,3=>1,4=>1,_=>0x0302},BlendMode switch{1=>1,2=>0,3=>0x0301,4=>0,_=>0x0303},1,BlendMode is 1?1:BlendMode is 4?0:0x0303); GL(Is3D?"glEnable":"glDisable",0x0B71);
-        GL("glDisable",0x0B44);
-        GL(Smooth?"glEnable":"glDisable",0x809D);
-        GL(Clip==null?"glDisable":"glEnable",0x0C11);
-        if(Clip is Vector4 clip) {float sx=(float)PixelWidth/Width,sy=(float)PixelHeight/Height;GL("glScissor",(int)(clip.X*sx),(int)((Height-clip.Y-clip.W)*sy),(int)(clip.Z*sx),(int)(clip.W*sy));}
+        if(PixelWidth<=0||PixelHeight<=0)return;
+        Target.Configure(PixelWidth,PixelHeight,Smooth);
+        if(Surface!=null)Surface.GpuTexture=Target.Color;
     }
     internal void DefaultCamera() {
         Model=Matrix4x4.Identity;
@@ -91,41 +72,14 @@ internal sealed partial class ProcessingCanvas : IDisposable {
         if(fov<=0||fov>=MathF.PI||aspect<=0||near<=0||far<=near) throw new ArgumentException("Invalid perspective parameters.");
         float f=1/MathF.Tan(fov/2); return new(f/aspect,0,0,0,0,f,0,0,0,0,(far+near)/(near-far),-1,0,0,2*far*near/(near-far),0);
     }
-    internal void Background(Vector4 c) { Bind(); GL("glClearColor",c.X*c.W,c.Y*c.W,c.Z*c.W,c.W); GL("glClear",0x4000|0x0100|0x0400); }
-    private void Uniform(string name,params object[] values) {
-        int loc=GraphicsRuntime.Int(GL("glGetUniformLocation",CustomProgram==0?program:CustomProgram,name));
-        var a=new List<object>{loc}; a.AddRange(values);
-        GL(values.Length==1 && values[0] is Matrix4x4 ? "glUniformMatrix4fv" : values.Length switch { 1=>"glUniform1f",3=>"glUniform3f",_=>"glUniform4f" },
-            values.Length==1 && values[0] is Matrix4x4 ? new object[]{loc,1,false,values[0]} : a.ToArray());
-    }
-    internal void Draw(IReadOnlyList<ProcessingVertex> vertices,int mode=4,ProcessingImage? image=null,bool lit=true) {
-        if(vertices.Count==0) return;
-        Bind(); GL("glUseProgram",CustomProgram==0?program:CustomProgram); GL("glBindVertexArray",vao); GL("glBindBuffer",0x8892,vbo);
-        var floats=new float[vertices.Count*12]; int i=0;
-        foreach(var v in vertices) {
-            foreach(float f in new[]{v.Position.X,v.Position.Y,v.Position.Z,v.Normal.X,v.Normal.Y,v.Normal.Z,v.UV.X,v.UV.Y,v.Color.X,v.Color.Y,v.Color.Z,v.Color.W}) floats[i++]=f;
-        }
-        using var data=new DataObject(floats.Length*4,Owner); Marshal.Copy(floats,0,data.Handle,floats.Length);
-        GL("glBufferData",0x8892,data.Size,data,0x88E0);
-        Uniform("model",Model); Uniform("view",View); Uniform("projection",Projection);
-        Uniform("lit",Style.Lit && lit ? 1f:0f); Uniform("ambient",Style.Ambient.X,Style.Ambient.Y,Style.Ambient.Z);
-        Uniform("lightColor",Style.LightColor.X,Style.LightColor.Y,Style.LightColor.Z);
-        Uniform("lightDirection",Style.LightDirection.X,Style.LightDirection.Y,Style.LightDirection.Z);
-        Uniform("specular",Style.Specular.X,Style.Specular.Y,Style.Specular.Z); Uniform("emissive",Style.Emissive.X,Style.Emissive.Y,Style.Emissive.Z);
-        Uniform("shininess",Style.Shininess); Uniform("textured",image==null?0f:1f);
-        Uniform("imagePremultiplied",image?.Premultiplied==true?1f:0f);Uniform("replaceMode",BlendMode==4?1f:0f);
-        Uniform("materialAmbient",Style.MaterialAmbient.X,Style.MaterialAmbient.Y,Style.MaterialAmbient.Z);
-        GL("glUniform1i",GraphicsRuntime.Int(GL("glGetUniformLocation",CustomProgram==0?program:CustomProgram,"lightCount")),Style.Lights.Count);
-        for(int light=0;light<Style.Lights.Count;light++) {
-            var l=Style.Lights[light];string prefix=$"lights[{light}].";
-            Uniform(prefix+"kind",(float)l.Kind);Uniform(prefix+"color",l.Color.X,l.Color.Y,l.Color.Z);
-            var pos=Vector3.Transform(l.Position,View);var dir=Vector3.TransformNormal(l.Direction,View);
-            Uniform(prefix+"position",pos.X,pos.Y,pos.Z);Uniform(prefix+"direction",dir.X,dir.Y,dir.Z);
-            Uniform(prefix+"falloff",l.Falloff.X,l.Falloff.Y,l.Falloff.Z);Uniform(prefix+"specular",l.Specular.X,l.Specular.Y,l.Specular.Z);
-            Uniform(prefix+"cutoff",l.Cutoff);Uniform(prefix+"concentration",l.Concentration);
-        }
-        if(image!=null) { image.Upload(this); GL("glActiveTexture",0x84C0); GL("glBindTexture",0x0DE1,image.Texture); GL("glUniform1i",GraphicsRuntime.Int(GL("glGetUniformLocation",CustomProgram==0?program:CustomProgram,"surface")),0); }
-        GL("glDrawArrays",mode,0,vertices.Count);
+    internal void Background(Vector4 c) {Bind();Target.Clear(c);}
+    internal void Draw(IReadOnlyList<ProcessingVertex> vertices,int mode=4,ProcessingImage? image=null,bool lit=true,int stencilMode=0) {
+        if(vertices.Count==0)return;
+        Bind();image?.Upload(this);
+        var floats=new float[vertices.Count*12];int i=0;
+        foreach(var v in vertices)foreach(float f in new[]{v.Position.X,v.Position.Y,v.Position.Z,v.Normal.X,v.Normal.Y,v.Normal.Z,v.UV.X,v.UV.Y,v.Color.X,v.Color.Y,v.Color.Z,v.Color.W})floats[i++]=f;
+        Vector4? clip=Clip is Vector4 c?new Vector4(c.X*PixelWidth/Width,c.Y*PixelHeight/Height,c.Z*PixelWidth/Width,c.W*PixelHeight/Height):null;
+        Target.Draw(CustomProgram??program!,floats,WgpuShaders.Uniforms(this,image!=null,image?.Premultiplied==true,lit),mode,BlendMode,Is3D,clip,image?.GpuTexture,stencilMode);
     }
     internal ProcessingVertex V(Vector3 p,Vector4 color,Vector2 uv=default,Vector3? normal=null) => new(p,normal??Normal,uv,color);
     internal void Polygon(IReadOnlyList<Vector3> points,bool close=true,bool fill=true) {
@@ -212,60 +166,16 @@ internal sealed partial class ProcessingCanvas : IDisposable {
         var a=V(new(b.x,b.y,0),Style.Tint,new(0,t)); var c=V(new(b.x+b.w,b.y+b.h,0),Style.Tint,new(1,bt));
         Draw(new[]{a,V(new(b.x+b.w,b.y,0),Style.Tint,new(1,t)),c,a,c,V(new(b.x,b.y+b.h,0),Style.Tint,new(0,bt))},image:image,lit:false);
     }
-    internal byte[] ReadPixels() {
-        Bind(); using var data=new DataObject(checked(PixelWidth*PixelHeight*4),Owner);
-        GL("glPixelStorei",0x0D05,1); GL("glReadPixels",0,0,PixelWidth,PixelHeight,0x1908,0x1401,data);
-        var bytes=new byte[data.Size]; Marshal.Copy(data.Handle,bytes,0,bytes.Length);
-        var top=new byte[bytes.Length]; for(int y=0;y<PixelHeight;y++) System.Array.Copy(bytes,y*PixelWidth*4,top,(PixelHeight-y-1)*PixelWidth*4,PixelWidth*4);
-        for(int i=0;i<top.Length;i+=4)if(top[i+3]>0&&top[i+3]<255)for(int c=0;c<3;c++)top[i+c]=(byte)Math.Min(255,(top[i+c]*255+top[i+3]/2)/top[i+3]);
-        return top;
-    }
+    internal byte[] ReadPixels() {Bind();return Target.ReadPixels();}
     public void Dispose() {
-        if(Disposed) return; Disposed=true;
-        if(program!=0) GL("glDeleteProgram",program);
-        if(vbo!=0) GL("glDeleteBuffers",1,GraphicsRuntime.Numbers(vbo));
-        if(vao!=0) GL("glDeleteVertexArrays",1,GraphicsRuntime.Numbers(vao));
-        if(depth!=0) GL("glDeleteRenderbuffers",1,GraphicsRuntime.Numbers(depth));
-        if(Framebuffer!=0) GL("glDeleteFramebuffers",1,GraphicsRuntime.Numbers(Framebuffer));
-        Surface?.Dispose(this);
+        if(Disposed)return;Disposed=true;Target?.Dispose();program?.Dispose();Surface?.Dispose(this);
     }
-    internal const string VertexShader=@"#version 330 core
-layout(location=0) in vec3 position;
-layout(location=1) in vec3 normal;
-layout(location=2) in vec2 texcoord;
-layout(location=3) in vec4 color;
-uniform mat4 model, view, projection;
-out vec4 vertexColor; out vec2 uv; out vec3 N; out vec3 eyePosition;
-void main(){ vec4 eye=view*model*vec4(position,1); eyePosition=eye.xyz;
-N=mat3(transpose(inverse(view*model)))*normal; uv=texcoord; vertexColor=color;
-gl_Position=projection*eye; }";
-    private const string FragmentShader=@"#version 330 core
-in vec4 vertexColor; in vec2 uv; in vec3 N; in vec3 eyePosition;
-uniform float textured, lit, shininess, imagePremultiplied, replaceMode;
-uniform vec3 ambient, lightColor, lightDirection, specular, emissive, materialAmbient;
-struct Light {float kind;vec3 color,position,direction,falloff,specular;float cutoff,concentration;};
-uniform Light lights[8];uniform int lightCount;
-uniform sampler2D surface;
-out vec4 fragColor;
-void main(){vec4 c=vertexColor; if(textured>0.5){vec4 tex=texture(surface,uv);if(imagePremultiplied>0.5&&tex.a>0)tex.rgb/=tex.a;c*=tex;}
-if(lit>0.5){vec3 n=normalize(N);vec3 l=normalize(-lightDirection);float d=max(dot(n,l),0);
-vec3 v=normalize(-eyePosition);float s=d>0?pow(max(dot(n,normalize(l+v)),0),shininess):0;
-vec3 diffuseLight=vec3(0);vec3 specularLight=vec3(0);
-for(int i=0;i<lightCount;i++){Light light=lights[i];vec3 delta=light.position-eyePosition;
-vec3 L=light.kind<0.5?normalize(-light.direction):normalize(delta);float distanceToLight=length(delta);
-float attenuation=light.kind<0.5?1.0:1.0/max(dot(light.falloff,vec3(1,distanceToLight,distanceToLight*distanceToLight)),0.0001);
-if(light.kind>1.5){float spot=dot(normalize(light.direction),-L);attenuation*=spot>=light.cutoff?pow(max(spot,0),light.concentration):0;}
-float lambert=max(dot(n,L),0);diffuseLight+=light.color*lambert*attenuation;
-float highlight=lambert>0?pow(max(dot(n,normalize(L+v)),0),shininess):0;specularLight+=light.specular*highlight*attenuation;}
-c.rgb=c.rgb*(ambient*materialAmbient+diffuseLight)+specular*specularLight+emissive;}
-if(replaceMode>0.5)c.rgb*=c.a;fragColor=c; }";
 }
-
 internal sealed class ProcessingImage {
     internal readonly GraphicsRuntime Owner;
     internal int Width,Height;
     internal byte[] Bytes;
-    internal int Texture;
+    internal WgpuTexture? GpuTexture;
     internal bool Dirty=true,Flipped,Disposed,Premultiplied;
     internal ModuleObj Module;
     private ProcessingImage(GraphicsRuntime owner,int w,int h) {
@@ -275,14 +185,11 @@ internal sealed class ProcessingImage {
     }
     internal static ProcessingImage Create(GraphicsRuntime owner,int w,int h) => new(owner,w,h);
     internal void Upload(ProcessingCanvas canvas) {
-        if(Disposed) throw new ArgumentException("Image has been disposed.");
-        if(Texture==0) { var ids=GraphicsRuntime.Numbers(0); canvas.GL("glGenTextures",1,ids); Texture=GraphicsRuntime.Int(ids.Elements[0]); }
-        if(!Dirty) return;
-        using var data=new DataObject(Bytes.Length,Owner); Marshal.Copy(Bytes,0,data.Handle,Bytes.Length);
-        canvas.GL("glBindTexture",0x0DE1,Texture); canvas.GL("glPixelStorei",0x0CF5,1);
-        canvas.GL("glTexImage2D",0x0DE1,0,0x8058,Width,Height,0,0x1908,0x1401,data);
-        canvas.GL("glTexParameteri",0x0DE1,0x2801,0x2601); canvas.GL("glTexParameteri",0x0DE1,0x2800,0x2601);
-        canvas.GL("glTexParameteri",0x0DE1,0x2802,0x812F); canvas.GL("glTexParameteri",0x0DE1,0x2803,0x812F); Dirty=false;
+        if(Disposed)throw new ArgumentException("Image has been disposed.");
+        if(GpuTexture!=null&&(GpuTexture.Width!=Width||GpuTexture.Height!=Height)) {GpuTexture.Dispose();GpuTexture=null;}
+        GpuTexture??=new WgpuTexture(canvas.Device,Width,Height);
+        if(!Dirty)return;
+        GpuTexture.Upload(Bytes);Dirty=false;
     }
-    internal void Dispose(ProcessingCanvas canvas) { if(Disposed)return; Disposed=true; if(Texture!=0)canvas.GL("glDeleteTextures",1,GraphicsRuntime.Numbers(Texture)); }
+    internal void Dispose(ProcessingCanvas canvas) {if(Disposed)return;Disposed=true;GpuTexture?.Dispose();GpuTexture=null;}
 }

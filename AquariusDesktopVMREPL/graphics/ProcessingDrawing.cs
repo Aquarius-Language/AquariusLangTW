@@ -115,7 +115,7 @@ internal sealed partial class GraphicsRuntime {
         Draw("smooth",0,1,a=> {if(a.Length==1)Choice(a[0],2,4,8);c.Smooth=true;c.Bind();});Draw("noSmooth",0,0,_=> {c.Smooth=false;c.Bind();});
         Draw("clip",4,4,a=> {c.Clip=new(F(a[0]),F(a[1]),Positive(a[2]),Positive(a[3]));c.Bind();});
         Draw("noClip",0,0,_=> {c.Clip=null;c.Bind();});
-        Draw("blendMode",1,1,a=> {int mode=Choice(a[0],0,1,2,3,4);c.GL("glBlendEquation",0x8006);c.GL("glBlendFunc",mode switch{2=>0x0306,3=>1,4=>1,_=>0x0302},mode switch{1=>1,2=>0,3=>0x0301,4=>0,_=>0x0303});c.BlendMode=mode;});
+        Draw("blendMode",1,1,a=>c.BlendMode=Choice(a[0],0,1,2,3,4));
     }
     private static int Detail(IObject o) {int d=Int(o);if(d<3||d>512)throw new ArgumentException("Detail must be 3..512.");return d;}
 }
@@ -163,13 +163,9 @@ internal sealed partial class ProcessingCanvas {
         if(kind==8){if(Vertices.Count%2!=0)throw new ArgumentException("QUAD_STRIP requires pairs of vertices.");for(int i=2;i+1<Vertices.Count;i+=2){Tri(i-2,i-1,i+1);Tri(i-2,i+1,i);}}
         if(kind==9&&Vertices.Count>=3)foreach(int i in ProcessingGeometry.Triangulate(Vertices.Select(v=>v.Position).ToArray()))triangles.Add(Vertices[i]);
         if(Style.HasFill&&Contours.Count>0) {
-            Bind();GL("glEnable",0x0B90);GL("glStencilMask",255);GL("glClearStencil",0);GL("glClear",0x0400);
-            try {
-                GL("glColorMask",false,false,false,false);GL("glDepthMask",false);GL("glStencilFunc",0x0207,1,255);GL("glStencilOp",0x1E00,0x1E00,0x1E01);Draw(triangles,lit:false);
-                GL("glStencilFunc",0x0207,0,255);
-                foreach(var contour in Contours){var mesh=ProcessingGeometry.Triangulate(contour.Select(v=>v.Position).ToArray()).Select(i=>contour[i]).ToArray();Draw(mesh,lit:false);}
-                GL("glColorMask",true,true,true,true);GL("glDepthMask",true);GL("glStencilFunc",0x0202,1,255);GL("glStencilOp",0x1E00,0x1E00,0x1E00);Draw(triangles,image:Texture);
-            }finally{GL("glColorMask",true,true,true,true);GL("glDepthMask",true);GL("glDisable",0x0B90);}
+            Bind();Target.ClearStencil();Draw(triangles,lit:false,stencilMode:1);
+            foreach(var contour in Contours){var mesh=ProcessingGeometry.Triangulate(contour.Select(v=>v.Position).ToArray()).Select(i=>contour[i]).ToArray();Draw(mesh,lit:false,stencilMode:2);}
+            Draw(triangles,image:Texture,stencilMode:3);
         } else if(Style.HasFill)Draw(triangles,image:Texture);
         if(Style.HasStroke) {
             if(kind==9)Polyline(Vertices.Select(v=>v.Position).ToArray(),close);

@@ -25,6 +25,7 @@ internal sealed partial class GraphicsRuntime : IDisposable {
         RegisterMath();
         RegisterImages();
         RegisterProcessing();
+        RegisterWgpu();
     }
     internal bool TryImport(string name, out ModuleObj module) => modules.TryGetValue(name, out module!);
     private AquaEnvironment Module(string name) {
@@ -142,6 +143,7 @@ internal sealed partial class GraphicsRuntime : IDisposable {
     public void Dispose() {
         if (disposed) return;
         DisposeProcessing();
+        foreach(var device in wgpuDevices.Values)device.Dispose();wgpuDevices.Clear();
         foreach (var buffer in buffers) buffer.Dispose();
         buffers.Clear();
         Terminate(); disposed = true;
@@ -149,6 +151,8 @@ internal sealed partial class GraphicsRuntime : IDisposable {
     private void Terminate() {
         lock (Gate) {
             if (active != this) return;
+            // The wgpu surface must be released before GLFW destroys its native window.
+            if(sketchWindow!=null) {DisposeProcessing();sketchWindow=null;sketchClock.Stop();}
             foreach (var window in windows) { Native.aqua_destroy(window.Handle); window.Handle = IntPtr.Zero; }
             windows.Clear(); current = null; loaded = false; functions.Clear();
             Native.aqua_terminate(); active = null;

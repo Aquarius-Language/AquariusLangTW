@@ -2,7 +2,7 @@
 
 Six animated panels demonstrate shapes and transforms, curves and seeded noise,
 mutable RGBA images and Unicode text, interactive particles and PVector math,
-offscreen P3D lighting, and a custom GLSL fragment shader.
+offscreen P3D lighting, and a custom WGSL fragment shader.
 
 ![Showcase](preview.png)
 

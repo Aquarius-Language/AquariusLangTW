@@ -1,4 +1,4 @@
-# Processing-style creative coding, powered by Aquarius OpenGL 3.3.
+# Processing-style creative coding, powered by Aquarius wgpu.
 # Space: pause. Mouse: attract particles. S: save a PNG. Esc: exit.
 變數 畫 = 匯入("Processing");
 變數 時間 = 0.0d;
@@ -63,19 +63,23 @@
     # A P3D canvas can be drawn as an image inside the P2D sketch.
     立體 = 畫.createGraphics(326, 204, 畫.P3D);
     # Custom fragment shader uses the default vertex shader's uv/color outputs.
-    特效 = 畫.createShader("#version 330 core
-layout(location=0) in vec3 position;
-uniform mat4 model, view, projection;
-out vec2 uv;
-void main(){ uv=position.xy/vec2(326,174);gl_Position=projection*view*model*vec4(position,1);}",
-"#version 330 core
-in vec2 uv;
-uniform float time;
-out vec4 fragColor;
-void main(){vec2 p=(uv-0.5)*vec2(1.85,1.0);float r=length(p);float a=atan(p.y,p.x);
-float wave=0.5+0.5*sin(24*r-4*time+3*cos(3*a+time));
-vec3 c=mix(vec3(0.10,0.25,0.45),vec3(0.25,0.95,0.83),wave);
-c=mix(c,vec3(0.72,0.40,1.0),0.5+0.5*sin(4*a-2*time));fragColor=vec4(c,1);}");
+    特效 = 畫.createShader("@vertex fn vs_main(input: VertexInput) -> VertexOutput {
+    var output: VertexOutput;
+    var clip = processing.projection * processing.view * processing.model * vec4<f32>(input.position,1.0);
+    clip.z = (clip.z + clip.w) * 0.5;
+    output.position = clip; output.uv = input.position.xy / vec2<f32>(326.0,174.0);
+    output.vertexColor = input.color; output.normal = input.normal; output.eyePosition = input.position;
+    return output;
+}",
+"struct UserUniforms { time: f32, };
+@group(1) @binding(0) var<uniform> user: UserUniforms;
+@fragment fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
+    let p = (input.uv - 0.5) * vec2<f32>(1.85,1.0); let r = length(p); let a = atan2(p.y,p.x);
+    let wave = 0.5 + 0.5*sin(24.0*r-4.0*user.time+3.0*cos(3.0*a+user.time));
+    var c = mix(vec3<f32>(0.10,0.25,0.45),vec3<f32>(0.25,0.95,0.83),wave);
+    c = mix(c,vec3<f32>(0.72,0.40,1.0),0.5+0.5*sin(4.0*a-2.0*user.time));
+    return vec4<f32>(c,1.0);
+}");
     印出("Space 暫停 | 滑鼠吸引粒子 | S 儲存 PNG | Esc 離開");
 };
 
@@ -91,7 +95,7 @@ c=mix(c,vec3(0.72,0.40,1.0),0.5+0.5*sin(4*a-2*time));fragColor=vec4(c,1);}");
     畫.text("A little code. A living canvas.", 34, 87);
     畫.fill(143, 164, 189);
     畫.textSize(15);
-    畫.text("OpenGL-powered shapes, pixels, typography, motion, 3D and programmable light.", 36, 120);
+    畫.text("wgpu-powered shapes, pixels, typography, motion, 3D and programmable light.", 36, 120);
 
     卡片(28, 146, 336, 286);
     卡片(382, 146, 336, 286);
@@ -104,7 +108,7 @@ c=mix(c,vec3(0.72,0.40,1.0),0.5+0.5*sin(4*a-2*time));fragColor=vec4(c,1);}");
     標題("03  /  PImage + typography", 754, 180);
     標題("04  /  Motion + interaction", 46, 484);
     標題("05  /  PGraphics + P3D", 400, 484);
-    標題("06  /  GLSL fragment shader", 754, 484);
+    標題("06  /  WGSL fragment shader", 754, 484);
 
     # Color modes, ellipses, arcs, concave polygon and retained geometry.
     畫.push();

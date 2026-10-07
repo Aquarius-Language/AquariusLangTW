@@ -21,6 +21,7 @@ internal static class Native {
     [DllImport(Library, CallingConvention = CallingConvention.Cdecl)] internal static extern IntPtr aqua_error();
     [DllImport(Library, CallingConvention = CallingConvention.Cdecl)] internal static extern void aqua_hint(int name, int value);
     [DllImport(Library, CallingConvention = CallingConvention.Cdecl)] internal static extern IntPtr aqua_window(int w, int h, [MarshalAs(UnmanagedType.LPUTF8Str)] string title);
+    [DllImport(Library, CallingConvention = CallingConvention.Cdecl)] internal static extern int aqua_wgpu_handles(IntPtr window, out IntPtr display, out IntPtr handle);
     [DllImport(Library, CallingConvention = CallingConvention.Cdecl)] internal static extern void aqua_destroy(IntPtr window);
     [DllImport(Library, CallingConvention = CallingConvention.Cdecl)] internal static extern void aqua_current(IntPtr window);
     [DllImport(Library, CallingConvention = CallingConvention.Cdecl)] internal static extern int aqua_load();

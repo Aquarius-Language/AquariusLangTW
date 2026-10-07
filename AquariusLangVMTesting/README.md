@@ -19,7 +19,10 @@ imports and callbacks.
 - `desktop/runtime/BottleCliSmokeTest.cs` launches the desktop executable in a
   separate process to check `-c`, `-cr`, later execution, entry selection, output,
   exit codes, invalid options and existing REPL/source/disassembly commands.
-- `desktop/graphics/` covers OpenGL and Processing, with optional GPU integration.
+- `desktop/graphics/` covers OpenGL, WGPU and Processing, with optional GPU integration.
+  `WgpuTest.cs` checks imports, WGSL uniform layout, clipping, example parsing,
+  GPU rendering/compute/readback, resource ownership and cleanup, plus separate
+  CLI source/bottle smoke runs. Processing integration now exercises wgpu.
 
 The desktop assembly grants the test assembly access to internal graphics types
 through `InternalsVisibleTo`. Examples and native runtime assets arrive through
@@ -39,15 +42,23 @@ dotnet test AquariusLangVMTesting -c Release -m:1
 dotnet test AquariusLangVMTesting -c Release -m:1 --filter 'FullyQualifiedName~BytecodeSerializerTest|FullyQualifiedName~Bottle'
 ```
 
-The existing external-process test requires `python` on PATH. Enable native GPU
-integration tests, including Processing callbacks and the showcase, with:
+The existing external-process test requires `python` on PATH. Enable GPU
+integration tests, including wgpu compute/rendering, Processing callbacks and
+the showcase, and the retained raw OpenGL library, with:
 
 ```powershell
 ./native/build.ps1
 $env:AQUARIUS_OPENGL_TESTS = '1'
+$env:AQUARIUS_WGPU_TESTS = '1'
 dotnet test AquariusLangVMTesting -c Release -m:1 --filter FullyQualifiedName~AquariusREPL.Graphics
-Remove-Item Env:AQUARIUS_OPENGL_TESTS
+Remove-Item Env:AQUARIUS_OPENGL_TESTS,Env:AQUARIUS_WGPU_TESTS
 ```
+
+WGPU headless tests require a wgpu adapter and the NuGet-provided runtime;
+Processing additionally requires the rebuilt GLFW bridge and a desktop.
+Without those opt-in flags, GPU tests are skipped explicitly. Module import,
+uniform layout, example parsing and CLI disassembly tests run without GPU initialization.
+See [the wgpu guide](../AquariusDesktopVMREPL/graphics/WGPU.md).
 
 An opt-in benchmark measures VM execution for an integer loop, recursive Fibonacci
 and closures with array writes. It verifies known numeric results, warms up the

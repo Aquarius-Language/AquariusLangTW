@@ -10,6 +10,7 @@ internal sealed partial class GraphicsRuntime {
     private ProcessingCanvas screen=null!;
     private AquaEnvironment processing=null!;
     private WindowObject? sketchWindow;
+    private WgpuDevice? processingDevice;
     private readonly List<ProcessingCanvas> canvases=new();
     private readonly Dictionary<ModuleObj,ProcessingImage> images=new();
     private readonly Dictionary<string,IObject> events=new();
@@ -49,7 +50,8 @@ internal sealed partial class GraphicsRuntime {
     }
     private void RegisterProcessing() {
         processing=Module("Processing");
-        screen=new ProcessingCanvas(this,CallGl,640,480,false); screen.Module=modules["Processing"];
+        screen=new ProcessingCanvas(this,640,480,false); screen.Module=modules["Processing"];
+        processing.Create("backend",new StringObj("wgpu"));
         RegisterCanvas(processing,screen); RegisterProcessingMath(processing);
         foreach(var pair in new Dictionary<string,int>{["CORNER"]=0,["CORNERS"]=1,["CENTER"]=2,["RADIUS"]=3,
             ["RGB"]=0,["HSB"]=1,["ARGB"]=2,["OPEN"]=0,["CHORD"]=1,["PIE"]=2,["CLOSE"]=1,
@@ -79,11 +81,11 @@ internal sealed partial class GraphicsRuntime {
         PBind(processing,"keyDown",1,1,a=>{RequireSketch();int code=Int(a[0]);if(!ValidKey(code))throw new ArgumentException("Invalid GLFW key code.");return new BooleanObj(Native.aqua_key(sketchWindow!.Handle,code)==1);});
         PBind(processing,"createGraphics",2,3,a=> {
             RequireSketch(); int w=Dimension(a[0]),h=Dimension(a[1]); bool threeD=a.Length==3&&Renderer(a[2]);
-            var canvas=new ProcessingCanvas(this,CallGl,w,h,threeD); canvas.Module=new ModuleObj(AquaEnvironment.NewEnvironment());
-            canvas.Initialize(true); canvases.Add(canvas); RegisterCanvas(canvas.Module._Environment,canvas);
+            var canvas=new ProcessingCanvas(this,w,h,threeD); canvas.Module=new ModuleObj(AquaEnvironment.NewEnvironment());
+            canvas.Initialize(processingDevice!,true); canvases.Add(canvas); RegisterCanvas(canvas.Module._Environment,canvas);
             images[canvas.Module]=canvas.Surface!; canvas.Module._Environment.Create("width",N(w));canvas.Module._Environment.Create("height",N(h));
             PAction(canvas.Module._Environment,"beginDraw",0,0,_=> { if(canvas.Drawing)throw new InvalidOperationException("beginDraw() is already active.");canvas.Drawing=true;canvas.Model=Matrix4x4.Identity;canvas.Bind(); });
-            PAction(canvas.Module._Environment,"endDraw",0,0,_=> { canvas.RequireDrawing();canvas.Drawing=false;screen.Bind(); });
+            PAction(canvas.Module._Environment,"endDraw",0,0,_=> { canvas.RequireDrawing();canvas.Target.Flush();canvas.Drawing=false;screen.Bind(); });
             screen.Bind();return canvas.Module;
         });
         PBind(processing,"createImage",2,3,a=> {int format=a.Length==3?Choice(a[2],0,2):2;var image=ProcessingImage.Create(this,Dimension(a[0]),Dimension(a[1]));if(format==0)for(int i=3;i<image.Bytes.Length;i+=4)image.Bytes[i]=255;return RegisterImage(image).Module; });
@@ -101,19 +103,19 @@ internal sealed partial class GraphicsRuntime {
     }
     private void Size(int w,int h,string renderer,string title) {
         if(sketchWindow!=null)throw new InvalidOperationException("size() can only be called once per sketch.");
-        if(screen.Disposed){screen=new ProcessingCanvas(this,CallGl,640,480,false);screen.Module=modules["Processing"];RegisterCanvas(processing,screen);}
+        if(screen.Disposed){screen=new ProcessingCanvas(this,640,480,false);screen.Module=modules["Processing"];RegisterCanvas(processing,screen);}
         w=Dimension(N(w));h=Dimension(N(h));bool threeD=Renderer(new StringObj(renderer));
         if(windows.Count!=0)throw new InvalidOperationException("Close raw GLFW windows before starting a Processing sketch.");
         try {
-            CallModule("GLFW","Init"); CallModule("GLFW","WindowHint",N(0x2100D),N(4));
+            CallModule("GLFW","Init"); CallModule("GLFW","WindowHint",N(0x22001),N(0));
             sketchWindow=(WindowObject)CallModule("GLFW","CreateWindow",N(w),N(h),new StringObj(title));
-            CallModule("GLFW","MakeContextCurrent",sketchWindow); CallModule("GLAD","Load"); CallModule("GLFW","SwapInterval",N(1));
+            processingDevice=new WgpuDevice(sketchWindow.Handle);
             screen.Width=screen.PixelWidth=w;screen.Height=screen.PixelHeight=h;screen.Is3D=threeD;screen.DefaultCamera();screen.Drawing=true;
             Native.aqua_framebuffer(sketchWindow.Handle,out screen.PixelWidth,out screen.PixelHeight);
-            screen.Initialize(); sketchClock.Restart();System.Array.Clear(keys,0,keys.Length);previousMouse=false;previousX=previousY=0;UpdateState();
-        } catch { CloseSketch();throw; }
+            screen.Initialize(processingDevice); sketchClock.Restart();System.Array.Clear(keys,0,keys.Length);previousMouse=false;previousX=previousY=0;UpdateState();
+        } catch { CloseSketch();Terminate();throw; }
     }
-    private void RequireSketch() { if(sketchWindow==null||screen.Disposed)throw new InvalidOperationException("Call Processing.size() first."); RequireGl(); }
+    private void RequireSketch() { if(sketchWindow==null||screen.Disposed||processingDevice==null)throw new InvalidOperationException("Call Processing.size() first."); RequireInit();processingDevice.RequireLive(); }
     private static void ValidateCallback(IObject o) { if(o is not FunctionObj && o is not BuiltinObj)throw new ArgumentException("Expected a function callback."); if(o is FunctionObj f&&f.Parameters.Length!=0)throw new ArgumentException("Sketch callbacks must have zero parameters; read event fields from Processing."); }
     private void Callback(IObject callback) {
         if(InvokeAqua==null)throw new InvalidOperationException("This host does not support sketch callbacks.");
@@ -157,7 +159,7 @@ internal sealed partial class GraphicsRuntime {
         screen.Model=Matrix4x4.Identity; screen.Matrices.Clear();screen.Style.Lit=false;screen.Style.Lights.Clear();screen.Style.Ambient=Vector3.Zero;
         UpdateState(); if(resized)Event("windowResized"); PollInput();screen.Bind();
     }
-    private void EndFrame() { RequireSketch();if(screen.ShapeMode!=-1)throw new InvalidOperationException("Unfinished beginShape() at end of frame.");screen.Bind();Native.aqua_swap(sketchWindow!.Handle); }
+    private void EndFrame() { RequireSketch();if(screen.ShapeMode!=-1)throw new InvalidOperationException("Unfinished beginShape() at end of frame.");if(screen.PixelWidth<=0||screen.PixelHeight<=0)return;screen.Bind();processingDevice!.Present(screen.Target); }
     private void UpdateState() {
         processing.Create("width",N(screen.Width));processing.Create("height",N(screen.Height));
         processing.Create("pixelWidth",N(screen.PixelWidth));processing.Create("pixelHeight",N(screen.PixelHeight)); processing.Create("frameCount",N(frameCount));
@@ -192,9 +194,10 @@ internal sealed partial class GraphicsRuntime {
         try { DisposeProcessing(); } finally { Terminate();sketchWindow=null;sketchClock.Stop(); }
     }
     private void DisposeProcessing() {
-        if(sketchWindow==null||!loaded)return;
+        if(sketchWindow==null)return;
         foreach(var canvas in canvases)canvas.Dispose();canvases.Clear();
-        foreach(int program in processingShaders.Values)CallGl("glDeleteProgram",N(program));processingShaders.Clear();
+        foreach(var program in processingShaders.Values)program.Dispose();processingShaders.Clear();
         foreach(var image in images.Values.Distinct())image.Dispose(screen);images.Clear();screen.Dispose();
+        processingDevice?.Dispose();processingDevice=null;
     }
 }

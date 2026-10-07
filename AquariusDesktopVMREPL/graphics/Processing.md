@@ -1,8 +1,8 @@
 # Processing for Aquarius
 
 `匯入("Processing")` provides a creative-coding library backed by the desktop
-host's OpenGL 3.3 core bindings. It generates geometry, GLSL shaders, textures
-and framebuffers; applications do not need to manage OpenGL handles.
+host's wgpu backend. It generates geometry, WGSL pipelines, GPU textures and
+render targets. GLFW supplies windows/input; wgpu owns rendering/presentation.
 Importing the module, doing math, creating vectors, constructing retained shapes,
 editing PImages and using color functions do not initialize GLFW.
 
@@ -34,7 +34,7 @@ Setup, draw and event callbacks execute their compiled bodies through
 `VmEvaluator.Invoke`; captured variables persist across callback invocations.
 Call `size(width,height[,renderer[,title]])` in setup, or
 `fullScreen([renderer[,title]])` to use the primary monitor. Renderers are `P2D`
-and `P3D`. Both use OpenGL; P2D has a top-left origin and positive Y downwards.
+and `P3D`. Both use wgpu; P2D has a top-left origin and positive Y downwards.
 P3D starts with Processing-style screen coordinates and a perspective camera.
 Angles are radians. Default styles are white fill, black stroke, weight 1,
 `rectMode(CORNER)`, `ellipseMode(CENTER)`, `imageMode(CORNER)` and RGB 0–255.
@@ -75,7 +75,7 @@ Optional arguments are shown in brackets.
 | Pixels | `loadPixels()`, `updatePixels()`, `get()` / `get(x,y)` / `get(x,y,w,h)`, `set(x,y,colorOrImage)`, `filter(mode[,parameter])`, `save(path)`, `saveFrame(pathWithHashes)` |
 | Text | `createFont(systemName,size)`, `textFont(fontOrName[,size])`, `textSize(size)`, `textLeading(n)`, `textAlign(horizontal[,vertical])`, `text(value,x,y[,z])` / `text(value,x,y,w,h)`, `textWidth(value)`, `textAscent()`, `textDescent()` |
 | Reusable graphics | `createGraphics(w,h[,P2D or P3D])`, `createShape()`, `shape(pshape[,x,y])` |
-| GLSL | `createShader(vertexSource,fragmentSource)`, `loadShader(fragmentPath[,vertexPath])`, `shader(pshader)`, `resetShader()` |
+| WGSL | `createShader(vertexSource,fragmentSource)`, `loadShader(fragmentPath[,vertexPath])`, `shader(pshader)`, `resetShader()` |
 
 `fill`, `stroke`, `background`, `tint`, `color`, and material colors accept
 grayscale, grayscale/alpha, RGB or HSB triples, quadruples with alpha, or packed
@@ -173,16 +173,16 @@ This retained subset supports vertex primitives and concave polygons;
 use immediate shapes for curves, contours and textures.
 
 `PShader.set(name,value...)` accepts scalar floats, 2–4 component vectors,
-Booleans, arrays of 1–4 values, or a 16-element matrix. `setInt(name,value)`
-sets integer/sampler uniforms. Shader compile/link errors include the driver log.
-Use GLSL 330 core; vertex attributes are location 0 position (vec3),
-1 normal (vec3), 2 texcoord (vec2), 3 color (vec4).
-Renderer uniforms are `model`, `view`, `projection`, `surface` (sampler2D),
-`textured` and the built-in lighting uniforms. The default vertex shader outputs
-`vertexColor`, `uv`, `N`, and `eyePosition`. Custom fragment shaders should output
-straight RGBA for normal blending. For translucent `REPLACE` output, write
-premultiplied RGB. The showcase contains a complete custom shader example.
-
+arrays of 1–4 values, or a 16-element matrix. `setInt(name,value)` sets integer
+fields. Custom shaders now use WGSL with `vs_main` and `fs_main` entry points.
+Declare custom fields in `UserUniforms` at group 1/binding 0; the renderer's
+shared WGSL header supplies `VertexInput`, `VertexOutput`, `processing`,
+`surface`, and `surfaceSampler`. `loadShader(fragmentPath)` uses the default
+WGSL vertex shader. GLSL shaders need conversion; the raw GL library remains
+available. Shader compile errors include wgpu's validation diagnostic.
+See [the wgpu guide](WGPU.md#processing-migration-and-shaders) for the shader
+interface, uniform types/alignment, and depth convention. The updated showcase
+contains a complete custom WGSL shader.
 ## Math and PVector
 
 Constants: `PI`, `TWO_PI`, `TAU`, `HALF_PI`, `QUARTER_PI`.
@@ -222,6 +222,17 @@ Processing's exact light equations or sorting of translucent 3D surfaces.
 
 ## Showcase and verification
 
+The [color mapping lab](../examples/color_mapping/README.md) is a complete
+Aquarius UI example using Processing shapes, text, PImage pixels, `map`,
+`constrain`, `pow`, `lerpColor`, and input callbacks. It includes four palettes,
+three scalar fields, range/gamma sliders, stepped colors, a pixel probe, and PNG
+export. It redraws on input with `noLoop()` / `redraw()` and scales both the layout
+and pointer coordinates when resized.
+
+```powershell
+dotnet run --project AquariusDesktopVMREPL -- AquariusDesktopVMREPL/examples/color_mapping/main.aqua
+```
+
 Run the [showcase](../examples/processing_showcase/main.aqua):
 
 ```powershell
@@ -240,6 +251,6 @@ dotnet run --project AquariusDesktopVMREPL -- AquariusDesktopVMREPL/examples/pro
 `AQUARIUS_GRAPHICS_FRAMES=0` (or unset) means no limit. Clear these environment
 variables afterwards to return to interactive mode. Headless tests exercise color,
 geometry, transforms, images, vectors, deterministic noise, arguments and parsing.
-Set `AQUARIUS_OPENGL_TESTS=1` to also validate exact framebuffer pixels, contour
+Set `AQUARIUS_WGPU_TESTS=1` to also validate exact framebuffer pixels, contour
 holes, offscreen orientation/alpha, the showcase's shaders/text/lighting, callback
-closure state, GL error status and resource cleanup.
+closure state and resource cleanup. Raw OpenGL tests still use `AQUARIUS_OPENGL_TESTS=1`.

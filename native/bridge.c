@@ -1,6 +1,20 @@
 #include <glad/gl.h>
 #define GLFW_INCLUDE_NONE
 #include <GLFW/glfw3.h>
+#ifdef _WIN32
+#define GLFW_EXPOSE_NATIVE_WIN32
+#elif defined(__APPLE__)
+#define GLFW_EXPOSE_NATIVE_COCOA
+#else
+#ifdef AQUA_GLFW_X11
+#define GLFW_EXPOSE_NATIVE_X11
+#endif
+#ifdef AQUA_GLFW_WAYLAND
+#define GLFW_EXPOSE_NATIVE_WAYLAND
+#endif
+#endif
+#include <GLFW/glfw3native.h>
+#include <stdint.h>
 #include <string.h>
 #define STB_IMAGE_IMPLEMENTATION
 #define STBI_WINDOWS_UTF8
@@ -29,6 +43,26 @@ AQUA GLFWwindow* aqua_window(int w, int h, const char* title) {
     pending_scroll = 0; char_read = char_write = 0;
     if (window) { glfwSetScrollCallback(window, on_scroll); glfwSetCharCallback(window, on_character); }
     return window;
+}
+/* GLFW_NO_API windows let wgpu own rendering and presentation. */
+AQUA int aqua_wgpu_handles(GLFWwindow* window, void** display, void** handle) {
+#ifdef _WIN32
+    *display = GetModuleHandleW(NULL); *handle = glfwGetWin32Window(window); return 1;
+#elif defined(__APPLE__)
+    extern void* aqua_metal_layer(void* window);
+    *display = NULL; *handle = aqua_metal_layer(glfwGetCocoaWindow(window)); return 4;
+#else
+#ifdef AQUA_GLFW_WAYLAND
+    if (glfwGetPlatform() == GLFW_PLATFORM_WAYLAND) {
+        *display = glfwGetWaylandDisplay(); *handle = glfwGetWaylandWindow(window); return 3;
+    }
+#endif
+#ifdef AQUA_GLFW_X11
+    *display = glfwGetX11Display(); *handle = (void*)(uintptr_t)glfwGetX11Window(window); return 2;
+#else
+    *display = NULL; *handle = NULL; return 0;
+#endif
+#endif
 }
 AQUA void aqua_destroy(GLFWwindow* window) { glfwDestroyWindow(window); }
 AQUA void aqua_current(GLFWwindow* window) { glfwMakeContextCurrent(window); }

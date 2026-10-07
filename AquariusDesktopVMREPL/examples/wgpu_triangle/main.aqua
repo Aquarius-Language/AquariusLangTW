@@ -1,0 +1,26 @@
+# Headless WGSL rendering and GPU readback. Saves a PNG beside this script.
+變數 GPU = 匯入("WGPU");
+變數 裝置 = GPU.CreateDevice();
+變數 畫布 = 裝置.CreateRenderTarget(257, 193);
+變數 著色器 = 裝置.CreateShader(
+"@vertex fn vs_main(input: VertexInput) -> VertexOutput {
+    var output: VertexOutput;
+    output.position = vec4<f32>(input.position, 1.0);
+    output.vertexColor = input.color; output.uv = input.texcoord;
+    output.normal = input.normal; output.eyePosition = input.position;
+    return output;
+}",
+"@fragment fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> { return input.vertexColor; }");
+畫布.Clear([0.05d, 0.08d, 0.15d, 1]);
+# position XYZ, normal XYZ, UV, color RGBA (12 floats per vertex).
+畫布.Draw(著色器, [
+     0,    0.8d, 0, 0,0,1, 0.5d,0, 1,0.2d,0.3d,1,
+    -0.8d,-0.8d, 0, 0,0,1, 0,1,    0.1d,0.9d,0.6d,1,
+     0.8d,-0.8d, 0, 0,0,1, 1,1,    0.2d,0.4d,1,1
+]);
+變數 像素 = 畫布.ReadPixels();
+畫布.Save(目前工作目錄 + "/wgpu-triangle.png");
+印出("wgpu triangle:", 裝置.Backend, 像素[24800]);
+如果 (像素[24800] == 像素[0]) { GPU繪圖失敗; }
+裝置.Dispose();
+真;

@@ -19,12 +19,17 @@ Aquarius functions passed to Processing run as compiled VM callbacks through
 | `GL` | Every generated core function, constants, typed data and shader helpers |
 | `GLM` | GLM-style math implemented with .NET System.Numerics; no C++ GLM dependency |
 | `STBImage` | stb_image 2.30; PNG/JPEG/BMP/TGA/PNM and other supported formats |
-| `Processing` | Processing-style 2D/3D drawing, sketch loop/input, images/pixels/text, offscreen canvases, retained shapes, lights/materials and GLSL shaders |
+| `WGPU` / `wgpu` | Pinned wgpu-native/Silk.NET backend, WGSL rendering/compute, GPU buffers and pixel readback |
+| `Processing` | wgpu 2D/3D drawing, sketch loop/input, images/pixels/text, offscreen canvases, retained shapes, lights/materials and WGSL shaders |
 
 See the [Processing API guide](../AquariusDesktopVMREPL/graphics/Processing.md)
 and [interactive showcase](../AquariusDesktopVMREPL/examples/processing_showcase/README.md).
 Rebuild the native library when updating to this module: its event loop uses
-new bridge exports for window size, character input, wheel input and fullscreen.
+new bridge exports for window size, character input, wheel input, fullscreen,
+and native window handles. Processing creates a GLFW_NO_API window and presents
+through wgpu; OpenGL continues to use its existing context and GLAD loader.
+See [the wgpu guide](../AquariusDesktopVMREPL/graphics/WGPU.md). NuGet supplies
+wgpu-native binaries; headless WGPU scripts do not require this GLFW bridge.
 
 ## Build
 
@@ -196,12 +201,16 @@ with transpose=`假`. `Multiply(a,b)` means `a * b` for GLSL column vectors;
 ```powershell
 dotnet test AquariusLang.sln
 $env:AQUARIUS_OPENGL_TESTS = '1'
+$env:AQUARIUS_WGPU_TESTS = '1'
 dotnet test AquariusLangVMTesting --filter FullyQualifiedName~AquariusREPL.Graphics
+Remove-Item Env:AQUARIUS_OPENGL_TESTS,Env:AQUARIUS_WGPU_TESTS
 ```
 
 Native GPU integration is opt-in so normal tests work without a display/driver
 or installed graphics binary. It runs the Aquarius cube, checks a framebuffer
 capture and zero GL errors, then reinitializes GLFW to check resource cleanup.
+The wgpu suite also checks compute, WGSL rendering, Processing pixel behavior,
+and source/bottle CLI smoke runs; see the [wgpu guide](../AquariusDesktopVMREPL/graphics/WGPU.md).
 The existing `TestExecuteFile` additionally requires a `python` executable
 visible on PATH.
 

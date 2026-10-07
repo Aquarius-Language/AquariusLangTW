@@ -1,4 +1,4 @@
-﻿# 星泉（AquariusLang）
+# 星泉（AquariusLang）
 
 以 C# 實作的程式語言，將原始碼編譯為位元碼，再由堆疊虛擬機（VM）執行，
 支援中文變數、函式與參數名稱。
@@ -69,7 +69,7 @@ VSCode 擴充套件: https://marketplace.visualstudio.com/items?itemName=aquariu
 遞迴不累積 C# 呼叫堆疊。閉包保留定義時的環境；REPL 在多次輸入之間保留全域變數。
 完整方案的 VM 核心、桌面入口、測試與語言伺服器皆以 .NET 8（`net8.0`）為目標框架。
 
-`AquariusDesktopVMREPL` 提供桌面內建函式、腳本匯入與擴充函式庫，包含 OpenGL 與 Processing；
+`AquariusDesktopVMREPL` 提供桌面內建函式、腳本匯入與擴充函式庫，包含 wgpu、OpenGL 與 Processing；
 匯入的腳本及 Processing 回呼也透過 VM 執行。
 詳細架構請見 [VM 核心](AquariusLangVM/README.md) 與 [VM 桌面入口](AquariusDesktopVMREPL/README.md)。
 
@@ -182,12 +182,25 @@ dotnet run --project AquariusDesktopVMREPL -- AquariusDesktopVMREPL/examples/ope
 按 **Esc** 離開、**空白鍵**暫停／繼續旋轉；支援調整視窗大小。
 建置、平台限制、API 與測試說明請見 [圖學支援指南](native/README.md)。
 
+## wgpu 圖學與 GPU 計算
+
+桌面 VM 新增 `匯入("WGPU")`（也接受 `匯入("wgpu")`），提供原生 GPU 裝置、
+float32 儲存緩衝區、WGSL 計算、離屏三角形繪圖、像素讀回與 PNG 輸出。
+wgpu-native 隨 NuGet 還原與發佈；不開視窗的範例不需建置 GLFW 橋接。
+
+```powershell
+dotnet run --project AquariusDesktopVMREPL -- AquariusDesktopVMREPL/examples/wgpu_compute/main.aqua
+dotnet run --project AquariusDesktopVMREPL -- AquariusDesktopVMREPL/examples/wgpu_triangle/main.aqua
+```
+
+Processing 的 P2D/P3D 後端也改用 wgpu，自訂著色器改為 WGSL；原有 OpenGL 函式庫保留。
+API、遷移與測試方式請見 [wgpu 使用指南](AquariusDesktopVMREPL/graphics/WGPU.md)。
 ## Processing 風格繪圖函式庫
 
-桌面 VM 的 `匯入("Processing")` 提供以 OpenGL 3.3 實作的創意程式設計 API：
+桌面 VM 的 `匯入("Processing")` 提供以 wgpu 實作的創意程式設計 API：
 2D 圖形、曲線、多邊形與孔洞、顏色、矩陣與樣式堆疊、圖片與像素、文字、
 PGraphics 離屏畫布、PShape 可重用圖形、3D 立方體／球體、光源與材質、
-GLSL 著色器、滑鼠／鍵盤事件、動畫迴圈、亂數、Perlin noise 與 PVector。
+WGSL 著色器、滑鼠／鍵盤事件、動畫迴圈、亂數、Perlin noise 與 PVector。
 
 ```powershell
 ./native/build.ps1
@@ -196,6 +209,13 @@ dotnet run --project AquariusDesktopVMREPL -- AquariusDesktopVMREPL/examples/pro
 
 [六面板展示](AquariusDesktopVMREPL/examples/processing_showcase/README.md)
 支援空白鍵暫停、滑鼠吸引粒子、S 儲存 PNG、Esc 離開。
+另有 [色彩映射 UI 範例](AquariusDesktopVMREPL/examples/color_mapping/README.md)，
+以互動式色票、輸入範圍與 Gamma 滑桿、分段色階及游標探針，展示純星泉繪製的桌面介面：
+
+```powershell
+dotnet run --project AquariusDesktopVMREPL -- AquariusDesktopVMREPL/examples/color_mapping/main.aqua
+```
+
 完整 API 與和 Java Processing 的差異請見
 [Processing 使用指南](AquariusDesktopVMREPL/graphics/Processing.md)。
 
