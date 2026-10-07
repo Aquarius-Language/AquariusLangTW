@@ -16,12 +16,13 @@ public class Interpreter {
     /// Read, Evaluate, Print, Loop.
     /// </summary>
     public static void REPL() {
-        DesktopBuiltins desktopBuiltins = newDefaultBuiltins("");
+        using DesktopBuiltins desktopBuiltins = newDefaultBuiltins("");
         
         while (true) {
             Console.Write(PROMPT);
             
             string? line = Console.ReadLine();
+            if (line == null) return;
             Lexer lexer = Lexer.NewInstance(line);
             Parser parser = Parser.NewInstance(lexer);
             AbstractSyntaxTree tree = parser.ParseAST();
@@ -48,7 +49,7 @@ public class Interpreter {
     /// </summary>
     /// <param name="fileName">Path of file.</param>
     public static IObject Interpret(string fileName) {
-        DesktopBuiltins desktopBuiltins = newDefaultBuiltins(fileName);
+        using DesktopBuiltins desktopBuiltins = newDefaultBuiltins(fileName);
         
         string contents = File.ReadAllText(fileName);
         Lexer lexer = Lexer.NewInstance(contents);

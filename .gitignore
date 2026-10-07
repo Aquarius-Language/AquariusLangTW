@@ -7,3 +7,7 @@ node_modules/
 editors/vscode/dist/
 editors/vscode/server/
 *.vsix
+.graphics-build/
+native/build/
+AquariusDesktopInterpretedREPL/runtimes/
+/dist

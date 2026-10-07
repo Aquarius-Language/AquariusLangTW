@@ -7,10 +7,12 @@ using AquariusLang.Object;
 using AquariusLang.parser;
 using AquariusLang.utils;
 using Environment = AquariusLang.Object.Environment;
+using AquariusREPL.Graphics;
 
 namespace AquariusREPL;
 
-public class DesktopBuiltins : Builtins {
+public class DesktopBuiltins : Builtins, IDisposable {
+    private readonly GraphicsRuntime graphics = new();
     public DesktopBuiltins() {
         builtinFuncs = new Dictionary<string, BuiltinObj> {
             {
@@ -91,6 +93,7 @@ public class DesktopBuiltins : Builtins {
                     if (argsCountMatch != null) return argsCountMatch;
                     
                     if (args[0] is StringObj stringObj) {
+                        if (graphics.TryImport(stringObj.Value, out ModuleObj nativeModule)) return nativeModule;
                         try {
                             String fileStr = File.ReadAllText(stringObj.Value);
                             Lexer lexer = Lexer.NewInstance(fileStr);
@@ -169,6 +172,8 @@ public class DesktopBuiltins : Builtins {
                 ? new StringObj(Path.GetDirectoryName(filePath))
                 : new StringObj(Path.GetDirectoryName(Path.Combine(System.Environment.CurrentDirectory, filePath))));
     }
+
+    public void Dispose() => graphics.Dispose();
 
     private ErrorObj checkArgsCount(string funcName, int expected, int actual) {
         if (expected != actual) {

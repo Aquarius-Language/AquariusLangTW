@@ -288,28 +288,21 @@ namespace AquariusLang.evaluator {
 
                             break;
                         case ".":
-                            if (_node.Left is Identifier _____leftIdent) {
-                                IObject identVal = evalIdentifier(_____leftIdent, environment);
-                                string identType = identVal.Type();
-
-                                if (identType == ObjectType.MODULE_OBJ) {
-                                    ModuleObj moduleObj = (ModuleObj)identVal;
-
-                                    if (_node.Right is CallExpression callExpression) {
-                                        IObject ______right = Eval(callExpression, moduleObj._Environment);
-                                        if (isError(______right)) {
-                                            return ______right;
-                                        }
-
-                                        return ______right;
-                                    } else if (_node.Right is Identifier identifier) {
-                                        return NewError(
-                                            $"Cannot access identifier from module using . operator. Call module's function instead.");
-                                    }
+                            if (_left is ModuleObj moduleObj) {
+                                if (_node.Right is Identifier member) {
+                                    IObject memberValue = moduleObj._Environment.Get(member.Value, out bool found);
+                                    return found ? memberValue : NewError($"Module member not found: {member.Value}");
+                                }
+                                if (_node.Right is CallExpression memberCall) {
+                                    // Resolve the function in the module, but arguments in the caller's scope.
+                                    IObject memberFunction = Eval(memberCall.Function, moduleObj._Environment);
+                                    if (isError(memberFunction)) return memberFunction;
+                                    IObject[] memberArguments = evalExpressions(memberCall.Arguments, environment);
+                                    if (memberArguments.Length == 1 && isError(memberArguments[0])) return memberArguments[0];
+                                    return applyFunction(memberFunction, memberArguments, environment);
                                 }
                             }
-
-                            break;
+                            return NewError($"Cannot access member of {_left.Type()}");
                         default:
                             IObject _______right = Eval(_node.Right, environment);
                             if (isError(_______right)) {
@@ -482,6 +475,14 @@ namespace AquariusLang.evaluator {
         private IObject evalInfixExpression(string _operator, IObject left, IObject right) {
             if (ObjectType.IsNumber(left.Type()) && ObjectType.IsNumber(right.Type())) {
                 return evalNumberInfixExpression(_operator, left, right);
+            }
+            if (left is StringObj leftString && right is StringObj rightString) {
+                if (_operator == "==") return nativeBoolToBoolObj(leftString.Value == rightString.Value);
+                if (_operator == "!=") return nativeBoolToBoolObj(leftString.Value != rightString.Value);
+            }
+            if (left is BooleanObj leftBoolean && right is BooleanObj rightBoolean) {
+                if (_operator == "==") return nativeBoolToBoolObj(leftBoolean.Value == rightBoolean.Value);
+                if (_operator == "!=") return nativeBoolToBoolObj(leftBoolean.Value != rightBoolean.Value);
             }
 
             switch (_operator) {
@@ -683,6 +684,7 @@ namespace AquariusLang.evaluator {
         }
 
         private IObject evalBangOperatorExpression(IObject right) {
+            if (right is BooleanObj boolean) return nativeBoolToBoolObj(!boolean.Value);
             if (right == RepeatedPrimitives.TRUE) {
                 return RepeatedPrimitives.FALSE;
             } else if (right == RepeatedPrimitives.FALSE) {
@@ -903,6 +905,7 @@ namespace AquariusLang.evaluator {
         }
 
         private bool isTruthy(IObject obj) {
+            if (obj is BooleanObj boolean) return boolean.Value;
             if (obj == RepeatedPrimitives.NULL) {
                 return false;
             } else if (obj == RepeatedPrimitives.TRUE) {

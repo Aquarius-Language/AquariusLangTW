@@ -10,6 +10,7 @@
 
     <ItemGroup>
       <ProjectReference Include="..\AquariusLangInterpreted\AquariusLangInterpreted.csproj" />
+      <Content Include="runtimes/**/*" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     </ItemGroup>
 
     <ItemGroup>

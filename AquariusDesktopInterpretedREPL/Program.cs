@@ -8,5 +8,6 @@ if (cmdArgs.Length <= 1) {
 
     Interpreter.REPL();
 } else {
-    Interpreter.Interpret(cmdArgs[1]);
+    var result = Interpreter.Interpret(cmdArgs[1]);
+    if (result == null || result is AquariusLang.Object.ErrorObj) Environment.ExitCode = 1;
 }

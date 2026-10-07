@@ -62,6 +62,27 @@
 
 其他功能包含全域及區域變數、閉包、函式呼叫、陣列、雜湊表與模組。
 完整中文範例位於 `AquariusDesktopInterpretedREPL/examples`。
+綜合範例 [星艦遠征](AquariusDesktopInterpretedREPL/examples/starship_expedition/README.md)
+以繁體中文名稱展示全部現有語法，印出質數航點、費氏航線與能量報告，並納入單元測試。
+
+## OpenGL 電腦圖學
+
+桌面直譯器提供 `匯入("GLFW")`、`匯入("GLAD")`、`匯入("GL")`、
+`匯入("GLM")` 與 `匯入("STBImage")` 原生模組。
+`GL` 包含完整的 **344 個 OpenGL 3.3 core 函式**與常數；`GLM` 是以
+System.Numerics 實作的 GLM 風格向量／矩陣模組，`STBImage` 提供圖片載入。
+
+首次執行前需建置原生函式庫（Windows 需要 CMake 與 Visual Studio C++ 工具）：
+
+```powershell
+./native/build.ps1
+dotnet run --project AquariusDesktopInterpretedREPL -- AquariusDesktopInterpretedREPL/examples/opengl_cube/main.aqua
+```
+
+[旋轉材質立方體](AquariusDesktopInterpretedREPL/examples/opengl_cube/README.md)
+以 Aquarius 編寫頂點、索引、GLSL 著色器、紋理、材質、光源與動畫迴圈。
+按 **Esc** 離開、**空白鍵**暫停／繼續旋轉；支援調整視窗大小。
+建置、平台限制、API 與測試說明請見 [圖學支援指南](native/README.md)。
 
 ## Visual Studio Code 與 Language Server Protocol
 
