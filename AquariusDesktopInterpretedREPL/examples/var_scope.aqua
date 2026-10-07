@@ -1,0 +1,38 @@
+﻿變數 a = 10;
+ 
+變數 func = 函式() {
+    迴圈 (變數 i = 0; i < 5; i+=1) {
+        迴圈 (變數 j = 0; j < 5; j+=1) {
+            a += i;                             
+        }
+    }
+}
+
+func();
+
+印出(a);
+
+
+變數 b = "Hello";
+變數 _func = 函式(){
+    b += " World!";
+}
+_func();
+
+印出(b);
+
+
+變數 c = 5;
+變數 __func = 函式(){
+    c = 10;
+}
+__func();
+印出(c);
+
+變數 d = 真;
+變數 ___func = 函式() {
+    # "d" here is local variable, since it's declared inside this function's scope.
+    變數 d = 假; 
+}
+___func();
+印出(d);

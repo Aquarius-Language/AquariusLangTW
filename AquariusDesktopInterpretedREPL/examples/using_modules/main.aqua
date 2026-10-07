@@ -1,0 +1,13 @@
+﻿##
+This path is relative path from the .NET project's built executable. Please run this from the project's unit testing.
+##
+變數 moduleA = 匯入("../../../examples/using_modules/module_folder/module.aqua");
+
+變數 addResult = moduleA.add(5, 3);
+變數 minusResult = moduleA.minus(12, 5);
+
+變數 results = [addResult, minusResult];
+
+印出(results);
+
+results;
