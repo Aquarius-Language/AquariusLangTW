@@ -100,7 +100,7 @@ internal sealed partial class GraphicsRuntime {
             if(c.ShapeMode==-1)throw new InvalidOperationException("Call beginShape() first.");
             if(a.Length is not (2 or 3 or 4 or 5))throw new ArgumentException("Use x,y[,z][,u,v].");
             bool uv=a.Length>=4;Vector2 tex=uv?new(F(a[^2]),F(a[^1])):Vector2.Zero;
-            if(uv&&c.TextureMode==1&&c.Texture!=null)tex/=new Vector2(c.Texture.Width,c.Texture.Height);
+            if(uv&&c.TextureMode==1&&c.Texture!=null)tex/=new Vector2(c.Texture.Canvas?.Width??c.Texture.Width,c.Texture.Canvas?.Height??c.Texture.Height);
             c.ActiveVertices.Add(c.V(Point(a,0,a.Length is 3 or 5?3:2),c.Texture==null?c.Style.Fill:c.Style.Tint,tex));
         });
         Action("normal",3,3,a=>c.Normal=Normalized(Point(a,0,3)));

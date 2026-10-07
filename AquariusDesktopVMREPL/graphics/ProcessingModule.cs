@@ -62,6 +62,10 @@ internal sealed partial class GraphicsRuntime {
             ["NORMAL"]=0,["IMAGE"]=1,["ESC"]=256,["SPACE"]=32}) processing.Create(pair.Key,N(pair.Value));
         processing.Create("P2D",new StringObj("P2D")); processing.Create("P3D",new StringObj("P3D"));
         PAction(processing,"size",2,4,a=>Size(Int(a[0]),Int(a[1]),a.Length>2?Text(a[2]):"P2D",a.Length>3?Text(a[3]):"Aquarius Processing"));
+        PAction(processing,"resize",2,2,a=> {
+            RequireSketch();int w=Dimension(a[0]),h=Dimension(a[1]);
+            Native.aqua_set_window_size(sketchWindow!.Handle,w,h);
+        });
         PAction(processing,"fullScreen",0,2,a=> {if(sketchWindow!=null)throw new InvalidOperationException("fullScreen() must be called before size().");CallModule("GLFW","Init");
             try{if(Native.aqua_monitor_size(out int w,out int h)==0)throw new InvalidOperationException("Primary monitor is unavailable.");Size(w,h,a.Length>0?Text(a[0]):"P2D",a.Length>1?Text(a[1]):"Aquarius Processing");if(Native.aqua_fullscreen(sketchWindow!.Handle)==0)throw new InvalidOperationException("Fullscreen monitor is unavailable.");}
             catch{CloseSketch();Terminate();throw;}});
@@ -83,7 +87,23 @@ internal sealed partial class GraphicsRuntime {
             RequireSketch(); int w=Dimension(a[0]),h=Dimension(a[1]); bool threeD=a.Length==3&&Renderer(a[2]);
             var canvas=new ProcessingCanvas(this,w,h,threeD); canvas.Module=new ModuleObj(AquaEnvironment.NewEnvironment());
             canvas.Initialize(processingDevice!,true); canvases.Add(canvas); RegisterCanvas(canvas.Module._Environment,canvas);
-            images[canvas.Module]=canvas.Surface!; canvas.Module._Environment.Create("width",N(w));canvas.Module._Environment.Create("height",N(h));
+            images[canvas.Module]=canvas.Surface!;
+            UpdateCanvasResolution(canvas);
+            PAction(canvas.Module._Environment,"resize",2,4,a=> {
+                RequireSketch();
+                if(canvas.Disposed)throw new InvalidOperationException("Canvas is disposed.");
+                if(canvas.Drawing)throw new InvalidOperationException("Call resize() outside beginDraw()/endDraw().");
+                if(a.Length==3)throw new ArgumentException("resize() takes two or four dimensions.");
+                int width=Dimension(a[0]),height=Dimension(a[1]);
+                int pw=a.Length==4?Dimension(a[2]):width,ph=a.Length==4?Dimension(a[3]):height;
+                if(checked((long)pw*ph)>16*1024*1024)throw new ArgumentException("Canvas supports at most 16 million pixels.");
+                if(canvas.Resize(width,height,pw,ph)) {
+                    canvas.Bind();var surface=canvas.Surface!;
+                    surface.Width=pw;surface.Height=ph;surface.Bytes=new byte[pw*ph*4];
+                    canvas.Module._Environment.Create("pixels",Null());
+                    UpdateCanvasResolution(canvas);
+                }
+            });
             PAction(canvas.Module._Environment,"beginDraw",0,0,_=> { if(canvas.Drawing)throw new InvalidOperationException("beginDraw() is already active.");canvas.Drawing=true;canvas.Model=Matrix4x4.Identity;canvas.Bind(); });
             PAction(canvas.Module._Environment,"endDraw",0,0,_=> { canvas.RequireDrawing();canvas.Target.Flush();canvas.Drawing=false;screen.Bind(); });
             screen.Bind();return canvas.Module;
@@ -116,6 +136,11 @@ internal sealed partial class GraphicsRuntime {
         } catch { CloseSketch();Terminate();throw; }
     }
     private void RequireSketch() { if(sketchWindow==null||screen.Disposed||processingDevice==null)throw new InvalidOperationException("Call Processing.size() first."); RequireInit();processingDevice.RequireLive(); }
+    private static void UpdateCanvasResolution(ProcessingCanvas canvas) {
+        var env=canvas.Module!._Environment;
+        env.Create("width",N(canvas.Width));env.Create("height",N(canvas.Height));
+        env.Create("pixelWidth",N(canvas.PixelWidth));env.Create("pixelHeight",N(canvas.PixelHeight));
+    }
     private static void ValidateCallback(IObject o) { if(o is not FunctionObj && o is not BuiltinObj)throw new ArgumentException("Expected a function callback."); if(o is FunctionObj f&&f.Parameters.Length!=0)throw new ArgumentException("Sketch callbacks must have zero parameters; read event fields from Processing."); }
     private void Callback(IObject callback) {
         if(InvokeAqua==null)throw new InvalidOperationException("This host does not support sketch callbacks.");
@@ -153,11 +178,12 @@ internal sealed partial class GraphicsRuntime {
         RequireSketch(); Native.aqua_poll();
         Native.aqua_framebuffer(sketchWindow!.Handle,out int w,out int h);
         Native.aqua_window_size(sketchWindow.Handle,out int logicalW,out int logicalH);
-        bool resized=screen.Width!=logicalW||screen.Height!=logicalH;
-        screen.PixelWidth=w;screen.PixelHeight=h;
-        if(logicalW>0&&logicalH>0) { screen.Width=logicalW;screen.Height=logicalH; if(resized)screen.DefaultCamera(); }
+        bool resized=screen.Resize(logicalW,logicalH,w,h);
         screen.Model=Matrix4x4.Identity; screen.Matrices.Clear();screen.Style.Lit=false;screen.Style.Lights.Clear();screen.Style.Ambient=Vector3.Zero;
-        UpdateState(); if(resized)Event("windowResized"); PollInput();screen.Bind();
+        // Resize attachments before callbacks can draw/read the new resolution.
+        screen.Bind();UpdateState();
+        if(resized) {redraw=true;if(w>0&&h>0)Event("windowResized");}
+        PollInput();
     }
     private void EndFrame() { RequireSketch();if(screen.ShapeMode!=-1)throw new InvalidOperationException("Unfinished beginShape() at end of frame.");if(screen.PixelWidth<=0||screen.PixelHeight<=0)return;screen.Bind();processingDevice!.Present(screen.Target); }
     private void UpdateState() {

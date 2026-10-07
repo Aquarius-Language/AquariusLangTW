@@ -33,12 +33,25 @@ internal sealed partial class GraphicsRuntime {
             try {for(int line=0;line<lines.Count;line++) {
                 if(boxH!=null&&line*c.Style.Leading+c.Style.TextSize>boxH)break;
                 if(lines[line].Length==0)continue;
-                var raster=TextRaster.Rasterize(lines[line],c.Style.Font,c.Style.TextSize);var image=ProcessingImage.Create(this,raster.w,raster.h);image.Bytes=raster.bytes;
+                var logical=TextRaster.Measure(lines[line],c.Style.Font,c.Style.TextSize);
+                float density=TextRasterScale(c,x,top+line*c.Style.Leading);
+                var raster=TextRaster.Rasterize(lines[line],c.Style.Font,c.Style.TextSize*density);var image=ProcessingImage.Create(this,raster.w,raster.h);image.Bytes=raster.bytes;
                 var oldStyle=c.Style;c.Style=oldStyle.Copy();c.Style.Tint=oldStyle.Fill;c.Style.ImageMode=0;
-                float left=boxW!=null?x+(c.Style.TextAlign==2?(boxW.Value-image.Width)/2:c.Style.TextAlign==1?boxW.Value-image.Width:0):x-(c.Style.TextAlign==2?image.Width/2f:c.Style.TextAlign==1?image.Width:0);
-                try{c.Image(image,left,top+line*c.Style.Leading);}finally{c.Style=oldStyle;image.Dispose(c);}
+                float left=boxW!=null?x+(c.Style.TextAlign==2?(boxW.Value-logical.w)/2:c.Style.TextAlign==1?boxW.Value-logical.w:0):x-(c.Style.TextAlign==2?logical.w/2f:c.Style.TextAlign==1?logical.w:0);
+                try{c.Image(image,left,top+line*c.Style.Leading,logical.w,logical.h);}finally{c.Style=oldStyle;image.Dispose(c);}
             }}finally{c.Model=oldModel;}
         });
+    }
+    internal static float TextRasterScale(ProcessingCanvas canvas,float x,float y) {
+        var matrix=canvas.Model*canvas.View*canvas.Projection;
+        Vector2 Project(float px,float py) {
+            var p=Vector4.Transform(new Vector4(px,py,0,1),matrix);
+            return new Vector2(p.X/p.W*canvas.PixelWidth/2,p.Y/p.W*canvas.PixelHeight/2);
+        }
+        var origin=Project(x,y);
+        float scale=Math.Max((Project(x+1,y)-origin).Length(),(Project(x,y+1)-origin).Length());
+        // Keep layout in logical coordinates while rasterizing at display resolution.
+        return float.IsFinite(scale)?Math.Clamp(MathF.Round(scale,3),1,8):1;
     }
 }
 

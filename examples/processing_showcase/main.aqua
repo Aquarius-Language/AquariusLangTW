@@ -9,6 +9,16 @@
 變數 星星 = 0;
 變數 特效 = 0;
 變數 粒子 = [];
+變數 比例 = 1.0d;
+變數 左邊 = 0.0d;
+變數 上邊 = 0.0d;
+變數 更新版面 = 函式() {
+    比例 = 畫.max(0.01d, 畫.min(畫.width / 1100.0d, 畫.height / 820.0d));
+    左邊 = (畫.width - 1100 * 比例) / 2;
+    上邊 = (畫.height - 820 * 比例) / 2;
+    # Keep logical 3D coordinates, but render enough pixels for its on-screen size.
+    立體.resize(326, 204, 畫.max(1, 畫.ceil(326 * 比例 * 畫.pixelWidth / 畫.width)), 畫.max(1, 畫.ceil(204 * 比例 * 畫.pixelHeight / 畫.height)));
+};
 
 變數 標題 = 函式(文字, x, y) {
     畫.fill(229, 240, 249);
@@ -85,7 +95,9 @@
 
 變數 繪製 = 函式() {
     如果 (!暫停) { 時間 += 0.016d; }
+    更新版面();
     畫.background(10, 18, 31);
+    畫.pushMatrix(); 畫.translate(左邊, 上邊); 畫.scale(比例);
     畫.noStroke();
     畫.fill(62, 227, 205);
     畫.textSize(13);
@@ -166,8 +178,8 @@
         變數 x = p[0] + 位移.x;
         變數 y = p[1] + 位移.y;
         如果 (畫.isMousePressed) {
-            x = 畫.lerp(x, 畫.mouseX - 46, 0.55d);
-            y = 畫.lerp(y, 畫.mouseY - 507, 0.55d);
+            x = 畫.lerp(x, (畫.mouseX - 左邊) / 比例 - 46, 0.55d);
+            y = 畫.lerp(y, (畫.mouseY - 上邊) / 比例 - 507, 0.55d);
         }
         畫.fill(60 + i * 4, 225 - i * 2, 205, 180);
         畫.circle(x, y, p[2] * 2);
@@ -194,6 +206,7 @@
     畫.fill(139, 160, 185); 畫.textSize(12);
     畫.text("SPACE pause   /   MOUSE attract   /   S save   /   ESC exit", 36, 788);
     如果 (暫停) { 畫.fill(255, 185, 89); 畫.text("PAUSED", 995, 788); }
+    畫.popMatrix();
     如果 (儲存) { 畫.saveFrame(目前工作目錄 + "/showcase-####.png"); 儲存 = 假; }
 };
 

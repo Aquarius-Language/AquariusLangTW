@@ -57,6 +57,12 @@ internal sealed partial class GraphicsRuntime {
         Bind(env, "GetCursorPos", 1, a => { Native.aqua_cursor(Window(a[0]), out double x, out double y); return Numbers(x, y); });
         Bind(env, "SetInputMode", 3, a => { Native.aqua_input(Window(a[0]), Int(a[1]), Int(a[2])); return Null(); });
         Bind(env, "GetFramebufferSize", 1, a => { Native.aqua_framebuffer(Window(a[0]), out int w, out int h); return Numbers(w, h); });
+        Bind(env, "GetWindowSize", 1, a => { Native.aqua_window_size(Window(a[0]), out int w, out int h); return Numbers(w, h); });
+        Bind(env, "SetWindowSize", 3, a => {
+            IntPtr handle=Window(a[0]);int w=Int(a[1]),h=Int(a[2]);
+            if(w<=0||h<=0)throw new ArgumentException("Window dimensions must be positive.");
+            Native.aqua_set_window_size(handle,w,h);return Null();
+        });
         Bind(env, "GetEnvironment", 1, a => new StringObj(System.Environment.GetEnvironmentVariable(Text(a[0])) ?? ""));
         var constants = new Dictionary<string, int> {
             ["GLFW_TRUE"] = 1, ["GLFW_FALSE"] = 0, ["GLFW_PRESS"] = 1, ["GLFW_RELEASE"] = 0, ["GLFW_REPEAT"] = 2,

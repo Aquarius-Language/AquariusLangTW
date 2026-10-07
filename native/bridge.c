@@ -83,6 +83,7 @@ AQUA void aqua_cursor(GLFWwindow* window, double* x, double* y) { glfwGetCursorP
 AQUA void aqua_input(GLFWwindow* window, int mode, int value) { glfwSetInputMode(window, mode, value); }
 AQUA void aqua_framebuffer(GLFWwindow* window, int* w, int* h) { glfwGetFramebufferSize(window, w, h); }
 AQUA void aqua_window_size(GLFWwindow* window, int* w, int* h) { glfwGetWindowSize(window, w, h); }
+AQUA void aqua_set_window_size(GLFWwindow* window, int w, int h) { glfwSetWindowSize(window, w, h); }
 AQUA double aqua_scroll(void) { double value = pending_scroll; pending_scroll = 0; return value; }
 AQUA unsigned int aqua_character(void) { return char_read == char_write ? 0 : pending_chars[char_read++ % 256]; }
 AQUA int aqua_monitor_size(int* w, int* h) {

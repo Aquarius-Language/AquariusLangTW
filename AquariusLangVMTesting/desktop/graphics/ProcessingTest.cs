@@ -55,6 +55,31 @@ public class ProcessingTest {
     [Fact] public void ShowcaseParses() {
         var lexer=Lexer.NewInstance(File.ReadAllText(Path.Combine(AppContext.BaseDirectory,"examples/processing_showcase/main.aqua")));var parser=Parser.NewInstance(lexer);parser.ParseAST();Assert.Empty(lexer.Errors);Assert.Empty(parser.Errors);
     }
+    [Fact] public void CanvasResizeTracksLogicalAndPhysicalSizesAndRecoversFromMinimizing() {
+        using var runtime=new GraphicsRuntime();
+        var canvas=new ProcessingCanvas(runtime,640,480,true);
+        var projection=canvas.Projection;
+        Assert.True(canvas.Resize(960,480,1920,960));
+        Assert.Equal((960,480,1920,960),(canvas.Width,canvas.Height,canvas.PixelWidth,canvas.PixelHeight));
+        Assert.NotEqual(projection,canvas.Projection);
+        projection=canvas.Projection;
+        Assert.True(canvas.Resize(960,480,960,480)); // Display density changed alone.
+        Assert.Equal(projection,canvas.Projection);
+        Assert.False(canvas.Resize(960,480,960,480));
+        Assert.True(canvas.Resize(0,0,0,0));
+        Assert.Equal((960,480),(canvas.Width,canvas.Height));
+        Assert.Equal(projection,canvas.Projection);
+        Assert.True(canvas.Resize(960,480,960,480));
+    }
+    [Fact] public void TextRasterResolutionFollowsTransformAndDisplayDensity() {
+        using var runtime=new GraphicsRuntime();
+        var canvas=new ProcessingCanvas(runtime,640,480,false);
+        Assert.Equal(1d,GraphicsRuntime.TextRasterScale(canvas,20,30),3);
+        canvas.Resize(640,480,1280,960);
+        Assert.Equal(2d,GraphicsRuntime.TextRasterScale(canvas,20,30),3);
+        canvas.Model=Matrix4x4.CreateScale(3)*Matrix4x4.CreateTranslation(10,20,0);
+        Assert.Equal(6d,GraphicsRuntime.TextRasterScale(canvas,20,30),3);
+    }
     [Fact] public void PngEncodingPreservesDimensionsAndPixelPayload() {
         string path=Path.Combine(Path.GetTempPath(),Guid.NewGuid()+".png");
         try{GraphicsRuntime.WriteImage(path,2,1,new byte[]{255,0,0,255,0,255,0,128});var bytes=File.ReadAllBytes(path);Assert.Equal(new byte[]{137,80,78,71,13,10,26,10},bytes.Take(8));Assert.Equal(2,bytes[19]);Assert.Equal(1,bytes[23]);Assert.True(bytes.Length>60);}finally{File.Delete(path);}
@@ -63,6 +88,56 @@ public class ProcessingTest {
 
 [Collection("Starship console output")]
 public class ProcessingIntegrationTest {
+    [WgpuFact] public void ResizingPausedSketchRedrawsAtTheNewResolutionWithoutAnExplicitRedraw() {
+        var result=Assert.IsType<ArrayObj>(ProcessingTest.Evaluate("""
+            變數 p=匯入("Processing");變數 frames=0;變數 events=0;變數 dimensions=[];
+            p.run(函式(){
+                p.size(640,480);p.noLoop();
+                p.on("windowResized",函式(){
+                    events++;p.background(0,255,0);
+                    dimensions=[p.width,p.height,p.pixelWidth,p.pixelHeight,p.get(p.width-1,p.height-1)];
+                });
+            },函式(){
+                frames++;
+                如果(frames==1){p.background(0);p.resize(800,600);}
+                否則{p.exit();}
+            });
+            [frames,events,dimensions];
+            """));
+        Assert.Equal(2,GraphicsRuntime.Number(result.Elements[0]));
+        Assert.True(GraphicsRuntime.Number(result.Elements[1])>=1);
+        var dimensions=Assert.IsType<ArrayObj>(result.Elements[2]).Elements.Select(GraphicsRuntime.Number).ToArray();
+        Assert.Equal(800,dimensions[0]);Assert.Equal(600,dimensions[1]);
+        Assert.True(dimensions[2]>0&&dimensions[3]>0);
+        Assert.Equal(0xFF00FF00,dimensions[4]);
+    }
+    [WgpuFact] public void OffscreenResizeChangesPhysicalPixelsAndRetainsLogicalDrawingCoordinates() {
+        var result=Assert.IsType<ArrayObj>(ProcessingTest.Evaluate("""
+            變數 p=匯入("Processing");p.size(64,48);p.noSmooth();p.noStroke();p.background(0);
+            變數 pg=p.createGraphics(16,8);pg.resize(24,12,96,48);
+            pg.beginDraw();pg.noSmooth();pg.noStroke();pg.background(0,255,0);
+            pg.fill(255,0,0);pg.rect(12,0,12,12);pg.loadPixels();
+            變數 count=長度(pg.pixels);變數 color=pg.get(23,11);pg.endDraw();
+            p.image(pg,8,8);
+            變數 rendered=p.get(30,10);變數 outside=p.get(40,10);
+            變數 copy=p.createImage(2,1);copy.copy(pg,12,0,12,12,0,0,2,1);
+            p.copy(pg,12,0,12,12,0,0,12,12);
+            變數 result=[pg.width,pg.height,pg.pixelWidth,pg.pixelHeight,count,color,rendered,outside,copy.get(1,0),p.get(6,6)];
+            pg.resize(24,12,12,6);pg.beginDraw();pg.background(0,255,0);pg.loadPixels();
+            result=加入(result,長度(pg.pixels));pg.endDraw();
+            copy.copy(pg,-1,0,1,1,0,0,1,1);result=加入(result,copy.get(0,0));
+            p.close();result;
+            """));
+        Assert.Equal(new double[]{24,12,96,48,4608,0xFFFF0000,0xFFFF0000,0xFF000000,0xFFFF0000,0xFFFF0000,72,0},result.Elements.Select(GraphicsRuntime.Number));
+    }
+    [WgpuFact] public void OffscreenResizeRejectsInvalidDimensionsAndInvalidatesOldPixelArrays() {
+        foreach(var call in new[]{"pg.resize(0,8);","pg.resize(8,8,16);","pg.resize(8,8,8192,8192);","pg.beginDraw();pg.resize(8,8);"})
+            Assert.IsType<ErrorObj>(ProcessingTest.Evaluate("變數 p=匯入(\"Processing\");p.size(16,16);變數 pg=p.createGraphics(8,8);"+call));
+        Assert.Contains("loadPixels()",Assert.IsType<ErrorObj>(ProcessingTest.Evaluate("""
+            變數 p=匯入("Processing");p.size(16,16);變數 pg=p.createGraphics(8,8);
+            pg.beginDraw();pg.loadPixels();pg.endDraw();pg.resize(16,16);pg.beginDraw();pg.updatePixels();
+            """)).Message);
+    }
     [WgpuFact] public void SketchCanRestartAndRejectsOldGraphicsObjects() {
         Assert.Equal(0xFF00FF00,GraphicsRuntime.Number(ProcessingTest.Evaluate(@"變數 p=匯入(""Processing"");p.size(16,16);p.close();p.size(16,16);p.background(0,255,0);變數 c=p.get(2,2);p.close();c;")));
         Assert.Contains("live PImage",Assert.IsType<ErrorObj>(ProcessingTest.Evaluate(@"變數 p=匯入(""Processing"");p.size(16,16);變數 img=p.createImage(2,2);p.close();p.size(16,16);p.image(img,0,0);")).Message);

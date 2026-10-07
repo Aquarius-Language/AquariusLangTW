@@ -16,6 +16,11 @@ internal sealed partial class GraphicsRuntime {
         var canvas=canvases.FirstOrDefault(c=>c.Surface==image);
         return canvas==null?image.Bytes:canvas.ReadPixels();
     }
+    private static uint ImagePixelAt(ProcessingImage image,byte[] bytes,int x,int y) {
+        int width=image.Canvas?.Width??image.Width,height=image.Canvas?.Height??image.Height;
+        if(x<0||y<0||x>=width||y>=height)return 0;
+        return PixelAt(bytes,image.Width,image.Height,x*image.Width/width,y*image.Height/height);
+    }
     private ProcessingImage RegisterImage(ProcessingImage image) {
         images.Add(image.Module,image);var env=image.Module._Environment;
         PAction(env,"loadPixels",0,0,_=>env.Create("pixels",PixelArray(image.Bytes)));
@@ -38,7 +43,7 @@ internal sealed partial class GraphicsRuntime {
         PAction(env,"copy",9,9,a=> {
             var src=ImageObject(a[0]);int sx=Int(a[1]),sy=Int(a[2]),sw=Dimension(a[3]),sh=Dimension(a[4]),dx=Int(a[5]),dy=Int(a[6]),dw=Dimension(a[7]),dh=Dimension(a[8]);
             byte[] source=ImagePixels(src);byte[] snapshot=src==image?(byte[])source.Clone():source;
-            for(int y=0;y<dh;y++)for(int x=0;x<dw;x++)SetPixel(image.Bytes,image.Width,image.Height,dx+x,dy+y,PixelAt(snapshot,src.Width,src.Height,sx+x*sw/dw,sy+y*sh/dh));image.Dirty=true;
+            for(int y=0;y<dh;y++)for(int x=0;x<dw;x++)SetPixel(image.Bytes,image.Width,image.Height,dx+x,dy+y,ImagePixelAt(src,snapshot,sx+x*sw/dw,sy+y*sh/dh));image.Dirty=true;
         });
         return image;
     }
@@ -50,7 +55,7 @@ internal sealed partial class GraphicsRuntime {
     private void RegisterCanvasPixels(AquaEnvironment env,ProcessingCanvas c) {
         void Action(string name,int min,int max,Action<IObject[]> fn)=>PAction(env,name,min,max,a=>{RequireSketch();c.RequireDrawing();fn(a);});
         Action("loadPixels",0,0,_=>env.Create("pixels",PixelArray(c.ReadPixels())));
-        Action("updatePixels",0,0,a=> {var pixels=env.Get("pixels",out _);if(pixels==null)throw new InvalidOperationException("Call loadPixels() first.");WriteCanvasPixels(c,PixelBytes(Array(pixels),c.PixelWidth*c.PixelHeight));});
+        Action("updatePixels",0,0,a=> {var pixels=env.Get("pixels",out _);if(pixels is not ArrayObj array)throw new InvalidOperationException("Call loadPixels() first.");WriteCanvasPixels(c,PixelBytes(array,c.PixelWidth*c.PixelHeight));});
         PBind(env,"get",0,4,a=> {
             RequireSketch();c.RequireDrawing();byte[] bytes=c.ReadPixels();
             if(a.Length==2)return new DoubleObj(PixelAt(bytes,c.PixelWidth,c.PixelHeight,(int)(F(a[0])*c.PixelWidth/c.Width),(int)(F(a[1])*c.PixelHeight/c.Height)));
@@ -71,7 +76,7 @@ internal sealed partial class GraphicsRuntime {
             var src=ImageObject(a[0]);int sx=Int(a[1]),sy=Int(a[2]),sw=Dimension(a[3]),sh=Dimension(a[4]);
             var source=ImagePixels(src);
             var cropped=ProcessingImage.Create(this,sw,sh);try {
-                for(int y=0;y<sh;y++)for(int x=0;x<sw;x++)SetPixel(cropped.Bytes,sw,sh,x,y,PixelAt(source,src.Width,src.Height,sx+x,sy+y));
+                for(int y=0;y<sh;y++)for(int x=0;x<sw;x++)SetPixel(cropped.Bytes,sw,sh,x,y,ImagePixelAt(src,source,sx+x,sy+y));
                 c.Image(cropped,F(a[5]),F(a[6]),F(a[7]),F(a[8]));
             }finally{cropped.Dispose(c);}
         });

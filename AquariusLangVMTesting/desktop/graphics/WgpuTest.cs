@@ -43,7 +43,7 @@ public class WgpuTest {
         Assert.Equal((0,0,8,8),WgpuTarget.Scissor(8,8,null));
     }
     [Theory]
-    [InlineData("wgpu_compute")][InlineData("wgpu_triangle")][InlineData("processing_wgpu")]
+    [InlineData("wgpu_compute")][InlineData("wgpu_triangle")][InlineData("processing_wgpu")][InlineData("processing_showcase")]
     public void ExamplesParseAndMirrorsMatch(string name) {
         string path=Path.Combine(AppContext.BaseDirectory,"examples",name,"main.aqua");
         var lexer=Lexer.NewInstance(File.ReadAllText(path));var parser=Parser.NewInstance(lexer);parser.ParseAST();Assert.Empty(lexer.Errors);Assert.Empty(parser.Errors);

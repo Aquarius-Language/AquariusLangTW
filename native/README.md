@@ -30,6 +30,9 @@ and native window handles. Processing creates a GLFW_NO_API window and presents
 through wgpu; OpenGL continues to use its existing context and GLAD loader.
 See [the wgpu guide](../AquariusDesktopVMREPL/graphics/WGPU.md). NuGet supplies
 wgpu-native binaries; headless WGPU scripts do not require this GLFW bridge.
+Rebuild the bridge for `Processing.resize(w,h)` and `GLFW.SetWindowSize(window,w,h)`.
+`GLFW.GetWindowSize(window)` returns logical dimensions; `GetFramebufferSize`
+returns the physical pixel dimensions used for viewports and render targets.
 
 ## Build
 

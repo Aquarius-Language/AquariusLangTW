@@ -112,6 +112,11 @@ starts at 1 in the first draw. `actualFrameRate` is distinct from the
 `frameRate(fps)` setter because module fields and functions share a namespace.
 Framebuffer sizes follow the display's pixel density automatically. Drawing
 coordinates are logical pixels; `pixels` contains physical framebuffer pixels.
+Resizing the window or changing display density recreates the render attachments,
+updates these fields before `windowResized`, and requests a draw even under
+`noLoop()`. Minimized windows skip rendering and redraw when restored. Text
+rasterization follows the current transform and framebuffer density.
+`resize(width,height)` requests a new logical window size; the next frame applies it.
 
 Events: `mousePressed`, `mouseReleased`, `mouseClicked`, `mouseMoved`,
 `mouseDragged`, `mouseWheel`, `keyPressed`, `keyReleased`, `keyTyped`,
@@ -131,6 +136,15 @@ Unicode typed characters and wheel deltas are queued by the native bridge.
 `noLoop()` keeps polling input and drawing after `redraw()`; `exit()` ends the loop.
 
 ## PImage, PGraphics, PShape, PShader
+
+PGraphics supports `resize(width,height[,pixelWidth,pixelHeight])` outside
+`beginDraw()` / `endDraw()`. The first two dimensions set drawing coordinates;
+the optional pair sets the backing texture resolution independently. Its
+`width`/`height` and `pixelWidth`/`pixelHeight` fields expose both sizes.
+Changing the backing resolution clears the texture; draw it again and call
+`loadPixels()` before editing its new pixel array. For example, a 240×240
+canvas displayed at twice its original size can use `pg.resize(240,240,480,480)`.
+Drawing it with `image(pg,x,y)` still uses its logical 240×240 size.
 
 `PImage` is a module object with `width`, `height`, and (after `loadPixels()`)
 `pixels`. Methods: `loadPixels`, `updatePixels`, `get` (all three overloads),

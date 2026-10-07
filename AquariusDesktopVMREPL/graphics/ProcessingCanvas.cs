@@ -38,7 +38,7 @@ internal sealed partial class ProcessingCanvas : IDisposable {
         try {
             Target=new(device,PixelWidth,PixelHeight);program=new(device,WgpuShaders.Vertex,WgpuShaders.Fragment);
             if(offscreen) {
-                Surface=ProcessingImage.Create(Owner,Width,Height);Surface.GpuTexture=Target.Color;
+                Surface=ProcessingImage.Create(Owner,PixelWidth,PixelHeight);Surface.Canvas=this;Surface.GpuTexture=Target.Color;
                 Surface.Dirty=false;Surface.Premultiplied=true;
             }
             Bind();Background(new Vector4(.8f,.8f,.8f,1));
@@ -53,6 +53,13 @@ internal sealed partial class ProcessingCanvas : IDisposable {
         if(PixelWidth<=0||PixelHeight<=0)return;
         Target.Configure(PixelWidth,PixelHeight,Smooth);
         if(Surface!=null)Surface.GpuTexture=Target.Color;
+    }
+    internal bool Resize(int width,int height,int pixelWidth,int pixelHeight) {
+        bool logical=width>0&&height>0&&(Width!=width||Height!=height);
+        bool changed=logical||PixelWidth!=pixelWidth||PixelHeight!=pixelHeight;
+        if(logical) {Width=width;Height=height;DefaultCamera();}
+        PixelWidth=pixelWidth;PixelHeight=pixelHeight;
+        return changed;
     }
     internal void DefaultCamera() {
         Model=Matrix4x4.Identity;
@@ -161,7 +168,7 @@ internal sealed partial class ProcessingCanvas : IDisposable {
     }
     internal void Image(ProcessingImage image,float x,float y,float? w=null,float? h=null) {
         RequireDrawing(); if(Surface==image) throw new ArgumentException("Cannot draw a canvas into itself.");
-        var b=ProcessingGeometry.Bounds(x,y,w??image.Width,h??image.Height,Style.ImageMode);
+        var b=ProcessingGeometry.Bounds(x,y,w??image.Canvas?.Width??image.Width,h??image.Canvas?.Height??image.Height,Style.ImageMode);
         float t=image.Flipped?1:0,bt=1-t;
         var a=V(new(b.x,b.y,0),Style.Tint,new(0,t)); var c=V(new(b.x+b.w,b.y+b.h,0),Style.Tint,new(1,bt));
         Draw(new[]{a,V(new(b.x+b.w,b.y,0),Style.Tint,new(1,t)),c,a,c,V(new(b.x,b.y+b.h,0),Style.Tint,new(0,bt))},image:image,lit:false);
@@ -176,6 +183,7 @@ internal sealed class ProcessingImage {
     internal int Width,Height;
     internal byte[] Bytes;
     internal WgpuTexture? GpuTexture;
+    internal ProcessingCanvas? Canvas;
     internal bool Dirty=true,Flipped,Disposed,Premultiplied;
     internal ModuleObj Module;
     private ProcessingImage(GraphicsRuntime owner,int w,int h) {
