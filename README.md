@@ -213,22 +213,6 @@ LSP 編輯器可將啟動命令設為 `language-server/AquariusLanguageServer.ex
 其 VSIX 打包流程為 framework-dependent；上述自包含伺服器不會自動改變擴充套件的啟動方式，
 現有 VSIX 仍需安裝 .NET Runtime。詳見 [VS Code 操作指南](editors/vscode/README.md)。
 
-### 匯入 Processing 時出現找不到檔案
-
-`Processing` 是桌面直譯器的內建模組，不需要另外下載同名檔案。
-若 `匯入("Processing")` 出現 `Could not find file '...Processing'`，
-請先確認啟動的是本次發佈目錄中的執行檔。上述指令將新版放在
-`dist/win-x64/interpreter`；先前留在 `dist/win-x64` 的舊版執行檔與 DLL 不會因此更新。
-舊版可能尚未支援此模組，並在匯入失敗後觸發 `NullReferenceException`。
-
-如果目前 PowerShell 位於 `dist/win-x64`，請使用：
-
-```powershell
-.\interpreter\AquariusDesktopInterpretedREPL.exe .\interpreter\examples\processing_showcase\main.aqua
-```
-
-更新部署時請交付完整的新版 `interpreter` 目錄，避免混用不同版本的執行檔、DLL 與原生圖學函式庫。
-
 ### 其他平台與架構
 
 每個作業系統與 CPU 架構需各自發佈，例如 `win-arm64`、`linux-x64`、`linux-arm64`、
