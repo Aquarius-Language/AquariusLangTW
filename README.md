@@ -7,6 +7,44 @@
 
 VSCode 擴充套件: https://marketplace.visualstudio.com/items?itemName=aquariuslang.aquariuslang-tw
 
+## 快速開始：使用 Release 執行星泉
+
+到 [Releases](https://github.com/Aquarius-Language/AquariusLangTW/releases) 下載已編譯好的 **`Aqua_VM.zip`**，
+完整解壓縮後，在其中的 `vm` 資料夾開啟 PowerShell。此 Windows x64 套件已包含 .NET 執行階段，
+不需要自行編譯或另外安裝 .NET；請保留整個資料夾中的 DLL、設定檔、`runtimes` 與 `examples`。
+`Aqua_LSP.zip` 是供編輯器使用的語言伺服器，執行星泉程式只需 VM 套件。
+
+以下指令皆在解壓後的 `vm` 資料夾執行：
+
+```powershell
+# 查看指令用法
+.\AquariusDesktopVMREPL.exe --help
+
+# 不帶參數：進入互動模式（REPL），逐行輸入星泉程式
+.\AquariusDesktopVMREPL.exe
+
+# 直接執行隨附的 .aqua 原始碼範例
+.\AquariusDesktopVMREPL.exe .\examples\increment.aqua
+
+# 只編譯成 .bottle 位元碼套件，不執行；-o 指定輸出檔名
+.\AquariusDesktopVMREPL.exe -c -o app.bottle .\examples\increment.aqua
+
+# 執行已編譯的 .bottle 套件
+.\AquariusDesktopVMREPL.exe .\app.bottle
+
+# 編譯後立即執行
+.\AquariusDesktopVMREPL.exe -cr -o app.bottle .\examples\increment.aqua
+
+# 查看編譯後的位元碼指令，不執行程式
+.\AquariusDesktopVMREPL.exe --disassemble .\examples\increment.aqua
+```
+
+進入 REPL 後，可在 `>>` 提示符號後輸入 `印出("你好，星泉！");`，按 Enter 執行；按 Ctrl+C 離開。
+執行自己的程式時，將範例路徑換成 `.aqua` 檔案路徑；路徑含空白時請加上雙引號。
+`.bottle` 內含 `.rius` 位元碼，可在不附原始碼的情況下交給 VM 執行。
+編譯多檔程式時，第一個 `.aqua` 是預設入口，後續檔案是供匯入的模組，
+需在 `-c` 或 `-cr` 後列出所有會匯入的腳本；完整選項請見 [VM 桌面入口說明](AquariusDesktopVMREPL/README.md#compiled-bottles)。
+
 ## 專案結構
 
 | 目錄／專案 | 職責 |
@@ -48,7 +86,7 @@ dotnet run --project AquariusDesktopVMREPL -- AquariusDesktopVMREPL/examples/inc
 dotnet run --project AquariusDesktopVMREPL -- --disassemble AquariusDesktopVMREPL/examples/increment.aqua
 ```
 
-`--disassemble` 的輸出是可閱讀的位元碼指令列表，目前不提供序列化的位元碼執行檔格式。
+`--disassemble` 的輸出是可閱讀的位元碼指令列表；要儲存可執行的位元碼套件，請使用上述 `-c` 或 `-cr` 指令產生 `.bottle`。
 語言語意與開發注意事項請見 [語言核心指南](AquariusLangVM/LANGUAGE.md)，
 回歸測試及效能量測請見 [VM 測試說明](AquariusLangVMTesting/README.md)。
 
