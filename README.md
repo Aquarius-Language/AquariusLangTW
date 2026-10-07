@@ -196,6 +196,7 @@ CLI 部署選項請見 [Microsoft 自包含發佈文件](https://learn.microsoft
 # 執行隨附的中文程式與圖學範例（圖學視窗按 Esc 關閉）
 ./dist/win-x64/interpreter/AquariusDesktopInterpretedREPL.exe ./dist/win-x64/interpreter/examples/increment.aqua
 ./dist/win-x64/interpreter/AquariusDesktopInterpretedREPL.exe ./dist/win-x64/interpreter/examples/opengl_cube/main.aqua
+./dist/win-x64/interpreter/AquariusDesktopInterpretedREPL.exe ./dist/win-x64/interpreter/examples/processing_showcase/main.aqua
 ```
 
 交付時打包整個 `interpreter` 目錄，包含執行檔、DLL、設定檔、`runtimes`、範例與授權；
@@ -209,6 +210,22 @@ LSP 編輯器可將啟動命令設為 `language-server/AquariusLanguageServer.ex
 使用標準輸入／輸出通訊。現有 VS Code 擴充套件仍透過 `dotnet` 啟動伺服器 DLL，
 其 VSIX 打包流程為 framework-dependent；上述自包含伺服器不會自動改變擴充套件的啟動方式，
 現有 VSIX 仍需安裝 .NET Runtime。詳見 [VS Code 操作指南](editors/vscode/README.md)。
+
+### 匯入 Processing 時出現找不到檔案
+
+`Processing` 是桌面直譯器的內建模組，不需要另外下載同名檔案。
+若 `匯入("Processing")` 出現 `Could not find file '...Processing'`，
+請先確認啟動的是本次發佈目錄中的執行檔。上述指令將新版放在
+`dist/win-x64/interpreter`；先前留在 `dist/win-x64` 的舊版執行檔與 DLL 不會因此更新。
+舊版可能尚未支援此模組，並在匯入失敗後觸發 `NullReferenceException`。
+
+如果目前 PowerShell 位於 `dist/win-x64`，請使用：
+
+```powershell
+.\interpreter\AquariusDesktopInterpretedREPL.exe .\interpreter\examples\processing_showcase\main.aqua
+```
+
+更新部署時請交付完整的新版 `interpreter` 目錄，避免混用不同版本的執行檔、DLL 與原生圖學函式庫。
 
 ### 其他平台與架構
 
@@ -233,3 +250,11 @@ Linux／macOS 的執行檔沒有 `.exe` 副檔名；交付前同樣需附上範�
 macOS 請安裝 Xcode 命令列工具，並將安裝路徑與發佈 RID 換成 `osx-x64` 或 `osx-arm64`。
 目前 Windows x64 的圖學建置已驗證，Linux／macOS 尚待實機驗證，平台功能差異請見
 [圖學支援指南](native/README.md) 與 [Processing 使用指南](AquariusDesktopInterpretedREPL/graphics/Processing.md)。
+
+## 星泉介紹網站
+
+繁體中文介紹網站原始碼位於 [website/](website/README.md)，包含可互動的 3D 水瓶、語法示例、生態系與未來展望。
+
+GitHub Pages 網址（部署後）：https://aquarius-language.github.io/AquariusLangTW/
+
+推送或合併 `website/` 的變更至 `main`，會自動建置並部署；pull request 會先執行網站建置檢查。首次啟用請將儲存庫 **Settings → Pages → Source** 設為 **GitHub Actions**。詳細設定與本機操作請見 [網站部署指南](website/docs/github-pages.md)。
