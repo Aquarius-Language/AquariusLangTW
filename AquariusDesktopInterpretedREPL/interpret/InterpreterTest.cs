@@ -34,6 +34,15 @@ public class InterpreterTest {
         Assert.Equal(7, Assert.IsType<IntegerObj>(evaluated).Value);
     }
 
+    [Fact]
+    public void TestIncrementAndPlusEqualExample() {
+        string examplePath = Path.Combine(AppContext.BaseDirectory,
+            "../../../examples/increment_and_plus_equal.aqua");
+        IObject evaluated = Interpreter.Interpret(examplePath);
+        Assert.True(Assert.IsType<BooleanObj>(evaluated).Value,
+            "The ++ and += example reported a failed check. See the interpreter output for details.");
+    }
+
     [Theory]
     [InlineData("長度", 3)]
     [InlineData("最後一個", 3)]

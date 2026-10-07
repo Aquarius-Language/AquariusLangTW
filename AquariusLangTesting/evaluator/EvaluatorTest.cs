@@ -201,7 +201,7 @@ public class EvaluatorTest {
             new () {
                 input = @"
                     # Empty 迴圈 loop.
-                    迴圈 (變數 i = 0; i < 5; i+=1) {
+                    迴圈 (變數 i = 0; i < 5; i++) {
                     }
                     ",
                 expected = null,
@@ -288,7 +288,7 @@ public class EvaluatorTest {
             new () {
             input = @"
                     變數 a = ""Wow!"";
-                    變數 func = 函式(){迴圈(變數 a = 5; a < 10; a+=1) {迴圈 (變數 b = 0; b < 5; b+=1){如果 (a > 6) {回傳 a;}}}}
+                    變數 func = 函式(){迴圈(變數 a = 5; a < 10; a++) {迴圈 (變數 b = 0; b < 5; b++){如果 (a > 6) {回傳 a;}}}}
                     a = func();
                     a;
                     ",
@@ -350,7 +350,7 @@ public class EvaluatorTest {
                 input = 
                 @"
                 變數 func = 函式(){
-                    迴圈(變數 a = 5; a < 10; a+=1) {
+                    迴圈(變數 a = 5; a < 10; a++) {
                         如果 (a > 6) {
                             回傳 a;
                         }
@@ -364,8 +364,8 @@ public class EvaluatorTest {
             input = 
             @"
                 變數 func = 函式(){
-                    迴圈(變數 a = 5; a < 10; a+=1) {
-                        迴圈 (變數 b = 0; b < 5; b+=1) {
+                    迴圈(變數 a = 5; a < 10; a++) {
+                        迴圈 (變數 b = 0; b < 5; b++) {
                             如果 (a > 6) {
                                 回傳 a;
                             }
@@ -564,8 +564,8 @@ public class EvaluatorTest {
                     變數 a = 10;
                     
                     變數 func = 函式() {
-                        迴圈 (變數 i = 0; i < 5; i+=1) {
-                            迴圈 (變數 j = 0; j < 5; j+=1) {
+                        迴圈 (變數 i = 0; i < 5; i++) {
+                            迴圈 (變數 j = 0; j < 5; j++) {
                                 a += i;                                
                             }
                         }
@@ -771,7 +771,7 @@ public class EvaluatorTest {
         string[] scripts = {
             @"
             # Use of undeclared array.
-            迴圈 (變數 i = 0; i < 長度(array); i+=1) {
+            迴圈 (變數 i = 0; i < 長度(array); i++) {
                 印出(array[i])
             }
             ",

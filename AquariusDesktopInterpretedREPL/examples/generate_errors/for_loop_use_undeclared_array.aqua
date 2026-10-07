@@ -1,4 +1,4 @@
 ﻿# This should generate error, as the array is not defined yet.
-迴圈 (變數 i = 0; i < 長度(array); i+=1) {
+迴圈 (變數 i = 0; i < 長度(array); i++) {
     印出(array[i])
 }

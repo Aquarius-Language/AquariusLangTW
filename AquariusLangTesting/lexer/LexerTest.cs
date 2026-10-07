@@ -60,7 +60,7 @@ public class LexerTest {
             {""foo"": ""bar""}
             
             # This is a comment.
-            迴圈 (變數 i = 0; i < 5; i+=1) {}
+            迴圈 (變數 i = 0; i < 5; i++) {}
 
             ##
             This is also a comment.
