@@ -16,6 +16,7 @@
 #include <GLFW/glfw3native.h>
 #include <stdint.h>
 #include <string.h>
+#include "text_input.h"
 #define STB_IMAGE_IMPLEMENTATION
 #define STBI_WINDOWS_UTF8
 #include "stb_image.h"
@@ -35,12 +36,14 @@ static unsigned int pending_chars[256];
 static unsigned int char_read, char_write;
 static void on_scroll(GLFWwindow* window, double x, double y) { (void)window; (void)x; pending_scroll -= y; }
 static void on_character(GLFWwindow* window, unsigned int c) {
-    (void)window;
+    if (!c || c > 0x10ffff || (c >= 0xd800 && c <= 0xdfff)) return;
+    aqua_text_character(window, c);
     if (char_write - char_read < 256) pending_chars[char_write++ % 256] = c;
 }
 AQUA GLFWwindow* aqua_window(int w, int h, const char* title) {
     GLFWwindow* window = glfwCreateWindow(w, h, title, NULL, NULL);
     pending_scroll = 0; char_read = char_write = 0;
+    if (window && !aqua_text_create(window, on_character)) { glfwDestroyWindow(window); return NULL; }
     if (window) { glfwSetScrollCallback(window, on_scroll); glfwSetCharCallback(window, on_character); }
     return window;
 }
@@ -64,7 +67,7 @@ AQUA int aqua_wgpu_handles(GLFWwindow* window, void** display, void** handle) {
 #endif
 #endif
 }
-AQUA void aqua_destroy(GLFWwindow* window) { glfwDestroyWindow(window); }
+AQUA void aqua_destroy(GLFWwindow* window) { aqua_text_destroy(window); glfwDestroyWindow(window); }
 AQUA void aqua_current(GLFWwindow* window) { glfwMakeContextCurrent(window); }
 AQUA int aqua_load(void) { return gladLoadGL(glfwGetProcAddress); }
 AQUA GLADapiproc aqua_proc(const char* name) {

@@ -1,0 +1,31 @@
+# Text entry is independent of rendering; Processing presents through wgpu.
+變數 p = 匯入("Processing");
+變數 輸入 = 匯入("TextInput");
+變數 內容 = "";
+變數 設定 = 函式() {
+    p.size(900, 360, p.P2D, "Multilingual input / wgpu");
+    p.textFont("sans-serif", 24);
+    p.startTextInput();
+    p.on("textInput", 函式() { 內容 = 內容 + p.inputText; });
+    p.on("keyPressed", 函式() {
+        如果 (p.keyCode == 259) { 內容 = 輸入.Backspace(內容); }
+    });
+};
+變數 繪製 = 函式() {
+    p.background(18, 26, 42); p.noStroke();
+    p.fill(238); p.textSize(24);
+    p.text("Multilingual input / wgpu", 28, 46);
+    p.textSize(16);
+    p.text("Type with your system keyboard or IME. Backspace deletes a whole grapheme.", 28, 78);
+    p.fill(32, 46, 68); p.rect(24, 106, p.width - 48, 94, 8);
+    p.fill(245); p.textSize(24); p.text(內容, 36, 144);
+    變數 游標 = 36 + p.textWidth(內容);
+    p.fill(112, 210, 255); p.text(p.compositionText, 游標, 144);
+    p.stroke(112, 210, 255); p.line(游標, 150, 游標 + p.textWidth(p.compositionText), 150); p.noStroke();
+    p.textInputRect(p.ceil(游標), 118, 1, 30);
+    p.fill(168); p.textSize(16);
+    p.text("中文 · 日本語 · 한글 · accents · emoji", 28, 244);
+    p.text("Close the window to exit. IME candidate windows follow the caret.", 28, 280);
+};
+p.run(設定, 繪製);
+真;

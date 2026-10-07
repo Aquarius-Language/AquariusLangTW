@@ -8,6 +8,9 @@ It supports GPU storage buffers, WGSL compute, offscreen rendering, and pixel
 readback. It does not expose every WebGPU descriptor or arbitrary native pointers.
 Processing uses the same backend for its P2D/P3D canvases and window presentation.
 The `GL`, `GLAD`, `GLFW`, `GLM`, and `STBImage` modules remain available.
+The renderer-independent [TextInput module](TextInput.md) supplies Unicode commits
+and Windows IME composition/caret positioning for GLFW windows. Processing exposes
+the same events for its wgpu sketches; see the [multilingual input example](../examples/multilingual_input/README.md).
 
 Importing either graphics module does not initialize the GPU. `CreateDevice()`
 requests a native adapter and device. Missing adapters and shader/validation

@@ -23,6 +23,7 @@ internal sealed partial class GraphicsRuntime : IDisposable {
         RegisterGl();
         RegisterGlHelpers();
         RegisterGlfw();
+        RegisterTextInput();
         RegisterMath();
         RegisterImages();
         RegisterProcessing();
@@ -155,7 +156,7 @@ internal sealed partial class GraphicsRuntime : IDisposable {
         lock (Gate) {
             if (active != this) return;
             // The wgpu surface must be released before GLFW destroys its native window.
-            if(sketchWindow!=null) {DisposeProcessing();sketchWindow=null;sketchClock.Stop();}
+            if(sketchWindow!=null) {DisposeProcessing();sketchWindow=null;sketchClock.Stop();ResetProcessingTextInput();}
             foreach (var window in windows) { Native.aqua_destroy(window.Handle); window.Handle = IntPtr.Zero; }
             windows.Clear(); current = null; loaded = false; functions.Clear();
             Native.aqua_terminate(); active = null;

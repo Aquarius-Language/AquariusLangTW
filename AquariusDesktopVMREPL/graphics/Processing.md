@@ -133,6 +133,10 @@ Esc exits `run()`. Key codes use GLFW, so A–Z are 65–90; `ESC` is 256,
 `SPACE` is 32. Mouse buttons are 0/1/2 (`LEFT`/`RIGHT`/`CENTER`). Key/button
 transitions are polled once per frame; very short taps between polls can be missed.
 Unicode typed characters and wheel deltas are queued by the native bridge.
+For editable multilingual text, use `startTextInput()`, `stopTextInput()`, and
+`textInputRect(x,y,w,h)` with `textInput` and composition callbacks. See the
+[text input guide](TextInput.md) for fields, Windows IME support and platform
+limitations. While text input is enabled, automatic Esc exit is disabled.
 `noLoop()` keeps polling input and drawing after `redraw()`; `exit()` ends the loop.
 
 ## PImage, PGraphics, PShape, PShader

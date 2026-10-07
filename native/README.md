@@ -15,6 +15,7 @@ Aquarius functions passed to Processing run as compiled VM callbacks through
 | Aquarius import | Implementation |
 | --- | --- |
 | `GLFW` | GLFW 3.4 windows, OpenGL contexts, keyboard/mouse polling and time |
+| `TextInput` | Renderer-independent Unicode commits, grapheme-safe Backspace, Windows IME composition and caret positioning |
 | `GLAD` | GLAD 2.0.8 generated loader, OpenGL 3.3 core, no extensions |
 | `GL` | Every generated core function, constants, typed data and shader helpers |
 | `GLM` | GLM-style math implemented with .NET System.Numerics; no C++ GLM dependency |
@@ -30,6 +31,9 @@ and native window handles. Processing creates a GLFW_NO_API window and presents
 through wgpu; OpenGL continues to use its existing context and GLAD loader.
 See [the wgpu guide](../AquariusDesktopVMREPL/graphics/WGPU.md). NuGet supplies
 wgpu-native binaries; headless WGPU scripts do not require this GLFW bridge.
+Rebuild the bridge for the [multilingual text input API](../AquariusDesktopVMREPL/graphics/TextInput.md).
+It works with OpenGL and GLFW_NO_API/wgpu windows. Windows uses IMM for preedit
+and candidate positioning; Linux/macOS currently expose committed text only.
 Rebuild the bridge for `Processing.resize(w,h)` and `GLFW.SetWindowSize(window,w,h)`.
 `GLFW.GetWindowSize(window)` returns logical dimensions; `GetFramebufferSize`
 returns the physical pixel dimensions used for viewports and render targets.

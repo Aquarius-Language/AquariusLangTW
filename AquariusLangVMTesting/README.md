@@ -66,6 +66,12 @@ Processing additionally requires the rebuilt GLFW bridge and a desktop.
 Without those opt-in flags, GPU tests are skipped explicitly. Module import,
 uniform layout, example parsing and CLI disassembly tests run without GPU initialization.
 See [the wgpu guide](../AquariusDesktopVMREPL/graphics/WGPU.md).
+The `TextInput` tests cover grapheme editing and composition callbacks without
+native initialization. With `AQUARIUS_WGPU_TESTS=1`, Windows tests also send native
+Unicode/focus/composition lifecycle messages to GLFW_NO_API windows, check queue
+overflow and session cleanup, and render committed text through Processing/wgpu.
+Actual installed IME preedit/results and candidate selection still need a manual
+check with the [multilingual example](../AquariusDesktopVMREPL/examples/multilingual_input/README.md).
 
 An opt-in benchmark measures VM execution for an integer loop, recursive Fibonacci
 and closures with array writes. It verifies known numeric results, warms up the

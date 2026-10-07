@@ -6,6 +6,7 @@ namespace AquariusREPL.Graphics;
 internal sealed class WindowObject : IObject {
     internal IntPtr Handle;
     internal readonly GraphicsRuntime Owner;
+    internal bool TextInputEnabled;
     internal WindowObject(IntPtr handle, GraphicsRuntime owner) { Handle = handle; Owner = owner; }
     public string Type() => "GLFW_WINDOW";
     public string Inspect() => Handle == IntPtr.Zero ? "closed GLFW window" : "GLFW window";

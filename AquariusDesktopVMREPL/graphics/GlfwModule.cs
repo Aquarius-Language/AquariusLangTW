@@ -72,6 +72,8 @@ internal sealed partial class GraphicsRuntime {
             ["GLFW_SAMPLES"] = 0x2100D, ["GLFW_KEY_ESCAPE"] = 256, ["GLFW_KEY_SPACE"] = 32,
             ["GLFW_CLIENT_API"] = 0x22001, ["GLFW_NO_API"] = 0, ["GLFW_OPENGL_API"] = 0x30001,
             ["GLFW_KEY_LEFT"] = 263, ["GLFW_KEY_RIGHT"] = 262, ["GLFW_KEY_UP"] = 265, ["GLFW_KEY_DOWN"] = 264,
+            ["GLFW_KEY_ENTER"] = 257, ["GLFW_KEY_TAB"] = 258, ["GLFW_KEY_BACKSPACE"] = 259,
+            ["GLFW_KEY_DELETE"] = 261, ["GLFW_KEY_HOME"] = 268, ["GLFW_KEY_END"] = 269,
             ["GLFW_MOUSE_BUTTON_LEFT"] = 0, ["GLFW_MOUSE_BUTTON_RIGHT"] = 1,
             ["GLFW_CURSOR"] = 0x33001, ["GLFW_CURSOR_NORMAL"] = 0x34001, ["GLFW_CURSOR_DISABLED"] = 0x34003
         };

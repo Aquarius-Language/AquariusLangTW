@@ -8,7 +8,7 @@ The REPL preserves its environment between inputs; each file run gets a fresh on
 
 Includes the array/string builtins, console output, operating system queries,
 external process execution, working-directory identifiers, script modules, GLFW,
-GLAD, all OpenGL bindings, GLM, STBImage, WGPU, Processing and Jolt Physics. Examples and available
+GLAD, all OpenGL bindings, GLM, STBImage, WGPU, Processing, TextInput and Jolt Physics. Examples and available
 native runtime libraries are copied to both build and publish output.
 
 Run from the repository root with a .NET 8 SDK (which includes the .NET 8 runtime):
@@ -26,6 +26,8 @@ See the [native guide](../native/README.md) and
 [Processing guide](../AquariusDesktopVMREPL/graphics/Processing.md).
 Processing renders with wgpu; GLFW supplies its window/input. The `WGPU` module
 also supports headless WGSL rendering and compute without the GLFW bridge.
+The [TextInput guide](graphics/TextInput.md) covers Unicode input, Windows IME
+composition and caret positioning for wgpu-compatible GLFW windows and Processing.
 NuGet restores the pinned wgpu-native runtime binaries and copies them to build
 and publish outputs. Keep those files with a distributed application.
 See the [wgpu API and migration guide](graphics/WGPU.md) and the `wgpu_compute`,

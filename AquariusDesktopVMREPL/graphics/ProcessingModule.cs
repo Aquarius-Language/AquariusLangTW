@@ -53,6 +53,7 @@ internal sealed partial class GraphicsRuntime {
         screen=new ProcessingCanvas(this,640,480,false); screen.Module=modules["Processing"];
         processing.Create("backend",new StringObj("wgpu"));
         RegisterCanvas(processing,screen); RegisterProcessingMath(processing);
+        RegisterProcessingTextInput();
         foreach(var pair in new Dictionary<string,int>{["CORNER"]=0,["CORNERS"]=1,["CENTER"]=2,["RADIUS"]=3,
             ["RGB"]=0,["HSB"]=1,["ARGB"]=2,["OPEN"]=0,["CHORD"]=1,["PIE"]=2,["CLOSE"]=1,
             ["POINTS"]=0,["LINES"]=1,["TRIANGLES"]=4,["TRIANGLE_STRIP"]=5,["TRIANGLE_FAN"]=6,["QUADS"]=7,["QUAD_STRIP"]=8,["POLYGON"]=9,
@@ -73,7 +74,7 @@ internal sealed partial class GraphicsRuntime {
         PAction(processing,"cursor",0,0,_=>{RequireSketch();Native.aqua_input(sketchWindow!.Handle,0x33001,0x34001);});
         PAction(processing,"run",2,2,a=>Run(a[0],a[1]));
         PAction(processing,"on",2,2,a=> {
-            string name=Text(a[0]); if(!new[]{"mousePressed","mouseReleased","mouseClicked","mouseMoved","mouseDragged","keyPressed","keyReleased","keyTyped","mouseWheel","windowResized"}.Contains(name))throw new ArgumentException("Unknown event name.");
+            string name=Text(a[0]); if(!new[]{"mousePressed","mouseReleased","mouseClicked","mouseMoved","mouseDragged","keyPressed","keyReleased","keyTyped","mouseWheel","windowResized","textInput","compositionStarted","compositionUpdated","compositionEnded"}.Contains(name))throw new ArgumentException("Unknown event name.");
             ValidateCallback(a[1]); events[name]=a[1];
         });
         PAction(processing,"beginFrame",0,0,_=>BeginFrame());
@@ -203,21 +204,35 @@ internal sealed partial class GraphicsRuntime {
         if(!pressed&&previousMouse){Event("mouseReleased");Event("mouseClicked");}
         if(x!=previousX||y!=previousY)Event(pressed?"mouseDragged":"mouseMoved");
         previousMouse=pressed;previousX=x;previousY=y;
+        bool imeHandled=false;
+        if(sketchWindow.TextInputEnabled) {
+            imeHandled=((BooleanObj)processing.Get("isComposing",out _)).Value;
+            // Drain the legacy queue; keyTyped is delivered from the complete text queue.
+            while(Native.aqua_character()!=0) { }
+            foreach(var input in ReadTextInput(sketchWindow.Handle)) {
+                if(sketchWindow==null||!sketchWindow.TextInputEnabled)break;
+                imeHandled|=input.Type!="textInput";
+                DispatchTextInput(input);
+            }
+            if(sketchWindow==null)return;
+        }
         for(int code=32;code<349;code++) {
             // GLFW reserves gaps in its key enumeration; skip those to avoid GLFW errors.
             if(!ValidKey(code))continue;
             bool down=Native.aqua_key(sketchWindow.Handle,code)==1;
             if(down!=keys[code]) { keys[code]=down;processing.Create("keyCode",N(code));processing.Create("key",new StringObj(code<127?((char)code).ToString():""));
-                processing.Create("isKeyPressed",new BooleanObj(keys.Any(k=>k)));Event(down?"keyPressed":"keyReleased"); }
+                processing.Create("isKeyPressed",new BooleanObj(keys.Any(k=>k)));if(!imeHandled)Event(down?"keyPressed":"keyReleased"); }
         }
-        int character;while((character=Native.aqua_character())!=0) {processing.Create("key",new StringObj(char.ConvertFromUtf32(character)));Event("keyTyped");}
+        if(!sketchWindow.TextInputEnabled) {
+            int character;while((character=Native.aqua_character())!=0) {processing.Create("key",new StringObj(char.ConvertFromUtf32(character)));Event("keyTyped");}
+        }
         double wheel=Native.aqua_scroll();processing.Create("wheelCount",new DoubleObj(wheel));if(wheel!=0)Event("mouseWheel");
-        if(keys[256])exiting=true;
+        if(keys[256]&&!sketchWindow.TextInputEnabled)exiting=true;
     }
     private static bool ValidKey(int c)=>c is 32 or 39 or 44 or 45 or 46 or 47 or 59 or 61 or 91 or 92 or 93 or 96 or 161 or 162 || c is >=48 and <=57 or >=65 and <=90 or >=256 and <=269 or >=280 and <=284 or >=290 and <=314 or >=320 and <=336 or >=340 and <=348;
     private void CloseSketch() {
         if(sketchWindow==null)return;
-        try { DisposeProcessing(); } finally { Terminate();sketchWindow=null;sketchClock.Stop(); }
+        try { DisposeProcessing(); } finally { Terminate();sketchWindow=null;sketchClock.Stop();ResetProcessingTextInput(); }
     }
     private void DisposeProcessing() {
         if(sketchWindow==null)return;
