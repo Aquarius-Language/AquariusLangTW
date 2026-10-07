@@ -4,6 +4,8 @@
 
 作者：林天牧 / Temple Lin
 
+VSCode 擴充套件: https://marketplace.visualstudio.com/items?itemName=aquariuslang.aquariuslang-tw
+
 ## 名稱與寓意
 
 **星泉**是 AquariusLang 的中文名稱，希望讓人以熟悉的文字表達想法，
