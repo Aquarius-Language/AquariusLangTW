@@ -28,7 +28,7 @@ new bridge exports for window size, character input, wheel input and fullscreen.
 
 ## Build
 
-Use .NET 8 SDK (the existing desktop host targets .NET 6), CMake 3.20 or newer,
+Use .NET 8 SDK, CMake 3.20 or newer,
 a C compiler, and an OpenGL 3.3-capable driver. GLFW is fetched from its 3.4
 release with a verified SHA-256 checksum. GLAD and stb_image are vendored, with
 licenses, so users need no Python or GLAD generation step for ordinary builds.

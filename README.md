@@ -29,13 +29,13 @@ VSCode 擴充套件: https://marketplace.visualstudio.com/items?itemName=aquariu
 執行流程為原始碼 → token → AST → 位元碼 → VM。
 `VmCompiler` 編譯語法樹及函式本體，`VirtualMachine` 以運算元堆疊和明確的呼叫框架執行，
 遞迴不累積 C# 呼叫堆疊。閉包保留定義時的環境；REPL 在多次輸入之間保留全域變數。
-VM 核心支援 .NET 6、.NET 8 與 .NET Standard 2.1，桌面入口目前使用 .NET 6。
+完整方案的 VM 核心、桌面入口、測試與語言伺服器皆以 .NET 8（`net8.0`）為目標框架。
 
 `AquariusDesktopVMREPL` 提供桌面內建函式、腳本匯入與擴充函式庫，包含 OpenGL 與 Processing；
 匯入的腳本及 Processing 回呼也透過 VM 執行。
 詳細架構請見 [VM 核心](AquariusLangVM/README.md) 與 [VM 桌面入口](AquariusDesktopVMREPL/README.md)。
 
-在專案根目錄執行（需要 .NET 8 SDK 與 .NET 6 Runtime）：
+在專案根目錄執行（需要 .NET 8 SDK）：
 
 ```powershell
 # 不帶參數進入 VM REPL
@@ -176,7 +176,7 @@ dotnet run --project AquariusDesktopVMREPL -- AquariusDesktopVMREPL/examples/pro
 
 ## 執行與測試
 
-建置完整方案需要 .NET 8 SDK；執行桌面 VM 與 .NET 測試另需 .NET 6 Runtime。
+建置、執行與測試完整方案只需 .NET 8 SDK（已包含 .NET 8 Runtime）。
 
 ```powershell
 dotnet build AquariusLang.sln -c Release
@@ -201,14 +201,10 @@ npm --prefix editors/vscode run check
 
 ### 建置環境
 
-- .NET 8 SDK（僅安裝 Runtime 無法建置）；執行目前的測試另需 .NET 6 Runtime。
+- .NET 8 SDK（已包含建置、執行與測試所需的 .NET 8 Runtime；僅安裝 Runtime 無法建置）。
 - 完整圖學功能需要 CMake 3.20 以上與 C 編譯器；Windows 請安裝 Visual Studio C++ 建置工具。
 - 首次還原 NuGet 套件、下載自包含執行階段與建置 GLFW 需要網路連線。
-- 目前桌面 VM 與測試目標為 `net6.0`，語言伺服器為 `net8.0`。
-  自包含發佈保留各自的目標版本；安裝較新的 SDK 不會自動升級目標框架。
-  [.NET 6 已於 2024 年 11 月 12 日終止支援](https://dotnet.microsoft.com/en-us/platform/support/policy/dotnet-core)，
-  正式上線前應將桌面入口與測試遷移至受支援的 .NET 版本並重新驗證。
-  以下指令適用於目前專案設定。
+- 全部 .NET 專案皆以 `net8.0` 為目標框架；桌面 VM 與語言伺服器的自包含發佈皆包含 .NET 8 執行階段。
 
 ### Windows x64 完整建置與發佈
 
@@ -221,7 +217,7 @@ dotnet build AquariusLang.sln -c Release
 dotnet test AquariusLang.sln -c Release --no-build
 
 # 桌面 VM：含語言核心、桌面函式、原生圖學函式庫及範例
-dotnet publish AquariusDesktopVMREPL/AquariusDesktopVMREPL.csproj -c Release -f net6.0 -r win-x64 --self-contained true -p:UseAppHost=true -p:PublishSingleFile=false -p:PublishTrimmed=false -o dist/win-x64/vm
+dotnet publish AquariusDesktopVMREPL/AquariusDesktopVMREPL.csproj -c Release -f net8.0 -r win-x64 --self-contained true -p:UseAppHost=true -p:PublishSingleFile=false -p:PublishTrimmed=false -o dist/win-x64/vm
 
 # 語言伺服器：供支援 LSP 的編輯器直接啟動
 dotnet publish AquariusLanguageServer/AquariusLanguageServer.csproj -c Release -f net8.0 -r win-x64 --self-contained true -p:UseAppHost=true -p:PublishSingleFile=false -p:PublishTrimmed=false -o dist/win-x64/language-server
@@ -280,7 +276,7 @@ cmake --build native/build --config Release --parallel
 cmake --install native/build --config Release --prefix AquariusDesktopVMREPL/runtimes/linux-x64/native
 dotnet build AquariusLang.sln -c Release
 dotnet test AquariusLang.sln -c Release --no-build
-dotnet publish AquariusDesktopVMREPL/AquariusDesktopVMREPL.csproj -c Release -f net6.0 -r linux-x64 --self-contained true -p:UseAppHost=true -p:PublishSingleFile=false -p:PublishTrimmed=false -o dist/linux-x64/vm
+dotnet publish AquariusDesktopVMREPL/AquariusDesktopVMREPL.csproj -c Release -f net8.0 -r linux-x64 --self-contained true -p:UseAppHost=true -p:PublishSingleFile=false -p:PublishTrimmed=false -o dist/linux-x64/vm
 dotnet publish AquariusLanguageServer/AquariusLanguageServer.csproj -c Release -f net8.0 -r linux-x64 --self-contained true -p:UseAppHost=true -p:PublishSingleFile=false -p:PublishTrimmed=false -o dist/linux-x64/language-server
 ./dist/linux-x64/vm/AquariusDesktopVMREPL ./dist/linux-x64/vm/examples/increment.aqua
 ```

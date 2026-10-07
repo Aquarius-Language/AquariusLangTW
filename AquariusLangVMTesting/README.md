@@ -1,6 +1,7 @@
 # Aquarius VM tests
 
-This is the solution's .NET test project. It references `AquariusLangVM` and
+This is the solution's .NET 8 (`net8.0`) test project. Build and run the tests with
+the .NET 8 SDK, which includes the required runtime. It references `AquariusLangVM` and
 `AquariusDesktopVMREPL` and exercises the frontend, compiled execution, desktop
 imports and callbacks.
 

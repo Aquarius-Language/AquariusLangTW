@@ -11,7 +11,7 @@ external process execution, working-directory identifiers, script modules, GLFW,
 GLAD, all OpenGL bindings, GLM, STBImage and Processing. Examples and available
 native runtime libraries are copied to both build and publish output.
 
-Run from the repository root with a .NET 8 SDK and .NET 6 Runtime:
+Run from the repository root with a .NET 8 SDK (which includes the .NET 8 runtime):
 
 ```powershell
 dotnet run --project AquariusDesktopVMREPL

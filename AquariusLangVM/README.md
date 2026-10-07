@@ -1,7 +1,7 @@
 # AquariusLangVM
 
 Aquarius language core, bytecode compiler and stack virtual machine. Targets
-.NET 6, .NET 8 and .NET Standard 2.1 with no project or native graphics dependencies.
+.NET 8 (`net8.0`) with no project or native graphics dependencies.
 
 This project owns the lexer, parser, AST, environments, objects and builtin
 interface. Source flows through the lexer and parser to an AST, then to bytecode.
