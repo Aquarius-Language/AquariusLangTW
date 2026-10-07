@@ -84,6 +84,23 @@ dotnet run --project AquariusDesktopInterpretedREPL -- AquariusDesktopInterprete
 按 **Esc** 離開、**空白鍵**暫停／繼續旋轉；支援調整視窗大小。
 建置、平台限制、API 與測試說明請見 [圖學支援指南](native/README.md)。
 
+## Processing 風格繪圖函式庫
+
+`匯入("Processing")` 提供以 OpenGL 3.3 實作的創意程式設計 API：
+2D 圖形、曲線、多邊形與孔洞、顏色、矩陣與樣式堆疊、圖片與像素、文字、
+PGraphics 離屏畫布、PShape 可重用圖形、3D 立方體／球體、光源與材質、
+GLSL 著色器、滑鼠／鍵盤事件、動畫迴圈、亂數、Perlin noise 與 PVector。
+
+```powershell
+./native/build.ps1
+dotnet run --project AquariusDesktopInterpretedREPL -- AquariusDesktopInterpretedREPL/examples/processing_showcase/main.aqua
+```
+
+[六面板展示](AquariusDesktopInterpretedREPL/examples/processing_showcase/README.md)
+支援空白鍵暫停、滑鼠吸引粒子、S 儲存 PNG、Esc 離開。
+完整 API 與和 Java Processing 的差異請見
+[Processing 使用指南](AquariusDesktopInterpretedREPL/graphics/Processing.md)。
+
 ## Visual Studio Code 與 Language Server Protocol
 
 已提供獨立的 .NET 8 LSP 語言伺服器與 VS Code 擴充套件，支援 `.aqua` 語法上色、

@@ -1,0 +1,199 @@
+# Processing-style creative coding, powered by Aquarius OpenGL 3.3.
+# Space: pause. Mouse: attract particles. S: save a PNG. Esc: exit.
+變數 畫 = 匯入("Processing");
+變數 時間 = 0.0d;
+變數 暫停 = 假;
+變數 儲存 = 假;
+變數 圖片 = 0;
+變數 立體 = 0;
+變數 星星 = 0;
+變數 特效 = 0;
+變數 粒子 = [];
+
+變數 標題 = 函式(文字, x, y) {
+    畫.fill(229, 240, 249);
+    畫.textSize(17);
+    畫.text(文字, x, y);
+};
+變數 卡片 = 函式(x, y, w, h) {
+    畫.noStroke();
+    畫.fill(22, 33, 51);
+    畫.rect(x, y, w, h, 16);
+};
+
+變數 設定 = 函式() {
+    畫.size(1100, 820, 畫.P2D, "Aquarius | Processing creative playground");
+    畫.frameRate(60);
+    畫.randomSeed(42);
+    畫.noiseSeed(42);
+    畫.textFont(畫.createFont("sans-serif", 16));
+    畫.on("keyPressed", 函式() {
+        如果 (畫.keyCode == 畫.SPACE) { 暫停 = !暫停; }
+        如果 (畫.keyCode == 83) { 儲存 = 真; }
+    });
+    迴圈 (變數 i = 0; i < 28; i++) {
+        粒子 = 加入(粒子, [畫.random(330), 畫.random(170), 畫.random(2, 5), 畫.random(畫.TWO_PI)]);
+    }
+    # Procedural PImage: mutable pixels, color interpolation and alpha.
+    圖片 = 畫.createImage(96, 64, 畫.ARGB);
+    迴圈 (變數 y = 0; y < 64; y++) {
+        迴圈 (變數 x = 0; x < 96; x++) {
+            變數 c = 畫.lerpColor(畫.color(47, 220, 203), 畫.color(155, 100, 255), x / 95.0d);
+            變數 格子 = 畫.floor(x / 8) + 畫.floor(y / 8);
+            如果 (格子 - 畫.floor(格子 / 2) * 2 == 0) {
+                c = 畫.lerpColor(c, 畫.color(250, 190, 100), 0.3d);
+            }
+            圖片.set(x, y, c);
+        }
+    }
+    圖片.loadPixels();
+    圖片.updatePixels();
+    # Retained PShape: one star mesh, reused with different transforms.
+    星星 = 畫.createShape();
+    星星.noStroke();
+    星星.fill(255, 187, 90);
+    星星.beginShape();
+    迴圈 (變數 i = 0; i < 10; i++) {
+        變數 r = 48;
+        如果 (i - 畫.floor(i / 2) * 2 == 1) { r = 22; }
+        變數 a = i * 畫.TWO_PI / 10 - 畫.HALF_PI;
+        星星.vertex(畫.cos(a) * r, 畫.sin(a) * r);
+    }
+    星星.endShape(畫.CLOSE);
+    # A P3D canvas can be drawn as an image inside the P2D sketch.
+    立體 = 畫.createGraphics(326, 204, 畫.P3D);
+    # Custom fragment shader uses the default vertex shader's uv/color outputs.
+    特效 = 畫.createShader("#version 330 core
+layout(location=0) in vec3 position;
+uniform mat4 model, view, projection;
+out vec2 uv;
+void main(){ uv=position.xy/vec2(326,174);gl_Position=projection*view*model*vec4(position,1);}",
+"#version 330 core
+in vec2 uv;
+uniform float time;
+out vec4 fragColor;
+void main(){vec2 p=(uv-0.5)*vec2(1.85,1.0);float r=length(p);float a=atan(p.y,p.x);
+float wave=0.5+0.5*sin(24*r-4*time+3*cos(3*a+time));
+vec3 c=mix(vec3(0.10,0.25,0.45),vec3(0.25,0.95,0.83),wave);
+c=mix(c,vec3(0.72,0.40,1.0),0.5+0.5*sin(4*a-2*time));fragColor=vec4(c,1);}");
+    印出("Space 暫停 | 滑鼠吸引粒子 | S 儲存 PNG | Esc 離開");
+};
+
+變數 繪製 = 函式() {
+    如果 (!暫停) { 時間 += 0.016d; }
+    畫.background(10, 18, 31);
+    畫.noStroke();
+    畫.fill(62, 227, 205);
+    畫.textSize(13);
+    畫.text("A Q U A R I U S  /  C R E A T I V E  C O D I N G", 36, 34);
+    畫.fill(239, 246, 255);
+    畫.textSize(38);
+    畫.text("A little code. A living canvas.", 34, 87);
+    畫.fill(143, 164, 189);
+    畫.textSize(15);
+    畫.text("OpenGL-powered shapes, pixels, typography, motion, 3D and programmable light.", 36, 120);
+
+    卡片(28, 146, 336, 286);
+    卡片(382, 146, 336, 286);
+    卡片(736, 146, 336, 286);
+    卡片(28, 450, 336, 292);
+    卡片(382, 450, 336, 292);
+    卡片(736, 450, 336, 292);
+    標題("01  /  Shapes + transforms", 46, 180);
+    標題("02  /  Curves + seeded noise", 400, 180);
+    標題("03  /  PImage + typography", 754, 180);
+    標題("04  /  Motion + interaction", 46, 484);
+    標題("05  /  PGraphics + P3D", 400, 484);
+    標題("06  /  GLSL fragment shader", 754, 484);
+
+    # Color modes, ellipses, arcs, concave polygon and retained geometry.
+    畫.push();
+    畫.translate(112, 282);
+    畫.rotate(時間 * 0.3d);
+    畫.fill(42, 205, 189);
+    畫.rectMode(畫.CENTER);
+    畫.rect(0, 0, 100, 100, 16);
+    畫.fill(12, 34, 49);
+    畫.circle(0, 0, 57);
+    畫.pop();
+    畫.push();
+    畫.translate(272, 273);
+    畫.rotate(-時間 * 0.7d);
+    畫.shape(星星);
+    畫.pop();
+    畫.fill(154, 110, 244);
+    畫.arc(195, 362, 82, 62, 0, 畫.PI + 畫.sin(時間), 畫.PIE);
+    # Polygon with a stencil-cut contour (hole).
+    畫.fill(255, 181, 84);
+    畫.beginShape();
+    畫.vertex(46, 357); 畫.vertex(100, 357); 畫.vertex(100, 403); 畫.vertex(46, 403);
+    畫.beginContour();
+    畫.vertex(60, 370); 畫.vertex(60, 390); 畫.vertex(85, 390); 畫.vertex(85, 370);
+    畫.endContour(); 畫.endShape(畫.CLOSE);
+
+    # Smooth noise ribbon, Bézier and Catmull-Rom paths.
+    畫.push();
+    畫.translate(400, 209);
+    畫.noFill(); 畫.strokeWeight(2); 畫.strokeCap(畫.SQUARE);
+    畫.stroke(55, 222, 198);
+    迴圈 (變數 i = 0; i < 24; i++) {
+        變數 x = i * 12;
+        變數 y = 畫.noise(i * 0.14d, 時間 * 0.15d) * 130;
+        變數 下一個 = 畫.noise((i + 1) * 0.14d, 時間 * 0.15d) * 130;
+        畫.line(x, y, x + 12, 下一個);
+    }
+    畫.stroke(172, 121, 249);
+    畫.bezier(0, 144, 95, 64 + 30 * 畫.sin(時間), 170, 222, 292, 128);
+    畫.stroke(255, 183, 87);
+    畫.curve(-50, 160, 0, 172, 290, 178, 340, 110);
+    畫.pop();
+
+    畫.image(圖片, 756, 208, 294, 142);
+    畫.fill(229, 240, 249); 畫.textSize(20);
+    畫.text("繁體中文 · Aquarius", 756, 385);
+    畫.fill(139, 160, 185); 畫.textSize(12);
+    畫.text("Mutable RGBA pixels / interpolated color", 756, 410);
+
+    # PVector math drives a small field of orbiting particles.
+    畫.push(); 畫.translate(46, 507); 畫.noStroke();
+    迴圈 (變數 i = 0; i < 長度(粒子); i++) {
+        變數 p = 粒子[i];
+        變數 位移 = 畫.createVector(畫.cos(時間 + p[3]) * 18, 畫.sin(時間 * 0.8d + p[3]) * 15);
+        變數 x = p[0] + 位移.x;
+        變數 y = p[1] + 位移.y;
+        如果 (畫.isMousePressed) {
+            x = 畫.lerp(x, 畫.mouseX - 46, 0.55d);
+            y = 畫.lerp(y, 畫.mouseY - 507, 0.55d);
+        }
+        畫.fill(60 + i * 4, 225 - i * 2, 205, 180);
+        畫.circle(x, y, p[2] * 2);
+    }
+    畫.pop();
+
+    立體.beginDraw();
+    立體.background(22, 33, 51); 立體.noStroke();
+    立體.lights(); 立體.lightSpecular(220, 220, 255);
+    立體.pointLight(70, 170, 255, 80, 20, 200);
+    立體.pushMatrix(); 立體.translate(93, 98, 0);
+    立體.rotateX(時間 * 0.45d + 0.4d); 立體.rotateY(時間 * 0.65d + 0.6d);
+    立體.fill(63, 217, 191); 立體.shininess(40); 立體.box(83);
+    立體.popMatrix();
+    立體.pushMatrix(); 立體.translate(238, 104, 15);
+    立體.fill(179, 119, 241); 立體.sphereDetail(20, 14); 立體.sphere(49);
+    立體.popMatrix(); 立體.endDraw();
+    畫.image(立體, 388, 510);
+
+    畫.push(); 畫.translate(742, 518);
+    特效.set("time", 時間); 畫.shader(特效);
+    畫.fill(255); 畫.rect(0, 0, 326, 174);
+    畫.resetShader(); 畫.pop();
+    畫.fill(139, 160, 185); 畫.textSize(12);
+    畫.text("SPACE pause   /   MOUSE attract   /   S save   /   ESC exit", 36, 788);
+    如果 (暫停) { 畫.fill(255, 185, 89); 畫.text("PAUSED", 995, 788); }
+    如果 (儲存) { 畫.saveFrame(目前工作目錄 + "/showcase-####.png"); 儲存 = 假; }
+};
+
+畫.run(設定, 繪製);
+# run() releases its context automatically; no low-level cleanup is needed.
+印出("Processing showcase finished.");
+真;

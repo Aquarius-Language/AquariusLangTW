@@ -94,6 +94,26 @@ namespace AquariusLang.evaluator {
                 case NodeTypeMapValue.InfixMapValue:
                     InfixExpression _node = (InfixExpression)node;
 
+                    // Indexed writes are needed by mutable data such as Processing
+                    // pixel arrays. Evaluate the container, index and value once;
+                    // reading the left expression first would repeat side effects.
+                    if (_node.Operator == "=" && _node.Left is IndexExpression assignment) {
+                        IObject assignmentContainer = Eval(assignment.Left, environment);
+                        if (isError(assignmentContainer)) return assignmentContainer;
+                        IObject assignmentIndex = Eval(assignment.Index, environment);
+                        if (isError(assignmentIndex)) return assignmentIndex;
+                        if (!(assignmentContainer is ArrayObj targetArray))
+                            return NewError("Indexed assignment requires an array.");
+                        if (!(assignmentIndex is IntegerObj targetIndex))
+                            return NewError("Array assignment index must be an integer.");
+                        if (targetIndex.Value < 0 || targetIndex.Value >= targetArray.Elements.Length)
+                            return NewError("Array assignment index is out of bounds.");
+                        IObject assignmentValue = Eval(_node.Right, environment);
+                        if (isError(assignmentValue)) return assignmentValue;
+                        targetArray.Elements[targetIndex.Value] = assignmentValue;
+                        return assignmentValue;
+                    }
+
                     IObject _left = Eval(_node.Left, environment);
                     if (isError(_left)) {
                         return _left;

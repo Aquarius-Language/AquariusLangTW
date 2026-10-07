@@ -17,6 +17,12 @@ using math/buffer helpers does not initialize GLFW or load the graphics DLL.
 | `GL` | Every generated core function, constants, typed data and shader helpers |
 | `GLM` | GLM-style math implemented with .NET System.Numerics; no C++ GLM dependency |
 | `STBImage` | stb_image 2.30; PNG/JPEG/BMP/TGA/PNM and other supported formats |
+| `Processing` | Processing-style 2D/3D drawing, sketch loop/input, images/pixels/text, offscreen canvases, retained shapes, lights/materials and GLSL shaders |
+
+See the [Processing API guide](../AquariusDesktopInterpretedREPL/graphics/Processing.md)
+and [interactive showcase](../AquariusDesktopInterpretedREPL/examples/processing_showcase/README.md).
+Rebuild the native library when updating to this module: its event loop uses
+new bridge exports for window size, character input, wheel input and fullscreen.
 
 ## Build
 

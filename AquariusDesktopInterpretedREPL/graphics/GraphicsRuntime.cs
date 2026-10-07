@@ -24,6 +24,7 @@ internal sealed partial class GraphicsRuntime : IDisposable {
         RegisterGlfw();
         RegisterMath();
         RegisterImages();
+        RegisterProcessing();
     }
     internal bool TryImport(string name, out ModuleObj module) => modules.TryGetValue(name, out module!);
     private AquaEnvironment Module(string name) {
@@ -140,6 +141,7 @@ internal sealed partial class GraphicsRuntime : IDisposable {
     }
     public void Dispose() {
         if (disposed) return;
+        DisposeProcessing();
         foreach (var buffer in buffers) buffer.Dispose();
         buffers.Clear();
         Terminate(); disposed = true;

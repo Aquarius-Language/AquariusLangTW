@@ -14,6 +14,15 @@ namespace AquariusREPL;
 public class DesktopBuiltins : Builtins, IDisposable {
     private readonly GraphicsRuntime graphics = new();
     public DesktopBuiltins() {
+        graphics.InvokeAqua = (callback, args) => {
+            if (callback is BuiltinObj builtin) return builtin.Fn(args);
+            if (callback is not FunctionObj function) return new ErrorObj("Expected an Aquarius function callback.");
+            if (function.Parameters.Length != args.Length) return new ErrorObj($"Callback expects {function.Parameters.Length} arguments, got {args.Length}.");
+            var scope = Environment.NewEnclosedEnvironment(function.Env);
+            for (int i = 0; i < args.Length; i++) scope.Create(function.Parameters[i].Value, args[i]);
+            var result = Evaluator.NewInstance(this).Eval(function.Body, scope);
+            return result is ReturnValueObj returned ? returned.Value : result;
+        };
         builtinFuncs = new Dictionary<string, BuiltinObj> {
             {
                 "長度", new BuiltinObj(args => {

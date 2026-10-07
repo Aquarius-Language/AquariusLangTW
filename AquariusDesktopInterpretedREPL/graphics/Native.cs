@@ -36,6 +36,11 @@ internal static class Native {
     [DllImport(Library, CallingConvention = CallingConvention.Cdecl)] internal static extern void aqua_cursor(IntPtr window, out double x, out double y);
     [DllImport(Library, CallingConvention = CallingConvention.Cdecl)] internal static extern void aqua_input(IntPtr window, int mode, int value);
     [DllImport(Library, CallingConvention = CallingConvention.Cdecl)] internal static extern void aqua_framebuffer(IntPtr window, out int w, out int h);
+    [DllImport(Library, CallingConvention = CallingConvention.Cdecl)] internal static extern void aqua_window_size(IntPtr window, out int w, out int h);
+    [DllImport(Library, CallingConvention = CallingConvention.Cdecl)] internal static extern double aqua_scroll();
+    [DllImport(Library, CallingConvention = CallingConvention.Cdecl)] internal static extern int aqua_character();
+    [DllImport(Library, CallingConvention = CallingConvention.Cdecl)] internal static extern int aqua_monitor_size(out int w, out int h);
+    [DllImport(Library, CallingConvention = CallingConvention.Cdecl)] internal static extern int aqua_fullscreen(IntPtr window);
     [DllImport(Library, CallingConvention = CallingConvention.Cdecl)] internal static extern IntPtr aqua_image([MarshalAs(UnmanagedType.LPUTF8Str)] string path, int flip, out int w, out int h);
     [DllImport(Library, CallingConvention = CallingConvention.Cdecl)] internal static extern void aqua_image_free(IntPtr pixels);
     [DllImport(Library, CallingConvention = CallingConvention.Cdecl)] internal static extern IntPtr aqua_image_error();
