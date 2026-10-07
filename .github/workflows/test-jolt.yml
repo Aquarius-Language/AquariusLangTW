@@ -1,0 +1,29 @@
+name: Jolt Physics tests
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  jolt:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: Numerical unit tests and source/bottle CLI smoke tests
+        run: dotnet test AquariusLangVMTesting -c Release --filter FullyQualifiedName~Jolt --logger "trx;LogFileName=jolt.trx"
+      - name: Publish desktop host and native assets
+        run: dotnet publish AquariusDesktopVMREPL -c Release -o jolt-publish -p:PublishSingleFile=false -p:PublishTrimmed=false
+      - name: Smoke test published application
+        run: dotnet jolt-publish/AquariusDesktopVMREPL.dll jolt-publish/examples/jolt_physics/main.aqua
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: jolt-tests-${{ matrix.os }}
+          path: AquariusLangVMTesting/TestResults/*.trx

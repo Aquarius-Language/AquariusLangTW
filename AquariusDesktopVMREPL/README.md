@@ -8,7 +8,7 @@ The REPL preserves its environment between inputs; each file run gets a fresh on
 
 Includes the array/string builtins, console output, operating system queries,
 external process execution, working-directory identifiers, script modules, GLFW,
-GLAD, all OpenGL bindings, GLM, STBImage, WGPU and Processing. Examples and available
+GLAD, all OpenGL bindings, GLM, STBImage, WGPU, Processing and Jolt Physics. Examples and available
 native runtime libraries are copied to both build and publish output.
 
 Run from the repository root with a .NET 8 SDK (which includes the .NET 8 runtime):
@@ -30,6 +30,12 @@ NuGet restores the pinned wgpu-native runtime binaries and copies them to build
 and publish outputs. Keep those files with a distributed application.
 See the [wgpu API and migration guide](graphics/WGPU.md) and the `wgpu_compute`,
 `wgpu_triangle`, and `processing_wgpu` examples. Raw OpenGL modules remain available.
+
+Import `Jolt` or `JoltPhysics` for headless rigid-body physics. NuGet restores the
+pinned .NET 8 binding and native engine; no graphics initialization or CMake build
+is needed. See the [Jolt API and testing guide](physics/Jolt.md) and the
+`jolt_physics` example. Keep the Jolt native assets and license notices with
+published applications.
 
 ```powershell
 dotnet publish AquariusDesktopVMREPL -c Release -r win-x64 --self-contained true -p:PublishSingleFile=false -p:PublishTrimmed=false -o dist/win-x64/vm

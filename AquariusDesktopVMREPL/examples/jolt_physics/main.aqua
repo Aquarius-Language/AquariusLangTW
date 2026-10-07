@@ -1,0 +1,27 @@
+# Headless Jolt smoke test: impulse, gravity and a sphere resting on a floor.
+變數 物理 = 匯入("Jolt");
+變數 世界 = 物理.CreateWorld([0, 0, 0]);
+變數 球 = 世界.CreateSphere(0.5d, [0, 10, 0], 2);
+世界.AddImpulse(球, [4, 0, 0]);
+迴圈 (變數 i = 0; i < 60; i++) { 世界.Step(1.0d / 60, 1); }
+變數 位置 = 世界.GetPosition(球);
+變數 速度 = 世界.GetLinearVelocity(球);
+如果 (位置[0] < 1.999d || 位置[0] > 2.001d || 速度[0] < 1.999d || 速度[0] > 2.001d) { Jolt衝量計算失敗; }
+世界.SetGravity([0, -9.81d, 0]);
+迴圈 (變數 i = 0; i < 60; i++) { 世界.Step(1.0d / 60, 1); }
+變數 下落位置 = 世界.GetPosition(球);
+變數 下落速度 = 世界.GetLinearVelocity(球);
+如果 (下落位置[1] < 5.012d || 下落位置[1] > 5.015d || 下落速度[1] < -9.812d || 下落速度[1] > -9.808d) { Jolt重力計算失敗; }
+世界.RemoveBody(球);
+變數 地板 = 世界.CreateBox([10, 0.5d, 10], [0, -0.5d, 0], 0);
+球 = 世界.CreateSphere(0.5d, [0, 2, 0], 1);
+世界.OptimizeBroadPhase();
+迴圈 (變數 i = 0; i < 240; i++) { 世界.Step(1.0d / 60, 1); }
+變數 接觸位置 = 世界.GetPosition(球);
+變數 接觸速度 = 世界.GetLinearVelocity(球);
+# Jolt's default contact solver permits 0.02 meters of penetration.
+如果 (接觸位置[1] < 0.47d || 接觸位置[1] > 0.53d || 接觸速度[1] < -0.01d || 接觸速度[1] > 0.01d) { Jolt碰撞計算失敗; }
+世界.Dispose();
+世界.Dispose();
+印出("JOLT_SMOKE_OK");
+真;

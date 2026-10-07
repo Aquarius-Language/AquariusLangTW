@@ -8,6 +8,8 @@
     <RootNamespace>AquariusREPL</RootNamespace>
   </PropertyGroup>
   <ItemGroup>
+    <PackageReference Include="JoltPhysicsSharp" Version="2.19.1" />
+    <PackageReference Include="JoltPhysics.Native" Version="1.0.4" />
     <PackageReference Include="Silk.NET.WebGPU" Version="2.23.0" />
     <PackageReference Include="Silk.NET.WebGPU.Extensions.WGPU" Version="2.23.0" />
     <PackageReference Include="Silk.NET.WebGPU.Native.WGPU" Version="2.23.0" />

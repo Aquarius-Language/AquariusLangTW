@@ -15,6 +15,7 @@ internal sealed partial class GraphicsRuntime : IDisposable {
     private readonly HashSet<DataObject> buffers = new();
     private WindowObject? current;
     private bool loaded, disposed;
+    private readonly Physics.PhysicsRuntime physics = new();
     internal AquaEnvironment GlEnvironment = AquaEnvironment.NewEnvironment();
 
     internal GraphicsRuntime() {
@@ -27,7 +28,8 @@ internal sealed partial class GraphicsRuntime : IDisposable {
         RegisterProcessing();
         RegisterWgpu();
     }
-    internal bool TryImport(string name, out ModuleObj module) => modules.TryGetValue(name, out module!);
+    internal bool TryImport(string name, out ModuleObj module) =>
+        physics.TryImport(name, out module) || modules.TryGetValue(name, out module!);
     private AquaEnvironment Module(string name) {
         var env = AquaEnvironment.NewEnvironment(); modules[name] = new ModuleObj(env); return env;
     }
@@ -142,6 +144,7 @@ internal sealed partial class GraphicsRuntime : IDisposable {
     }
     public void Dispose() {
         if (disposed) return;
+        physics.Dispose();
         DisposeProcessing();
         foreach(var device in wgpuDevices.Values)device.Dispose();wgpuDevices.Clear();
         foreach (var buffer in buffers) buffer.Dispose();

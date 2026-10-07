@@ -234,6 +234,13 @@ dotnet run --project AquariusDesktopVMREPL -- AquariusDesktopVMREPL/examples/col
 
 ## 執行與測試
 
+桌面 VM 也提供 [Jolt Physics 物理模組](AquariusDesktopVMREPL/physics/Jolt.md)：
+使用 `匯入("Jolt")` 建立世界、球體及方塊，設定重力、速度、力及衝量。
+NuGet 自動還原原生引擎，不需 GPU 或圖學視窗。
+[物理 smoke 範例](examples/jolt_physics/README.md) 會驗證衝量、重力與地板碰撞；
+`dotnet test AquariusLangVMTesting -c Release --filter FullyQualifiedName~Jolt`
+會執行數值單元測試及 source／bottle CLI smoke 測試。
+
 建置、執行與測試完整方案只需 .NET 8 SDK（已包含 .NET 8 Runtime）。
 
 ```powershell

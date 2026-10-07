@@ -23,6 +23,10 @@ imports and callbacks.
   `WgpuTest.cs` checks imports, WGSL uniform layout, clipping, example parsing,
   GPU rendering/compute/readback, resource ownership and cleanup, plus separate
   CLI source/bottle smoke runs. Processing integration now exercises wgpu.
+- `desktop/physics/` runs the real Jolt engine by default, checking gravity,
+  motion, impulse/mass, force clearing, angular inertia, restitution, contacts,
+  input validation, body ownership and native resource cleanup. Its CLI smoke
+  tests execute source and source-free bottles in separate processes.
 
 The desktop assembly grants the test assembly access to internal graphics types
 through `InternalsVisibleTo`. Examples and native runtime assets arrive through
@@ -37,6 +41,9 @@ reentry and explicit expected results for control flow, assignment and boolean o
 ```powershell
 dotnet test AquariusLang.sln -c Release -m:1
 dotnet test AquariusLangVMTesting -c Release -m:1
+
+# Native Jolt numerical unit tests and CLI smoke tests (no GPU required)
+dotnet test AquariusLangVMTesting -c Release -m:1 --filter FullyQualifiedName~Jolt
 
 # Bytecode packaging unit and process smoke tests
 dotnet test AquariusLangVMTesting -c Release -m:1 --filter 'FullyQualifiedName~BytecodeSerializerTest|FullyQualifiedName~Bottle'
