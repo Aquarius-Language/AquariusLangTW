@@ -5,6 +5,9 @@ using AquariusLang.Object;
 using AquariusLang.parser;
 using AquariusLang.utils;
 using Environment = AquariusLang.Object.Environment;
+#if AQUARIUS_VM
+using Evaluator = AquariusLang.VM.VmEvaluator;
+#endif
 
 namespace AquariusREPL.interpret; 
 
@@ -27,8 +30,8 @@ public class Interpreter {
             Parser parser = Parser.NewInstance(lexer);
             AbstractSyntaxTree tree = parser.ParseAST();
 
-            if (parser.Errors.Count != 0) {
-                printParserErrors(parser.Errors.ToArray());
+            if (parser.Errors.Count != 0 || lexer.Errors.Count != 0) {
+                printParserErrors(lexer.Errors.Select(error => error.Message).Concat(parser.Errors).ToArray());
                 continue;
             }
 
@@ -55,8 +58,8 @@ public class Interpreter {
         Lexer lexer = Lexer.NewInstance(contents);
         Parser parser = Parser.NewInstance(lexer);
         AbstractSyntaxTree tree = parser.ParseAST();
-        if (parser.Errors.Count != 0) {
-            printParserErrors(parser.Errors.ToArray());
+        if (parser.Errors.Count != 0 || lexer.Errors.Count != 0) {
+            printParserErrors(lexer.Errors.Select(error => error.Message).Concat(parser.Errors).ToArray());
             return null;
         }
         Evaluator evaluator = Evaluator.NewInstance(desktopBuiltins);

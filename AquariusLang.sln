@@ -8,6 +8,12 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "AquariusLangTesting", "Aqua
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "AquariusLanguageServer", "AquariusLanguageServer\AquariusLanguageServer.csproj", "{5F2C392F-6AD4-4071-810C-A6DA2DC5E9C2}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "AquariusLangVM", "AquariusLangVM\AquariusLangVM.csproj", "{B95605C1-F460-4A4C-8D57-0E4FCA038541}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "AquariusDesktopVMREPL", "AquariusDesktopVMREPL\AquariusDesktopVMREPL.csproj", "{7945F546-E3A0-4F2E-9F14-792B0B76AE05}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "AquariusLangVMTesting", "AquariusLangVMTesting\AquariusLangVMTesting.csproj", "{D25D0647-843F-49CB-959E-1E2FE6AB24F0}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -30,5 +36,17 @@ Global
 		{5F2C392F-6AD4-4071-810C-A6DA2DC5E9C2}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{5F2C392F-6AD4-4071-810C-A6DA2DC5E9C2}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{5F2C392F-6AD4-4071-810C-A6DA2DC5E9C2}.Release|Any CPU.Build.0 = Release|Any CPU
+		{B95605C1-F460-4A4C-8D57-0E4FCA038541}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{B95605C1-F460-4A4C-8D57-0E4FCA038541}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{B95605C1-F460-4A4C-8D57-0E4FCA038541}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{B95605C1-F460-4A4C-8D57-0E4FCA038541}.Release|Any CPU.Build.0 = Release|Any CPU
+		{7945F546-E3A0-4F2E-9F14-792B0B76AE05}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{7945F546-E3A0-4F2E-9F14-792B0B76AE05}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{7945F546-E3A0-4F2E-9F14-792B0B76AE05}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{7945F546-E3A0-4F2E-9F14-792B0B76AE05}.Release|Any CPU.Build.0 = Release|Any CPU
+		{D25D0647-843F-49CB-959E-1E2FE6AB24F0}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{D25D0647-843F-49CB-959E-1E2FE6AB24F0}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{D25D0647-843F-49CB-959E-1E2FE6AB24F0}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{D25D0647-843F-49CB-959E-1E2FE6AB24F0}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 EndGlobal

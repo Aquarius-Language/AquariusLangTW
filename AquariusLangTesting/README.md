@@ -1,10 +1,13 @@
 # Aquarius tests
 
-This project owns all .NET tests in `AquariusLang.sln`:
+This project owns the interpreted runtime tests in `AquariusLang.sln`:
 
 - `ast/`, `evaluator/`, `lexer/`, `object/`, `parser/`, `utils/` and the root syntax tests cover the shared language core.
 - `desktop/interpret/` covers desktop builtins, script execution and the Starship example.
 - `desktop/graphics/` covers OpenGL bindings and Processing, including optional GPU integration tests.
+
+`AquariusLangVMTesting` copies this suite for the VM runtime and adds compiler,
+machine and performance coverage. Solution-wide test runs execute both suites.
 
 Tests reference the production projects. The desktop assembly grants this test
 assembly access to internal graphics types through `InternalsVisibleTo`.

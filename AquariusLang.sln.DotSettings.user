@@ -17,5 +17,6 @@
     &lt;Project Location="D:\OfficialProjects\AquariusLang\AquariusLangTesting" Presentation="&amp;lt;AquariusLangTesting&amp;gt;" /&gt;&#xD;
     &lt;Project Location="C:\OfficialProjects\AquariusLangTW\AquariusLangTesting" Presentation="&amp;lt;AquariusLangTesting&amp;gt;" /&gt;&#xD;
     &lt;Project Location="C:\OfficialProjects\AquariusLangTW\AquariusDesktopInterpretedREPL" Presentation="&amp;lt;AquariusDesktopInterpretedREPL&amp;gt;" /&gt;&#xD;
+    &lt;Project Location="C:\OfficialProjects\AquariusLangTW\AquariusLangVMTesting" Presentation="&amp;lt;AquariusLangVMTesting&amp;gt;" /&gt;&#xD;
   &lt;/Or&gt;&#xD;
 &lt;/SessionState&gt;</s:String></wpf:ResourceDictionary>

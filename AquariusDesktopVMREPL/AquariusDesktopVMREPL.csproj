@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net6.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <RootNamespace>AquariusREPL</RootNamespace>
+    <DefineConstants>$(DefineConstants);AQUARIUS_VM</DefineConstants>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../AquariusLangVM/AquariusLangVM.csproj" />
+    <Compile Include="../AquariusDesktopInterpretedREPL/**/*.cs"
+             Exclude="../AquariusDesktopInterpretedREPL/Program.cs;../AquariusDesktopInterpretedREPL/bin/**/*.cs;../AquariusDesktopInterpretedREPL/obj/**/*.cs"
+             Link="%(RecursiveDir)%(Filename)%(Extension)" />
+    <Content Include="../AquariusDesktopInterpretedREPL/runtimes/**/*"
+             Link="runtimes/%(RecursiveDir)%(Filename)%(Extension)"
+             CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="../AquariusDesktopInterpretedREPL/examples/**/*"
+             Exclude="../AquariusDesktopInterpretedREPL/examples/**/.idea/**/*"
+             Link="examples/%(RecursiveDir)%(Filename)%(Extension)"
+             CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <InternalsVisibleTo Include="AquariusLangVMTesting" />
+  </ItemGroup>
+</Project>
