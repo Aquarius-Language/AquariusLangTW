@@ -1,4 +1,5 @@
 using System.Numerics;
+using AquariusLang.Graphics;
 using AquariusLang.Object;
 
 namespace AquariusREPL.Graphics;
@@ -8,7 +9,11 @@ internal sealed partial class ProcessingCanvas : IDisposable {
     internal WgpuTarget Target=null!;
     private WgpuShader? program;
     internal readonly GraphicsRuntime Owner;
-    internal int Width, Height, PixelWidth, PixelHeight;
+    internal GraphicsSurfaceSize Resolution;
+    internal int Width => Resolution.Width;
+    internal int Height => Resolution.Height;
+    internal int PixelWidth => Resolution.PixelWidth;
+    internal int PixelHeight => Resolution.PixelHeight;
     internal ProcessingImage? Surface;
     internal ProcessingStyle Style=new();
     internal Matrix4x4 Model=Matrix4x4.Identity, View=Matrix4x4.Identity, Projection;
@@ -31,7 +36,7 @@ internal sealed partial class ProcessingCanvas : IDisposable {
     internal ModuleObj? Module;
 
     internal ProcessingCanvas(GraphicsRuntime owner,int w,int h,bool threeD) {
-        Owner=owner; Width=PixelWidth=w; Height=PixelHeight=h; Is3D=threeD; DefaultCamera();
+        Owner=owner; Resolution=new(w,h,w,h); Is3D=threeD; DefaultCamera();
     }
     internal void Initialize(WgpuDevice device,bool offscreen=false) {
         Device=device;
@@ -55,10 +60,11 @@ internal sealed partial class ProcessingCanvas : IDisposable {
         if(Surface!=null)Surface.GpuTexture=Target.Color;
     }
     internal bool Resize(int width,int height,int pixelWidth,int pixelHeight) {
-        bool logical=width>0&&height>0&&(Width!=width||Height!=height);
-        bool changed=logical||PixelWidth!=pixelWidth||PixelHeight!=pixelHeight;
-        if(logical) {Width=width;Height=height;DefaultCamera();}
-        PixelWidth=pixelWidth;PixelHeight=pixelHeight;
+        var next=Resolution.Resize(width,height,pixelWidth,pixelHeight);
+        bool logical=Width!=next.Width||Height!=next.Height;
+        bool changed=Resolution!=next;
+        Resolution=next;
+        if(logical)DefaultCamera();
         return changed;
     }
     internal void DefaultCamera() {

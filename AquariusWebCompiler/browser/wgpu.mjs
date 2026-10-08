@@ -40,11 +40,29 @@ export class BrowserWgpuDevice {
   async compile(source){this.live();const shader=this.gpu.createShaderModule({code:safeWGSL(source)}),info=await shader.getCompilationInfo();const errors=info.messages.filter(m=>m.type==='error');if(errors.length)throw new Error(`Shader compile failed: ${errors.map(e=>e.message).join('\n')}`);return shader;}
   async createShader(vertex,fragment){const s=new BrowserShader(this,vertex,fragment);s.vertex=await this.compile(this.abi.header+vertex);s.fragment=await this.compile(this.abi.header+fragment);this.resources.add(s);return s;}
   createTarget(w,h){const t=new BrowserTarget(this,w,h);this.resources.add(t);return t;}
+  createSurface(canvas){return new BrowserWgpuSurface(this,canvas);}
   flush(){this.live();for(const r of this.resources)if(r instanceof BrowserTarget)r.flush();}
   async poll(){this.flush();await this.gpu.queue.onSubmittedWorkDone();this.live();}
   async readBuffer(source,size){this.flush();const b=this.gpu.createBuffer({size,usage:GPUBufferUsage.COPY_DST|GPUBufferUsage.MAP_READ});try{const encoder=this.gpu.createCommandEncoder();encoder.copyBufferToBuffer(source,0,b,0,size);this.gpu.queue.submit([encoder.finish()]);await b.mapAsync(GPUMapMode.READ);return new Uint8Array(b.getMappedRange()).slice();}finally{b.destroy();}}
   async dispatch(source,buffer,groups){this.live();buffer.live();if(buffer.owner!==this)throw new Error('Buffer belongs to another wgpu device');this.flush();const shader=await this.compile(source);const p=this.gpu.createComputePipeline({layout:'auto',compute:{module:shader,entryPoint:'cs_main'}});const group=this.gpu.createBindGroup({layout:p.getBindGroupLayout(0),entries:[{binding:0,resource:{buffer:buffer.handle}}]});const e=this.gpu.createCommandEncoder(),pass=e.beginComputePass();pass.setPipeline(p);pass.setBindGroup(0,group);pass.dispatchWorkgroups(groups);pass.end();this.gpu.queue.submit([e.finish()]);}
   dispose(){if(this.disposed)return;this.failure=null;this.flush();for(const r of [...this.resources])r.dispose?r.dispose():r.destroy();this.resources.clear();this.disposed=true;this.gpu.destroy();}
+}
+// Presentation belongs to the GPU backend. Processing passes a render target;
+// it does not configure GPUCanvasContext or expose it to the language runtime.
+class BrowserWgpuSurface {
+  constructor(owner,canvas){
+    this.owner=owner;this.canvas=canvas;this.context=canvas.getContext('webgpu');
+    if(!this.context)throw new Error('WebGPU canvas unavailable');
+    this.context.configure({device:owner.gpu,format:'rgba8unorm',alphaMode:'premultiplied',usage:GPUTextureUsage.RENDER_ATTACHMENT|GPUTextureUsage.COPY_DST});
+  }
+  async present(target){
+    if(this.canvas.width===0||this.canvas.height===0)return;
+    if(target.owner!==this.owner||target.width!==this.canvas.width||target.height!==this.canvas.height)throw new Error('Presentation requires a target matching the surface pixel size');
+    this.owner.flush();const encoder=this.owner.gpu.createCommandEncoder();
+    encoder.copyTextureToTexture({texture:target.color},{texture:this.context.getCurrentTexture()},[target.width,target.height]);
+    this.owner.gpu.queue.submit([encoder.finish()]);await this.owner.poll();
+  }
+  dispose(){this.context.unconfigure();}
 }
 class BrowserBuffer {
   constructor(owner,values){this.owner=owner;this.length=values.length;this.handle=owner.buffer(new Float32Array(values),GPUBufferUsage.STORAGE|GPUBufferUsage.COPY_SRC);}
@@ -66,7 +84,15 @@ export class BrowserTarget {
   live(){this.owner.live();if(this.disposed)throw new Error('wgpu render target has been disposed');}
   begin(clear){this.live();this.encoder=this.owner.gpu.createCommandEncoder();this.pass=this.encoder.beginRenderPass({colorAttachments:[{view:this.color.createView(),loadOp:clear||this.first?'clear':'load',storeOp:'store',clearValue:clear??[0,0,0,0]}],depthStencilAttachment:{view:this.depth.createView(),depthLoadOp:clear||this.first?'clear':'load',depthStoreOp:'store',depthClearValue:1}});this.first=false;}
   clear(c){this.flush();this.begin(c);}
-  draw(shader,vertices,uniforms,depth=false,texture=null,blend=0,mode=4,clip=null){this.live();if(shader.owner!==this.owner||shader.disposed)throw new Error('Expected a live shader from this wgpu device');if(!this.pass)this.begin();const d=this.owner,g=d.gpu;uniforms??=defaultUniforms(d.abi);const vb=d.buffer(new Float32Array(vertices),GPUBufferUsage.VERTEX),ub=d.buffer(uniforms,GPUBufferUsage.UNIFORM),user=d.buffer(shader.bytes,GPUBufferUsage.UNIFORM);this.pending.push(vb,ub,user);const group=g.createBindGroup({layout:d.layout,entries:[{binding:0,resource:{buffer:ub}},{binding:1,resource:(texture??d.white).createView()},{binding:2,resource:d.sampler}]});const ug=g.createBindGroup({layout:d.userLayout,entries:[{binding:0,resource:{buffer:user}}]});this.pass.setPipeline(shader.pipeline(depth,blend,mode));this.pass.setBindGroup(0,group);this.pass.setBindGroup(1,ug);this.pass.setVertexBuffer(0,vb);if(clip){const x=Math.max(0,Math.floor(clip[0])),y=Math.max(0,Math.floor(clip[1]));this.pass.setScissorRect(x,y,Math.max(0,Math.min(this.width-x,Math.ceil(clip[2]))),Math.max(0,Math.min(this.height-y,Math.ceil(clip[3]))));}else this.pass.setScissorRect(0,0,this.width,this.height);this.pass.draw(vertices.length/12);}
+  draw(shader,vertices,uniforms,depth=false,texture=null,blend=0,mode=4,clip=null){this.live();if(shader.owner!==this.owner||shader.disposed)throw new Error('Expected a live shader from this wgpu device');if(!this.pass)this.begin();const d=this.owner,g=d.gpu;uniforms??=defaultUniforms(d.abi);const vb=d.buffer(new Float32Array(vertices),GPUBufferUsage.VERTEX),ub=d.buffer(uniforms,GPUBufferUsage.UNIFORM),user=d.buffer(shader.bytes,GPUBufferUsage.UNIFORM);this.pending.push(vb,ub,user);const group=g.createBindGroup({layout:d.layout,entries:[{binding:0,resource:{buffer:ub}},{binding:1,resource:(texture??d.white).createView()},{binding:2,resource:d.sampler}]});const ug=g.createBindGroup({layout:d.userLayout,entries:[{binding:0,resource:{buffer:user}}]});this.pass.setPipeline(shader.pipeline(depth,blend,mode));this.pass.setBindGroup(0,group);this.pass.setBindGroup(1,ug);this.pass.setVertexBuffer(0,vb);
+    // Match the desktop backend's physical scissor bounds, including fractional
+    // density, negative origins and clips beyond the resized surface.
+    const bound=(n,max)=>Math.trunc(Math.max(0,Math.min(max,n)));
+    const x=clip?bound(clip[0],this.width):0,y=clip?bound(clip[1],this.height):0;
+    const right=clip?bound(clip[0]+clip[2],this.width):this.width,bottom=clip?bound(clip[1]+clip[3],this.height):this.height;
+    const width=Math.max(0,right-x),height=Math.max(0,bottom-y);
+    this.pass.setScissorRect(x,y,width,height);if(width>0&&height>0)this.pass.draw(vertices.length/12);
+  }
   flush(){if(!this.pass)return;this.pass.end();this.owner.gpu.queue.submit([this.encoder.finish()]);const pending=this.pending;this.pending=[];this.owner.gpu.queue.onSubmittedWorkDone().then(()=>pending.forEach(b=>b.destroy()));this.pass=null;this.encoder=null;}
   async readPixels(){this.live();this.owner.flush();const pitch=Math.ceil(this.width*4/256)*256,size=pitch*this.height,g=this.owner.gpu,b=g.createBuffer({size,usage:GPUBufferUsage.COPY_DST|GPUBufferUsage.MAP_READ});try{const e=g.createCommandEncoder();e.copyTextureToBuffer({texture:this.color},{buffer:b,bytesPerRow:pitch},[this.width,this.height]);g.queue.submit([e.finish()]);await b.mapAsync(GPUMapMode.READ);const raw=new Uint8Array(b.getMappedRange()),out=new Uint8Array(this.width*this.height*4);for(let y=0;y<this.height;y++)out.set(raw.subarray(y*pitch,y*pitch+this.width*4),y*this.width*4);return out;}finally{b.destroy();}}
   dispose(){if(this.disposed)return;this.flush();this.color.destroy();this.depth.destroy();this.owner.resources.delete(this.color);this.owner.resources.delete(this);this.disposed=true;}

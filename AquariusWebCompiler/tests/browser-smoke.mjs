@@ -12,7 +12,7 @@ try{
   for(const project of (process.env.AQUARIUS_WEB_PROJECTS?.split(',')??['examples','marble','examples-bottle','marble-bottle','portable-bottle'])){
     const isMarble=project.startsWith('marble'),isExamples=project.startsWith('examples');
     const page=await browser.newPage({viewport:{width:1280,height:960}}),errors=[];page.on('pageerror',e=>errors.push(e.message));page.on('console',m=>{if(m.type()==='error')errors.push(m.text());});
-    await page.goto(`http://127.0.0.1:${port}/${project}/`);try{await page.waitForFunction(()=>!!window.aquarius);}catch(e){throw new Error(`Browser initialization: ${errors.join('\n') || e.message}`);}
+    await page.goto(`http://127.0.0.1:${port}/${project}/?autorun=0`);try{await page.waitForFunction(()=>!!window.aquarius);}catch(e){throw new Error(`Browser initialization: ${errors.join('\n') || e.message}`);}
     let entries=await page.evaluate(()=>Object.keys(window.aquarius.bundle.modules));
     if(process.env.AQUARIUS_WEB_ENTRIES)entries=entries.filter(n=>process.env.AQUARIUS_WEB_ENTRIES.split(',').includes(n));
     for(const entry of entries){errors.length=0;const start=Date.now();try{

@@ -141,8 +141,9 @@ internal sealed partial class GraphicsRuntime {
             CallModule("GLFW","Init"); CallModule("GLFW","WindowHint",N(0x22001),N(0));
             sketchWindow=(WindowObject)CallModule("GLFW","CreateWindow",N(w),N(h),new StringObj(title));
             processingDevice=new WgpuDevice(sketchWindow.Handle);
-            screen.Width=screen.PixelWidth=w;screen.Height=screen.PixelHeight=h;screen.Is3D=threeD;screen.DefaultCamera();screen.Drawing=true;
-            Native.aqua_framebuffer(sketchWindow.Handle,out screen.PixelWidth,out screen.PixelHeight);
+            screen.Is3D=threeD;screen.Drawing=true;
+            Native.aqua_framebuffer(sketchWindow.Handle,out int pw,out int ph);
+            screen.Resize(w,h,pw,ph);screen.DefaultCamera();
             screen.Initialize(processingDevice); sketchClock.Restart();System.Array.Clear(keys,0,keys.Length);previousMouse=false;previousX=previousY=0;UpdateState();
         } catch { CloseSketch();Terminate();throw; }
     }

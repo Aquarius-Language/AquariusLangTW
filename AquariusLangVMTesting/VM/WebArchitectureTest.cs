@@ -20,6 +20,37 @@ public class WebArchitectureTest {
         Assert.Same(typeof(IWgpuBackend).Assembly, typeof(PhysicsRuntime).Assembly);
     }
     [Fact]
+    public void BrowserAndCoreShareSurfaceResizeSemantics() {
+        var initial = new GraphicsSurfaceSize(640, 480, 640, 480);
+        var updates = new[] {
+            new[] { 960, 600, 1920, 1200 }, // Logical resize plus density.
+            new[] { 960, 600, 1200, 750 },  // Fractional density only.
+            new[] { 960, 600, 1200, 750 },  // No change.
+            new[] { 0, 0, 0, 0 },         // Minimized: retain layout/camera.
+            new[] { 0, 600, 0, 750 },      // Partially zero surfaces cannot draw.
+            new[] { 960, 600, 1200, 750 }, // Restore.
+            new[] { 480, 960, 600, 1200 }, // Aspect ratio change.
+        };
+        var size = initial;
+        var expected = updates.Select(d => size = size.Resize(d[0], d[1], d[2], d[3])).ToArray();
+        Assert.False(expected[3].Drawable);
+        Assert.Equal(960, expected[3].Width);
+        Assert.Equal(600, expected[4].Height);
+        Assert.True(expected[5].Drawable);
+        var options = new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
+        string file = Path.Combine(Path.GetTempPath(), "aquarius-surface-" + Guid.NewGuid().ToString("N") + ".json");
+        try {
+            File.WriteAllText(file, JsonSerializer.Serialize(new { initial, updates }, options));
+            var start = new ProcessStartInfo("node") { UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true, RedirectStandardError = true };
+            start.ArgumentList.Add(Path.Combine(Root, "AquariusWebCompiler", "tests", "surface-parity.mjs"));start.ArgumentList.Add(file);
+            using var process = Process.Start(start)!;
+            var output = process.StandardOutput.ReadToEndAsync();var error = process.StandardError.ReadToEndAsync();
+            Assert.True(process.WaitForExit(15000), "Surface parity test timed out");
+            Assert.True(process.ExitCode == 0, error.GetAwaiter().GetResult());
+            Assert.Equal(JsonSerializer.Serialize(expected, options), output.GetAwaiter().GetResult().Trim());
+        } finally { File.Delete(file); }
+    }
+    [Fact]
     public void ImportsAndInvalidArgumentsDoNotLoadNativeBackends() {
         var backend = new UnavailablePhysics();
         using var physics = new PhysicsRuntime(backend);

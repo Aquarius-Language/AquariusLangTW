@@ -19,7 +19,8 @@ try {
     foreach ($project in @(
         @{ name='examples'; source='examples'; entry='increment.aqua' },
         @{ name='marble'; source=$MarbleSource; entry='main.aqua' },
-        @{ name='portable'; source='AquariusWebCompiler/tests/fixtures/portable'; entry='main.aqua' }
+        @{ name='portable'; source='AquariusWebCompiler/tests/fixtures/portable'; entry='main.aqua' },
+        @{ name='resize'; source='AquariusWebCompiler/tests/fixtures/resize'; entry='main.aqua' }
     )) {
         $sourceRoot = [IO.Path]::GetFullPath($project.source)
         $sources = @(Get-ChildItem -LiteralPath $sourceRoot -Filter '*.aqua' -Recurse | Sort-Object FullName)

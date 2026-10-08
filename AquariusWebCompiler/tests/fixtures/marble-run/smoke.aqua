@@ -97,7 +97,12 @@
     如果 (階段 == 5) { 驗證(!鏡頭["overview"], "跟隨鏡頭"); }
     繪製場景(狀態, 鏡頭); 繪製介面(狀態, 鏡頭);
     如果 (階段 == 10) {
-        驗證(繪圖模組.width == 960 && 繪圖模組.height == 600, "視窗縮放");
+        如果 (isOSWindows() || isOSLinux() || isOSMacOS()) {
+            驗證(繪圖模組.width == 960 && 繪圖模組.height == 600, "視窗縮放");
+        } 否則 {
+            # Browser window dimensions are supplied by the viewport, not resize().
+            驗證(繪圖模組.width > 0 && 繪圖模組.height > 0 && 繪圖模組.pixelWidth >= 繪圖模組.width, "瀏覽器視窗尺寸");
+        }
         印出("整合驗證通過"); 繪圖模組.結束();
     }
     階段++;

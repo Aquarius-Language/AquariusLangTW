@@ -47,5 +47,12 @@ persist between iterations; body declarations get a fresh scope each iteration.
 
 Frontend development and language semantics: [language core guide](LANGUAGE.md).
 Desktop integration: [AquariusDesktopVMREPL](../AquariusDesktopVMREPL/README.md).
+Graphics hosts share the renderer-independent `GraphicsSurfaceSize` contract:
+logical dimensions drive layout, input and cameras; physical dimensions drive
+GPU attachments and presentation. Hosts sample sizes at frame boundaries,
+reconfigure targets before resize callbacks, redraw paused sketches and skip
+zero-pixel surfaces while retaining logical dimensions. Window handles, DOM and
+native GPU types stay outside the core. The browser implementation is checked
+against the core with resize/density/minimize/restore parity tests.
 Language coverage, VM regression tests and benchmarks:
 [AquariusLangVMTesting](../AquariusLangVMTesting/README.md).

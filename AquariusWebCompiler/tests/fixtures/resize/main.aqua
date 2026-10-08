@@ -1,0 +1,11 @@
+變數 p=匯入("Processing");
+p.run(函式(){
+    p.size(320,200,p.P2D,"Resize regression");
+    p.noLoop();p.noStroke();
+},函式(){
+    p.background(0,255,0);
+    p.fill(255,0,0);p.rect(p.width/2,0,p.width/2,p.height);
+    p.fill(255);p.textSize(20);p.text("繁體 Resize",10,30);
+    p.clip(p.width-20,p.height-20,10,10);
+    p.fill(0,0,255);p.rect(0,0,p.width,p.height);p.noClip();
+});
