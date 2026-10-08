@@ -9,12 +9,26 @@ namespace AquariusREPL.runtime;
 internal sealed class BottleRuntime : IDisposable {
     private readonly BottlePackage package;
     private readonly string directory;
+    private readonly string? resources;
+    internal string? ResourceDirectory => resources;
     private readonly GraphicsRuntime graphics = new();
     private readonly HashSet<string> importing = new(StringComparer.OrdinalIgnoreCase);
 
     internal BottleRuntime(BottlePackage package, string path) {
         this.package = package;
         directory = Path.GetDirectoryName(Path.GetFullPath(path))!;
+        if (package.Assets.Count != 0) {
+            resources = Path.Combine(Path.GetTempPath(), "aquarius-resources-" + Guid.NewGuid().ToString("N"));
+            try {
+                foreach (var asset in package.Assets) {
+                    BottlePackage.ValidatePath(asset.Key);
+                    string target = Path.Combine(resources, asset.Key.Replace('/', Path.DirectorySeparatorChar));
+                    Directory.CreateDirectory(Path.GetDirectoryName(target)!);
+                    File.WriteAllBytes(target, asset.Value);
+                }
+            } catch { Dispose(); throw; }
+            graphics.ResourcePath = ResolveAsset;
+        }
     }
 
     internal IObject Execute(string entry, AquaEnvironment? environment = null) {
@@ -25,6 +39,7 @@ internal sealed class BottleRuntime : IDisposable {
             string scriptPath = Path.Combine(directory, entry.Replace('/', Path.DirectorySeparatorChar));
             var desktop = new DesktopBuiltins(graphics);
             desktop.NewDefaultBuiltins(scriptPath);
+            desktop.ResourceArgument = ResolveAssetArgument;
             desktop.ScriptImport = path => Import(entry, path);
             return new VirtualMachine(desktop).Execute(program, environment);
         } finally { importing.Remove(entry); }
@@ -43,8 +58,7 @@ internal sealed class BottleRuntime : IDisposable {
             relative = relative.Replace('\\', '/');
             if (!relative.EndsWith(".aqua", StringComparison.OrdinalIgnoreCase) && !relative.EndsWith(".rius", StringComparison.OrdinalIgnoreCase))
                 return new ErrorObj($"Packaged imports require an .aqua or .rius path: {path}");
-            string entry = Path.ChangeExtension(relative, ".rius");
-            BottlePackage.ValidateScriptPath(entry);
+            string entry = package.ResolveScript(relative);
             var environment = AquaEnvironment.NewEnvironment();
             var result = Execute(entry, environment);
             return result is ErrorObj ? result : new ModuleObj(environment);
@@ -53,5 +67,39 @@ internal sealed class BottleRuntime : IDisposable {
         }
     }
 
-    public void Dispose() => graphics.Dispose();
+    private string ResolveAsset(string path) {
+        if (resources == null) return path;
+        string relative = Path.IsPathRooted(path) ? Path.GetRelativePath(directory, Path.GetFullPath(path)) : path;
+        string name;
+        try { name = BottlePackage.ResolvePath(relative); }
+        catch (InvalidDataException) { return path; }
+        string? key = package.Assets.Keys.FirstOrDefault(k => k.Equals(name, StringComparison.OrdinalIgnoreCase));
+        return key == null ? path : Path.Combine(resources, key.Replace('/', Path.DirectorySeparatorChar));
+    }
+
+    // Legacy execFile accepts a string containing a script path followed by arguments.
+    private string ResolveAssetArgument(string argument) {
+        string normalized = argument.Replace('\\', '/');
+        foreach (string asset in package.Assets.Keys.OrderByDescending(k => k.Length)) {
+            string full = Path.Combine(directory, asset.Replace('/', Path.DirectorySeparatorChar));
+            if (argument.StartsWith(full, StringComparison.OrdinalIgnoreCase) &&
+                (argument.Length == full.Length || argument[full.Length] == ' '))
+                return QuoteResource(ResolveAsset(full)) + argument[full.Length..];
+            string slash = full.Replace('\\', '/');
+            if (normalized.StartsWith(slash, StringComparison.OrdinalIgnoreCase) &&
+                (normalized.Length == slash.Length || normalized[slash.Length] == ' '))
+                return QuoteResource(ResolveAsset(full)) + argument[slash.Length..];
+        }
+        return ResolveAsset(argument);
+    }
+    private static string QuoteResource(string path) => path.Contains(' ') ? "\"" + path + "\"" : path;
+
+    public void Dispose() {
+        try { graphics.Dispose(); }
+        finally {
+            if (resources != null && Directory.Exists(resources) &&
+                Path.GetFullPath(resources).StartsWith(Path.GetFullPath(Path.GetTempPath()), StringComparison.OrdinalIgnoreCase))
+                Directory.Delete(resources, true);
+        }
+    }
 }

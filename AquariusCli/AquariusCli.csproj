@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <AssemblyName>aqua</AssemblyName>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../AquariusPackaging/AquariusPackaging.csproj" />
+    <ProjectReference Include="../AquariusDesktopVMREPL/AquariusDesktopVMREPL.csproj" />
+    <ProjectReference Include="../AquariusWebCompiler/AquariusWebCompiler.csproj" />
+  </ItemGroup>
+</Project>

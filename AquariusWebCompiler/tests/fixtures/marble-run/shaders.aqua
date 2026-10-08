@@ -1,0 +1,39 @@
+# wgpu supplies VertexInput/VertexOutput and the processing uniform header.
+# Correct Processing's screen-oriented Y projection for this Y-up world.
+變數 頂點著色器 = "
+@vertex fn vs_main(頂點輸入: VertexInput) -> VertexOutput {
+    var 頂點輸出: VertexOutput;
+    let 世界座標 = processing.model * vec4<f32>(頂點輸入.position, 1.0);
+    var 裁切座標 = processing.projection * processing.view * 世界座標;
+    裁切座標.y = -裁切座標.y;
+    裁切座標.z = (裁切座標.z + 裁切座標.w) * 0.5;
+    頂點輸出.position = 裁切座標;
+    頂點輸出.normal = normalize((processing.model * vec4<f32>(頂點輸入.normal, 0.0)).xyz);
+    頂點輸出.eyePosition = 世界座標.xyz;
+    // Built-in spheres have no UVs; use their local normals for a rolling band.
+    頂點輸出.uv = 頂點輸入.normal.xy;
+    頂點輸出.vertexColor = 頂點輸入.color;
+    return 頂點輸出;
+}";
+變數 片段著色器 = "
+struct UserUniforms { 視點: vec4<f32>, 彈珠模式: f32, 光澤: f32, };
+@group(1) @binding(0) var<uniform> 自訂參數: UserUniforms;
+@fragment fn fs_main(頂點輸入: VertexOutput) -> @location(0) vec4<f32> {
+    let 法線 = normalize(頂點輸入.normal);
+    let 光線方向 = normalize(vec3<f32>(-0.4, 0.85, 0.3));
+    let 視線方向 = normalize(自訂參數.視點.xyz - 頂點輸入.eyePosition);
+    let 半程向量 = normalize(光線方向 + 視線方向);
+    var 基底色彩 = 頂點輸入.vertexColor.rgb;
+    if (自訂參數.彈珠模式 > 0.5) {
+        let 條紋比例 = smoothstep(0.18, 0.24, abs(頂點輸入.uv.y));
+        基底色彩 = mix(vec3<f32>(0.98, 0.95, 0.82), 基底色彩, 條紋比例);
+    }
+    let 漫射強度 = max(dot(法線, 光線方向), 0.0);
+    let 邊緣光強度 = pow(1.0 - max(dot(法線, 視線方向), 0.0), 3.0);
+    let 鏡面反射強度 = pow(max(dot(法線, 半程向量), 0.0), 64.0) * 自訂參數.光澤;
+    var 輸出色彩 = 基底色彩 * (0.32 + 0.68*漫射強度) + vec3<f32>(0.9, 0.95, 1.0)*鏡面反射強度;
+    輸出色彩 += vec3<f32>(0.08, 0.18, 0.23)*邊緣光強度;
+    let 霧化比例 = 1.0 - exp(-length(自訂參數.視點.xyz-頂點輸入.eyePosition)*0.008);
+    輸出色彩 = mix(輸出色彩, vec3<f32>(0.047, 0.082, 0.137), 霧化比例);
+    return vec4<f32>(輸出色彩, 頂點輸入.vertexColor.a);
+}";

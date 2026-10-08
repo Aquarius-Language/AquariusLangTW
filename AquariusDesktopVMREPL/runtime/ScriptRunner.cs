@@ -80,7 +80,9 @@ public class ScriptRunner {
     public static IObject RunBottle(string fileName, string? entryPoint = null) {
         var package = BottlePackage.Load(fileName);
         using var runtime = new BottleRuntime(package, fileName);
-        var result = runtime.Execute(entryPoint ?? package.EntryPoint);
+        IObject result;
+        try { result = runtime.Execute(package.ResolveScript(entryPoint ?? package.EntryPoint)); }
+        catch (InvalidDataException error) { result = new ErrorObj(error.Message); }
         if (result != null) Console.WriteLine(result.Inspect());
         return result;
     }

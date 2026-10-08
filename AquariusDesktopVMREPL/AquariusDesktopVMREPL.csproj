@@ -14,6 +14,7 @@
     <PackageReference Include="Silk.NET.WebGPU.Extensions.WGPU" Version="2.23.0" />
     <PackageReference Include="Silk.NET.WebGPU.Native.WGPU" Version="2.23.0" />
     <ProjectReference Include="../AquariusLangVM/AquariusLangVM.csproj" />
+    <ProjectReference Include="../AquariusPackaging/AquariusPackaging.csproj" />
     <Content Include="runtimes/**/*"
              CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <Content Include="licenses/**/*"

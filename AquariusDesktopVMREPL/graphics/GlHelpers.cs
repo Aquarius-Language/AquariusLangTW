@@ -14,7 +14,7 @@ internal sealed partial class GraphicsRuntime {
     private static IntegerObj N(int value) => new(value);
     private void RegisterGlHelpers() {
         GlEnvironment.Create("GL_TIMEOUT_IGNORED", new GraphicsIntegerObject(ulong.MaxValue));
-        Bind(GlEnvironment, "ReadText", 1, a => new StringObj(File.ReadAllText(Text(a[0]))));
+        Bind(GlEnvironment, "ReadText", 1, a => new StringObj(File.ReadAllText(ResourcePath(Text(a[0])))));
         Bind(GlEnvironment, "ParseInteger", 1, a => {
             if (!int.TryParse(Text(a[0]), out int value)) throw new ArgumentException("Expected a decimal integer string.");
             return N(value);
@@ -59,6 +59,7 @@ internal sealed partial class GraphicsRuntime {
             try { CallGl("glReadPixels", N(0), N(0), N(width), N(height), N(0x1907), N(0x1401), pixels); }
             finally { CallGl("glPixelStorei", N(0x0D05), oldAlignment.Elements[0]); }
             byte[] bytes = new byte[pixels.Size]; Marshal.Copy(pixels.Handle, bytes, 0, bytes.Length);
+            Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(path))!);
             using var output = File.Create(path);
             byte[] header = Encoding.ASCII.GetBytes($"P6\n{width} {height}\n255\n"); output.Write(header);
             for (int row = height - 1; row >= 0; row--) output.Write(bytes, row * width * 3, width * 3);

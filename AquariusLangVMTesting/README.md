@@ -1,5 +1,15 @@
 # Aquarius VM tests
 
+`packaging/PortableBottleTest.cs` covers version 1 compatibility, version 2
+metadata/assets, deterministic output, archive/path validation, shared resolution,
+relocated resource reads, cleanup, and safe website replacement.
+`packaging/UnifiedCliSmokeTest.cs` launches the real `aqua` process and apphost for
+source-free build/run/web workflows, Unicode/space paths, entries, diagnostics,
+REPL and invalid commands. `scripts/test-examples.ps1` executes every example in
+both source and source-free bottle modes, with bounded graphics runs and captures.
+Browser path/import tests and real browser smoke checks cover the same portable
+pipeline. See [verification commands](../AquariusCli/README.md#verification).
+
 This is the solution's .NET 8 (`net8.0`) test project. Build and run the tests with
 the .NET 8 SDK, which includes the required runtime. It references `AquariusLangVM` and
 `AquariusDesktopVMREPL` and exercises the frontend, compiled execution, desktop

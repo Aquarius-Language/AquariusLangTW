@@ -19,5 +19,7 @@
     </PackageReference>
     <ProjectReference Include="../AquariusLangVM/AquariusLangVM.csproj" />
     <ProjectReference Include="../AquariusDesktopVMREPL/AquariusDesktopVMREPL.csproj" />
+    <ProjectReference Include="../AquariusWebCompiler/AquariusWebCompiler.csproj" />
+    <ProjectReference Include="../AquariusCli/AquariusCli.csproj" />
   </ItemGroup>
 </Project>

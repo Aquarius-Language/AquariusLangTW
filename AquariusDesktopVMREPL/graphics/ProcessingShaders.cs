@@ -7,7 +7,7 @@ internal sealed partial class GraphicsRuntime {
     private readonly Dictionary<ModuleObj,WgpuShader> processingShaders=new();
     private void RegisterCanvasShaders(AquaEnvironment env,ProcessingCanvas c) {
         PBind(env,"createShader",2,2,a=>CreateProcessingShader(Text(a[0]),Text(a[1])));
-        PBind(env,"loadShader",1,2,a=>CreateProcessingShader(a.Length==2?File.ReadAllText(Text(a[1])):WgpuShaders.Vertex,File.ReadAllText(Text(a[0]))));
+        PBind(env,"loadShader",1,2,a=>CreateProcessingShader(a.Length==2?File.ReadAllText(ResourcePath(Text(a[1]))):WgpuShaders.Vertex,File.ReadAllText(ResourcePath(Text(a[0])))));
         PAction(env,"shader",1,1,a=> {
             RequireSketch();if(a[0] is not ModuleObj module||!processingShaders.TryGetValue(module,out var program)||program.Disposed)throw new ArgumentException("Expected a shader from this runtime.");c.CustomProgram=program;
         });

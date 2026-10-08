@@ -11,3 +11,7 @@ editors/vscode/server/
 native/build/
 AquariusDesktopVMREPL/runtimes/
 /dist
+.build-home/
+.web-build/
+AquariusWebCompiler/browser/vendor-*
+TestResults/

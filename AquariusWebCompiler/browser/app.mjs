@@ -1,0 +1,9 @@
+import {BrowserHost} from './host.mjs';
+import {inspect} from './vm.mjs';
+const bundle=await (await fetch('./program.json')).json(),select=document.getElementById('entry'),output=document.getElementById('output'),status=document.getElementById('status');
+for(const name of Object.keys(bundle.modules)){const option=document.createElement('option');option.value=option.textContent=name;select.append(option);}select.value=bundle.entry;status.textContent='Ready';
+let host,controller,execution;
+async function stop(showStatus=true){const previous=host;if(previous){previous.processing.exiting=true;controller.abort();await execution?.catch(()=>{});previous.dispose();if(host===previous){host=null;window.aquarius.host=null;}}if(showStatus)status.textContent='Stopped';}
+async function run(entry=select.value,frames=0){await stop(false);document.getElementById('surfaces').replaceChildren();output.textContent='';controller=new AbortController();const current=new BrowserHost(bundle,{signal:controller.signal,frameLimit:frames,print:s=>{output.textContent+=s+'\n';}});host=current;window.aquarius.host=host;status.textContent='Running';execution=current.execute(entry);try{const result=await execution;if(host===current){status.textContent='Finished';if(result!==undefined)output.textContent+=inspect(result)+'\n';}return {result:inspect(result),output:output.textContent};}catch(e){if(host===current&&!current.signal.aborted){status.textContent='Error';output.textContent+=e.message+'\n';}throw e;}}
+window.aquarius={bundle,run,stop,host:null};document.getElementById('run').onclick=()=>run().catch(e=>{if(!controller?.signal.aborted)console.error(e);});document.getElementById('stop').onclick=()=>stop().catch(console.error);
+const params=new URLSearchParams(location.search);if(params.has('entry'))select.value=params.get('entry');if(params.has('autorun'))run(select.value,Number(params.get('frames')??0)).catch(console.error);

@@ -16,6 +16,7 @@ public class DesktopBuiltins : Builtins, IDisposable {
     private readonly GraphicsRuntime graphics;
     private readonly bool ownsGraphics;
     internal Func<string, IObject>? ScriptImport { get; set; }
+    internal Func<string, string> ResourceArgument { get; set; } = path => path;
     public DesktopBuiltins() : this(new GraphicsRuntime(), true) { }
     internal DesktopBuiltins(GraphicsRuntime graphics) : this(graphics, false) { }
     private DesktopBuiltins(GraphicsRuntime graphics, bool ownsGraphics) {
@@ -158,16 +159,18 @@ public class DesktopBuiltins : Builtins, IDisposable {
                     StringBuilder builder = new StringBuilder();
                     ArrayObj args1Arr = (ArrayObj)args[1];
                     foreach (var args1ArrElement in args1Arr.Elements) {
-                        builder.Append(((StringObj)args1ArrElement).Value).Append(' ');
+                        builder.Append(ResourceArgument(((StringObj)args1ArrElement).Value)).Append(' ');
                     }
 
                     string arguments = builder.ToString();
 
-                    Process p = new Process();
+                    using Process p = new Process();
                     p.StartInfo.FileName = ((StringObj)args[0]).Value;
                     p.StartInfo.Arguments = arguments;
 
-                    bool started = p.Start();
+                    bool started;
+                    try { started = p.Start(); }
+                    catch (System.ComponentModel.Win32Exception error) { return newError($"執行檔案: {error.Message}"); }
                     if (!started) {
                         return RepeatedPrimitives.FALSE;
                     }

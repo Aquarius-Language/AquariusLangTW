@@ -7,7 +7,7 @@ internal sealed partial class GraphicsRuntime {
     private void RegisterImages() {
         var env = Module("STBImage");
         Bind(env, "Load", 2, a => {
-            string path = Text(a[0]);
+            string path = ResourcePath(Text(a[0]));
             if (a[1] is not BooleanObj flip) throw new ArgumentException("Expected a Boolean flip flag.");
             IntPtr pixels = Native.aqua_image(path, flip.Value ? 1 : 0, out int width, out int height);
             if (pixels == IntPtr.Zero) throw new InvalidOperationException(Marshal.PtrToStringUTF8(Native.aqua_image_error()) ?? "Image decoding failed.");

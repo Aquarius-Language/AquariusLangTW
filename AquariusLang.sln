@@ -8,6 +8,12 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "AquariusDesktopVMREPL", "Aq
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "AquariusLangVMTesting", "AquariusLangVMTesting\AquariusLangVMTesting.csproj", "{D25D0647-843F-49CB-959E-1E2FE6AB24F0}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "AquariusWebCompiler", "AquariusWebCompiler\AquariusWebCompiler.csproj", "{2FBC355A-405D-4F80-A96A-5AD9C3099E58}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "AquariusPackaging", "AquariusPackaging\AquariusPackaging.csproj", "{950D7991-075C-46B1-A7E5-4C680C4B9C79}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "AquariusCli", "AquariusCli\AquariusCli.csproj", "{955322D5-C47B-45B1-8A9E-B04B46032A23}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -30,5 +36,17 @@ Global
 		{D25D0647-843F-49CB-959E-1E2FE6AB24F0}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{D25D0647-843F-49CB-959E-1E2FE6AB24F0}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{D25D0647-843F-49CB-959E-1E2FE6AB24F0}.Release|Any CPU.Build.0 = Release|Any CPU
+		{2FBC355A-405D-4F80-A96A-5AD9C3099E58}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{2FBC355A-405D-4F80-A96A-5AD9C3099E58}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{2FBC355A-405D-4F80-A96A-5AD9C3099E58}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{2FBC355A-405D-4F80-A96A-5AD9C3099E58}.Release|Any CPU.Build.0 = Release|Any CPU
+		{950D7991-075C-46B1-A7E5-4C680C4B9C79}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{950D7991-075C-46B1-A7E5-4C680C4B9C79}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{950D7991-075C-46B1-A7E5-4C680C4B9C79}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{950D7991-075C-46B1-A7E5-4C680C4B9C79}.Release|Any CPU.Build.0 = Release|Any CPU
+		{955322D5-C47B-45B1-8A9E-B04B46032A23}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{955322D5-C47B-45B1-8A9E-B04B46032A23}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{955322D5-C47B-45B1-8A9E-B04B46032A23}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{955322D5-C47B-45B1-8A9E-B04B46032A23}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 EndGlobal

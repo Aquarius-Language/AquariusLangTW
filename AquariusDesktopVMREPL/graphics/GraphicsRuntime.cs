@@ -7,6 +7,7 @@ using AquaEnvironment = AquariusLang.Object.Environment;
 namespace AquariusREPL.Graphics;
 
 internal sealed partial class GraphicsRuntime : IDisposable {
+    internal Func<string, string> ResourcePath { get; set; } = path => path;
     private static readonly object Gate = new();
     private static GraphicsRuntime? active;
     private readonly Dictionary<string, ModuleObj> modules = new();
@@ -30,7 +31,7 @@ internal sealed partial class GraphicsRuntime : IDisposable {
         RegisterWgpu();
     }
     internal bool TryImport(string name, out ModuleObj module) =>
-        physics.TryImport(name, out module) || modules.TryGetValue(name, out module!);
+        physics.TryImport(name, out module) || sharedWgpu.TryImport(name, out module) || modules.TryGetValue(name, out module!);
     private AquaEnvironment Module(string name) {
         var env = AquaEnvironment.NewEnvironment(); modules[name] = new ModuleObj(env); return env;
     }
@@ -148,7 +149,7 @@ internal sealed partial class GraphicsRuntime : IDisposable {
         if (disposed) return;
         physics.Dispose();
         DisposeProcessing();
-        foreach(var device in wgpuDevices.Values)device.Dispose();wgpuDevices.Clear();
+        sharedWgpu.Dispose();
         foreach (var buffer in buffers) buffer.Dispose();
         buffers.Clear();
         Terminate(); disposed = true;

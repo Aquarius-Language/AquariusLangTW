@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Numerics;
+using AquariusLang.Graphics;
 using System.Text;
 using AquariusLang.Object;
 using AquariusLang.lexer;

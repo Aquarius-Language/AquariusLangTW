@@ -48,7 +48,7 @@ internal sealed partial class GraphicsRuntime {
         return image;
     }
     private ProcessingImage LoadProcessingImage(string path) {
-        IntPtr p=Native.aqua_image(path,0,out int w,out int h);
+        IntPtr p=Native.aqua_image(ResourcePath(path),0,out int w,out int h);
         if(p==IntPtr.Zero)throw new IOException(Marshal.PtrToStringUTF8(Native.aqua_image_error())??"Image decode failed.");
         try {var image=ProcessingImage.Create(this,w,h);Marshal.Copy(p,image.Bytes,0,image.Bytes.Length);return RegisterImage(image);}finally{Native.aqua_image_free(p);}
     }
@@ -118,6 +118,7 @@ internal sealed partial class GraphicsRuntime {
     // PNG encoder uses only the .NET runtime; RGBA and transparency are preserved.
     internal static void WriteImage(string path,int w,int h,byte[] bytes) {
         string ext=Path.GetExtension(path).ToLowerInvariant();if(ext!=".png"&&ext!=".ppm")throw new ArgumentException("save supports .png and .ppm.");
+        Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(path))!);
         using var output=File.Create(path);
         if(ext==".ppm") {output.Write(Encoding.ASCII.GetBytes($"P6\n{w} {h}\n255\n"));for(int i=0;i<bytes.Length;i+=4)output.Write(bytes,i,3);return;}
         output.Write(new byte[]{137,80,78,71,13,10,26,10});
