@@ -59,3 +59,8 @@ node AquariusWebCompiler/tests/browser-resize.mjs
 ```
 
 The browser smoke runner expects the example and marble websites built under `.web-build`, uses installed Chrome (or `AQUARIUS_BROWSER=msedge`), checks real compute/readback, rendered color variation, OpenGL errors and the marble assertions, and writes `browser-results.json` and marble screenshots. Its WebGPU flag is for test execution. Unit tests compare JavaScript execution with core execution of the same compiler-produced instructions. Vendor versions and licenses are pinned by `package-lock.json`; rerun `prepare:browser` before rebuilding when dependencies change.
+# Application integration
+
+See [portable application libraries](../docs/application-libraries.md) for scoped
+file resources, persistent storage, codecs, clipboard, input and browser restrictions.
+Run `npm run prepare:browser` after dependency installation before compiling a website.

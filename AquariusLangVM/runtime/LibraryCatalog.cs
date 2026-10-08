@@ -16,8 +16,8 @@ public static partial class LibraryCatalog {
     public static IReadOnlyList<LibraryFunction> Functions { get; }
     private static readonly IReadOnlyDictionary<string, string> chineseNames;
     static LibraryCatalog() {
-        Functions = Array.AsReadOnly(definitions);
-        chineseNames = definitions.GroupBy(f => f.EnglishName)
+        Functions = Array.AsReadOnly(definitions.Concat(AquariusLang.Application.ApplicationCatalog.Functions).ToArray());
+        chineseNames = Functions.GroupBy(f => f.EnglishName)
             .ToDictionary(g => g.Key, g => g.First().TraditionalChineseName, StringComparer.Ordinal);
     }
     public static IReadOnlyList<LibraryFunction> GlobalFunctions { get; } = Array.AsReadOnly(new[] {

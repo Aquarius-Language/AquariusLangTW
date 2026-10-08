@@ -49,9 +49,10 @@ public class ScriptRunner {
     /// Compile and execute the given script file on the VM.
     /// </summary>
     /// <param name="fileName">Path of file.</param>
-    public static IObject RunFile(string fileName) {
-        if (fileName.EndsWith(".bottle", StringComparison.OrdinalIgnoreCase)) return RunBottle(fileName);
-        using DesktopBuiltins desktopBuiltins = newDefaultBuiltins(fileName);
+    public static IObject RunFile(string fileName, IEnumerable<string>? launchFiles = null) {
+        if (fileName.EndsWith(".bottle", StringComparison.OrdinalIgnoreCase)) return RunBottle(fileName, launchFiles: launchFiles);
+        using DesktopBuiltins desktopBuiltins = new(new Application.DesktopApplicationHost(launchFiles: launchFiles));
+        desktopBuiltins.NewDefaultBuiltins(fileName);
         
         string contents = File.ReadAllText(fileName);
         Lexer lexer = Lexer.NewInstance(contents);
@@ -77,9 +78,9 @@ public class ScriptRunner {
     }
 
     /// <summary>Load .rius instructions from a bottle and execute its default or selected entry point.</summary>
-    public static IObject RunBottle(string fileName, string? entryPoint = null) {
+    public static IObject RunBottle(string fileName, string? entryPoint = null, IEnumerable<string>? launchFiles = null) {
         var package = BottlePackage.Load(fileName);
-        using var runtime = new BottleRuntime(package, fileName);
+        using var runtime = new BottleRuntime(package, fileName, launchFiles);
         IObject result;
         try { result = runtime.Execute(package.ResolveScript(entryPoint ?? package.EntryPoint)); }
         catch (InvalidDataException error) { result = new ErrorObj(error.Message); }

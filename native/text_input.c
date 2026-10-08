@@ -120,6 +120,15 @@ static void read_composition(TextInput* input, GLFWwindow* window, HIMC context,
 static LRESULT CALLBACK text_proc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam) {
     GLFWwindow* window = (GLFWwindow*)GetPropW(hwnd, property_name);
     TextInput* input = state(window);
+    if (message == WM_GETOBJECT) {
+        extern intptr_t aqua_application_get_object(GLFWwindow* window, uintptr_t parameter, intptr_t object_id);
+        intptr_t accessible = aqua_application_get_object(window, (uintptr_t)wparam, (intptr_t)lparam);
+        if (accessible) return (LRESULT)accessible;
+    }
+    if (message == WM_CAPTURECHANGED) {
+        extern void aqua_application_capture_lost(GLFWwindow* window);
+        aqua_application_capture_lost(window);
+    }
     if (input->enabled) {
         switch (message) {
         case WM_IME_SETCONTEXT:

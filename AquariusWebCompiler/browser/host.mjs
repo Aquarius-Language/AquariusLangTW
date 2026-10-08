@@ -6,6 +6,7 @@ import {mat4,vec3} from './vendor-gl-matrix.mjs';
 import {registerLegacy} from './legacy.mjs';
 import {resolvePath,lookupPath} from './package-paths.mjs';
 import {BrowserSurface} from './surface.mjs';
+import {BrowserApplication} from './application.mjs';
 export class BrowserHost {
   constructor(bundle,{signal=new AbortController().signal,frameLimit=0,print=console.log}={}) {
     if(bundle.version!==1)throw new Error('Unsupported website version');this.bundle=bundle;this.signal=signal;this.frameLimit=frameLimit;this.print=print;this.modules=new Map();this.objects=new Map();this.cache=new Map();this.importing=new Set();this.downloads=new Map();this.graphics=new BrowserWgpuBackend(bundle.graphics);this.physics=new BrowserJoltBackend();this.builtins=new Map();this.vm=new VirtualMachine(this);this.register();
@@ -21,6 +22,7 @@ export class BrowserHost {
   register(){const globals=this.newModule(),b=(n,f,raw=false)=>this.bind(globals,'',n,f,raw);
     b('len',v=>num(typeof v==='string'?v.length:Array.isArray(v)?v.length:(()=>{throw new Error('len expects string or array');})(),'int'),true);b('last',v=>{if(!Array.isArray(v))throw new Error('last expects array');return v.at(-1)??null;},true);b('rest',v=>{if(!Array.isArray(v))throw new Error('rest expects array');return v.length?v.slice(1):null;},true);b('push',(a,v)=>{if(!Array.isArray(a))throw new Error('push expects array');return [...a,v];},true);b('print',(...a)=>{this.print(a.map(inspect).join(' '));},true);for(const n of ['isOSWindows','isOSLinux','isOSMacOS'])b(n,()=>false);b('execFile',()=>{throw new Error('execFile requires a desktop host');});this.builtins=new Map(globals.scope.store);
     this.processing=new Processing(this);this.modules.set('Processing',this.processing.module);this.registerGpu();this.registerPhysics();this.registerMath();this.registerText();registerLegacy(this);
+    this.application=new BrowserApplication(this);
   }
   registerGpu(){const m=this.library('WGPU');this.modules.set('wgpu',m);this.set(m,'Backend','webgpu');this.bind(m,'WGPU','CreateDevice',async()=>{
     const d=await this.graphics.createDevice(),dm=this.newModule();this.objects.set(dm,d);this.set(dm,'Backend',d.backend);const b=(n,f)=>this.bind(dm,'WGPU.Device',n,f);b('Dispose',()=>d.dispose());b('Poll',()=>d.poll());
@@ -37,5 +39,5 @@ export class BrowserHost {
   asset(path){const name=lookupPath(this.bundle.assets,this.resolve(path));return Uint8Array.from(atob(this.bundle.assets[name]),c=>c.charCodeAt(0));}
   async imageBytes(path){const bytes=this.asset(path);if(path.endsWith('.ppm')){let pos=0;const token=()=>{while(pos<bytes.length){if(bytes[pos]===35){while(pos<bytes.length&&bytes[pos]!==10)pos++;}else if(bytes[pos]<=32)pos++;else break;}const start=pos;while(pos<bytes.length&&bytes[pos]>32)pos++;return new TextDecoder().decode(bytes.subarray(start,pos));};const format=token(),width=Number(token()),height=Number(token()),max=Number(token());if(!['P3','P6'].includes(format)||max>255||max<1)throw new Error('Unsupported PPM format');const out=new Uint8Array(width*height*4);if(format==='P6'){if(bytes[pos]===13&&bytes[pos+1]===10)pos+=2;else pos++;for(let i=0;i<width*height;i++)out.set([bytes[pos+i*3]*255/max,bytes[pos+i*3+1]*255/max,bytes[pos+i*3+2]*255/max,255],i*4);}else for(let i=0;i<width*height;i++)out.set([Number(token())*255/max,Number(token())*255/max,Number(token())*255/max,255],i*4);return {width,height,bytes:out};}const img=await createImageBitmap(new Blob([bytes])),c=document.createElement('canvas');c.width=img.width;c.height=img.height;const ctx=c.getContext('2d');ctx.drawImage(img,0,0);img.close();return {width:c.width,height:c.height,bytes:ctx.getImageData(0,0,c.width,c.height).data};}
   async saveImage(path,w,h,bytes){const c=document.createElement('canvas');c.width=w;c.height=h;c.getContext('2d').putImageData(new ImageData(new Uint8ClampedArray(bytes),w,h),0,0);const blob=await new Promise(r=>c.toBlob(r,'image/png'));this.downloads.set(path,blob);if(!this.frameLimit){const url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=path.split('/').at(-1);a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}}
-  dispose(){this.vm.cancelled=true;this.processing.dispose();this.physics.dispose();this.graphics.dispose();this.legacyDispose?.();}
+  async dispose(){this.vm.cancelled=true;try{await this.application.dispose();}finally{this.processing.dispose();this.physics.dispose();this.graphics.dispose();this.legacyDispose?.();}}
 }

@@ -121,14 +121,6 @@ internal sealed partial class GraphicsRuntime {
         Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(path))!);
         using var output=File.Create(path);
         if(ext==".ppm") {output.Write(Encoding.ASCII.GetBytes($"P6\n{w} {h}\n255\n"));for(int i=0;i<bytes.Length;i+=4)output.Write(bytes,i,3);return;}
-        output.Write(new byte[]{137,80,78,71,13,10,26,10});
-        byte[] header=new byte[13];BigEndian(header,0,(uint)w);BigEndian(header,4,(uint)h);header[8]=8;header[9]=6;Chunk(output,"IHDR",header);
-        using var compressed=new MemoryStream();using(var z=new ZLibStream(compressed,CompressionLevel.Optimal,true))for(int y=0;y<h;y++){z.WriteByte(0);z.Write(bytes,y*w*4,w*4);}
-        Chunk(output,"IDAT",compressed.ToArray());Chunk(output,"IEND",System.Array.Empty<byte>());
-    }
-    private static void BigEndian(byte[] b,int offset,uint value) {for(int i=0;i<4;i++)b[offset+i]=(byte)(value>>(24-i*8));}
-    private static void Chunk(Stream output,string name,byte[] data) {
-        var size=new byte[4];BigEndian(size,0,(uint)data.Length);output.Write(size);byte[] type=Encoding.ASCII.GetBytes(name);output.Write(type);output.Write(data);
-        uint crc=uint.MaxValue;foreach(byte b in type.Concat(data)){crc^=b;for(int i=0;i<8;i++)crc=crc>>1^((crc&1)==1?0xEDB88320u:0);}BigEndian(size,0,~crc);output.Write(size);
+        output.Write(AquariusLang.Application.RgbaImageEncoding.Png(new(w,h,bytes)));
     }
 }

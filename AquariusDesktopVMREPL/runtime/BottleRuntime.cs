@@ -11,10 +11,11 @@ internal sealed class BottleRuntime : IDisposable {
     private readonly string directory;
     private readonly string? resources;
     internal string? ResourceDirectory => resources;
-    private readonly GraphicsRuntime graphics = new();
+    private readonly GraphicsRuntime graphics;
     private readonly HashSet<string> importing = new(StringComparer.OrdinalIgnoreCase);
 
-    internal BottleRuntime(BottlePackage package, string path) {
+    internal BottleRuntime(BottlePackage package, string path, IEnumerable<string>? launchFiles = null) {
+        graphics = new(new Application.DesktopApplicationHost(launchFiles: launchFiles));
         this.package = package;
         directory = Path.GetDirectoryName(Path.GetFullPath(path))!;
         if (package.Assets.Count != 0) {

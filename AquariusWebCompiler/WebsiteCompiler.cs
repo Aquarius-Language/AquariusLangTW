@@ -84,12 +84,25 @@ public static class WebsiteCompiler {
             }
             File.WriteAllText(Path.Combine(stage, "program.json"), json);
             File.WriteAllText(Path.Combine(stage, ".aquarius-web-output"), "Aquarius static website\n");
-            if (Directory.Exists(output)) Directory.Move(output, backup);
-            try { Directory.Move(stage, output); committed = true; }
-            catch { if (Directory.Exists(backup)) Directory.Move(backup, output); throw; }
+            if (Directory.Exists(output)) MoveDirectory(output, backup);
+            try { MoveDirectory(stage, output); committed = true; }
+            catch { if (Directory.Exists(backup)) MoveDirectory(backup, output); throw; }
         } finally {
             if (Directory.Exists(stage)) Directory.Delete(stage, true);
             if (committed && Directory.Exists(backup)) Directory.Delete(backup, true);
+        }
+    }
+
+    private static void MoveDirectory(string source, string destination) {
+        // Windows scanners can briefly hold newly written WASM assets open. Keep the
+        // existing commit/rollback boundary and retry only transient directory locks.
+        for (int attempt = 0; ; attempt++) {
+            try { Directory.Move(source, destination); return; }
+            catch (Exception e) when (attempt < 5 && OperatingSystem.IsWindows() &&
+                e is IOException or UnauthorizedAccessException && (e.HResult & 0xffff) is 5 or 32 or 33 &&
+                Directory.Exists(source) && !Directory.Exists(destination) && !File.Exists(destination)) {
+                Thread.Sleep(25 << attempt);
+            }
         }
     }
 }

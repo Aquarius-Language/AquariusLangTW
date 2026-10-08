@@ -18,6 +18,7 @@ public class DesktopBuiltins : Builtins, IDisposable {
     internal Func<string, IObject>? ScriptImport { get; set; }
     internal Func<string, string> ResourceArgument { get; set; } = path => path;
     public DesktopBuiltins() : this(new GraphicsRuntime(), true) { }
+    public DesktopBuiltins(Application.DesktopApplicationHost applicationHost) : this(new GraphicsRuntime(applicationHost), true) { }
     internal DesktopBuiltins(GraphicsRuntime graphics) : this(graphics, false) { }
     private DesktopBuiltins(GraphicsRuntime graphics, bool ownsGraphics) {
         this.graphics = graphics;

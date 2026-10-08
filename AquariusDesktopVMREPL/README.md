@@ -128,3 +128,8 @@ input and pipe encodings:
 $OutputEncoding = [Console]::InputEncoding
 @('變數 計數 = 40;', '計數 += 2;', '計數;') | ./dist/win-x64/vm/AquariusDesktopVMREPL.exe
 ```
+# Application integration
+
+See [portable application libraries](../docs/application-libraries.md) for files,
+codecs, clipboard, window events, editing, settings and host capabilities. Launch
+documents with `AquariusDesktopVMREPL app.bottle --documents file1 file2`.

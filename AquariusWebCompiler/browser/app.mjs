@@ -3,7 +3,7 @@ import {inspect} from './vm.mjs';
 const output=document.getElementById('output'),error=document.getElementById('error');
 let bundle,host,controller,execution;
 function showError(e){error.textContent=e.message;error.hidden=false;}
-async function stop(){const previous=host;if(previous){previous.processing.exiting=true;controller.abort();await execution?.catch(()=>{});previous.dispose();if(host===previous){host=null;window.aquarius.host=null;}}window.aquarius.state='stopped';}
+async function stop(){const previous=host;if(previous){previous.processing.exiting=true;controller.abort();await execution?.catch(()=>{});await previous.dispose();if(host===previous){host=null;window.aquarius.host=null;}}window.aquarius.state='stopped';}
 async function run(entry=bundle.entry,frames=0){
   await stop();document.getElementById('surfaces').replaceChildren();output.textContent='';error.hidden=true;
   controller=new AbortController();const current=new BrowserHost(bundle,{signal:controller.signal,frameLimit:frames,print:s=>{output.textContent+=s+'\n';console.log(s);}});

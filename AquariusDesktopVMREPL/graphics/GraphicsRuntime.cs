@@ -17,9 +17,13 @@ internal sealed partial class GraphicsRuntime : IDisposable {
     private WindowObject? current;
     private bool loaded, disposed;
     private readonly Physics.PhysicsRuntime physics = new();
+    internal readonly Application.DesktopApplicationHost ApplicationHost;
+    internal readonly AquariusLang.Application.ApplicationRuntime Application;
     internal AquaEnvironment GlEnvironment = AquaEnvironment.NewEnvironment();
 
-    internal GraphicsRuntime() {
+    internal GraphicsRuntime(Application.DesktopApplicationHost? applicationHost = null) {
+        ApplicationHost = applicationHost ?? new();
+        Application = new(ApplicationHost);
         modules["GL"] = new ModuleObj(GlEnvironment);
         RegisterGl();
         RegisterGlHelpers();
@@ -29,9 +33,10 @@ internal sealed partial class GraphicsRuntime : IDisposable {
         RegisterImages();
         RegisterProcessing();
         RegisterWgpu();
+        RegisterApplicationGraphics();
     }
     internal bool TryImport(string name, out ModuleObj module) =>
-        physics.TryImport(name, out module) || sharedWgpu.TryImport(name, out module) || modules.TryGetValue(name, out module!);
+        Application.TryImport(name, out module) || physics.TryImport(name, out module) || sharedWgpu.TryImport(name, out module) || modules.TryGetValue(name, out module!);
     private AquaEnvironment Module(string name) {
         var env = AquaEnvironment.NewEnvironment(); modules[name] = new ModuleObj(env); return env;
     }
@@ -153,6 +158,7 @@ internal sealed partial class GraphicsRuntime : IDisposable {
         foreach (var buffer in buffers) buffer.Dispose();
         buffers.Clear();
         Terminate(); disposed = true;
+        Application.Dispose();
     }
     private void Terminate() {
         lock (Gate) {

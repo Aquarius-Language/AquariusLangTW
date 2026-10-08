@@ -49,3 +49,10 @@ The website compiler serializes core instructions and typed constants to version
 Each generated site includes modules and assets in a virtual filesystem, plus local copies of pinned Jolt WASM, matrix and triangulation dependencies with their licenses. Runtime imports cannot read outside the package. Rendering capability failures and unsupported APIs produce explicit errors. Static output requires localhost or HTTPS and a browser WebGPU adapter. The web runtime does not emulate physics or GPU computation when those capabilities are unavailable.
 
 See [the compiler README](AquariusWebCompiler/README.md) for build, serving and verification commands. The current example programs and marble-run are the compatibility target; this does not claim that every desktop library function is already available in browsers.
+
+Application contracts and language registration live in `AquariusLangVM/application`.
+Desktop and browser adapters implement file resources, image codecs, clipboard,
+window/input integration, fonts, persistence and host services through those boundaries.
+User documents have opaque provider identities and remain separate from packaged assets.
+The existing RGBA PNG writer is shared in core; window and text adapters retain existing
+GLFW/Processing/canvas ownership. See [the application API and capability table](docs/application-libraries.md).

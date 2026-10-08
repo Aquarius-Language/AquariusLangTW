@@ -16,3 +16,9 @@ for(const name of ['earcut','gl-matrix']){
   await copyFile(path.join(dir,'LICENSE'),path.join(root,`browser/vendor-${name}.LICENSE.txt`));
 }
 console.log('Prepared pinned browser dependencies and licenses.');
+await copyFile(path.join(root,'../AquariusLangVM/application/portable.mjs'),path.join(root,'browser/application-core.mjs'));
+await build({entryPoints:[path.join(path.dirname(require.resolve('@imagemagick/magick-wasm')),'index.js')],bundle:true,format:'esm',outfile:path.join(root,'browser/vendor-magick.mjs'),minify:true,platform:'browser'});
+await copyFile(require.resolve('@imagemagick/magick-wasm/magick.wasm'),path.join(root,'browser/vendor-magick.wasm'));
+for(const file of ['LICENSE','NOTICE'])await copyFile(path.join(path.dirname(require.resolve('@imagemagick/magick-wasm')),'../',file),path.join(root,`browser/vendor-magick.${file}.txt`));
+await build({entryPoints:[path.join(path.dirname(require.resolve('fflate/package.json')),'esm/browser.js')],bundle:true,format:'esm',outfile:path.join(root,'browser/vendor-fflate.mjs'),minify:true,platform:'browser'});
+await copyFile(path.join(path.dirname(require.resolve('fflate')),'../LICENSE'),path.join(root,'browser/vendor-fflate.LICENSE.txt'));

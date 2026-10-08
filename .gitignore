@@ -14,4 +14,5 @@ AquariusDesktopVMREPL/runtimes/
 .build-home/
 .web-build/
 AquariusWebCompiler/browser/vendor-*
+AquariusWebCompiler/browser/application-core.mjs
 TestResults/

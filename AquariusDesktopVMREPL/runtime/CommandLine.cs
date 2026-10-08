@@ -50,6 +50,7 @@ public static class CommandLine {
                 return 0;
             }
             if (args.Length == 3 && args[0] == "--entry") return ResultCode(ScriptRunner.RunBottle(args[2], args[1]));
+            if (args.Length >= 2 && args[1] == "--documents" && !args[0].StartsWith('-')) return ResultCode(ScriptRunner.RunFile(args[0], args.Skip(2)));
             if (args.Length == 1 && !args[0].StartsWith('-')) return ResultCode(ScriptRunner.RunFile(args[0]));
             Console.Error.WriteLine(Usage);
             return 1;

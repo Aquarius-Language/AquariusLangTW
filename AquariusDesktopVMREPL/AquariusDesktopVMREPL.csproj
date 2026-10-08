@@ -8,6 +8,7 @@
     <RootNamespace>AquariusREPL</RootNamespace>
   </PropertyGroup>
   <ItemGroup>
+    <PackageReference Include="SixLabors.ImageSharp" Version="4.1.2" />
     <PackageReference Include="JoltPhysicsSharp" Version="2.19.1" />
     <PackageReference Include="JoltPhysics.Native" Version="1.0.4" />
     <PackageReference Include="Silk.NET.WebGPU" Version="2.23.0" />
