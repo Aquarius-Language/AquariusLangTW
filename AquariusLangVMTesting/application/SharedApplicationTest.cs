@@ -59,7 +59,7 @@ public class SharedApplicationTest {
     }
     [Fact] public void LanguageModulesUseSharedContractsAndCloseOwnedResources() {
         using var host=new DesktopBuiltins();var vm=new VirtualMachine(host);var result=vm.Execute(new VmCompiler().Compile("變數 p=匯入(\"Paths\");變數 s=匯入(\"Serialization\"); [p.Join([\"a\",\"b\"]),s.ParseJson(s.Json({\"中文\":[1,真]}))];"));Assert.IsType<ArrayObj>(result);
-        Assert.DoesNotContain(typeof(IApplicationHost).Assembly.GetReferencedAssemblies(),a=>a.Name!.StartsWith("SixLabors")||a.Name.StartsWith("Silk")||a.Name.StartsWith("Microsoft.Win32"));
+        Assert.DoesNotContain(typeof(IApplicationHost).Assembly.GetReferencedAssemblies(),a=>a.Name!.StartsWith("Magick")||a.Name.StartsWith("SixLabors")||a.Name.StartsWith("Silk")||a.Name.StartsWith("Microsoft.Win32"));
     }
     [Theory] [InlineData(ImageFormat.Png)] [InlineData(ImageFormat.Jpeg)] [InlineData(ImageFormat.Bmp)] [InlineData(ImageFormat.Gif)] [InlineData(ImageFormat.Tiff)]
     public async Task RealCodecsReturnRequestedFormatAndExplicitFrames(ImageFormat format) {

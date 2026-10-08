@@ -144,7 +144,7 @@ try {
 
     Write-Host '[5/8] Publishing the self-contained compiler...'
     Invoke-Checked $dotnetPath @('publish', 'AquariusCli/AquariusCli.csproj', '-c', 'Release', '-f', 'net8.0', '-r', 'win-x64', '--self-contained', 'true', '-p:UseAppHost=true', '-p:PublishSingleFile=false', '-p:PublishTrimmed=false', '-p:DebugType=None', '-p:DebugSymbols=false', '-o', $package)
-    foreach ($file in @('aqua.exe', 'aqua.dll', 'aqua.runtimeconfig.json', 'coreclr.dll', 'hostfxr.dll', 'hostpolicy.dll', 'wgpu_native.dll', 'joltc.dll', 'joltc_double.dll', 'runtimes/win-x64/native/aquarius_graphics.dll', 'examples/increment.aqua', 'licenses/WGPU-NOTICES.md', 'licenses/JOLT-NOTICES.md')) {
+    foreach ($file in @('aqua.exe', 'aqua.dll', 'aqua.runtimeconfig.json', 'coreclr.dll', 'hostfxr.dll', 'hostpolicy.dll', 'wgpu_native.dll', 'joltc.dll', 'joltc_double.dll', 'Magick.NET.Core.dll', 'Magick.NET-Q8-AnyCPU.dll', 'Magick.Native-Q8-x64.dll', 'runtimes/win-x64/native/aquarius_graphics.dll', 'examples/increment.aqua', 'licenses/WGPU-NOTICES.md', 'licenses/JOLT-NOTICES.md', 'licenses/MAGICK-NET-LICENSE.txt', 'licenses/MAGICK-NET-NOTICES.txt')) {
         Assert-File (Join-Path $package $file)
     }
     Copy-Item -LiteralPath (Join-Path $repository 'LICENSE') -Destination $package
@@ -222,6 +222,22 @@ try {
     }
     try {
         Invoke-Published 'help' @('--help') 'aqua build'
+        @'
+變數 images = 匯入("Images");
+變數 image = images.Create(1,1,[255,0,0,255]);
+變數 formats = ["Png","Jpeg","Bmp","Gif","Tiff"];
+迴圈 (變數 i = 0; i < 5; i++) {
+    變數 bytes = images.Encode(image,formats[i],{});
+    變數 decoded = images.Decode(bytes,0);
+    變數 pixels = decoded.Pixels();
+    如果 (decoded.width != 1 || decoded.height != 1 || pixels[3] != 255) { images.Decode([],0); }
+}
+印出("Image codecs OK");
+'@ | Set-Content -LiteralPath (Join-Path $smoke 'images.aqua') -Encoding utf8
+        Invoke-Published 'compile image codecs' @('build', 'images.aqua', '-o', 'images.bottle') 'Compiled'
+        $imageSource = Assert-InDirectory (Join-Path $smoke 'images.aqua') $smoke
+        Remove-Item -LiteralPath $imageSource
+        Invoke-Published 'native image codecs' @('run', 'images.bottle') 'Image codecs OK'
         $modules = @(Get-ChildItem -LiteralPath $source -Filter '*.aqua' -Recurse | Sort-Object FullName)
         Invoke-Published 'compile' (@('build') + @($modules.FullName) + @('--root', $source, '--assets', $source, '--entry', 'main.aqua', '-o', 'app.bottle')) 'Compiled'
         $source = Assert-InDirectory $source $smoke

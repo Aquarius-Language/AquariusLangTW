@@ -61,7 +61,7 @@ or resolve symlinks; drive-relative paths fail and relative paths require matchi
 ## Images, events and editing
 
 PNG/JPEG/BMP/GIF/TIFF identification uses signatures. Desktop decoding uses pinned
-ImageSharp; browser codecs use pinned ImageMagick WASM in a cancellable worker with
+Magick.NET Q8; browser codecs use pinned ImageMagick WASM in a cancellable worker with
 coder, allocation, frame and time limits. Additional C# providers register independently
 in `ImageCodecRegistry`. Output pixels are owned, top-down RGBA8, with explicit alpha
 representation. Higher bit depth/alternate source models convert to this documented
@@ -186,9 +186,13 @@ p.on("compositionEnded", 函式(){ editor.CancelComposition(); });
 ```
 
 Build the native bridge, restore .NET packages, and run `npm ci` and
-`npm run prepare:browser` in AquariusWebCompiler before building. ImageSharp 4.1.2 uses
-the Six Labors Split License; ImageMagick WASM 0.0.44/fflate 0.8.3 licenses/notices ship
-with every website. Run `dotnet test AquariusLangVMTesting` and
+`npm run prepare:browser` in AquariusWebCompiler before building. Magick.NET Q8 14.17.2
+uses Apache-2.0 and requires no build-time license key. Its native ImageMagick runtime
+and bundled dependencies' notices ship in `licenses/MAGICK-NET-NOTICES.txt` alongside
+`licenses/MAGICK-NET-LICENSE.txt`. ImageMagick WASM 0.0.44/fflate 0.8.3 licenses/notices
+ship with every website. Desktop codec operations serialize access to ImageMagick's
+process-wide resource limits, disallow disk caches and external delegates, and check
+cancellation before and after native operations. Run `dotnet test AquariusLangVMTesting` and
 `npm test --prefix AquariusWebCompiler`. Tests cover corruption/expansion, codecs,
 alpha/metadata/pages, ownership, settings migration/cancellation and desktop-to-browser
 document/ZIP/compression/TIFF parity. Set `AQUARIUS_APPLICATION_NATIVE_TESTS=1` on Windows

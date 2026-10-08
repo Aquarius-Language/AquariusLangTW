@@ -1,77 +1,141 @@
 using AquariusLang.Application;
-using SixLabors.ImageSharp;
-using SixLabors.ImageSharp.Formats;
-using SixLabors.ImageSharp.Formats.Bmp;
-using SixLabors.ImageSharp.Formats.Gif;
-using SixLabors.ImageSharp.Formats.Jpeg;
-using SixLabors.ImageSharp.Formats.Png;
-using SixLabors.ImageSharp.Formats.Tiff;
-using SixLabors.ImageSharp.Memory;
-using SixLabors.ImageSharp.Metadata;
-using SixLabors.ImageSharp.Metadata.Profiles.Exif;
-using SixLabors.ImageSharp.PixelFormats;
+using ImageMagick;
+using ImageMagick.Configuration;
 using PortableMetadata = AquariusLang.Application.ImageMetadata;
 using PortableFormat = AquariusLang.Application.ImageFormat;
 
 namespace AquariusREPL.Application;
 
 public sealed class DesktopImages : IImageCodec {
+    // Resource limits are process-wide: serialize adapter operations and restore
+    // limits only after the native images have been disposed.
+    private static readonly SemaphoreSlim CodecGate = new(1, 1);
+    static DesktopImages() {
+        var configuration = ConfigurationFiles.Default;
+        configuration.Policy.Data = "<policymap><policy domain=\"delegate\" rights=\"none\" pattern=\"*\"/><policy domain=\"path\" rights=\"none\" pattern=\"*\"/><policy domain=\"coder\" rights=\"none\" pattern=\"*\"/><policy domain=\"coder\" rights=\"read|write\" pattern=\"{PNG,JPEG,BMP,GIF,TIFF,RGBA}\"/></policymap>";
+        MagickNET.Initialize(configuration);
+    }
     public IReadOnlyCollection<PortableFormat> Formats { get; } = Enum.GetValues<PortableFormat>();
-    private static DecoderOptions Options(ApplicationLimits limits) {
-        var config = Configuration.Default.Clone();
-        config.MemoryAllocator = MemoryAllocator.Create(new MemoryAllocatorOptions { AllocationLimitMegabytes = Math.Max(1, limits.MaxBytes / (1024 * 1024)), MaximumPoolSizeMegabytes = 16 });
-        return new DecoderOptions { Configuration = config, MaxFrames = checked((uint)limits.MaxFrames + 1) };
-    }
-    private static PortableMetadata Metadata(SixLabors.ImageSharp.Metadata.ImageMetadata metadata, string pixelFormat, bool supportsResolution) {
-        int orientation = metadata.ExifProfile != null && metadata.ExifProfile.TryGetValue(ExifTag.Orientation, out var orientationValue) ? orientationValue.Value : 1;
-        double factor = metadata.ResolutionUnits == PixelResolutionUnit.PixelsPerCentimeter ? 2.54 : metadata.ResolutionUnits == PixelResolutionUnit.PixelsPerMeter ? .0254 : 1;
-        bool resolution = supportsResolution && metadata.ResolutionUnits != PixelResolutionUnit.AspectRatio;
-        return new(orientation == 0 ? 1 : orientation, resolution && metadata.HorizontalResolution > 0 ? metadata.HorizontalResolution * factor : null,
-            resolution && metadata.VerticalResolution > 0 ? metadata.VerticalResolution * factor : null, pixelFormat);
-    }
-    public async ValueTask<AquariusLang.Application.ImageInfo> Inspect(ReadOnlyMemory<byte> data, ApplicationLimits limits, CancellationToken cancellation = default) {
-        limits.Bytes(data.Length); var format = ImageCodecRegistry.Identify(data.Span);
-        using var input = new MemoryStream(data.ToArray(), false);
-        try {
-            var info = await Image.IdentifyAsync(Options(limits), input, cancellation).ConfigureAwait(false);
-            int frames = Math.Max(1, info.FrameMetadataCollection.Count);
-            limits.Pixels(info.Width, info.Height, frames);
-            return new(format, info.Width, info.Height, frames, Metadata(info.Metadata, $"{info.PixelType.ColorType}, {info.PixelType.BitsPerPixel} bits, {info.PixelType.AlphaRepresentation}", format != PortableFormat.Gif));
-        } catch (Exception error) when (error is ImageFormatException or InvalidMemoryOperationException) { throw new ApplicationFailure(FailureKind.InvalidData, "Image inspection failed: " + error.Message, error); }
-    }
-    public async ValueTask<PixelImage> Decode(ReadOnlyMemory<byte> data, int frame, ApplicationLimits limits, CancellationToken cancellation = default) {
-        var info = await Inspect(data, limits, cancellation).ConfigureAwait(false);
-        if (frame < 0 || frame >= info.Frames) throw new ArgumentOutOfRangeException(nameof(frame), "Select a valid frame/page explicitly.");
-        using var input = new MemoryStream(data.ToArray(), false);
-        try {
-            using var image = await Image.LoadAsync<Rgba32>(Options(limits), input, cancellation).ConfigureAwait(false);
-            using var selected = image.Frames.CloneFrame(frame); var pixels = new byte[limits.Pixels(selected.Width, selected.Height)];
-            selected.CopyPixelDataTo(pixels); var metadata = Metadata(selected.Metadata, info.Metadata.SourcePixelFormat, info.Format != PortableFormat.Gif);
-            var palette = info.Format switch {
-                PortableFormat.Png => selected.Metadata.GetPngMetadata().ColorTable,
-                PortableFormat.Bmp => selected.Metadata.GetBmpMetadata().ColorTable,
-                PortableFormat.Gif => selected.Frames.RootFrame.Metadata.GetGifMetadata().LocalColorTable ?? selected.Metadata.GetGifMetadata().GlobalColorTable,
-                PortableFormat.Tiff => selected.Frames.RootFrame.Metadata.GetTiffMetadata().LocalColorTable,
-                _ => null
-            };
-            if (palette is ReadOnlyMemory<Color> colors) metadata = metadata with { Palette = colors.ToArray().Select(c => { var p = c.ToPixel<Rgba32>(); return (uint)(p.R << 24 | p.G << 16 | p.B << 8 | p.A); }).ToArray() };
-            cancellation.ThrowIfCancellationRequested(); return new(selected.Width, selected.Height, pixels, metadata: metadata, limits: limits);
-        } catch (Exception error) when (error is ImageFormatException or InvalidMemoryOperationException) { throw new ApplicationFailure(FailureKind.InvalidData, "Image decoding failed: " + error.Message, error); }
-    }
-    public async ValueTask<byte[]> Encode(PixelImage source, PortableFormat format, ImageEncodingOptions options, ApplicationLimits limits, CancellationToken cancellation = default) {
-        limits.Pixels(source.Width, source.Height); var pixels = options.Prepare(source, format);
-        cancellation.ThrowIfCancellationRequested();
-        if (format is PortableFormat.Png or PortableFormat.Tiff) { var outputBytes = format == PortableFormat.Png ? RgbaImageEncoding.Png(source, options) : RgbaImageEncoding.Tiff(source, options); limits.Bytes(outputBytes.Length); cancellation.ThrowIfCancellationRequested(); return outputBytes; }
-        using var image = Image.LoadPixelData<Rgba32>(pixels, source.Width, source.Height);
-        if (source.Metadata.DpiX is double x) { image.Metadata.HorizontalResolution = x; image.Metadata.VerticalResolution = source.Metadata.DpiY ?? x; image.Metadata.ResolutionUnits = PixelResolutionUnit.PixelsPerInch; }
-        if (format == PortableFormat.Jpeg) {
-            image.Metadata.ExifProfile = new ExifProfile(); image.Metadata.ExifProfile.SetValue(ExifTag.Orientation, (ushort)source.Metadata.Orientation);
+    private static MagickFormat NativeFormat(PortableFormat format) => format switch {
+        PortableFormat.Png => MagickFormat.Png, PortableFormat.Jpeg => MagickFormat.Jpeg,
+        PortableFormat.Bmp => MagickFormat.Bmp, PortableFormat.Gif => MagickFormat.Gif,
+        PortableFormat.Tiff => MagickFormat.Tiff, _ => throw new ArgumentException("Unsupported image format.")
+    };
+    private sealed class ResourceScope : IDisposable {
+        private readonly ulong width = ResourceLimits.Width, height = ResourceLimits.Height,
+            frames = ResourceLimits.ListLength, memory = ResourceLimits.Memory, disk = ResourceLimits.Disk,
+            request = ResourceLimits.MaxMemoryRequest, profile = ResourceLimits.MaxProfileSize;
+        public ResourceScope(ApplicationLimits limits) {
+            ResourceLimits.ListLength = Math.Min(frames, (ulong)Math.Max(1L, (long)limits.MaxFrames + 1));
+            ResourceLimits.Memory = Math.Min(memory, (ulong)Math.Max(1024 * 1024L, (long)limits.MaxBytes * 2));
+            ResourceLimits.Disk = 0;
+            ResourceLimits.MaxMemoryRequest = Math.Min(request, (ulong)Math.Max(1024 * 1024, limits.MaxBytes));
+            ResourceLimits.MaxProfileSize = Math.Min(profile, (ulong)Math.Max(1, Math.Min(1024 * 1024, limits.MaxBytes)));
         }
-        IImageEncoder encoder = format switch {
-            PortableFormat.Jpeg => new JpegEncoder { Quality = options.Quality }, PortableFormat.Bmp => new BmpEncoder { BitsPerPixel = BmpBitsPerPixel.Bit32 },
-            PortableFormat.Gif => new GifEncoder(), _ => throw new ArgumentException("Unsupported image format.")
-        };
-        using var output = new MemoryStream(); await image.SaveAsync(output, encoder, cancellation).ConfigureAwait(false); limits.Bytes(output.Length);
-        var bytes = output.ToArray(); if (ImageCodecRegistry.Identify(bytes) != format) throw new ApplicationFailure(FailureKind.InvalidData, "Encoder returned a different format."); return bytes;
+        public void Dispose() {
+            ResourceLimits.Width = width; ResourceLimits.Height = height; ResourceLimits.ListLength = frames;
+            ResourceLimits.Memory = memory; ResourceLimits.Disk = disk;
+            ResourceLimits.MaxMemoryRequest = request; ResourceLimits.MaxProfileSize = profile;
+        }
+    }
+    private static async ValueTask<T> Run<T>(ApplicationLimits limits, CancellationToken cancellation, Func<T> operation) {
+        await CodecGate.WaitAsync(cancellation).ConfigureAwait(false);
+        try {
+            return await Task.Run(() => {
+                using var resources = new ResourceScope(limits);
+                try {
+                    cancellation.ThrowIfCancellationRequested(); var result = operation();
+                    cancellation.ThrowIfCancellationRequested(); return result;
+                } catch (MagickException error) {
+                    cancellation.ThrowIfCancellationRequested();
+                    var kind = error is MagickResourceLimitErrorException ? FailureKind.LimitExceeded : FailureKind.InvalidData;
+                    throw new ApplicationFailure(kind, "Image codec failed: " + error.Message, error);
+                }
+            }, cancellation).ConfigureAwait(false);
+        } finally { CodecGate.Release(); }
+    }
+    private static PortableMetadata Metadata(IMagickImage<byte> image, bool supportsResolution, bool palette = false) {
+        var density = image.Density; double factor = density.Units == DensityUnit.PixelsPerCentimeter ? 2.54 : 1;
+        bool resolution = supportsResolution && density.Units != DensityUnit.Undefined;
+        uint[]? colors = null;
+        if (palette && image.ColormapSize > 0) {
+            colors = new uint[image.ColormapSize];
+            for (int i = 0; i < colors.Length; i++) {
+                var color = image.GetColormapColor(i) ?? throw new ApplicationFailure(FailureKind.InvalidData, "Invalid indexed image palette.");
+                colors[i] = (uint)(color.R << 24 | color.G << 16 | color.B << 8 | color.A);
+            }
+        }
+        int orientation = (int)image.Orientation;
+        return new(orientation is >= 1 and <= 8 ? orientation : 1,
+            resolution && density.X > 0 ? density.X * factor : null,
+            resolution && density.Y > 0 ? density.Y * factor : null,
+            $"{image.ColorType}, {image.Depth} bits/channel", colors);
+    }
+    private static MagickReadSettings Settings(PortableFormat format, ApplicationLimits limits) => new() {
+        Format = NativeFormat(format), FrameCount = checked((uint)Math.Max(1L, (long)limits.MaxFrames + 1))
+    };
+    private static void LimitDimensions(ApplicationLimits limits) {
+        ResourceLimits.Width = Math.Min(ResourceLimits.Width, (ulong)Math.Max(1, limits.MaxDimension));
+        ResourceLimits.Height = Math.Min(ResourceLimits.Height, (ulong)Math.Max(1, limits.MaxDimension));
+    }
+    private static AquariusLang.Application.ImageInfo InspectCore(ReadOnlyMemory<byte> data, ApplicationLimits limits, CancellationToken cancellation) {
+        var format = ImageCodecRegistry.Identify(data.Span);
+        using var images = new MagickImageCollection(); images.Ping(data.Span, Settings(format, limits));
+        if (images.Count < 1 || images.Count > limits.MaxFrames) throw new ApplicationFailure(FailureKind.LimitExceeded, "Image frame count exceeds the limit.");
+        long pixels = 0;
+        foreach (var image in images) {
+            cancellation.ThrowIfCancellationRequested();
+            uint width = format == PortableFormat.Gif ? Math.Max(image.Width, image.Page.Width) : image.Width;
+            uint height = format == PortableFormat.Gif ? Math.Max(image.Height, image.Page.Height) : image.Height;
+            if (width > int.MaxValue || height > int.MaxValue) throw new ApplicationFailure(FailureKind.LimitExceeded, "Image dimensions exceed the limit.");
+            limits.Pixels((int)width, (int)height); pixels += (long)width * height;
+        }
+        if (pixels > limits.MaxPixels) throw new ApplicationFailure(FailureKind.LimitExceeded, "Image frame allocation exceeds the limit.");
+        limits.Bytes(pixels * 4);
+        var first = images[0];
+        int firstWidth = checked((int)(format == PortableFormat.Gif ? Math.Max(first.Width, first.Page.Width) : first.Width));
+        int firstHeight = checked((int)(format == PortableFormat.Gif ? Math.Max(first.Height, first.Page.Height) : first.Height));
+        return new(format, firstWidth, firstHeight, images.Count, Metadata(first, format != PortableFormat.Gif));
+    }
+    public ValueTask<AquariusLang.Application.ImageInfo> Inspect(ReadOnlyMemory<byte> data, ApplicationLimits limits, CancellationToken cancellation = default) {
+        limits.Bytes(data.Length); return Run(limits, cancellation, () => InspectCore(data, limits, cancellation));
+    }
+    public ValueTask<PixelImage> Decode(ReadOnlyMemory<byte> data, int frame, ApplicationLimits limits, CancellationToken cancellation = default) {
+        limits.Bytes(data.Length);
+        return Run(limits, cancellation, () => {
+            var info = InspectCore(data, limits, cancellation);
+            if (frame < 0 || frame >= info.Frames) throw new ArgumentOutOfRangeException(nameof(frame), "Select a valid frame/page explicitly.");
+            LimitDimensions(limits);
+            using var images = new MagickImageCollection(); images.Read(data.Span, Settings(info.Format, limits));
+            // GIF subframes may contain only a changed rectangle; return the displayed canvas.
+            if (info.Format == PortableFormat.Gif) images.Coalesce();
+            var selected = images[frame]; int width = checked((int)selected.Width), height = checked((int)selected.Height);
+            limits.Pixels(width, height); var metadata = Metadata(selected, info.Format != PortableFormat.Gif, true);
+            if (selected.ColorSpace != ColorSpace.sRGB) selected.ColorSpace = ColorSpace.sRGB;
+            using var pixels = selected.GetPixels(); var rgba = pixels.ToByteArray(PixelMapping.RGBA);
+            cancellation.ThrowIfCancellationRequested(); return new PixelImage(width, height, rgba, metadata: metadata, limits: limits);
+        });
+    }
+    public ValueTask<byte[]> Encode(PixelImage source, PortableFormat format, ImageEncodingOptions options, ApplicationLimits limits, CancellationToken cancellation = default) {
+        limits.Pixels(source.Width, source.Height); cancellation.ThrowIfCancellationRequested(); var pixels = options.Prepare(source, format);
+        return Run(limits, cancellation, () => {
+            // Portable encoders preserve RGBA and EXIF exactly and honor compression levels.
+            if (format is PortableFormat.Png or PortableFormat.Tiff) {
+                var output = format == PortableFormat.Png ? RgbaImageEncoding.Png(source, options) : RgbaImageEncoding.Tiff(source, options);
+                limits.Bytes(output.Length); return output;
+            }
+            LimitDimensions(limits);
+            using var image = new MagickImage(); image.Progress += (_, progress) => progress.Cancel = cancellation.IsCancellationRequested;
+            image.ReadPixels(pixels, new PixelReadSettings((uint)source.Width, (uint)source.Height, StorageType.Char, PixelMapping.RGBA));
+            image.Depth = 8; image.Quality = (uint)options.Quality;
+            if (source.Metadata.DpiX is double x) image.Density = new Density(x, source.Metadata.DpiY ?? x, DensityUnit.PixelsPerInch);
+            if (format == PortableFormat.Jpeg) {
+                image.Orientation = (OrientationType)source.Metadata.Orientation;
+                var exif = new ExifProfile(); exif.SetValue(ExifTag.Orientation, (ushort)source.Metadata.Orientation); image.SetProfile(exif);
+            }
+            var bytes = image.ToByteArray(NativeFormat(format)); limits.Bytes(bytes.Length);
+            if (ImageCodecRegistry.Identify(bytes) != format) throw new ApplicationFailure(FailureKind.InvalidData, "Encoder returned a different format.");
+            return bytes;
+        });
     }
 }
