@@ -25,7 +25,7 @@ internal sealed class PhysicsRuntime : IDisposable {
     }
 
     private void Bind(AquaEnvironment env, string name, int count, Func<IObject[], IObject> fn) {
-        env.Create(name, new BuiltinObj(args => {
+        var function = new BuiltinObj(args => {
             lock (JoltLifetime.Gate) {
                 try {
                     if (disposed) throw new InvalidOperationException("Jolt runtime has been disposed.");
@@ -36,7 +36,8 @@ internal sealed class PhysicsRuntime : IDisposable {
                     return new ErrorObj($"Jolt.{name}: {ex.GetBaseException().Message}");
                 }
             }
-        }));
+        });
+        FunctionRegistration.Define(env, function, LibraryCatalog.TraditionalChinese(name), name);
     }
 
     private ModuleObj CreateWorld(Vector3 gravity) {

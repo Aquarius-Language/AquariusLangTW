@@ -16,6 +16,13 @@ public sealed class WgpuFactAttribute : FactAttribute {
     }
 }
 
+public sealed class WgpuTheoryAttribute : TheoryAttribute {
+    public WgpuTheoryAttribute() {
+        if (System.Environment.GetEnvironmentVariable("AQUARIUS_WGPU_TESTS") != "1")
+            Skip = "Set AQUARIUS_WGPU_TESTS=1 with a wgpu adapter and GLFW bridge.";
+    }
+}
+
 public class WgpuTest {
     [Fact] public void ModulesImportWithoutInitializingGpuAndKeepOpenGl() {
         using var runtime=new GraphicsRuntime();
@@ -54,12 +61,12 @@ public class WgpuTest {
 
 [Collection("Starship console output")]
 public class WgpuIntegrationTest {
-    [WgpuFact] public void ComputeDispatchAndWritesReachGpuStorageAndReadBack() {
+    [WgpuTheory, InlineData(false), InlineData(true)] public void ComputeDispatchAndWritesReachGpuStorageAndReadBack(bool chinese) {
         Assert.True(Assert.IsType<BooleanObj>(ScriptRunner.RunFile(Path.Combine(AppContext.BaseDirectory,"examples/wgpu_compute/main.aqua"))).Value);
         var result=Assert.IsType<ArrayObj>(ProcessingTest.Evaluate("""
             變數 gpu=匯入("WGPU");變數 device=gpu.CreateDevice();變數 buffer=device.CreateBuffer([1,2]);
             buffer.Write([7,9]);變數 result=buffer.Read();buffer.Dispose();buffer.Dispose();device.Dispose();device.Dispose();result;
-            """));
+            """, chinese));
         Assert.Equal(new double[]{7,9},result.Elements.Select(GraphicsRuntime.Number));
     }
     [WgpuFact] public void OddWidthTargetsReadBackPixelsAndRenderWgslTriangles() {
@@ -95,14 +102,14 @@ public class WgpuIntegrationTest {
         Assert.Equal("wgpu",Assert.IsType<StringObj>(result.Elements[0]).Value);Assert.Equal(0xFFFF0000,GraphicsRuntime.Number(result.Elements[1]));Assert.Equal(0,GraphicsRuntime.Number(result.Elements[2]));
         Assert.Equal(0xFF00FF00,GraphicsRuntime.Number(ProcessingTest.Evaluate("變數 p=匯入(\"Processing\");變數 glfw=匯入(\"GLFW\");p.size(16,16);glfw.Terminate();p.size(16,16);p.background(0,255,0);變數 pixel=p.get(4,4);p.close();pixel;")));
     }
-    [WgpuFact] public void ProcessingShaderUniformsClipAndSmoothSwitchesPreservePixels() {
+    [WgpuTheory, InlineData(false), InlineData(true)] public void ProcessingShaderUniformsClipAndSmoothSwitchesPreservePixels(bool chinese) {
         var result=Assert.IsType<ArrayObj>(ProcessingTest.Evaluate("""
             變數 p=匯入("Processing");p.size(32,32);p.noStroke();p.background(0,0,255);p.noSmooth();
             變數 shader=p.createShader("@vertex fn vs_main(i: VertexInput)->VertexOutput {var o:VertexOutput;var clip=processing.projection*vec4<f32>(i.position,1.0);clip.z=(clip.z+clip.w)*0.5;o.position=clip;o.vertexColor=i.color;o.uv=i.texcoord;o.normal=i.normal;o.eyePosition=i.position;return o;}",
             "struct UserUniforms {color:vec4<f32>,}; @group(1) @binding(0) var<uniform> user:UserUniforms; @fragment fn fs_main(i:VertexOutput)->@location(0) vec4<f32>{return user.color;}");
             shader.set("color",[1,0,0,1]);p.shader(shader);p.clip(0,0,8,8);p.rect(0,0,32,32);p.noClip();p.resetShader();
             變數 red=p.get(4,4);p.smooth();變數 blue=p.get(24,24);p.noSmooth();變數 preserved=p.get(4,4);p.endFrame();p.close();[red,blue,preserved];
-            """));
+            """, chinese));
         Assert.Equal(new double[]{0xFFFF0000,0xFF0000FF,0xFFFF0000},result.Elements.Select(GraphicsRuntime.Number));
     }
 }
@@ -126,13 +133,16 @@ public class WgpuCliSmokeTest {
             var result=Run("--disassemble",Path.Combine("examples",name,"main.aqua"));Assert.Equal(0,result.Code);Assert.Equal("",result.Error);Assert.NotEmpty(result.Output);
         }
     }
-    [WgpuFact] public void ExamplesExecuteAsSourceAndCompiledBottlesInSeparateProcesses() {
+    [WgpuTheory, InlineData(false), InlineData(true)] public void ExamplesExecuteAsSourceAndCompiledBottlesInSeparateProcesses(bool chinese) {
         foreach(string name in new[]{"wgpu_compute","wgpu_triangle","processing_wgpu"}) {
             using var directory=new BottleTestDirectory();
-            string example=Path.Combine("examples",name,"main.aqua"),bottle=directory.FilePath("example.bottle");
+            string original=Path.Combine(AppContext.BaseDirectory,"examples",name,"main.aqua"),bottle=directory.FilePath("example.bottle");
+            string text=File.ReadAllText(original);
+            string example=directory.Write("main.aqua",chinese?AquariusLangVMTesting.BilingualTestSource.Chinese(text):text);
             try {
                 var source=Run(example);Assert.True(source.Code==0,source.Output+source.Error);Assert.Equal("",source.Error);Assert.Contains("真",source.Output);
                 var compiled=Run("-c","--root",Path.GetDirectoryName(example)!,"-o",bottle,example);Assert.Equal(0,compiled.Code);Assert.Equal("",compiled.Error);
+                File.Delete(example);
                 var packaged=Run(bottle);Assert.True(packaged.Code==0,packaged.Output+packaged.Error);Assert.Equal("",packaged.Error);Assert.Contains("真",packaged.Output);
             } finally {File.Delete(bottle);File.Delete(Path.Combine(AppContext.BaseDirectory,"examples",name,"wgpu-triangle.png"));}
         }

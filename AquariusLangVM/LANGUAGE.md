@@ -40,6 +40,14 @@ Aquarius recursion uses VM frames instead of recursive C# evaluation.
 - Boolean `&&` and `||` evaluate both operands. They do not short-circuit.
 - Functions support explicit `回傳`, a final expression as an implicit result,
   recursion and lexical closures. Assignments update the scope owning a variable.
+- `變數 加法, add = 函式(甲, 乙) { 甲 + 乙; };` gives one function two public
+  names, in either order. A single name continues to work. Two-name declarations
+  require a function literal and distinct identifiers. Both bindings receive the
+  same function object and captured environment; subsequent assignment to one
+  binding follows ordinary variable semantics and does not rebind the other.
+  Declared names and parameters shadow global builtins. Module member calls look
+  up the receiver's exports, so aliases such as `vector.長度()` cannot accidentally
+  call an unrelated global builtin.
 - A loop's declared control variable stays local to the loop and carries its value
   into the next iteration. Body declarations get a fresh scope each iteration;
   closures can retain the environment from the iteration that created them.
@@ -47,8 +55,8 @@ Aquarius recursion uses VM frames instead of recursive C# evaluation.
   Out-of-range array reads and missing hash entries return `NullObj`; invalid
   array writes return a language error.
 - Imported script modules expose their environment through `ModuleObj`.
-  Module member calls currently evaluate arguments in the module environment;
-  return a function and call it locally when arguments need the caller's bindings.
+  Module member calls evaluate arguments in the caller's environment and execute
+  function bodies in their captured environment.
 - Runtime failures produce `ErrorObj` and stop execution before later side effects.
   Compiler syntax failures raise `VmCompilationException`; `VmEvaluator` converts
   them to `ErrorObj` for hosts using its evaluation APIs.
@@ -83,6 +91,32 @@ Desktop-only facilities, imports and graphics belong in `AquariusDesktopVMREPL`;
 keep the portable library free of native desktop dependencies. Hosts must dispose
 `DesktopBuiltins` to release graphics resources. Native callbacks invoke Aquarius
 functions through `VmEvaluator.Invoke`.
+
+Host libraries can register either or both names with the portable API:
+
+```csharp
+var function = new BuiltinObj(args => new IntegerObj(42));
+FunctionRegistration.Define(moduleEnvironment, function,
+    traditionalChineseName: "答案", englishName: "answer");
+FunctionRegistration.Define(moduleEnvironment, anotherFunction, englishName: "englishOnly");
+builtins.DefineFunction(function, traditionalChineseName: "答案", englishName: "answer");
+```
+
+Omit a name with `null`. Empty names, keywords, duplicate names and collisions
+with existing exports fail before any binding is added. The registry accepts
+native `BuiltinObj` and compiled `FunctionObj` callables and preserves identity.
+`LibraryCatalog` supplies metadata shared by the desktop host and LSP without
+loading native libraries. Update `native/generate_library_catalog.py`, then run
+it to regenerate the catalog and naming reference when changing library APIs.
+OpenGL aliases retain the `gl` prefix and overload/type suffixes; singular and
+plural entry points have distinct names. The appended `Duplicate` opcode binds
+two names to one closure and is validated during `.rius` loading. Existing
+opcodes and bytecode version remain unchanged; bilingual bottles require a VM
+that supports this opcode.
+
+`FunctionRegistration.Replace` explicitly rebinds an existing alias group during
+library reloads. It checks that all names refer to the same old function before
+replacing them; Processing uses this when a closed sketch starts again.
 
 Possible future work includes Git, cross-language interoperability, calculus
 operators, desktop GUI libraries, PyTorch bindings and additional graphics/game

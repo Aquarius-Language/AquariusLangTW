@@ -22,11 +22,12 @@ public class JoltCliSmokeTest {
         return (process.ExitCode, output.GetAwaiter().GetResult().Replace("\r\n", "\n"), error.GetAwaiter().GetResult());
     }
 
-    [Fact]
-    public void ExampleExecutesAsSourceAndSourceFreeBottleInSeparateProcesses() {
+    [Theory, InlineData(false), InlineData(true)]
+    public void ExampleExecutesAsSourceAndSourceFreeBottleInSeparateProcesses(bool chinese) {
         string example = Path.Combine(AppContext.BaseDirectory, "examples", "jolt_physics", "main.aqua");
         using var temp = new BottleTestDirectory();
-        string source = temp.Write("main.aqua", File.ReadAllText(example));
+        string text = File.ReadAllText(example);
+        string source = temp.Write("main.aqua", chinese ? AquariusLangVMTesting.BilingualTestSource.Chinese(text) : text);
         var result = Run(temp.Path, source);
         Assert.True(result.Code == 0, result.Output + result.Error);
         Assert.Equal("JOLT_SMOKE_OK\n真\n", result.Output); Assert.Empty(result.Error);

@@ -62,9 +62,14 @@ public class ScriptRunnerTest {
         Assert.True(testArrayObjEquals(evaluatedArr.Elements, new IObject[]{new IntegerObj(-20), new FloatObj(20.38f)}));
     }
 
-    [Fact]
-    public void TestModuleImport() {
-        IObject evaluated = ScriptRunner.RunFile(Path.Combine(AppContext.BaseDirectory, "examples/using_modules/main.aqua"));
+    [Theory, InlineData(false), InlineData(true)]
+    public void TestModuleImport(bool chinese) {
+        using var temp = new BottleTestDirectory();
+        string folder = Path.Combine(AppContext.BaseDirectory, "examples/using_modules");
+        string source = File.ReadAllText(Path.Combine(folder, "main.aqua"));
+        if (chinese) source = source.Replace("moduleA.add", "moduleA.加法").Replace("moduleA.minus", "moduleA.減法");
+        temp.Write("module_folder/module.aqua", File.ReadAllText(Path.Combine(folder, "module_folder/module.aqua")));
+        IObject evaluated = ScriptRunner.RunFile(temp.Write("main.aqua", source));
         Assert.IsType<ArrayObj>(evaluated);
         ArrayObj evaluatedArr = (ArrayObj)evaluated;
         

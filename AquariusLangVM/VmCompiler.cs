@@ -65,7 +65,16 @@ public sealed class VmCompiler {
             case BlockStatement block: Statements(block.Statements, true); break;
             case ExpressionStatement statement: Node(statement.Expression); break;
             case LetStatement declaration:
-                Node(declaration.Value); Emit(OpCode.Declare, Name(declaration.Name.Value)); break;
+                if (declaration.Alias != null && (!(declaration.Value is FunctionLiteral) || declaration.Alias.Value == declaration.Name.Value))
+                    throw new VmCompilationException("Two distinct names require a function literal.");
+                Node(declaration.Value);
+                if (declaration.Alias != null) Emit(OpCode.Duplicate);
+                Emit(OpCode.Declare, Name(declaration.Name.Value));
+                if (declaration.Alias != null) {
+                    Emit(OpCode.Pop);
+                    Emit(OpCode.Declare, Name(declaration.Alias.Value));
+                }
+                break;
             case ReturnStatement returned: Node(returned.ReturnValue); Emit(OpCode.Return); break;
             case BreakStatement _:
                 if (breaks.Count > 0) breaks.Peek().Add(Emit(OpCode.Break));

@@ -214,7 +214,7 @@ public static class BytecodeSerializer {
                 OpCode.Call => operand + 1,
                 OpCode.Array => operand,
                 OpCode.Hash => operand * 2,
-                OpCode.Pop or OpCode.Declare or OpCode.Negate or OpCode.Not or OpCode.JumpIfFalse or OpCode.JumpIfBreak or
+                OpCode.Pop or OpCode.Duplicate or OpCode.Declare or OpCode.Negate or OpCode.Not or OpCode.JumpIfFalse or OpCode.JumpIfBreak or
                 OpCode.Return or OpCode.CheckHashKey or OpCode.Member or OpCode.MemberFunction or OpCode.ResolveMemberFunction or OpCode.LoopCondition => 1,
                 _ => 0
             };
@@ -224,7 +224,7 @@ public static class BytecodeSerializer {
             var loops = state.Loops;
             switch (instruction.Code) {
                 case OpCode.Constant: case OpCode.Void: case OpCode.Null: case OpCode.Load: case OpCode.Closure:
-                case OpCode.IncrementPrefix: case OpCode.IncrementPostfix: depth++; break;
+                case OpCode.IncrementPrefix: case OpCode.IncrementPostfix: case OpCode.Duplicate: depth++; break;
                 case OpCode.Pop: case OpCode.JumpIfFalse: case OpCode.LoopCondition: depth--; break;
                 case OpCode.Call: case OpCode.Array: case OpCode.Hash: depth += 1 - needed; break;
                 case OpCode.WriteIndex: depth -= 2; break;

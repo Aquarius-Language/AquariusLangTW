@@ -178,6 +178,8 @@ public class DesktopBuiltins : Builtins, IDisposable {
                 }) 
             }
         };
+        foreach (var function in LibraryCatalog.GlobalFunctions)
+            FunctionRegistration.Define(builtinFuncs, builtinFuncs[function.TraditionalChineseName], englishName: function.EnglishName);
         builtins = new Dictionary<string, IObject>();
     }
     
@@ -186,6 +188,7 @@ public class DesktopBuiltins : Builtins, IDisposable {
             Utils.IsFullPath(filePath)
                 ? new StringObj(Path.GetDirectoryName(filePath))
                 : new StringObj(Path.GetDirectoryName(Path.Combine(System.Environment.CurrentDirectory, filePath))));
+        _Builtins.Add("currWorkingDir", _Builtins["目前工作目錄"]);
     }
 
     public void Dispose() { if (ownsGraphics) graphics.Dispose(); }

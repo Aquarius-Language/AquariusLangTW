@@ -13,7 +13,8 @@ public enum OpCode : byte {
     Equal, NotEqual, And, Or, Negate, Not, IncrementPrefix, IncrementPostfix,
     CompoundAssign, Jump, JumpIfFalse, JumpIfBreak, Closure, Call, Return,
     Array, Hash, CheckHashKey, Index, CheckArrayWrite, WriteIndex, Member, MemberFunction, ResolveMemberFunction,
-    EnterLoop, LoopCondition, NextIteration, LeaveLoop, Break, Error
+    EnterLoop, LoopCondition, NextIteration, LeaveLoop, Break, Error,
+    Duplicate
 }
 
 public readonly struct Instruction {

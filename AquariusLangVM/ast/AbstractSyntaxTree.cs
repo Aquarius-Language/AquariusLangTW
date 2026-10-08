@@ -70,6 +70,7 @@ public class LetStatement : IStatement {
             .Append(TokenLiteral())
             .Append(' ')
             .Append(name.String())
+            .Append(Alias == null ? "" : ", " + Alias.String())
             .Append(" = ");
         
         if (value != null) {
@@ -93,6 +94,9 @@ public class LetStatement : IStatement {
         get => name;
         set => name = value;
     }
+
+    /// <summary>Optional second public name for the same function value.</summary>
+    public Identifier? Alias { get; set; }
 
     public IExpression Value {
         get => value;

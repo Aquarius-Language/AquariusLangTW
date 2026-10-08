@@ -1,5 +1,0 @@
-﻿變數 isWindows = 是Windows();
-變數 isLinux = 是Linux();
-變數 isMacOS = 是MacOS();
-
-回傳 [isWindows, isLinux, isMacOS];

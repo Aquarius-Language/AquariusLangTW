@@ -20,4 +20,5 @@ test('snippet triggers include Chinese and emitted syntax uses Chinese keywords'
   const snippets = read('snippets/aquarius.json');
   assert.ok(snippets.Function.body[0].includes('函式('));
   assert.ok(snippets['For loop'].body[0].includes('迴圈 (變數'));
+  assert.ok(snippets['Bilingual function'].body[0].includes(', ${2:englishName} = 函式('));
 });

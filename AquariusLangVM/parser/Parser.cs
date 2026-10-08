@@ -254,6 +254,14 @@ namespace AquariusLang.parser {
 
             statement.Name = new Identifier(currToken, currToken.Literal);
 
+            if (peekTokenIs(TokenType.COMMA)) {
+                nextToken();
+                if (!expectPeek(TokenType.IDENT)) return null;
+                statement.Alias = new Identifier(currToken, currToken.Literal);
+                if (statement.Alias.Value == statement.Name.Value)
+                    addError("Function names must be distinct.", currToken);
+            }
+
             if (!expectPeek(TokenType.ASSIGN)) {
                 return null;
             }
@@ -261,6 +269,9 @@ namespace AquariusLang.parser {
             nextToken();
 
             statement.Value = parseExpression((int)Precedence.OperatorPrecedence.LOWEST);
+
+            if (statement.Alias != null && !(statement.Value is FunctionLiteral))
+                addError("Two names can only be declared for a function literal.", statement.Alias.Token);
 
             /*
              * Advance the current token if the next token is semicolon.

@@ -27,6 +27,15 @@ imports and callbacks.
   motion, impulse/mass, force clearing, angular inertia, restitution, contacts,
   input validation, body ownership and native resource cleanup. Its CLI smoke
   tests execute source and source-free bottles in separate processes.
+- `BilingualFunctionTest.cs` covers optional single/dual names, parser errors,
+  alias identity, closures, recursion, callbacks, shadowing and serialized code.
+  `BilingualLibraryTest.cs` checks every native function's aliases and argument
+  validation, plus catalog coverage for module and object exports.
+  Existing GLM, GL buffer, Processing, text-input and Jolt cases also execute
+  Traditional Chinese calls. `BilingualCliSmokeTest.cs` runs mixed/single-language
+  libraries and the bilingual example as source and source-free bottles.
+  GPU opt-in tests validate aliases and shared state of returned WGPU objects,
+  Processing canvases/shaders, and Chinese variants of GPU source/bottle examples.
 
 The desktop assembly grants the test assembly access to internal graphics types
 through `InternalsVisibleTo`. Examples and native runtime assets arrive through
@@ -41,6 +50,9 @@ reentry and explicit expected results for control flow, assignment and boolean o
 ```powershell
 dotnet test AquariusLang.sln -c Release -m:1
 dotnet test AquariusLangVMTesting -c Release -m:1
+
+# Bilingual functions, native library metadata, source/bottle smoke tests
+dotnet test AquariusLangVMTesting -c Release -m:1 --filter FullyQualifiedName~Bilingual
 
 # Native Jolt numerical unit tests and CLI smoke tests (no GPU required)
 dotnet test AquariusLangVMTesting -c Release -m:1 --filter FullyQualifiedName~Jolt

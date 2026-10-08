@@ -10,27 +10,28 @@ using AquaEnvironment=AquariusLang.Object.Environment;
 namespace AquariusREPL.Graphics;
 
 public class ProcessingTest {
-    internal static IObject Evaluate(string source) {
+    internal static IObject Evaluate(string source, bool chinese = false) {
+        if (chinese) source = AquariusLangVMTesting.BilingualTestSource.Chinese(source);
         using var builtins=new DesktopBuiltins();var lexer=Lexer.NewInstance(source);var parser=Parser.NewInstance(lexer);var tree=parser.ParseAST();
         Assert.Empty(lexer.Errors);Assert.Empty(parser.Errors);return VmEvaluator.NewInstance(builtins).Eval(tree,AquaEnvironment.NewEnvironment());
     }
-    [Fact] public void ColorsTransformsImagesVectorsAndMathWorkWithoutLoadingNativeGraphics() {
+    [Theory, InlineData(false), InlineData(true)] public void ColorsTransformsImagesVectorsAndMathWorkWithoutLoadingNativeGraphics(bool chinese) {
         var result=Assert.IsType<ArrayObj>(Evaluate(@"
             變數 p=匯入(""Processing"");p.colorMode(p.HSB,360,100,100,255);
             變數 red=p.color(0,100,100);p.translate(10,20);p.scale(2);p.pushMatrix();p.rotate(p.PI);p.popMatrix();
             變數 img=p.createImage(2,1,p.ARGB);img.set(0,0,red);img.loadPixels();img.updatePixels();
             變數 v=p.createVector(3,4);v.normalize();v.mult(10);
-            [p.red(red),p.green(red),p.blue(red),p.modelX(2,3),p.modelY(2,3),img.get(0,0),v.mag(),p.map(5,0,10,10,20),p.bezierPoint(0,0,10,10,0.5d)];"));
+            [p.red(red),p.green(red),p.blue(red),p.modelX(2,3),p.modelY(2,3),img.get(0,0),v.mag(),p.map(5,0,10,10,20),p.bezierPoint(0,0,10,10,0.5d)];", chinese));
         Assert.Equal(new double[]{360,0,0,14,26,4294901760,10,15,5},result.Elements.Select(GraphicsRuntime.Number));
     }
-    [Fact] public void RandomAndNoiseSeedsAreReproducibleAndNoiseIsContinuous() {
-        var result=Assert.IsType<ArrayObj>(Evaluate(@"變數 p=匯入(""Processing"");p.randomSeed(5);變數 r=p.random(100);p.randomSeed(5);p.noiseSeed(7);變數 n=p.noise(0.4d,0.2d);p.noiseSeed(7);[r==p.random(100),n==p.noise(0.4d,0.2d),n,p.noise(0.4001d,0.2d)];"));
+    [Theory, InlineData(false), InlineData(true)] public void RandomAndNoiseSeedsAreReproducibleAndNoiseIsContinuous(bool chinese) {
+        var result=Assert.IsType<ArrayObj>(Evaluate(@"變數 p=匯入(""Processing"");p.randomSeed(5);變數 r=p.random(100);p.randomSeed(5);p.noiseSeed(7);變數 n=p.noise(0.4d,0.2d);p.noiseSeed(7);[r==p.random(100),n==p.noise(0.4d,0.2d),n,p.noise(0.4001d,0.2d)];", chinese));
         Assert.True(Assert.IsType<BooleanObj>(result.Elements[0]).Value);Assert.True(Assert.IsType<BooleanObj>(result.Elements[1]).Value);
         Assert.InRange(GraphicsRuntime.Number(result.Elements[2]),0,1);Assert.InRange(Math.Abs(GraphicsRuntime.Number(result.Elements[2])-GraphicsRuntime.Number(result.Elements[3])),0,.002);
     }
-    [Fact] public void PixelEditsCopiesResizesAndFiltersUseImageContent() {
+    [Theory, InlineData(false), InlineData(true)] public void PixelEditsCopiesResizesAndFiltersUseImageContent(bool chinese) {
         var result=Assert.IsType<ArrayObj>(Evaluate(@"變數 p=匯入(""Processing"");變數 img=p.createImage(2,1);img.loadPixels();變數 pixels=img.pixels;pixels[p.floor(0.5d)]=p.color(255,0,0);pixels[p.ceil(0.5d)]=p.color(0,255,0);img.updatePixels();
-            變數 copy=img.get();img.resize(4,0);變數 resized=img.get(1,0);copy.filter(p.INVERT);[img.width,img.height,resized,copy.get(0,0),copy.get(1,0)];"));
+            變數 copy=img.get();img.resize(4,0);變數 resized=img.get(1,0);copy.filter(p.INVERT);[img.width,img.height,resized,copy.get(0,0),copy.get(1,0)];", chinese));
         Assert.Equal(new double[]{4,2,0xFFFF0000,0xFF00FFFF,0xFFFF00FF},result.Elements.Select(GraphicsRuntime.Number));
     }
     [Theory]
@@ -44,7 +45,10 @@ public class ProcessingTest {
     [InlineData("p.on(\"unknown\",函式(){});","Unknown event")]
     [InlineData("p.run(函式(x){},函式(){});","zero parameters")]
     [InlineData("p.createImage(-1,1);","Dimension")]
-    public void InvalidCallsReturnAquaErrors(string call,string message) => Assert.Contains(message,Assert.IsType<ErrorObj>(Evaluate("變數 p=匯入(\"Processing\");"+call)).Message);
+    public void InvalidCallsReturnAquaErrors(string call,string message) {
+        foreach (bool chinese in new[] { false, true })
+            Assert.Contains(message,Assert.IsType<ErrorObj>(Evaluate("變數 p=匯入(\"Processing\");"+call, chinese)).Message);
+    }
     [Fact] public void ConcavePolygonsTriangulateInBothWindingsAndOnVerticalPlanes() {
         var points=new[]{new Vector3(0,0,0),new(4,0,0),new(4,4,0),new(2,2,0),new(0,4,0)};
         foreach(var p in new[]{points,points.Reverse().ToArray(),points.Select(v=>new Vector3(0,v.X,v.Y)).ToArray()}) {
@@ -138,10 +142,10 @@ public class ProcessingIntegrationTest {
             pg.beginDraw();pg.loadPixels();pg.endDraw();pg.resize(16,16);pg.beginDraw();pg.updatePixels();
             """)).Message);
     }
-    [WgpuFact] public void SketchCanRestartAndRejectsOldGraphicsObjects() {
-        Assert.Equal(0xFF00FF00,GraphicsRuntime.Number(ProcessingTest.Evaluate(@"變數 p=匯入(""Processing"");p.size(16,16);p.close();p.size(16,16);p.background(0,255,0);變數 c=p.get(2,2);p.close();c;")));
-        Assert.Contains("live PImage",Assert.IsType<ErrorObj>(ProcessingTest.Evaluate(@"變數 p=匯入(""Processing"");p.size(16,16);變數 img=p.createImage(2,2);p.close();p.size(16,16);p.image(img,0,0);")).Message);
-        Assert.Contains("Shader compile failed",Assert.IsType<ErrorObj>(ProcessingTest.Evaluate(@"變數 p=匯入(""Processing"");p.size(16,16);p.createShader(""bad shader"",""bad shader"");")).Message);
+    [WgpuTheory, InlineData(false), InlineData(true)] public void SketchCanRestartAndRejectsOldGraphicsObjects(bool chinese) {
+        Assert.Equal(0xFF00FF00,GraphicsRuntime.Number(ProcessingTest.Evaluate(@"變數 p=匯入(""Processing"");p.size(16,16);p.close();p.size(16,16);p.background(0,255,0);變數 c=p.get(2,2);p.close();c;", chinese)));
+        Assert.Contains("live PImage",Assert.IsType<ErrorObj>(ProcessingTest.Evaluate(@"變數 p=匯入(""Processing"");p.size(16,16);變數 img=p.createImage(2,2);p.close();p.size(16,16);p.image(img,0,0);", chinese)).Message);
+        Assert.Contains("Shader compile failed",Assert.IsType<ErrorObj>(ProcessingTest.Evaluate(@"變數 p=匯入(""Processing"");p.size(16,16);p.createShader(""bad shader"",""bad shader"");", chinese)).Message);
     }
     [WgpuFact] public void TransparentOffscreenPixelsCompositeOnceAndRetainStraightArgb() {
         var result=Assert.IsType<ArrayObj>(ProcessingTest.Evaluate(@"變數 p=匯入(""Processing"");p.size(16,16);p.background(0,0,255);p.noStroke();

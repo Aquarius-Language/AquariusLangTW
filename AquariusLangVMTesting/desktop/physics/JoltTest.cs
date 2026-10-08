@@ -15,7 +15,8 @@ public sealed class JoltCollection { }
 [Collection("Jolt physics")]
 public class JoltTest {
     internal const string World = "變數 j=匯入(\"Jolt\");變數 w=j.CreateWorld([0,0,0]);";
-    internal static IObject Evaluate(string source, DesktopBuiltins? builtins = null) {
+    internal static IObject Evaluate(string source, DesktopBuiltins? builtins = null, bool chinese = false) {
+        if (chinese) source = AquariusLangVMTesting.BilingualTestSource.Chinese(source);
         using var owned = builtins == null ? new DesktopBuiltins() : null;
         var lexer = Lexer.NewInstance(source);
         var parser = Parser.NewInstance(lexer);
@@ -43,26 +44,26 @@ public class JoltTest {
         Assert.Equal(before, JoltLifetime.WorldCount);
     }
 
-    [Fact]
-    public void ConstantVelocityAdvancesPositionInMetersWithoutDamping() {
+    [Theory, InlineData(false), InlineData(true)]
+    public void ConstantVelocityAdvancesPositionInMetersWithoutDamping(bool chinese) {
         var values = Assert.IsType<ArrayObj>(Evaluate(World + """
             變數 b=w.CreateSphere(0.5d,[1,-2,3],2);w.SetLinearVelocity(b,[2,-3,4]);
             迴圈(變數 i=0;i<120;i++){w.Step(1.0d/60,1);};
             [w.GetPosition(b),w.GetLinearVelocity(b)];
-            """)).Elements;
+            """, chinese: chinese)).Elements;
         NearVector(values[0], 5, -8, 11);
         NearVector(values[1], 2, -3, 4);
     }
 
     [Theory]
-    [InlineData(1, 1)][InlineData(4, 7)]
-    public void GravityMatchesVelocityAndSemiImplicitEulerPosition(int substeps, int mass) {
+    [InlineData(1, 1, false)][InlineData(4, 7, false)][InlineData(1, 1, true)][InlineData(4, 7, true)]
+    public void GravityMatchesVelocityAndSemiImplicitEulerPosition(int substeps, int mass, bool chinese) {
         var values = Assert.IsType<ArrayObj>(Evaluate($$"""
             變數 j=匯入("Jolt");變數 w=j.CreateWorld([0,-9.81d,0]);
             變數 b=w.CreateSphere(0.5d,[0,10,0],{{mass}});
             迴圈(變數 i=0;i<60;i++){w.Step(1.0d/60,{{substeps}});};
             [w.GetPosition(b),w.GetLinearVelocity(b)];
-            """)).Elements;
+            """, chinese: chinese)).Elements;
         // v_n = g*n*h; y_n = y_0 + g*h*h*n*(n+1)/2 (semi-implicit Euler).
         double h = 1.0 / (60 * substeps), n = 60 * substeps;
         NearVector(values[0], 0, 10 - 9.81 * h * h * n * (n + 1) / 2, 0, 0.002);
@@ -70,14 +71,15 @@ public class JoltTest {
     }
 
     [Theory]
-    [InlineData(1)][InlineData(2)][InlineData(5)]
-    public void ImpulseChangesVelocityByImpulseDividedByExplicitMass(int mass) {
+    [InlineData(1, false)][InlineData(2, false)][InlineData(5, false)]
+    [InlineData(1, true)][InlineData(2, true)][InlineData(5, true)]
+    public void ImpulseChangesVelocityByImpulseDividedByExplicitMass(int mass, bool chinese) {
         var values = Assert.IsType<ArrayObj>(Evaluate(World + $$"""
             變數 s=w.CreateSphere(0.5d,[0,0,0],{{mass}});
             變數 b=w.CreateBox([1,2,3],[20,0,0],{{mass}});
             w.AddImpulse(s,[6,2,-4]);w.AddImpulse(b,[6,2,-4]);
             [w.GetLinearVelocity(s),w.GetLinearVelocity(b)];
-            """)).Elements;
+            """, chinese: chinese)).Elements;
         foreach (var value in values) NearVector(value, 6.0 / mass, 2.0 / mass, -4.0 / mass);
     }
 
@@ -169,8 +171,21 @@ public class JoltTest {
     [InlineData("w.SetFriction(w.CreateSphere(1,[0,0,0],1),-1);", "0..1")]
     [InlineData("w.SetGravity([0,1000001,0]);", "finite number")]
     public void InvalidArgumentsReturnLanguageErrors(string call, string message) {
-        Assert.Contains(message, Assert.IsType<ErrorObj>(Evaluate(World + call)).Message);
+        foreach (bool chinese in new[] { false, true })
+            Assert.Contains(message, Assert.IsType<ErrorObj>(Evaluate(World + call, chinese: chinese)).Message);
         Assert.Equal(0, JoltLifetime.WorldCount);
+    }
+
+    [Fact] public void WorldMethodsShareBothNamesAndMutateTheSameNativeWorld() {
+        using var builtins = new DesktopBuiltins();
+        var world = Assert.IsType<ModuleObj>(Evaluate(World + "w;", builtins));
+        AquariusREPL.Graphics.BilingualLibraryTest.AssertAliases(world, "Jolt.World");
+        var values = Assert.IsType<ArrayObj>(Evaluate("""
+            變數 j=匯入("Jolt");變數 w=j.建立世界([0,0,0]);
+            變數 b=w.建立球體(1,[0,0,0],2);w.AddImpulse(b,[4,0,0]);w.步進(0.5d,1);
+            變數 result=[w.GetPosition(b),w.取得線速度(b),w.取得物體數量()];w.釋放();result;
+            """, builtins)).Elements;
+        NearVector(values[0], 1, 0, 0); NearVector(values[1], 2, 0, 0); Assert.Equal(1, Number(values[2]));
     }
 
     [Theory]

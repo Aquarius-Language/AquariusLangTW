@@ -23,3 +23,17 @@ See [VS Code setup and limitations](../editors/vscode/README.md) and the integra
 tests in [tests/lsp.test.js](tests/lsp.test.js). Run them from the repository root
 with `node --test AquariusLanguageServer/tests/lsp.test.js` after the Release build.
 No source is executed during analysis.
+
+Functions declared as `變數 加法, add = 函式(...) { ... };` expose both aliases in
+completion, hover, definition and document symbols. Builtins and all desktop
+native libraries offer Chinese and English completion/hover from the portable
+`LibraryCatalog`; the server never initializes graphics or physics. Member
+completion is triggered by `.` and follows known return types such as Jolt
+worlds, WGPU devices/buffers/shaders/targets and Processing vectors/images/canvases.
+
+Script imports resolve relative to the importing file. String literals, local
+string constants, concatenation and `目前工作目錄` / `currWorkingDir` paths can be
+resolved statically. Open unsaved library buffers take precedence over disk files,
+including after edits. Both script aliases jump to their own declaration tokens.
+Dynamic runtime import paths and arbitrary computed return types remain unknown;
+unknown receivers do not receive unrelated member suggestions.

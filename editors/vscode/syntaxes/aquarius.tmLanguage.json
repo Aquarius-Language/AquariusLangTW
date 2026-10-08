@@ -7,8 +7,8 @@
     { "name": "string.quoted.double.aquarius", "begin": "\"", "end": "\"" },
     { "name": "keyword.control.aquarius", "match": "(?<![\\p{L}\\p{N}\\p{M}_])(否則如果|變數|函式|如果|否則|回傳|迴圈|中斷)(?![\\p{L}\\p{N}\\p{M}_])" },
     { "name": "constant.language.boolean.aquarius", "match": "(?<![\\p{L}\\p{N}\\p{M}_])(真|假)(?![\\p{L}\\p{N}\\p{M}_])" },
-    { "name": "support.function.aquarius", "match": "(?<![\\p{L}\\p{N}\\p{M}_])(長度|最後一個|其餘|加入|印出|匯入|是Windows|是Linux|是MacOS|執行檔案)(?![\\p{L}\\p{N}\\p{M}_])" },
-    { "name": "support.variable.aquarius", "match": "(?<![\\p{L}\\p{N}\\p{M}_])目前工作目錄(?![\\p{L}\\p{N}\\p{M}_])" },
+    { "name": "support.function.aquarius", "match": "(?<![\\p{L}\\p{N}\\p{M}_])(長度|最後一個|其餘|加入|印出|匯入|是Windows|是Linux|是MacOS|執行檔案|len|last|rest|push|print|import|isOSWindows|isOSLinux|isOSMacOS|execFile)(?![\\p{L}\\p{N}\\p{M}_])" },
+    { "name": "support.variable.aquarius", "match": "(?<![\\p{L}\\p{N}\\p{M}_])(目前工作目錄|currWorkingDir)(?![\\p{L}\\p{N}\\p{M}_])" },
     { "name": "constant.numeric.aquarius", "match": "(?<![\\p{L}\\p{N}\\p{M}_])[0-9]+(?:\\.[0-9]*[fd])?(?![\\p{L}\\p{N}\\p{M}_])" },
     { "name": "keyword.operator.aquarius", "match": "\\+\\+|[+*/!=<>-]=?|&&|\\|\\|" },
     { "name": "entity.name.function.aquarius", "match": "[\\p{L}\\p{Nl}_][\\p{L}\\p{Nl}\\p{M}_0-9]*(?=\\s*\\()" }

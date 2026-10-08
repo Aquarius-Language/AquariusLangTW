@@ -10,6 +10,7 @@ namespace AquariusLang.runtime {
 
         public Builtins(Dictionary<string, BuiltinObj> builtinFuncs) {
             this.builtinFuncs = builtinFuncs;
+            builtins = new Dictionary<string, IObject>();
         }
 
         public Builtins() {
@@ -22,6 +23,9 @@ namespace AquariusLang.runtime {
         }
 
         public Dictionary<string, BuiltinObj> BuiltinFuncs => builtinFuncs;
+
+        public void DefineFunction(BuiltinObj function, string? traditionalChineseName = null, string? englishName = null) =>
+            FunctionRegistration.Define(builtinFuncs, function, traditionalChineseName, englishName);
         public Dictionary<string, IObject> _Builtins => builtins;
     }
 }

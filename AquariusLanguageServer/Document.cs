@@ -2,6 +2,7 @@ using AquariusLang.ast;
 using AquariusLang.lexer;
 using AquariusLang.parser;
 using AquariusLang.token;
+using AquariusLang.runtime;
 
 namespace AquariusLanguageServer;
 
@@ -13,7 +14,7 @@ internal sealed class Scope(int start, int end, Scope? parent)
     public List<Declaration> Declarations { get; } = [];
 }
 
-internal sealed record Declaration(Token Token, Scope Scope, int Kind, string Detail, int End);
+internal sealed record Declaration(Token Token, Scope Scope, int Kind, string Detail, int End, IExpression? Value);
 internal sealed record Diagnostic(TextRange range, string message, int severity = 1, string source = "aquarius");
 
 internal sealed class Document
@@ -27,12 +28,16 @@ internal sealed class Document
     private readonly List<Declaration> declarations = [];
     private readonly Dictionary<int, int> blockEnds = [];
     private int walkDepth;
+    private readonly Func<string, Document?>? resolveDocument;
+    private readonly Dictionary<int, (IExpression Receiver, Scope Scope)> memberReceivers = [];
+    private sealed record ModuleInfo(string? Library = null, Document? Script = null);
 
-    public Document(string uri, int version, string text)
+    public Document(string uri, int version, string text, Func<string, Document?>? resolveDocument = null)
     {
         Uri = uri;
         Version = version;
         Source = new SourceText(text);
+        this.resolveDocument = resolveDocument;
         var lexer = Lexer.NewInstance(text);
         var braces = new Stack<Token>();
         Token token;
@@ -81,10 +86,10 @@ internal sealed class Document
         return scope;
     }
 
-    private void Declare(Identifier? identifier, Scope scope, int kind, string detail, int? end = null)
+    private void Declare(Identifier? identifier, Scope scope, int kind, string detail, int? end = null, IExpression? value = null)
     {
         if (identifier == null || identifier.Token.Type != TokenType.IDENT) return;
-        var declaration = new Declaration(identifier.Token, scope, kind, detail, end ?? identifier.Token.Start + identifier.Token.Length);
+        var declaration = new Declaration(identifier.Token, scope, kind, detail, end ?? identifier.Token.Start + identifier.Token.Length, value);
         declarations.Add(declaration);
         scope.Declarations.Add(declaration);
     }
@@ -111,9 +116,10 @@ internal sealed class Document
                 break;
             case LetStatement let:
                 var function = let.Value as FunctionLiteral;
-                Declare(let.Name, scope, function == null ? 13 : 12,
-                    function == null ? $"變數 {let.Name?.Value}" : $"{let.Name?.Value}({string.Join(", ", (function.Parameters ?? []).Select(p => p.Value))})",
-                    function == null ? null : End(function.Body));
+                string names = let.Alias == null ? let.Name?.Value ?? "" : $"{let.Name?.Value} / {let.Alias.Value}";
+                string detail = function == null ? $"變數 {names}" : $"{names}({string.Join(", ", (function.Parameters ?? []).Select(p => p.Value))})";
+                Declare(let.Name, scope, function == null ? 13 : 12, detail, function == null ? null : End(function.Body), let.Value);
+                Declare(let.Alias, scope, 12, detail, function == null ? null : End(function.Body), let.Value);
                 Walk(let.Value, scope);
                 break;
             case FunctionLiteral fn:
@@ -132,7 +138,9 @@ internal sealed class Document
             case ReturnStatement statement: Walk(statement.ReturnValue, scope); break;
             case PrefixExpression prefix: Walk(prefix.Right, scope); break;
             case IncrementExpression increment: Walk(increment.Operand, scope); break;
-            case InfixExpression infix: Walk(infix.Left, scope); Walk(infix.Right, scope); break;
+            case InfixExpression infix:
+                if (infix.Operator == "." && infix.Left != null) memberReceivers[infix.Token.Start] = (infix.Left, scope);
+                Walk(infix.Left, scope); Walk(infix.Right, scope); break;
             case CallExpression call:
                 Walk(call.Function, scope);
                 foreach (var arg in call.Arguments ?? []) Walk(arg, scope);
@@ -173,6 +181,101 @@ internal sealed class Document
         return index > 0 && tokens[index - 1].Type == TokenType.DOT;
     }
 
+    private Declaration? Lookup(string name, Scope scope, int offset)
+    {
+        for (Scope? current = scope; current != null; current = current.Parent)
+        {
+            var found = current.Declarations.LastOrDefault(d => d.Token.Literal == name && d.Token.Start <= offset);
+            if (found != null) return found;
+        }
+        return null;
+    }
+
+    private string? ImportPath(IExpression? expression, Scope scope, int offset, int depth = 0)
+    {
+        if (depth > 32) return null;
+        if (expression is StringLiteral text) return text.Value;
+        if (expression is InfixExpression { Operator: "+" } sum)
+        {
+            string? left = ImportPath(sum.Left, scope, offset, depth + 1), right = ImportPath(sum.Right, scope, offset, depth + 1);
+            return left == null || right == null ? null : left + right;
+        }
+        if (expression is Identifier identifier)
+        {
+            var declaration = Lookup(identifier.Value, scope, offset);
+            if (declaration != null) return ImportPath(declaration.Value, declaration.Scope, declaration.Token.Start, depth + 1);
+            if (identifier.Value is "目前工作目錄" or "currWorkingDir" && System.Uri.TryCreate(Uri, UriKind.Absolute, out var uri) && uri.IsFile)
+                return Path.GetDirectoryName(uri.LocalPath);
+        }
+        return null;
+    }
+
+    private ModuleInfo? ResolveModule(IExpression? expression, Scope scope, int offset, int depth = 0)
+    {
+        if (depth > 32) return null;
+        if (expression is Identifier identifier)
+        {
+            var declaration = Lookup(identifier.Value, scope, offset);
+            return declaration == null ? null : ResolveModule(declaration.Value, declaration.Scope, declaration.Token.Start, depth + 1);
+        }
+        if (expression is CallExpression call && call.Function is Identifier importer &&
+            importer.Value is "匯入" or "import" && call.Arguments is [var pathExpression] && Lookup(importer.Value, scope, offset) == null)
+        {
+            string? path = ImportPath(pathExpression, scope, offset);
+            if (path == null) return null;
+            string library = LibraryCatalog.CanonicalLibrary(path);
+            if (LibraryCatalog.Members(library).Any()) return new ModuleInfo(Library: library);
+            if (resolveDocument == null || !System.Uri.TryCreate(Uri, UriKind.Absolute, out var uri) || !uri.IsFile) return null;
+            try
+            {
+                string file = Path.GetFullPath(Path.Combine(Path.GetDirectoryName(uri.LocalPath)!, path));
+                var imported = resolveDocument(new System.Uri(file).AbsoluteUri);
+                return imported == null ? null : new ModuleInfo(Script: imported);
+            }
+            catch (Exception e) when (e is ArgumentException or IOException or UnauthorizedAccessException or NotSupportedException) { return null; }
+        }
+        if (expression is InfixExpression { Operator: "." } member)
+        {
+            var receiver = ResolveModule(member.Left, scope, offset, depth + 1);
+            string? name = member.Right is Identifier id ? id.Value : (member.Right as CallExpression)?.Function is Identifier fn ? fn.Value : null;
+            if (receiver?.Library != null && name != null && member.Right is CallExpression)
+            {
+                string? returns = LibraryCatalog.Find(receiver.Library, name)?.ReturnLibrary;
+                return returns == null ? null : new ModuleInfo(Library: returns);
+            }
+            if (receiver?.Script != null && name != null && member.Right is Identifier)
+            {
+                var declaration = receiver.Script.Exports().LastOrDefault(d => d.Token.Literal == name);
+                return declaration == null ? null : receiver.Script.ResolveModule(declaration.Value, declaration.Scope, declaration.Token.Start, depth + 1);
+            }
+        }
+        return null;
+    }
+
+    private IEnumerable<Declaration> Exports() => declarations.Where(d => d.Scope.Parent == null)
+        .GroupBy(d => d.Token.Literal).Select(g => g.Last());
+
+    private ModuleInfo? MemberModule(Token token, int offset)
+    {
+        int index = tokens.FindIndex(t => t.Start == token.Start);
+        int dot = token.Type == TokenType.DOT ? index : index - 1;
+        if (dot < 1 || tokens[dot].Type != TokenType.DOT) return null;
+        if (memberReceivers.TryGetValue(tokens[dot].Start, out var member))
+            return ResolveModule(member.Receiver, member.Scope, offset);
+        // Incomplete `module.` expressions may not survive parsing; resolve their simple receiver.
+        var previous = tokens[dot - 1];
+        return previous.Type == TokenType.IDENT ? ResolveModule(new Identifier(previous, previous.Literal), ScopeAt(offset), offset) : null;
+    }
+
+    private static IEnumerable<object> MemberCompletion(ModuleInfo? module, string prefix)
+    {
+        if (module?.Library != null)
+            return LibraryCatalog.Members(module.Library).SelectMany(f => new[] { f.TraditionalChineseName, f.EnglishName }
+                .Where(n => n.StartsWith(prefix, StringComparison.Ordinal)).Select(n => (object)new { label = n, kind = 3, detail = f.Detail }));
+        return module?.Script?.Exports().Where(d => d.Token.Literal.StartsWith(prefix, StringComparison.Ordinal))
+            .Select(d => (object)new { label = d.Token.Literal, kind = d.Kind == 12 ? 3 : 6, detail = d.Detail }) ?? [];
+    }
+
     public object Completion(Position position)
     {
         int offset = Source.Offset(position);
@@ -180,13 +283,13 @@ internal sealed class Document
         var token = tokens.LastOrDefault(t => t.Start < offset && offset <= t.Start + t.Length);
         string prefix = token.Type == TokenType.IDENT || LanguageFacts.Keywords.ContainsKey(token.Literal ?? "")
             ? Source.Text[token.Start..offset] : "";
-        // Module members need cross-file runtime resolution; don't suggest unrelated locals.
-        if (token.Type == TokenType.DOT || (token.Type == TokenType.IDENT && IsMember(token))) return Array.Empty<object>();
+        if (token.Type == TokenType.DOT || (token.Type == TokenType.IDENT && IsMember(token)))
+            return MemberCompletion(MemberModule(token, offset), prefix).ToArray();
         var items = new Dictionary<string, object>(StringComparer.Ordinal);
         foreach (var entry in LanguageFacts.Keywords)
             items[entry.Key] = new { label = entry.Key, kind = 14, detail = entry.Value };
         foreach (var entry in LanguageFacts.Builtins)
-            items[entry.Key] = new { label = entry.Key, kind = entry.Key == "目前工作目錄" ? 6 : 3, detail = entry.Value };
+            items[entry.Key] = new { label = entry.Key, kind = entry.Key is "目前工作目錄" or "currWorkingDir" ? 6 : 3, detail = entry.Value };
         foreach (var declaration in Visible(offset))
             items[declaration.Token.Literal] = new { label = declaration.Token.Literal, kind = declaration.Kind == 12 ? 3 : 6, detail = declaration.Detail };
         return items.Where(item => item.Key.StartsWith(prefix, StringComparison.Ordinal)).Select(item => item.Value).ToArray();
@@ -195,8 +298,15 @@ internal sealed class Document
     public object? Hover(Position position)
     {
         int offset = Source.Offset(position);
-        if (At(offset) is not Token token || IsMember(token)) return null;
+        if (At(offset) is not Token token) return null;
         if (token.Type == TokenType.STRING || token.Type == TokenType.ILLEGAL) return null;
+        if (IsMember(token))
+        {
+            var module = MemberModule(token, offset);
+            string? memberDetail = module?.Library != null ? LibraryCatalog.Find(module.Library, token.Literal)?.Detail
+                : module?.Script?.Exports().LastOrDefault(d => d.Token.Literal == token.Literal)?.Detail;
+            return memberDetail == null ? null : new { contents = new { kind = "plaintext", value = memberDetail }, range = Source.Range(token.Start, token.Length) };
+        }
         string? detail = Visible(offset).FirstOrDefault(d => d.Token.Literal == token.Literal)?.Detail;
         if (detail == null) LanguageFacts.Keywords.TryGetValue(token.Literal, out detail);
         if (detail == null) LanguageFacts.Builtins.TryGetValue(token.Literal, out detail);
@@ -206,7 +316,13 @@ internal sealed class Document
     public object? Definition(Position position)
     {
         int offset = Source.Offset(position);
-        if (At(offset) is not Token token || token.Type != TokenType.IDENT || IsMember(token)) return null;
+        if (At(offset) is not Token token || token.Type != TokenType.IDENT) return null;
+        if (IsMember(token))
+        {
+            var imported = MemberModule(token, offset)?.Script;
+            var member = imported?.Exports().LastOrDefault(d => d.Token.Literal == token.Literal);
+            return member == null ? null : new { uri = imported!.Uri, range = imported.Source.Range(member.Token.Start, member.Token.Length) };
+        }
         var declaration = Visible(offset).FirstOrDefault(d => d.Token.Literal == token.Literal);
         return declaration == null ? null : new { uri = Uri, range = Source.Range(declaration.Token.Start, declaration.Token.Length) };
     }

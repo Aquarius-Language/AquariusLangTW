@@ -65,11 +65,12 @@ public sealed class VirtualMachine {
         private void Reset(int size) { System.Array.Clear(stack, size, count - size); count = size; }
         private void Fail(string message) => throw new RuntimeError(new ErrorObj(message));
         private IObject? Load(string name, AquaEnvironment environment, Builtins builtins) {
+            var value = environment.Get(name, out bool found);
+            if (found) return value;
             if (builtins.BuiltinFuncs.TryGetValue(name, out var function)) return function;
-            if (builtins._Builtins.TryGetValue(name, out var value)) return value;
-            value = environment.Get(name, out bool found);
-            if (!found) Fail($"Identifier not found: {name}");
-            return value;
+            if (builtins._Builtins.TryGetValue(name, out value)) return value;
+            Fail($"Identifier not found: {name}");
+            return null;
         }
 
         internal IObject? Run(Bytecode program, AquaEnvironment environment) {
@@ -98,6 +99,7 @@ public sealed class VirtualMachine {
                         case OpCode.Void: Push(null); break;
                         case OpCode.Null: Push(RepeatedPrimitives.NULL); break;
                         case OpCode.Pop: Pop(); break;
+                        case OpCode.Duplicate: Push(stack[count - 1]); break;
                         case OpCode.Load: Push(Load((string)pool[operand], frame.Environment, frame.Builtins)); break;
                         case OpCode.Declare: frame.Environment.Create((string)pool[operand], Pop()!); Push(null); break;
                         case OpCode.Assign: {
@@ -172,12 +174,9 @@ public sealed class VirtualMachine {
                             var receiver = Pop(); string name = (string)pool[operand];
                             if (!(receiver is ModuleObj)) Fail($"Cannot access member of {receiver?.Type() ?? "NULL"}");
                             var module = (ModuleObj)receiver!;
-                            if (instruction.Code == OpCode.MemberFunction) Push(Load(name, module._Environment, frame.Builtins));
-                            else {
-                                var member = module._Environment.Get(name, out bool found);
-                                if (!found) Fail($"Module member not found: {name}");
-                                Push(member);
-                            }
+                            var member = module._Environment.Get(name, out bool found);
+                            if (!found) Fail($"Module member not found: {name}");
+                            Push(member);
                             break;
                         }
                         case OpCode.ResolveMemberFunction: {

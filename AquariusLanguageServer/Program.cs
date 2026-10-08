@@ -49,7 +49,7 @@ static async Task<int> RunAsync()
                                 {
                                     positionEncoding = "utf-16",
                                     textDocumentSync = new { openClose = true, change = 2 },
-                                    completionProvider = new { resolveProvider = false },
+                                    completionProvider = new { resolveProvider = false, triggerCharacters = new[] { "." } },
                                     hoverProvider = true, definitionProvider = true, documentSymbolProvider = true
                                 },
                                 serverInfo = new { name = "Aquarius Language Server", version = "0.1.0" }
@@ -61,7 +61,7 @@ static async Task<int> RunAsync()
                         case "textDocument/didOpen":
                         {
                             var doc = parameters.GetProperty("textDocument");
-                            var document = new Document(doc.GetProperty("uri").GetString()!, doc.GetProperty("version").GetInt32(), doc.GetProperty("text").GetString()!);
+                            var document = new Document(doc.GetProperty("uri").GetString()!, doc.GetProperty("version").GetInt32(), doc.GetProperty("text").GetString()!, ResolveDocument);
                             documents[document.Uri] = document;
                             await PublishAsync(document);
                             break;
@@ -85,7 +85,7 @@ static async Task<int> RunAsync()
                                 }
                                 else text = replacement;
                             }
-                            var updated = new Document(document.Uri, version, text);
+                            var updated = new Document(document.Uri, version, text, ResolveDocument);
                             documents[document.Uri] = updated;
                             await PublishAsync(updated);
                             break;
@@ -129,6 +129,14 @@ static async Task<int> RunAsync()
         string uri = parameters.GetProperty("textDocument").GetProperty("uri").GetString()!;
         if (!documents.TryGetValue(uri, out var document)) throw new ArgumentException("Document is not open.");
         return document;
+    }
+
+    Document? ResolveDocument(string uri)
+    {
+        if (documents.TryGetValue(uri, out var open)) return open;
+        if (!Uri.TryCreate(uri, UriKind.Absolute, out var file) || !file.IsFile) return null;
+        try { return new Document(uri, 0, File.ReadAllText(file.LocalPath), ResolveDocument); }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException) { return null; }
     }
 
     Task PublishAsync(Document document) => protocol.NotifyAsync("textDocument/publishDiagnostics",

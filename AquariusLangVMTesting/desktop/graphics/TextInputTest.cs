@@ -19,7 +19,8 @@ public class TextInputTest {
     public void BackspaceRemovesOneGrapheme(string source, string expected) {
         using var runtime = new GraphicsRuntime();
         Assert.True(runtime.TryImport("TextInput", out var input));
-        Assert.Equal(expected, Assert.IsType<StringObj>(Call(input, "Backspace", new StringObj(source))).Value);
+        foreach (string name in new[] { "Backspace", "刪除末字" })
+            Assert.Equal(expected, Assert.IsType<StringObj>(Call(input, name, new StringObj(source))).Value);
     }
     [Fact] public void InputImportsWithoutNativeInitializationAndValidatesWindowOwnership() {
         using var runtime = new GraphicsRuntime();

@@ -6,7 +6,7 @@ namespace AquariusREPL.runtime;
 
 /// <summary>Runs the actual desktop entry point in a separate process, including UTF-8 output and exit status.</summary>
 public class BottleCliSmokeTest {
-    private static (int Code, string Output, string Error) Run(string workingDirectory, params string[] arguments) {
+    internal static (int Code, string Output, string Error) Run(string workingDirectory, params string[] arguments) {
         var start = new ProcessStartInfo(System.Environment.GetEnvironmentVariable("DOTNET_HOST_PATH") ?? "dotnet") {
             WorkingDirectory = workingDirectory, UseShellExecute = false, CreateNoWindow = true,
             RedirectStandardOutput = true, RedirectStandardError = true, RedirectStandardInput = true,

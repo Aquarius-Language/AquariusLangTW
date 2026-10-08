@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Numerics;
 using AquariusLang.Object;
+using AquariusLang.runtime;
 using AquaEnvironment = AquariusLang.Object.Environment;
 
 namespace AquariusREPL.Graphics;
@@ -21,9 +22,10 @@ internal sealed partial class GraphicsRuntime {
     private readonly bool[] keys=new bool[349];
     private bool previousMouse;
     private double previousX,previousY;
+    private bool rebindingCanvas;
 
     private void PBind(AquaEnvironment env,string name,int min,int max,Func<IObject[],IObject> fn) {
-        env.Create(name,new BuiltinObj(a=> {
+        var function = new BuiltinObj(a=> {
             try {
                 if(disposed) throw new InvalidOperationException("Graphics runtime has been disposed.");
                 if(a.Length<min||a.Length>max) throw new ArgumentException($"Expected {min}..{max} arguments, got {a.Length}.");
@@ -31,7 +33,10 @@ internal sealed partial class GraphicsRuntime {
             } catch(Exception e) when(e is ArgumentException or InvalidOperationException or IOException or OverflowException or DllNotFoundException or EntryPointNotFoundException or BadImageFormatException) {
                 return new ErrorObj($"Processing.{name}: {e.Message}");
             }
-        }));
+        });
+        if (rebindingCanvas && env == processing)
+            FunctionRegistration.Replace(env, function, LibraryCatalog.TraditionalChinese(name), name);
+        else FunctionRegistration.Define(env, function, LibraryCatalog.TraditionalChinese(name), name);
     }
     private void PAction(AquaEnvironment env,string name,int min,int max,Action<IObject[]> fn) => PBind(env,name,min,max,a=>{fn(a);return Null();});
     private static float F(IObject v) { float f=(float)Number(v); if(!float.IsFinite(f))throw new ArgumentException("Number exceeds float range.");return f; }
@@ -124,7 +129,12 @@ internal sealed partial class GraphicsRuntime {
     }
     private void Size(int w,int h,string renderer,string title) {
         if(sketchWindow!=null)throw new InvalidOperationException("size() can only be called once per sketch.");
-        if(screen.Disposed){screen=new ProcessingCanvas(this,640,480,false);screen.Module=modules["Processing"];RegisterCanvas(processing,screen);}
+        if(screen.Disposed) {
+            screen=new ProcessingCanvas(this,640,480,false);screen.Module=modules["Processing"];
+            rebindingCanvas=true;
+            try { RegisterCanvas(processing,screen); }
+            finally { rebindingCanvas=false; }
+        }
         w=Dimension(N(w));h=Dimension(N(h));bool threeD=Renderer(new StringObj(renderer));
         if(windows.Count!=0)throw new InvalidOperationException("Close raw GLFW windows before starting a Processing sketch.");
         try {

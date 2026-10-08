@@ -1,9 +1,0 @@
-﻿如果 (是Windows()) {
-    變數 result = 執行檔案("python", [目前工作目錄 + "/test_files/test_get_main_args.py hello world"]);
-    印出(result);
-    回傳 result;
-} 否則如果 (是MacOS()) {
-
-} 否則如果 (是Linux()) {
-
-}

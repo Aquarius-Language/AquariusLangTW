@@ -1,0 +1,9 @@
+# Both bindings share the same closure and captured state.
+變數 次數 = 0;
+變數 計數, count = 函式() {
+    次數++;
+    次數;
+};
+變數 加法, add = 函式(甲, 乙) { 甲 + 乙; };
+變數 問候 = 函式() { "你好"; };
+變數 englishOnly = 函式() { "hello"; };

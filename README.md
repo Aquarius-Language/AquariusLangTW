@@ -146,6 +146,29 @@ dotnet run --project AquariusDesktopVMREPL -- --disassemble AquariusDesktopVMREP
 
 ## 桌面內建函式
 
+函式庫可為同一個函式定義繁體中文與英文兩個名稱，也可只提供其中一個。
+腳本函式庫使用逗號宣告兩個名稱（順序不限），呼叫端可逐次自由選擇：
+
+```text
+# 工具.aqua
+變數 加法, add = 函式(甲, 乙) { 甲 + 乙; };
+變數 問候 = 函式() { "你好"; };
+變數 englishOnly = 函式() { "hello"; };
+
+# main.aqua
+變數 工具 = 匯入("工具.aqua");
+印出(工具.加法(2, 3), 工具.add(2, 3));
+變數 數學 = 匯入("GLM");
+印出(數學.弧度(90), 數學.Radians(90));
+```
+
+兩個名稱共用同一個函式與閉包；傳遞函式、遞迴與 `.bottle` 套件皆支援。
+全部桌面函式庫（含完整 OpenGL API、回傳的物件方法）已提供雙語名稱，
+下表中的全域函式也同時接受兩種名稱。模組名稱、常數、屬性與事件字串沿用原有寫法。
+語言伺服器提供雙語補全、懸停說明、腳本函式庫定義跳轉與符號列表。
+完整對照見 [函式庫雙語名稱](AquariusDesktopVMREPL/LIBRARY_NAMES.md)，
+可執行範例見 [雙語函式庫](AquariusDesktopVMREPL/examples/bilingual_library/README.md)。
+
 | 原名稱 | 中文名稱 |
 | --- | --- |
 | `len` | `長度` |

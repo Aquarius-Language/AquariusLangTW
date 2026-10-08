@@ -72,6 +72,9 @@ namespace AquariusLang.Object {
             return owned.ContainsKey(name);
         }
 
+        /// <summary>Public bindings of this module/scope, without inherited locals.</summary>
+        public IReadOnlyDictionary<string, IObject> OwnedBindings => new System.Collections.ObjectModel.ReadOnlyDictionary<string, IObject>(owned);
+
         /// <summary>
         /// Keep setting reference variable value from nested outer scope, until
         /// the scope that owns the variable is found, then also update its value

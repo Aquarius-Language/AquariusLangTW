@@ -6,6 +6,7 @@ const { once } = require('node:events');
 const fs = require('node:fs');
 const path = require('node:path');
 const { pathToFileURL } = require('node:url');
+const os = require('node:os');
 
 const server = process.env.AQUARIUS_SERVER || path.resolve(__dirname, '../bin/Release/net8.0/AquariusLanguageServer.dll');
 const uri = 'file:///test/example.aqua';
@@ -196,4 +197,122 @@ test('all repository examples parse through the LSP server without executing the
     const diagnostics = await s.open(fs.readFileSync(fullPath, 'utf8'), pathToFileURL(fullPath).href);
     assert.deepEqual(diagnostics, [], file);
   }
+});
+
+test('bilingual declarations complete, hover, resolve definitions, and expose both symbols', async t => {
+  const s = new Session(t); await s.initialize();
+  const text = '變數 加法, add = 函式(甲,乙){甲+乙;};\n加法(1,2);\nadd(3,4);\n';
+  assert.deepEqual(await s.open(text), []);
+  for (const [name, line] of [['加法', 1], ['add', 2]]) {
+    const hover = await s.feature('hover', line, 1);
+    assert.match(hover.contents.value, /加法 \/ add\(甲, 乙\)/);
+    const definition = await s.feature('definition', line, 1);
+    assert.equal(definition.range.start.character, text.indexOf(name));
+  }
+  const items = await s.feature('completion', 3, 0);
+  for (const name of ['加法', 'add', 'len', '長度', 'print', '印出', 'import', '匯入'])
+    assert.ok(items.some(item => item.label === name), name);
+  const symbols = await s.request('textDocument/documentSymbol', { textDocument: { uri } });
+  assert.ok(symbols.some(symbol => symbol.name === '加法' && symbol.kind === 12));
+  assert.ok(symbols.some(symbol => symbol.name === 'add' && symbol.kind === 12));
+});
+
+test('bilingual aliases respect shadowing and malformed declarations produce diagnostics', async t => {
+  const s = new Session(t); await s.initialize();
+  assert.deepEqual(await s.open('變數 中文, english=函式(){1;};\n變數 測試=函式(){變數 中文, english=函式(){2;};\nenglish();};\nenglish();'), []);
+  assert.equal((await s.feature('definition', 2, 1)).range.start.line, 1);
+  assert.equal((await s.feature('definition', 3, 1)).range.start.line, 0);
+  for (const text of ['變數 中文,english=1;', '變數 相同,相同=函式(){};', '變數 中文,english,third=函式(){};', '變數 中文,=函式(){};'])
+    assert.ok((await s.open(text)).length > 0, text);
+});
+
+test('all native library catalog functions offer both member names without loading native libraries', async t => {
+  const s = new Session(t); await s.initialize();
+  const catalog = fs.readFileSync(path.resolve(__dirname, '../../AquariusLangVM/runtime/LibraryCatalog.Generated.cs'), 'utf8');
+  const groups = new Map();
+  for (const [, library, english, chinese] of catalog.matchAll(/new\("([^"]+)", "([^"]+)", "([^"]+)"/g)) {
+    if (library.includes('.')) continue;
+    if (!groups.has(library)) groups.set(library, []);
+    groups.get(library).push([english, chinese]);
+  }
+  assert.equal(groups.size, 9);
+  for (const [library, names] of groups) {
+    const text = `變數 lib=import("${library}");\nlib.${names[0][0]};`;
+    assert.deepEqual(await s.open(text), [], library);
+    const items = await s.feature('completion', 1, 4);
+    for (const [english, chinese] of names) {
+      for (const name of [english, chinese]) assert.ok(items.some(item => item.label === name && item.kind === 3), `${library}.${name}`);
+    }
+    const hover = await s.feature('hover', 1, 4);
+    assert.ok(hover.contents.value.includes(names[0][0]) && hover.contents.value.includes(names[0][1]));
+    assert.equal(await s.feature('definition', 1, 4), null);
+  }
+});
+
+test('Chinese prefixes and incomplete member calls complete native aliases and respect receiver shadowing', async t => {
+  const s = new Session(t); await s.initialize();
+  await s.open('變數 m=匯入("GLM");\nm.正規化([1,0,0]);\nm.');
+  const filtered = await s.feature('completion', 1, 4);
+  assert.deepEqual(filtered.map(item => item.label), ['正規化']);
+  assert.match((await s.feature('hover', 1, 3)).contents.value, /Normalize/);
+  assert.ok((await s.feature('completion', 2, 2)).some(item => item.label === '正規化'));
+  assert.deepEqual(await s.open('變數 m=匯入("GLM");\n變數 f=函式(m){m.未知;};'), []);
+  assert.deepEqual(await s.feature('completion', 1, 14), []);
+  assert.equal(await s.feature('hover', 1, 14), null);
+  assert.deepEqual(await s.open('變數 import=函式(路徑){42;};\n變數 m=import("GLM");\nm.未知;'), []);
+  assert.deepEqual(await s.feature('completion', 2, 3), []);
+});
+
+test('native returned objects and chained calls infer bilingual method names', async t => {
+  const s = new Session(t); await s.initialize();
+  for (const [setup, english, chinese] of [
+    ['變數 j=匯入("JoltPhysics");變數 obj=j.建立世界([0,0,0]);', 'Step', '步進'],
+    ['變數 g=匯入("wgpu");變數 obj=g.建立裝置();', 'CreateBuffer', '建立緩衝區'],
+    ['變數 g=匯入("WGPU");變數 obj=g.建立裝置().建立緩衝區([1]);', 'Read', '讀取'],
+    ['變數 g=匯入("WGPU");變數 d=g.CreateDevice();變數 obj=d.CreateShader("","");', 'SetInt', '設定整數'],
+    ['變數 g=匯入("WGPU");變數 d=g.CreateDevice();變數 obj=d.建立繪圖目標(2,2);', 'ReadPixels', '讀取像素'],
+    ['變數 p=匯入("Processing");變數 obj=p.建立向量(3,4);', 'normalize', '正規化'],
+    ['變數 p=匯入("Processing");變數 obj=p.createVector(3,4).copy();', 'mag', '長度'],
+    ['變數 p=匯入("Processing");變數 obj=p.建立圖片(2,2);', 'loadPixels', '載入像素'],
+    ['變數 p=匯入("Processing");變數 obj=p.建立圖形();', 'addChild', '加入子圖形'],
+    ['變數 p=匯入("Processing");變數 obj=p.建立畫布(2,2);', 'beginDraw', '開始繪圖'],
+    ['變數 p=匯入("Processing");變數 obj=p.建立著色器("","");', 'setInt', '設定整數']
+  ]) {
+    assert.deepEqual(await s.open(`${setup}\nobj.${chinese};`), []);
+    const items = await s.feature('completion', 1, 4);
+    for (const name of [english, chinese]) assert.ok(items.some(item => item.label === name), `${setup} ${name}`);
+    const hover = await s.feature('hover', 1, 4);
+    assert.ok(hover.contents.value.includes(english) && hover.contents.value.includes(chinese));
+  }
+});
+
+test('script-library aliases resolve from disk and unsaved buffers without executing the library', async t => {
+  const folder = fs.mkdtempSync(path.join(os.tmpdir(), 'aquarius-bilingual-lsp-'));
+  t.after(() => fs.rmSync(folder, { recursive: true, force: true }));
+  const libraryFile = path.join(folder, '工具.aqua');
+  const libraryUri = pathToFileURL(libraryFile).href;
+  const mainUri = pathToFileURL(path.join(folder, 'main.aqua')).href;
+  const library = '變數 加法,add=函式(甲,乙){甲+乙;};\n變數 中文限定=函式(){1;};\n變數 englishOnly=函式(){2;};\n執行檔案("MUST_NOT_EXECUTE",[]);';
+  fs.writeFileSync(libraryFile, library);
+  const s = new Session(t); await s.initialize();
+  assert.deepEqual(await s.open('變數 lib=import("工具.aqua");\nlib.加法(1,2);\nlib.add(3,4);', mainUri), []);
+  let items = await s.feature('completion', 1, 4, mainUri);
+  for (const name of ['加法', 'add', '中文限定', 'englishOnly']) assert.ok(items.some(item => item.label === name), name);
+  for (const [name, line] of [['加法', 1], ['add', 2]]) {
+    assert.match((await s.feature('hover', line, 4, mainUri)).contents.value, /加法 \/ add/);
+    const definition = await s.feature('definition', line, 4, mainUri);
+    assert.equal(definition.uri, libraryUri); assert.equal(definition.range.start.character, library.indexOf(name));
+  }
+  for (const directory of ['目前工作目錄', 'currWorkingDir']) {
+    assert.deepEqual(await s.open(`變數 路徑=${directory}+"/工具.aqua";變數 lib=匯入(路徑);\nlib.加法;`, mainUri), []);
+    assert.ok((await s.feature('completion', 1, 4, mainUri)).some(item => item.label === 'add'));
+  }
+  assert.deepEqual(await s.open('變數 新函式,newFunction=函式(){42;};', libraryUri), []);
+  items = await s.feature('completion', 1, 4, mainUri);
+  assert.ok(items.some(item => item.label === '新函式') && items.some(item => item.label === 'newFunction'));
+  assert.ok(!items.some(item => item.label === 'add'));
+  s.send('textDocument/didChange', { textDocument: { uri: libraryUri, version: 2 }, contentChanges: [{ text: '變數 更新,updated=函式(){7;};' }] });
+  assert.deepEqual(await s.diagnostics(2, libraryUri), []);
+  items = await s.feature('completion', 1, 4, mainUri);
+  assert.ok(items.some(item => item.label === '更新') && !items.some(item => item.label === 'newFunction'));
 });

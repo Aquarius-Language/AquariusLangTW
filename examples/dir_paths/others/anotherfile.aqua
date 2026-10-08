@@ -1,3 +1,0 @@
-﻿變數 getCurrWorkingDir = 函式() {
-    目前工作目錄;
-}

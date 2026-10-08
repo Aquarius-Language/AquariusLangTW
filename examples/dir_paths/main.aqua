@@ -1,3 +1,0 @@
-﻿變數 module = 匯入(目前工作目錄 + "/others/anotherfile.aqua");
-
-[目前工作目錄, module.getCurrWorkingDir()];

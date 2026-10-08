@@ -35,7 +35,7 @@ internal sealed partial class GraphicsRuntime : IDisposable {
         var env = AquaEnvironment.NewEnvironment(); modules[name] = new ModuleObj(env); return env;
     }
     private void Bind(AquaEnvironment env, string name, int count, Func<IObject[], IObject> fn) {
-        env.Create(name, new BuiltinObj(args => {
+        var function = new BuiltinObj(args => {
             try {
                 if (disposed) throw new InvalidOperationException("Graphics runtime has been disposed.");
                 if (args.Length != count) throw new ArgumentException($"Expected {count} arguments, got {args.Length}.");
@@ -44,7 +44,8 @@ internal sealed partial class GraphicsRuntime : IDisposable {
                 or EntryPointNotFoundException or BadImageFormatException or OverflowException or IOException) {
                 return new ErrorObj($"{name}: {ex.Message}");
             }
-        }));
+        });
+        FunctionRegistration.Define(env, function, LibraryCatalog.TraditionalChinese(name), name);
     }
     internal static double Number(IObject value) {
         if (value is INumberObj number) {
