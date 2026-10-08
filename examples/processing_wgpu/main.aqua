@@ -1,0 +1,25 @@
+# Processing runs on wgpu. PGraphics is a GPU texture with a depth attachment.
+變數 畫 = 匯入("Processing");
+變數 立體 = 0;
+變數 設定 = 函式() {
+    畫.size(640, 360, 畫.P2D, "Aquarius Processing / wgpu");
+    立體 = 畫.createGraphics(240, 240, 畫.P3D);
+    畫.on("keyPressed", 函式() { 如果 (畫.keyCode == 畫.SPACE) { 畫.noLoop(); } });
+};
+變數 繪製 = 函式() {
+    變數 比例 = 畫.max(0.01d, 畫.min(畫.width / 640.0d, 畫.height / 360.0d));
+    變數 左邊 = (畫.width - 640 * 比例) / 2;
+    變數 上邊 = (畫.height - 360 * 比例) / 2;
+    立體.resize(240, 240, 畫.max(1, 畫.ceil(240 * 比例 * 畫.pixelWidth / 畫.width)), 畫.max(1, 畫.ceil(240 * 比例 * 畫.pixelHeight / 畫.height)));
+    畫.background(13, 22, 38); 畫.noStroke();
+    畫.pushMatrix(); 畫.translate(左邊, 上邊); 畫.scale(比例);
+    畫.fill(60, 220, 180); 畫.circle(150, 180, 110);
+    立體.beginDraw(); 立體.background(13, 22, 38); 立體.noStroke(); 立體.lights();
+    立體.translate(120, 120, 0); 立體.rotateY(畫.frameCount * 0.03d); 立體.rotateX(0.4d);
+    立體.fill(100, 165, 255); 立體.box(110); 立體.endDraw();
+    畫.image(立體, 330, 60); 畫.fill(235); 畫.textSize(22);
+    畫.text("Processing / wgpu", 24, 38); 畫.textSize(14); 畫.text("Space: pause    Esc: exit", 24, 330);
+    畫.popMatrix();
+};
+畫.run(設定, 繪製);
+真;
