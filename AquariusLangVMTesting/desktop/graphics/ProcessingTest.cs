@@ -92,6 +92,37 @@ public class ProcessingTest {
 
 [Collection("Starship console output")]
 public class ProcessingIntegrationTest {
+    [WgpuTheory, InlineData(false), InlineData(true)] public void CompletedOffscreenLayersCanBeReadAndSnapshottedWithoutBeginningAnotherDraw(bool chinese) {
+        var result=Assert.IsType<ArrayObj>(ProcessingTest.Evaluate("""
+            變數 p=匯入("Processing");p.size(16,16);
+            變數 pg=p.createGraphics(8,4);pg.resize(8,4,16,8);
+            pg.beginDraw();pg.noSmooth();pg.noStroke();pg.background(0,0,255);
+            pg.fill(255,0,0);pg.rect(4,0,4,4);pg.endDraw();
+            變數 snapshot=pg.get();變數 crop=pg.get(4,0,4,4);變數 pixel=pg.get(7,3);
+            pg.loadPixels();變數 count=長度(pg.pixels);
+            pg.beginDraw();pg.background(0,255,0);pg.endDraw();
+            p.background(0);p.image(snapshot,0,0);
+            變數 result=[snapshot.width,snapshot.height,snapshot.get(0,0),snapshot.get(7,3),
+                crop.width,crop.height,crop.get(3,3),pixel,count,pg.get(7,3),p.get(7,3)];
+            p.close();result;
+            """,chinese));
+        Assert.Equal(new double[]{8,4,0xFF0000FF,0xFFFF0000,4,4,0xFFFF0000,0xFFFF0000,128,0xFF00FF00,0xFFFF0000},result.Elements.Select(GraphicsRuntime.Number));
+    }
+    [WgpuFact] public void CompletedOffscreenLayersCanBeSavedButStillRejectDrawingOutsideBeginDraw() {
+        string path=Path.Combine(Path.GetTempPath(),Guid.NewGuid()+".png");
+        try {
+            var result=ProcessingTest.Evaluate($$"""
+                變數 p=匯入("Processing");p.size(16,16);變數 pg=p.createGraphics(2,1);
+                pg.beginDraw();pg.background(255,0,0);pg.endDraw();
+                pg.save("{{path.Replace("\\","/")}}");變數 saved=p.loadImage("{{path.Replace("\\","/")}}");
+                pg.saveFrame("{{path.Replace("\\","/")}}");變數 frame=p.loadImage("{{path.Replace("\\","/")}}");
+                變數 result=[saved.width,saved.height,saved.get(1,0),frame.get(0,0)];p.close();result;
+                """);
+            Assert.Equal(new double[]{2,1,0xFFFF0000,0xFFFF0000},Assert.IsType<ArrayObj>(result).Elements.Select(GraphicsRuntime.Number));
+        } finally {File.Delete(path);}
+        foreach(var call in new[]{"pg.rect(0,0,1,1);","pg.set(0,0,p.color(255));","pg.updatePixels();"})
+            Assert.Contains("beginDraw()",Assert.IsType<ErrorObj>(ProcessingTest.Evaluate("變數 p=匯入(\"Processing\");p.size(16,16);變數 pg=p.createGraphics(2,1);pg.beginDraw();pg.endDraw();"+call)).Message);
+    }
     [WgpuFact] public void ResizingPausedSketchRedrawsAtTheNewResolutionWithoutAnExplicitRedraw() {
         var result=Assert.IsType<ArrayObj>(ProcessingTest.Evaluate("""
             變數 p=匯入("Processing");變數 frames=0;變數 events=0;變數 dimensions=[];

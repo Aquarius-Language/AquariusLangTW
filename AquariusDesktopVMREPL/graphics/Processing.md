@@ -182,6 +182,10 @@ and can be passed to `image`, `texture`, `copy` and `mask`. Its render target
 has a texture, depth buffer and stencil buffer. Its logical/physical sizes match.
 Call `endDraw` before compositing it. Each beginDraw resets its model matrix;
 its other settings persist. A canvas cannot be drawn into itself.
+`get()`, `loadPixels()`, `save()` and `saveFrame()` can read a completed
+PGraphics after `endDraw()` without starting another drawing session. `get()`
+returns an independent snapshot; subsequent drawing does not change it.
+Drawing and pixel updates still require `beginDraw()` / `endDraw()`.
 
 `PShape` exposes `beginShape`, `vertex`, `endShape`, `fill`, `stroke`, `noFill`,
 `noStroke`, `strokeWeight`, `setFill(packedColor)`, `setVertex(index,x,y[,z])`,

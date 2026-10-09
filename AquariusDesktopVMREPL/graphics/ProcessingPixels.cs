@@ -54,10 +54,11 @@ internal sealed partial class GraphicsRuntime {
     }
     private void RegisterCanvasPixels(AquaEnvironment env,ProcessingCanvas c) {
         void Action(string name,int min,int max,Action<IObject[]> fn)=>PAction(env,name,min,max,a=>{RequireSketch();c.RequireDrawing();fn(a);});
-        Action("loadPixels",0,0,_=>env.Create("pixels",PixelArray(c.ReadPixels())));
+        void ReadAction(string name,int min,int max,Action<IObject[]> fn)=>PAction(env,name,min,max,a=>{RequireSketch();c.RequireReadable();fn(a);});
+        ReadAction("loadPixels",0,0,_=>env.Create("pixels",PixelArray(c.ReadPixels())));
         Action("updatePixels",0,0,a=> {var pixels=env.Get("pixels",out _);if(pixels is not ArrayObj array)throw new InvalidOperationException("Call loadPixels() first.");WriteCanvasPixels(c,PixelBytes(array,c.PixelWidth*c.PixelHeight));});
         PBind(env,"get",0,4,a=> {
-            RequireSketch();c.RequireDrawing();byte[] bytes=c.ReadPixels();
+            RequireSketch();c.RequireReadable();byte[] bytes=c.ReadPixels();
             if(a.Length==2)return new DoubleObj(PixelAt(bytes,c.PixelWidth,c.PixelHeight,(int)(F(a[0])*c.PixelWidth/c.Width),(int)(F(a[1])*c.PixelHeight/c.Height)));
             if(a.Length!=0&&a.Length!=4)throw new ArgumentException("get() takes zero, two, or four arguments.");
             int x=a.Length==0?0:Int(a[0]),y=a.Length==0?0:Int(a[1]),w=a.Length==0?c.Width:Dimension(a[2]),h=a.Length==0?c.Height:Dimension(a[3]);
@@ -69,8 +70,8 @@ internal sealed partial class GraphicsRuntime {
             if(a[2] is ModuleObj) {c.Image(ImageObject(a[2]),F(a[0]),F(a[1]));return;}
             var bytes=c.ReadPixels();SetPixel(bytes,c.PixelWidth,c.PixelHeight,Int(a[0])*c.PixelWidth/c.Width,Int(a[1])*c.PixelHeight/c.Height,Packed(a[2]));WriteCanvasPixels(c,bytes);
         });
-        Action("save",1,1,a=>SaveCanvas(c,Text(a[0])));
-        Action("saveFrame",1,1,a=> {string path=Text(a[0]);int start=path.IndexOf('#');if(start>=0){int count=0;while(start+count<path.Length&&path[start+count]=='#')count++;path=path[..start]+frameCount.ToString(new string('0',count))+path[(start+count)..];}SaveCanvas(c,path);});
+        ReadAction("save",1,1,a=>SaveCanvas(c,Text(a[0])));
+        ReadAction("saveFrame",1,1,a=> {string path=Text(a[0]);int start=path.IndexOf('#');if(start>=0){int count=0;while(start+count<path.Length&&path[start+count]=='#')count++;path=path[..start]+frameCount.ToString(new string('0',count))+path[(start+count)..];}SaveCanvas(c,path);});
         Action("filter",1,2,a=> {var bytes=c.ReadPixels();Filter(bytes,c.PixelWidth,c.PixelHeight,Choice(a[0],0,1,2,3,4,5),a.Length==2?F(a[1]):.5f);WriteCanvasPixels(c,bytes);});
         Action("copy",9,9,a=> {
             var src=ImageObject(a[0]);int sx=Int(a[1]),sy=Int(a[2]),sw=Dimension(a[3]),sh=Dimension(a[4]);

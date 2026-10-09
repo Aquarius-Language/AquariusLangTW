@@ -49,10 +49,13 @@ internal sealed partial class ProcessingCanvas : IDisposable {
             Bind();Background(new Vector4(.8f,.8f,.8f,1));
         } catch {Dispose();throw;}
     }
-    internal void RequireDrawing() {
+    internal void RequireReadable() {
         if(Disposed) throw new InvalidOperationException("Canvas has been disposed.");
-        if(!Drawing) throw new InvalidOperationException("Call size() for the main canvas, or beginDraw() for PGraphics first.");
         if(ShapeMode!=-1) throw new InvalidOperationException("Finish beginShape() with endShape() before drawing another primitive.");
+    }
+    internal void RequireDrawing() {
+        RequireReadable();
+        if(!Drawing) throw new InvalidOperationException("Call size() for the main canvas, or beginDraw() for PGraphics first.");
     }
     internal void Bind() {
         if(PixelWidth<=0||PixelHeight<=0)return;
