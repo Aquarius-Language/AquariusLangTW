@@ -71,7 +71,12 @@ dotnet test AquariusLangVMTesting -c Release -m:1 --filter FullyQualifiedName~Jo
 dotnet test AquariusLangVMTesting -c Release -m:1 --filter 'FullyQualifiedName~BytecodeSerializerTest|FullyQualifiedName~Bottle'
 ```
 
-The existing external-process test requires `python` on PATH. Enable GPU
+The packaged external-process test requires Python 3. It probes native interpreters
+on PATH and, on Windows, pyenv and per-user Python installations, avoiding batch
+shims and Store aliases. Set `AQUARIUS_PYTHON` to an interpreter's executable path
+to select it explicitly. Node.js and the prepared browser vendor dependencies are
+required for browser parity tests (`npm --prefix AquariusWebCompiler ci` followed
+by `npm --prefix AquariusWebCompiler run prepare:browser`). Enable GPU
 integration tests, including wgpu compute/rendering, Processing callbacks and
 the showcase, and the retained raw OpenGL library, with:
 

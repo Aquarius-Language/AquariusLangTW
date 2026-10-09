@@ -94,5 +94,7 @@ The published smoke runner executes the self-contained apphost with .NET runtime
 search paths pointing at a nonexistent directory. It removes its disposable
 sources before execution/export and checks packaged imports, assets, WebGPU,
 native image output, Jolt and OpenGL. Its report is
-`.web-build/published-cli-results.json`. The external-process example and packaged
-Python tests require a working `python` executable on PATH.
+`.web-build/published-cli-results.json`. The external-process example requires a
+working `python` executable on PATH. The packaged Python test also accepts
+`AQUARIUS_PYTHON` set to a Python 3 executable path and detects Windows pyenv and
+per-user Python installations.

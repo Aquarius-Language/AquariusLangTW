@@ -99,11 +99,50 @@ public class UnifiedCliSmokeTest {
 
     [Fact] public void SupportingPythonScriptRunsFromPackagedAssetWithSpacesAfterSourceRemoval() {
         using var t = new BottleTestDirectory();
-        t.Write("src/main.aqua", "執行檔案(\"python\", [目前工作目錄+\"/tools folder/worker.py hello world\"]);");
+        string python = ResolvePython().Replace('\\', '/').Replace("\"", "\\\"");
+        t.Write("src/main.aqua", $"執行檔案(\"{python}\", [目前工作目錄+\"/tools folder/worker.py hello world\"]);");
         t.Write("src/tools folder/worker.py", "import sys\nprint('PACKAGED-PYTHON', sys.argv[1:])\n");
         var built = Run(t.Path, "build", "src/main.aqua", "--root", "src", "--assets", "src/tools folder", "-o", "app.bottle");
         Assert.Equal(0, built.Code); Directory.Delete(t.FilePath("src"), true);
         var result = Run(t.Path, "run", "app.bottle");
         Assert.Equal(0, result.Code); Assert.Contains("PACKAGED-PYTHON ['hello', 'world']", result.Output); Assert.Equal("", result.Error);
+    }
+
+    private static string ResolvePython() {
+        string? configured = System.Environment.GetEnvironmentVariable("AQUARIUS_PYTHON");
+        var candidates = new List<string>();
+        if (!string.IsNullOrWhiteSpace(configured)) candidates.Add(configured);
+        else {
+            // Use a native interpreter: Windows batch shims and Store aliases can
+            // start successfully while losing the script's arguments or output.
+            foreach (string directory in (System.Environment.GetEnvironmentVariable("PATH") ?? "").Split(Path.PathSeparator)) {
+                if (string.IsNullOrWhiteSpace(directory)) continue;
+                foreach (string name in OperatingSystem.IsWindows() ? new[] { "python.exe", "python3.exe" } : new[] { "python3", "python" })
+                    candidates.Add(Path.Combine(directory.Trim('"'), name));
+            }
+            if (OperatingSystem.IsWindows()) {
+                string home = System.Environment.GetFolderPath(System.Environment.SpecialFolder.UserProfile);
+                string local = System.Environment.GetFolderPath(System.Environment.SpecialFolder.LocalApplicationData);
+                foreach (string root in new[] { Path.Combine(home, ".pyenv", "pyenv-win", "versions"), Path.Combine(local, "Programs", "Python") }) {
+                    if (Directory.Exists(root))
+                        candidates.AddRange(Directory.GetDirectories(root).OrderByDescending(path => path, StringComparer.Ordinal).Select(path => Path.Combine(path, "python.exe")));
+                }
+            }
+        }
+        foreach (string candidate in candidates.Distinct()) {
+            if (OperatingSystem.IsWindows() && (Path.GetExtension(candidate) != ".exe" || candidate.Replace('/', '\\').Contains("\\WindowsApps\\", StringComparison.OrdinalIgnoreCase))) continue;
+            if (!File.Exists(candidate)) continue;
+            var start = new ProcessStartInfo(candidate) { UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true, RedirectStandardError = true };
+            start.ArgumentList.Add("-c");
+            start.ArgumentList.Add("import sys; print('AQUARIUS-PYTHON-3' if sys.version_info.major == 3 else 'unsupported')");
+            try {
+                using var process = Process.Start(start)!;
+                var output = process.StandardOutput.ReadToEndAsync(); var error = process.StandardError.ReadToEndAsync();
+                if (!process.WaitForExit(5000)) { process.Kill(true); continue; }
+                if (process.ExitCode == 0 && output.GetAwaiter().GetResult().Trim() == "AQUARIUS-PYTHON-3") return Path.GetFullPath(candidate);
+                error.GetAwaiter().GetResult();
+            } catch (System.ComponentModel.Win32Exception) { }
+        }
+        throw new InvalidOperationException("A working Python 3 interpreter is required. Set AQUARIUS_PYTHON to its executable path, or install it on PATH (Windows pyenv and per-user installations are also detected).");
     }
 }
