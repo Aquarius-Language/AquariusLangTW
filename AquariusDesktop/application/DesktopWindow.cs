@@ -8,12 +8,13 @@ internal sealed class DesktopWindow : IWindowIntegration {
     private readonly Func<IntPtr> live;
     private readonly DesktopFiles files;
     private readonly Native.ApplicationCallback callback;
+    private readonly Action? eventQueued;
     private readonly Queue<ApplicationEvent> events = new();
     private readonly List<FileResource> drop = new();
     private bool overflow, closePending, destroyed;
     private KeyModifiers modifiers;
-    internal DesktopWindow(Func<IntPtr> live, DesktopFiles files) {
-        this.live = live; this.files = files; callback = OnEvent;
+    internal DesktopWindow(Func<IntPtr> live, DesktopFiles files, Action? eventQueued = null) {
+        this.live = live; this.files = files; this.eventQueued = eventQueued; callback = OnEvent;
         if (Native.aqua_application_version() != 1) throw new ApplicationFailure(FailureKind.Unsupported, "Rebuild the native application bridge.");
         Native.aqua_application_subscribe(live(), callback);
     }
@@ -41,7 +42,8 @@ internal sealed class DesktopWindow : IWindowIntegration {
                 case 11: destroyed = true; e = new("destroyed", now); break;
                 case 12: e = new("created", now); break;
             }
-            if (events.Count >= 4096) { overflow = true; return; } if (e != null) events.Enqueue(e);
+            if (events.Count >= 4096) { overflow = true; eventQueued?.Invoke(); return; }
+            if (e != null) { events.Enqueue(e); eventQueued?.Invoke(); }
         } catch { overflow = true; }
     }
     private static string LogicalKey(int key, string? text) => key switch { 256 => "Escape", 257 => "Enter", 258 => "Tab", 259 => "Backspace", 261 => "Delete", 262 => "ArrowRight", 263 => "ArrowLeft", 264 => "ArrowDown", 265 => "ArrowUp", 268 => "Home", 269 => "End", 32 => " ", _ => text ?? "key:" + key };

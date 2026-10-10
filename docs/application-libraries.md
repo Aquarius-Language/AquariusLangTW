@@ -94,6 +94,8 @@ to 128x128; native cursor availability depends on the window system. Attached de
 close requests remain pending until accepted/deferred/cancelled. Browser Cancel enables
 `beforeunload` confirmation, Accept removes it and Defer fails; the browser owns the
 actual close decision and OS window size. Unattached GLFW windows retain legacy closure.
+Queued application events request a redraw of an attached desktop Processing sketch,
+including under `noLoop()`, so its draw callback can poll and resolve close requests.
 
 Editor positions use extended graphemes; conversion units are `Grapheme`, `Utf16`,
 `UnicodeScalar`. Splitting a scalar/grapheme fails. Navigation units are `grapheme`,

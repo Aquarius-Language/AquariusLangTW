@@ -298,4 +298,24 @@ public class JoltTest {
         Assert.Equal(0,JoltLifetime.WorldCount);
         Assert.Throws<InvalidOperationException>(()=>world.RequireLive());
     }
+
+    [Fact]
+    public async Task ConcurrentCompiledWorldLifecyclesFinishAndReleaseTheirResources() {
+        var tasks = Enumerable.Range(0, 8).Select(_ => Task.Run(() => {
+            for (int i = 0; i < 8; i++) {
+                var result = Evaluate(World + """
+                    變數 b=w.CreateSphere(0.5d,[0,0,0],2);
+                    w.AddImpulse(b,[4,0,0]);w.Step(0.25d,1);
+                    變數 p=w.GetPosition(b);w.RemoveBody(b);
+                    變數 count=w.GetBodyCount();w.Dispose();w.Dispose();[p,count];
+                    """);
+                var values = Assert.IsType<ArrayObj>(result).Elements;
+                NearVector(values[0], 0.5, 0, 0);
+                Assert.Equal(0, Number(values[1]));
+                if (i % 4 == 0) { GC.Collect(); GC.WaitForPendingFinalizers(); }
+            }
+        }));
+        await Task.WhenAll(tasks).WaitAsync(TimeSpan.FromSeconds(30));
+        Assert.Equal(0, JoltLifetime.WorldCount);
+    }
 }

@@ -70,9 +70,11 @@ rigid spheres and boxes; it does not currently expose constraints, meshes,
 kinematic bodies or character/vehicle controllers.
 
 The desktop runtime also releases worlds when a script/wasm finishes or on
-REPL shutdown, including scripts ending with errors. Separate worlds share
-reference-counted native initialization. Calls are serialized, with native jobs
-executed on the calling thread, so each world uses no worker-thread pool.
+REPL shutdown, including scripts ending with errors. V8 initialization, simulation
+and disposal run on one shared background thread, outside the Wasmtime host
+callback stack. Calls remain synchronous and are serialized across worlds.
+Worlds release their script handles before disposing their engines; Jolt uses
+no per-world worker-thread pool.
 
 ## Dependencies and distribution
 

@@ -20,7 +20,11 @@ internal sealed partial class GraphicsRuntime {
     private ModuleObj AttachApplicationWindow(IObject value) {
         _ = Window(value); var window = (WindowObject)value;
         if (applicationWindows.TryGetValue(window, out var result)) return result;
-        var adapter = new Application.DesktopWindow(() => Window(window), ApplicationHost.FileProvider);
+        var adapter = new Application.DesktopWindow(() => Window(window), ApplicationHost.FileProvider, () => {
+            // A paused sketch must run its draw callback to drain application events,
+            // especially intercepted close requests that would otherwise stay pending.
+            if (window == sketchWindow) redraw = true;
+        });
         result = Application.Window(adapter); applicationWindows.Add(window, result); return result;
     }
 }
