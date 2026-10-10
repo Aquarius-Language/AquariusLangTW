@@ -1,3 +1,5 @@
+> Historical measurements for the pre-WebAssembly call path. Re-run measurements against compiled Wasm; these numbers do not describe the current runtime.
+
 # Call-path optimization: validation and limits
 
 Validated on Windows x64 with .NET 8.0.31 and the installed Chrome/Edge browsers.
@@ -16,7 +18,7 @@ call path. It does not change Painter source or the portable bytecode format.
 | Existing real-browser package/graphics/gameplay smoke suite | 44 passed |
 | Existing resize, density, paused redraw, callback readback, input, disposal, marble, and WebGL smoke checks | Passed |
 | Painter's unchanged integration suite on a separate fresh export | 24 groups passed in Chrome and 24 in Edge |
-| Painter's unchanged bottle on the updated desktop runtime | Two real GPU frames completed and a PNG capture was produced |
+| Painter's unchanged wasm on the updated desktop runtime | Two real GPU frames completed and a PNG capture was produced |
 
 The optional runs cover all 27 checks skipped by the standard .NET invocation.
 New regression coverage checks argument lifetime, callback reentry, argument
@@ -24,7 +26,7 @@ evaluation order, alias replacement, serialized programs, asynchronous thenables
 public Promise compatibility, errors, and cancellation.
 
 Painter was compiled from its original three source files into a separate
-`.web-build/call-performance/painter.bottle`. The existing Painter web wrapper and
+`.web-build/call-performance/painter.wasm`. The existing Painter web wrapper and
 integration test script ran from a workspace copy. Its original project was not
 edited. This is a validated development build, not a newly published compiler
 release or a replacement of Painter's deployed outputs.
@@ -61,7 +63,7 @@ slower in the last run. They do not support claiming a consistent drastic Painte
 speedup. The implementation reduces VM call overhead and desktop allocation, but
 GPU buffer/bind-group creation, rendering, image readback, and resource reclamation
 remain separate costs. A decisive end-to-end improvement needs additional work
-on the measured renderer bottlenecks rather than a larger claim for this change.
+on the measured renderer wasmnecks rather than a larger claim for this change.
 
 The reusable benchmark commands and compatibility design are documented in
 [call-conventions.md](call-conventions.md). Raw development reports and the

@@ -1,4 +1,4 @@
-import { module, Scope, num, numeric, unwrap } from "./vm.mjs";
+import { module, Scope, num, numeric, unwrap } from "./values.mjs";
 import {
   paths,
   bytes,

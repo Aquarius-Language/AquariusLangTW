@@ -1,4 +1,4 @@
-name: Shared VM and browser tests
+name: Shared Wasm and browser tests
 on: [push, pull_request]
 jobs:
   web:
@@ -16,8 +16,8 @@ jobs:
       - name: Build example and marble websites
         shell: pwsh
         run: ./AquariusWebCompiler/scripts/build-web.ps1
-      - name: Language, packaging, CLI smoke tests and browser VM parity
-        run: dotnet test AquariusLangVMTesting --no-build -m:1 --logger "trx;LogFileName=compiler.trx"
+      - name: Language, packaging, CLI smoke tests and browser Wasm parity
+        run: dotnet test AquariusTests --no-build -m:1 --logger "trx;LogFileName=compiler.trx"
       - name: Browser validation unit tests
         run: npm test --prefix AquariusWebCompiler
       - name: Browser GPU and gameplay smoke tests
@@ -29,5 +29,5 @@ jobs:
           path: |
             .web-build/browser-results.json
             .web-build/marble-*.png
-            .web-build/marble-bottle-*.png
-            AquariusLangVMTesting/TestResults/*.trx
+            .web-build/marble-wasm-*.png
+            AquariusTests/TestResults/*.trx

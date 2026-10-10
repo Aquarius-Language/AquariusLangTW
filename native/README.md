@@ -10,11 +10,11 @@ VAO/VBO/EBOs, GLSL, uniforms, textures, samplers, depth/stencil/blending, FBOs,
 renderbuffers, queries, sync objects, transform feedback and instanced drawing.
 OpenGL 4.x and extension entry points are not generated in this version.
 
-The portable language library (`AquariusLangVM`) has no native graphics
+The portable language library (`AquariusCore`) has no native graphics
 dependency. Modules are registered only by the desktop host; importing them or
 using math/buffer helpers does not initialize GLFW or load the graphics DLL.
 Aquarius functions passed to Processing run as compiled VM callbacks through
-`VmEvaluator.Invoke`, retaining their closure environments.
+`CompiledEvaluator.Invoke`, retaining their closure environments.
 
 | Aquarius import | Implementation |
 | --- | --- |
@@ -27,15 +27,15 @@ Aquarius functions passed to Processing run as compiled VM callbacks through
 | `WGPU` / `wgpu` | Pinned wgpu-native/Silk.NET backend, WGSL rendering/compute, GPU buffers and pixel readback |
 | `Processing` | wgpu 2D/3D drawing, sketch loop/input, images/pixels/text, offscreen canvases, retained shapes, lights/materials and WGSL shaders |
 
-See the [Processing API guide](../AquariusDesktopVMREPL/graphics/Processing.md)
-and [interactive showcase](../AquariusDesktopVMREPL/examples/processing_showcase/README.md).
+See the [Processing API guide](../AquariusDesktop/graphics/Processing.md)
+and [interactive showcase](../AquariusDesktop/examples/processing_showcase/README.md).
 Rebuild the native library when updating to this module: its event loop uses
 new bridge exports for window size, character input, wheel input, fullscreen,
 and native window handles. Processing creates a GLFW_NO_API window and presents
 through wgpu; OpenGL continues to use its existing context and GLAD loader.
-See [the wgpu guide](../AquariusDesktopVMREPL/graphics/WGPU.md). NuGet supplies
+See [the wgpu guide](../AquariusDesktop/graphics/WGPU.md). NuGet supplies
 wgpu-native binaries; headless WGPU scripts do not require this GLFW bridge.
-Rebuild the bridge for the [multilingual text input API](../AquariusDesktopVMREPL/graphics/TextInput.md).
+Rebuild the bridge for the [multilingual text input API](../AquariusDesktop/graphics/TextInput.md).
 It works with OpenGL and GLFW_NO_API/wgpu windows. Windows uses IMM for preedit
 and candidate positioning; Linux/macOS currently expose committed text only.
 Rebuild the bridge for `Processing.resize(w,h)` and `GLFW.SetWindowSize(window,w,h)`.
@@ -55,7 +55,7 @@ From the repository root on Windows with Visual Studio C++ tools installed:
 ```powershell
 ./native/build.ps1
 dotnet build AquariusLang.sln
-dotnet run --project AquariusDesktopVMREPL -- AquariusDesktopVMREPL/examples/opengl_cube/main.aqua
+dotnet run --project AquariusDesktop -- AquariusDesktop/examples/opengl_cube/main.aqua
 ```
 
 `build.ps1` accepts `-CMake <path>`, `-Generator <name>` and `-Runtime <rid>`.
@@ -73,7 +73,7 @@ and/or Wayland development libraries; macOS Xcode command-line tools), then:
 ```sh
 cmake -S native -B native/build -DCMAKE_BUILD_TYPE=Release
 cmake --build native/build --parallel
-cmake --install native/build --prefix AquariusDesktopVMREPL/runtimes/linux-x64/native
+cmake --install native/build --prefix AquariusDesktop/runtimes/linux-x64/native
 dotnet build AquariusLang.sln
 ```
 
@@ -87,7 +87,7 @@ have not been exercised here.
 ## Windows Application Control blocks the VM host (0x800711C7)
 
 If Windows reports `An Application Control policy has blocked this file` for
-`AquariusDesktopVMREPL.dll`, check the Windows Code Integrity event log.
+`AquariusDesktop.dll`, check the Windows Code Integrity event log.
 Event 3077 with policy `VerifiedAndReputableDesktop` identifies Smart App Control.
 This happens before Aquarius or OpenGL initializes: newly compiled, unsigned
 binaries may have insufficient reputation to run under this policy.
@@ -213,7 +213,7 @@ with transpose=`假`. `Multiply(a,b)` means `a * b` for GLSL column vectors;
 dotnet test AquariusLang.sln
 $env:AQUARIUS_OPENGL_TESTS = '1'
 $env:AQUARIUS_WGPU_TESTS = '1'
-dotnet test AquariusLangVMTesting --filter FullyQualifiedName~AquariusREPL.Graphics
+dotnet test AquariusTests --filter FullyQualifiedName~AquariusLang.Desktop.Graphics
 Remove-Item Env:AQUARIUS_OPENGL_TESTS,Env:AQUARIUS_WGPU_TESTS
 ```
 
@@ -221,7 +221,7 @@ Native GPU integration is opt-in so normal tests work without a display/driver
 or installed graphics binary. It runs the Aquarius cube, checks a framebuffer
 capture and zero GL errors, then reinitializes GLFW to check resource cleanup.
 The wgpu suite also checks compute, WGSL rendering, Processing pixel behavior,
-and source/bottle CLI smoke runs; see the [wgpu guide](../AquariusDesktopVMREPL/graphics/WGPU.md).
+and source/wasm CLI smoke runs; see the [wgpu guide](../AquariusDesktop/graphics/WGPU.md).
 The existing `TestExecuteFile` additionally requires a `python` executable
 visible on PATH.
 

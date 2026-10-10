@@ -1,47 +1,33 @@
-# Portable bottle format
+# Portable WebAssembly applications
 
-`AquariusPackaging` depends only on `AquariusLangVM` and framework libraries.
-Both desktop and web hosts use `BottlePackage.Load`. The container is ZIP; module
-contents retain the existing version 1 RIUS binary bytecode format.
+`AquariusPackaging` depends only on core and framework libraries. `WasmApplication`
+compiles source modules and assets into one standard WebAssembly 1.0 `.wasm` file.
+It has the usual Wasm types, imports, functions, exports and code sections, plus
+one `aquarius.application` custom section. There is no ZIP container or Aquarius
+bytecode format.
 
-New builds write this version 2 `bottle.json` manifest:
+Metadata ABI version 1 declares `entry`, `modules` (relative `.aqua` identities to
+compiled function indices), `functions` (constant pools and return behavior), and
+`assets` (relative paths to base64 content). Nested functions refer to exported
+Wasm function indices; metadata never contains executable Aquarius instructions.
+The host ABI is `aquarius_v1`, and compiled exports are `aqua_fN(i32) -> i32`.
 
-```json
-{
-  "format": "aquarius-bottle",
-  "version": 2,
-  "entryPoint": "main.rius",
-  "bytecodeVersion": 1,
-  "modules": ["main.rius", "lib/tools.rius"],
-  "assets": ["assets/image.png", "assets/shader.wgsl"]
-}
-```
+All inputs must remain within `--root`, without symbolic-link traversal. Modules
+retain Unicode paths and case-insensitive ordinal resolution; internal `..`
+traversal is normalized, while escapes, device names, streams, duplicate paths,
+unsupported ABI versions and malformed metadata are rejected. Every module must
+be explicitly listed, including potential dynamic imports. Assets may include
+empty files and external scripts but exclude Aquarius sources and compiled inputs.
+The application size limit is 256 MiB and the path-entry limit is 10,000.
 
-The listed modules and assets must exactly describe the archive. Every module
-is validated by `BytecodeSerializer` before a host receives it. Assets may be
-arbitrary resource bytes, including empty files and supporting Python scripts;
-Aquarius source and bytecode are not permitted as assets. Source compilation
-and web export never execute application code. Package build output is
-deterministic for identical ordered module inputs, assets and selected entry.
-The writer replaces the destination only after successful compilation and
-serialization.
+Compilation is deterministic for identical ordered source modules, assets and entry.
+It never executes source and replaces output only after all inputs compile. Web and
+EXE exporters use the same artifact and preserve previous output on failure.
+Runtime imports execute the compiled function for the resolved module; repeated
+imports receive independent globals. Closures retain their defining module context.
+Desktop resources are temporary, while generated output files use the application's
+relocated module directory.
 
-Version 1 manifests (`format`, `version`, `entryPoint`) remain readable and
-executable; all non-manifest entries are `.rius` modules. They can also be
-exported to the browser, with no bundled assets. Old version 1-only readers do
-not accept newly written version 2 bottles. Package, RIUS and browser transport
-versions are separate contracts; changing package metadata does not change the
-RIUS instruction format.
-
-Limits: 10,000 modules/resources combined, 256 MiB uncompressed including the
-manifest, 64 MiB per bytecode module, and 1 MiB for a version 2 manifest (16 KiB
-for version 1). Paths use `/`, are relative, and disallow traversal, empty
-components, Windows reserved names, alternate data streams and nonportable
-characters. Duplicate names are rejected case-insensitively. Input symlinks
-are not followed. Missing entries, undeclared resources, unknown versions and
-malformed/truncated instructions are rejected.
-
-`BottlePackage.Load(Stream)` also supports seekable bottle views and leaves
-the stream open. `ExecutableBundle` wraps a bottle and selected entry in a
-versioned executable overlay without introducing desktop dependencies here.
-See [the deployment container specification](../AquariusBuild/README.md).
+`.bottle` and `.rius` are retired formats. Rebuild from `.aqua` sources.
+Executable overlays preserve the existing deployment design with format version 2,
+checksummed Wasm payload and selected entry; see [platform targets](../AquariusBuild/README.md).

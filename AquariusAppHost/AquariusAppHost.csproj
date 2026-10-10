@@ -14,7 +14,7 @@
     <DebugSymbols>false</DebugSymbols>
   </PropertyGroup>
   <ItemGroup>
-    <ProjectReference Include="../AquariusDesktopVMREPL/AquariusDesktopVMREPL.csproj" />
+    <ProjectReference Include="../AquariusDesktop/AquariusDesktop.csproj" />
     <Content Include="../LICENSE" Link="licenses/AQUARIUS-LICENSE.txt" CopyToPublishDirectory="PreserveNewest" />
     <Content Include="../native/vendor/GLFW-LICENSE.md" Link="licenses/GLFW-LICENSE.md" CopyToPublishDirectory="PreserveNewest" />
     <Content Include="../native/vendor/glad/LICENSE" Link="licenses/GLAD-LICENSE.txt" CopyToPublishDirectory="PreserveNewest" />

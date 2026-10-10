@@ -191,7 +191,7 @@ test('closing a document clears errors and invalid feature positions return erro
 test('all repository examples parse through the LSP server without executing them', async t => {
   const s = new Session(t);
   await s.initialize();
-  const root = path.resolve(__dirname, '../../AquariusDesktopVMREPL/examples');
+  const root = path.resolve(__dirname, '../../AquariusDesktop/examples');
   for (const file of fs.readdirSync(root, { recursive: true }).filter(name => name.endsWith('.aqua'))) {
     const fullPath = path.join(root, file);
     const diagnostics = await s.open(fs.readFileSync(fullPath, 'utf8'), pathToFileURL(fullPath).href);
@@ -228,7 +228,7 @@ test('bilingual aliases respect shadowing and malformed declarations produce dia
 
 test('all native library catalog functions offer both member names without loading native libraries', async t => {
   const s = new Session(t); await s.initialize();
-  const catalog = fs.readFileSync(path.resolve(__dirname, '../../AquariusLangVM/runtime/LibraryCatalog.Generated.cs'), 'utf8');
+  const catalog = fs.readFileSync(path.resolve(__dirname, '../../AquariusCore/runtime/LibraryCatalog.Generated.cs'), 'utf8');
   const groups = new Map();
   for (const [, library, english, chinese] of catalog.matchAll(/new\("([^"]+)", "([^"]+)", "([^"]+)"/g)) {
     if (library.includes('.')) continue;

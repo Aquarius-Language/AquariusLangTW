@@ -1,5 +1,5 @@
 // Optional real-WebGPU A/B benchmark. Reads an existing Painter export without
-// modifying it; only vm.mjs/host.mjs are served from the candidate runtime.
+// modifying it; only values.mjs/host.mjs are served from the candidate runtime.
 // node tests/painter-call-performance.mjs <Painter directory> [output directory]
 import assert from 'node:assert/strict';
 import {chromium} from 'playwright';
@@ -19,7 +19,7 @@ const server=createServer(async(req,res)=>{
     const url=new URL(req.url,'http://localhost'),relative=decodeURIComponent(url.pathname).replace(/^\//,'')||'index.html';
     let file=path.resolve(website,relative);
     if(!file.startsWith(website+path.sep))throw new Error('Outside website');
-    if(url.searchParams.get('candidate')==='1'&&['vm.mjs','host.mjs'].includes(relative))file=path.join(runtime,relative);
+    if(url.searchParams.get('candidate')==='1'&&['values.mjs','host.mjs'].includes(relative))file=path.join(runtime,relative);
     res.setHeader('Content-Type',mime[path.extname(file)]??'application/octet-stream');
     res.end(await readFile(file));
   }catch(error){res.statusCode=404;res.end(error.message);}
@@ -35,7 +35,7 @@ try{
     // Module dependency URLs have no query parameters, so propagate the mode.
     if(candidate)await page.route('**/*',async route=>{
       const url=new URL(route.request().url());
-      if(url.origin===`http://127.0.0.1:${server.address().port}`&&['/vm.mjs','/host.mjs'].includes(url.pathname)){
+      if(url.origin===`http://127.0.0.1:${server.address().port}`&&['/values.mjs','/host.mjs'].includes(url.pathname)){
         url.searchParams.set('candidate','1');await route.continue({url:url.href});
       }else await route.continue();
     });
@@ -47,8 +47,8 @@ try{
       const state=await page.evaluate(()=>({state:window.aquarius?.state,error:document.getElementById('error')?.textContent,output:document.getElementById('output')?.textContent}));
       throw new Error(`Painter startup failed: ${JSON.stringify({state,errors})}`,{cause:error});
     }
-    try{await page.waitForFunction(()=>(window.aquarius.host.vm.作業數??0)===0&&!window.aquarius.host.processing.處理事件&&window.aquarius.host.processing.eventQueue.length===0);}
-    catch(error){throw new Error(`Painter did not become idle: ${JSON.stringify(await page.evaluate(()=>({state:window.aquarius.state,jobs:window.aquarius.host.vm.作業數,events:window.aquarius.host.processing.處理事件,queue:window.aquarius.host.processing.eventQueue.length,looping:window.aquarius.host.processing.looping,error:document.getElementById('error').textContent})))}`,{cause:error});}
+    try{await page.waitForFunction(()=>window.aquarius.host.runtime.executions.size===1&&!window.aquarius.host.processing.processingEvents&&window.aquarius.host.processing.eventQueue.length===0);}
+    catch(error){throw new Error(`Painter did not become idle: ${JSON.stringify(await page.evaluate(()=>({state:window.aquarius.state,jobs:window.aquarius.host.runtime.executions.size,events:window.aquarius.host.processing.processingEvents,queue:window.aquarius.host.processing.eventQueue.length,looping:window.aquarius.host.processing.looping,error:document.getElementById('error').textContent})))}`,{cause:error});}
     // Finish the host animation loop before invoking manual frames. Otherwise
     // baseline Promise yields let its next beginFrame reset a live matrix stack.
     await page.evaluate(()=>{window.aquarius.host.processing.exiting=true;});
@@ -57,7 +57,7 @@ try{
     const samples=await page.evaluate(async()=>{
       const h=window.aquarius.host,p=h.processing,env=p.events.get('mousePressed').env,engine=env.get('引擎').scope;
       const n=value=>({type:Number.isInteger(value)?'int':'double',value});
-      const invoke=(scope,name,args=[])=>h.vm.invoke(scope.get(name),args.map(value=>typeof value==='number'?n(value):value));
+      const invoke=(scope,name,args=[])=>h.runtime.invoke(scope.get(name),args.map(value=>typeof value==='number'?n(value):value));
       const measure=async(name,action)=>{
         for(let i=0;i<3;i++)await action();
         const times=[];

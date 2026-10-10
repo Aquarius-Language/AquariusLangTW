@@ -23,8 +23,8 @@ function Invoke-Aqua([string]$assembly, [string[]]$arguments, [string]$capture =
     $start.ArgumentList.Add($assembly)
     foreach ($argument in $arguments) { $start.ArgumentList.Add($argument) }
     $start.Environment['AQUARIUS_GRAPHICS_FRAMES'] = '2'
-    if ($arguments.Count -gt 0 -and $arguments[-1] -match 'smoke\.(aqua|rius)$') { $start.Environment['AQUARIUS_GRAPHICS_FRAMES'] = '12' }
-    if ($arguments.Count -gt 0 -and $arguments[-1] -match 'color_mapping[\\/]main\.(aqua|rius)$') { $start.Environment['AQUARIUS_GRAPHICS_FRAMES'] = '1' }
+    if ($arguments.Count -gt 0 -and $arguments[-1] -match 'smoke\.aqua$') { $start.Environment['AQUARIUS_GRAPHICS_FRAMES'] = '12' }
+    if ($arguments.Count -gt 0 -and $arguments[-1] -match 'color_mapping[\\/]main\.aqua$') { $start.Environment['AQUARIUS_GRAPHICS_FRAMES'] = '1' }
     $start.Environment.Remove('AQUARIUS_GRAPHICS_CAPTURE') | Out-Null
     if ($capture) { $start.Environment['AQUARIUS_GRAPHICS_CAPTURE'] = $capture }
     $process = [Diagnostics.Process]::Start($start)
@@ -43,21 +43,21 @@ try {
         if ($LASTEXITCODE -ne 0) { throw 'Solution build failed.' }
     }
     $cli = Join-Path $repository "AquariusCli/bin/$Configuration/net8.0/aqua.dll"
-    $desktop = Join-Path $repository "AquariusDesktopVMREPL/bin/$Configuration/net8.0/AquariusDesktopVMREPL.dll"
+    $desktop = Join-Path $repository "AquariusDesktop/bin/$Configuration/net8.0/AquariusDesktop.dll"
     foreach ($project in @(
         @{ name = 'examples'; source = 'examples'; entry = 'increment.aqua' },
-        @{ name = 'desktop-examples'; source = 'AquariusDesktopVMREPL/examples'; entry = 'increment.aqua' },
+        @{ name = 'desktop-examples'; source = 'AquariusDesktop/examples'; entry = 'increment.aqua' },
         @{ name = 'marble'; source = 'AquariusWebCompiler/tests/fixtures/marble-run'; entry = 'main.aqua' },
         @{ name = 'portable'; source = 'AquariusWebCompiler/tests/fixtures/portable'; entry = 'main.aqua' }
     )) {
         $name = $project.name
         $inputDirectory = Join-Path $build ("example-inputs-" + [Guid]::NewGuid().ToString('N'))
         Copy-Item -LiteralPath (Join-Path $repository $project.source) -Destination $inputDirectory -Recurse
-        $bottle = Join-Path $build "$name.bottle"
+        $wasm = Join-Path $build "$name.wasm"
         $sources = @(Get-ChildItem -LiteralPath $inputDirectory -Filter '*.aqua' -Recurse | Sort-Object FullName)
-        $arguments = @('build') + @($sources.FullName) + @('--root', $inputDirectory, '--assets', $inputDirectory, '--entry', $project.entry, '-o', $bottle)
+        $arguments = @('build') + @($sources.FullName) + @('--root', $inputDirectory, '--assets', $inputDirectory, '--entry', $project.entry, '-o', $wasm)
         $compiled = Invoke-Aqua $cli $arguments
-        if ($compiled.code -ne 0) { throw "Bottle build failed: $($compiled.error)" }
+        if ($compiled.code -ne 0) { throw "Wasm build failed: $($compiled.error)" }
         $entries = @($sources | ForEach-Object { [IO.Path]::GetRelativePath($inputDirectory, $_.FullName).Replace('\', '/') })
         # Sources are run in a disposable copy so example output does not modify the repository.
         foreach ($entry in $entries) {
@@ -77,19 +77,19 @@ try {
         if (-not $resolvedInput.StartsWith([IO.Path]::GetFullPath($build) + [IO.Path]::DirectorySeparatorChar) -or -not ([IO.Path]::GetFileName($resolvedInput)).StartsWith('example-inputs-')) { throw 'Unsafe temporary input path.' }
         Remove-Item -LiteralPath $resolvedInput -Recurse -Force
         foreach ($entry in $entries) {
-            if ($RetryFailed -and -not $retryKeys.ContainsKey("$name/bottle/$entry")) { continue }
-            $capture = if ($entry -eq 'opengl_cube/main.aqua') { Join-Path $build "$name-bottle-opengl.ppm" } elseif ($entry -match '^(processing_|color_mapping/|multilingual_input/)') { Join-Path $build "$name-bottle-$($entry.Replace('/','-')).png" } else { '' }
+            if ($RetryFailed -and -not $retryKeys.ContainsKey("$name/wasm/$entry")) { continue }
+            $capture = if ($entry -eq 'opengl_cube/main.aqua') { Join-Path $build "$name-wasm-opengl.ppm" } elseif ($entry -match '^(processing_|color_mapping/|multilingual_input/)') { Join-Path $build "$name-wasm-$($entry.Replace('/','-')).png" } else { '' }
             try {
-                $run = Invoke-Aqua $cli @('run', $bottle, '--entry', $entry.Replace('.aqua','.rius')) $capture
+                $run = Invoke-Aqua $cli @('run', $wasm, '--entry', $entry) $capture
                 $expectedError = $entry.StartsWith('generate_errors/')
                 $passed = if ($expectedError) { $run.code -eq 1 -and $run.output.Contains('Identifier not found: array') } else { $run.code -eq 0 -and -not $run.error }
                 if ($entry -eq 'smoke.aqua') { $passed = $passed -and $run.output.Contains('整合驗證通過') }
                 if ($capture) { $passed = $passed -and (Test-Path -LiteralPath $capture) }
-                $results.Add(@{ project = $name; mode = 'bottle'; entry = $entry; passed = $passed; expectedFailure = $expectedError; output = $run.output; error = $run.error })
-                Write-Host "$(if ($passed) {'PASS'} else {'FAIL'}) $name/bottle/$entry"
-            } catch { $results.Add(@{ project = $name; mode = 'bottle'; entry = $entry; passed = $false; error = $_.Exception.Message }) }
+                $results.Add(@{ project = $name; mode = 'wasm'; entry = $entry; passed = $passed; expectedFailure = $expectedError; output = $run.output; error = $run.error })
+                Write-Host "$(if ($passed) {'PASS'} else {'FAIL'}) $name/wasm/$entry"
+            } catch { $results.Add(@{ project = $name; mode = 'wasm'; entry = $entry; passed = $false; error = $_.Exception.Message }) }
         }
-        $exported = Invoke-Aqua $cli @('build', $bottle, '--target', 'web', '-o', (Join-Path $build "$name-bottle"))
+        $exported = Invoke-Aqua $cli @('build', $wasm, '--target', 'web', '-o', (Join-Path $build "$name-wasm"))
         if ($exported.code -ne 0) { throw "Source-free web export failed: $($exported.error)" }
     }
 } finally {

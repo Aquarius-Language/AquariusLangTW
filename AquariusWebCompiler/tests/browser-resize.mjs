@@ -19,8 +19,8 @@ try{
   browser=await chromium.launch({channel:process.env.AQUARIUS_BROWSER??'chrome',headless:true,args:['--enable-unsafe-webgpu']});
   const context=await browser.newContext({viewport:{width:640,height:480},deviceScaleFactor:2}),page=await context.newPage(),errors=[];
   page.on('pageerror',e=>errors.push(e.message));page.on('console',m=>{if(m.type()==='error')errors.push(m.text());});
-  // No query flags or developer run hook: the bottle entry must launch itself.
-  await page.goto(`${base}/resize-bottle/`);
+  // No query flags or developer run hook: the wasm entry must launch itself.
+  await page.goto(`${base}/resize-wasm/`);
   await page.waitForFunction(()=>window.aquarius?.host?.processing.frameCount===1);
   const dimensions=()=>page.evaluate(()=>{
     const p=window.aquarius.host.processing,c=p.screen,r=p.dom.getBoundingClientRect();
@@ -79,10 +79,10 @@ try{
   await page.evaluate(()=>window.aquarius.stop());
   assert.equal(await page.locator('#surfaces canvas,textarea').count(),0);
   assert.deepEqual(errors,[]);
-  console.log('PASS bottle autorun, viewport, paused resize, callback readback, fractional DPR, text, input, hidden/restore, disposal');
+  console.log('PASS wasm autorun, viewport, paused resize, callback readback, fractional DPR, text, input, hidden/restore, disposal');
   // Confirm that the complete marble game resizes its offscreen 3D target too.
   await cdp.send('Emulation.clearDeviceMetricsOverride');
-  await page.goto(`${base}/marble-bottle/`);
+  await page.goto(`${base}/marble-wasm/`);
   await page.waitForFunction(()=>window.aquarius?.host?.processing.frameCount>=2);
   await page.setViewportSize({width:720,height:540});
   await page.waitForFunction(()=>{
@@ -91,8 +91,8 @@ try{
   });
   await page.screenshot({path:path.join(build,'marble-viewport-resize.png')});
   await page.evaluate(()=>window.aquarius.stop());assert.deepEqual(errors,[]);
-  console.log('PASS marble bottle autorun and offscreen 3D target resize');
-  await page.goto(`${base}/examples-bottle/?autorun=0`);
+  console.log('PASS marble wasm autorun and offscreen 3D target resize');
+  await page.goto(`${base}/examples-wasm/?autorun=0`);
   await page.waitForFunction(()=>!!window.aquarius);
   await page.evaluate(()=>{window.glTask=window.aquarius.run('opengl_cube/main.aqua').catch(()=>{});});
   await page.waitForFunction(()=>!!document.querySelector('#surfaces canvas'));

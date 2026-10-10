@@ -366,7 +366,7 @@ def add(module, name, minimum, maximum=None, returns=None):
 
 
 pattern = re.compile(r'(Bind|PBind|PAction|Action|Mutate|Draw|Transform|Result)\(\s*(?:([\w.]+)\s*,\s*)?"(\w+)"\s*,\s*(\d+)\s*,\s*(?:(\d+)\s*,)?')
-for file in sorted((ROOT / 'AquariusDesktopVMREPL/graphics').glob('*.cs')):
+for file in sorted((ROOT / 'AquariusDesktop/graphics').glob('*.cs')):
     text = file.read_text(encoding='utf-8-sig')
     for match in pattern.finditer(text):
         kind, env, name, minimum, maximum = match.groups()
@@ -402,13 +402,13 @@ for file in sorted((ROOT / 'AquariusDesktopVMREPL/graphics').glob('*.cs')):
         if module == 'Processing' and stem in ('ProcessingDrawing','ProcessingText','ProcessingPixels','ProcessingShaders','ProcessingShapes'):
             add('Processing.Canvas',name,int(minimum),int(maximum) if maximum else None,returns)
 
-physics = (ROOT / 'AquariusDesktopVMREPL/physics/PhysicsRuntime.cs').read_text(encoding='utf-8-sig')
+physics = (ROOT / 'AquariusCore/physics/PhysicsRuntime.cs').read_text(encoding='utf-8-sig')
 for match in pattern.finditer(physics):
     _, _, name, minimum, maximum = match.groups()
     module = 'Jolt' if match.start() < physics.index('private ModuleObj CreateWorld') else 'Jolt.World'
     add(module,name,int(minimum),returns='Jolt.World' if name == 'CreateWorld' else None)
 
-gl = (ROOT / 'AquariusDesktopVMREPL/graphics/GlBindings.Generated.cs').read_text()
+gl = (ROOT / 'AquariusDesktop/graphics/GlBindings.Generated.cs').read_text()
 for name, args in re.findall(r'BindGl\("(gl\w+)".*?new string\[\] \{(.*?)\}', gl):
     add('GL',name,len(re.findall(r'"[^"]+"',args)))
 
@@ -440,6 +440,6 @@ for module, functions in sorted(entries.items()):
         docs.append(f'| `{name}` | `{zh}` | {arity} |')
     docs.append('')
 lines += ['    };', '}']
-(ROOT / 'AquariusLangVM/runtime/LibraryCatalog.Generated.cs').write_text('\n'.join(lines)+'\n',encoding='utf-8')
-(ROOT / 'AquariusDesktopVMREPL/LIBRARY_NAMES.md').write_text('\n'.join(docs),encoding='utf-8')
+(ROOT / 'AquariusCore/runtime/LibraryCatalog.Generated.cs').write_text('\n'.join(lines)+'\n',encoding='utf-8')
+(ROOT / 'AquariusDesktop/LIBRARY_NAMES.md').write_text('\n'.join(docs),encoding='utf-8')
 print(f'Generated {sum(len(x) for x in entries.values())} API definitions in {len(entries)} library types.')

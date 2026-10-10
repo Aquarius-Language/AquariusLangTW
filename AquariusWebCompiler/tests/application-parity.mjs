@@ -3,7 +3,7 @@ import {
   parseBinary,
   paths,
   TextEditor,
-} from "../../AquariusLangVM/application/portable.mjs";
+} from "../../AquariusCore/application/portable.mjs";
 import {
   readArchive,
   decompress,

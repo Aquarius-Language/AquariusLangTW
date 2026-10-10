@@ -1,72 +1,100 @@
-# Shared VM hosts and browser compilation
+# WebAssembly compiler and cross-platform hosts
 
 ```mermaid
 flowchart TD
-    Source[Aquarius source] --> Compiler[Core VmCompiler]
-    Compiler --> Bytecode[Core bytecode]
-    Bytecode --> Bottle[AquariusPackaging: bottle modules and assets]
-    Cli[AquariusCli: aqua] --> Compiler
-    Cli --> Desktop[Desktop VirtualMachine]
-    Cli --> Targets[AquariusBuild: target registry]
-    Targets --> WebCompiler[AquariusWebCompiler]
-    Targets --> Windows[Self-contained executable backend]
-    Bottle --> Windows
-    Windows --> App[AquariusAppHost + runtime pack + bottle overlay]
-    App --> Desktop
-    Bottle --> Desktop
-    Bottle --> WebCompiler
-    WebCompiler --> Browser[Browser stack VM]
-    Core[Core graphics and physics contracts] --> Native[Silk.NET WebGPU and native Jolt adapters]
-    Core --> Manifest[Portable library catalog and WGSL ABI]
-    Manifest --> BrowserAdapters[Browser WebGPU and Jolt WASM adapters]
-    Desktop --> Native
-    Browser --> BrowserAdapters
+    Source[Aquarius source] --> Frontend[Core lexer and parser]
+    Frontend --> Lowering[Compiler IR and control-flow graph]
+    Lowering --> Wasm[Core WebAssembly emitter]
+    Wasm --> Artifact[Standard .wasm application]
+    Artifact --> Desktop[Wasmtime desktop host]
+    Artifact --> Web[Browser WebAssembly host]
+    Artifact --> Export[Platform build target registry]
+    Export --> Website[Static website with program.wasm]
+    Export --> Exe[Self-contained EXE with Wasm overlay]
+    Exe --> Desktop
+    Website --> Web
+    Core[Core capability contracts and external library catalog] --> GPU[Desktop and browser WebGPU adapters]
+    Core --> Jolt[Shared Jolt WASM and physics implementation]
+    Jolt --> Emscripten[Emscripten adapters: browser and desktop V8]
+    Desktop --> GPU
+    Web --> GPU
+    Desktop --> Emscripten
+    Web --> Emscripten
 ```
 
-Core owns `IWgpuBackend`, device/buffer/shader/render-target contracts, WGPU module registration, validation, aliases, shader declarations and the 1,120-byte Processing uniform ABI. Desktop implements these interfaces with Silk.NET and wgpu-native. Its window and Processing implementation remain host-specific, and use the shared shader ABI. GPU resources remain owned by devices; cross-device resources and use after disposal are rejected.
+Aquarius is a compiled language. The front end lowers syntax to compiler-only IR,
+then emits standard WebAssembly functions and control flow. No Aquarius instruction
+stream, AST interpreter or opcode dispatcher is deployed. Dynamic values, lexical
+bindings, arrays, hashes, closures and platform capabilities are supplied by the
+versioned `aquarius_v1` host ABI. A future optimizer can specialize dynamic value
+operations without changing platform APIs or the application format.
 
-`AquariusCli` is the compiler driver. `build` compiles explicitly listed source
-modules and assets into a portable bottle; `run` loads that bottle on the desktop;
-`build package.bottle --target web` exports the same compiled modules to the
-browser without parsing or executing sources. Existing desktop and web entry
-points remain compatible. The legacy source-based web command first constructs
-a bottle through the shared packaging pipeline.
+Each compiled function exports `aqua_fN(i32 continuation) -> i32`. Compiled basic
+blocks use structured Wasm branches and `br_table`; host imports implement value
+operations rather than interpreting instructions. A nonnegative result is a
+continuation; -1 completes the function. Calls and member resolution suspend at
+compiler-generated boundaries. Hosts schedule compiled function frames without
+using the C# or JavaScript call stack for Aquarius recursion. Browser host calls
+can await GPU mapping, external-library initialization and animation frames.
+Checkpoints bound each browser turn and make cancellation observable in pure loops.
+Every execution owns its value frames and imports, including callback reentry.
 
-`AquariusBuild` registers platform backends behind `IBottleBuildTarget`. Both
-web and Windows export use this interface; new platforms add a backend without
-changing CLI parsing. `--target windows -o app.exe` combines a validated bottle
-with a prepublished self-contained Windows x64 runtime. `AquariusAppHost` reads
-the versioned, checksummed overlay from its own executable and runs it through
-the existing desktop VM. The compiler and generated app require no installed
-SDK/runtime. Runtime pack creation belongs to release tooling, where the SDK
-bundles desktop dependencies and licenses. See [platform builds](AquariusBuild/README.md).
+Hosts trace active language scopes, operands, suspended native arguments and
+callback closures at frame boundaries to reclaim unused Processing canvases and
+images. Extracted native methods retain their resource scope. Host ownership
+registries are not roots, and failed/completed executions release their roots.
+Processing's optional `error` event handles input callback failures on both hosts;
+`errorEvent` and `errorMessage` describe the failure. Unhandled failures, failures
+in the error handler and browser cancellation still terminate execution.
 
-`AquariusPackaging` depends only on core. New version 2 manifests declare modules,
-assets, the default entry and the RIUS version; version 1 bottles remain readable.
-Both hosts normalize `.aqua` imports to packaged `.rius` modules and reject
-escapes. Repeated script imports create independent globals on both hosts.
-Native modules remain shared per run. Desktop resources are materialized in a
-private temporary directory for native readers and removed when the run ends;
-virtual module directories and output file paths remain relative to the relocated
-bottle. The browser uses its bundled virtual filesystem. Package and website
-builds stage their output and preserve prior artifacts on failure.
+A `.wasm` file contains executable Wasm sections and exactly one
+`aquarius.application` custom section: ABI version, module/function mapping,
+constants, function metadata and base64 assets. Module identities retain their
+source-relative `.aqua` names; source contents are absent. Application loaders
+bound sizes and reject malformed metadata and unsafe paths. Engines independently
+validate Wasm types and code. Repeated script imports create independent globals;
+registered native modules are shared within a host session. Closures retain their
+module environment and builtins for deferred imports.
 
-See [the package specification](AquariusPackaging/README.md) and
-[the unified CLI guide](AquariusCli/README.md) for limits, commands and tests.
+`AquariusPackaging` depends only on core. It compiles modules and resources directly
+into the Wasm application and stages output before replacement. `.bottle` and
+`.rius` are retired; old applications must be recompiled from source.
+`AquariusCli` can build Wasm, websites and EXEs directly from sources, or export a
+previously compiled Wasm application. Compilation and export never execute code.
 
-Core also owns `IPhysicsBackend`, `IPhysicsWorld`, and the Jolt module API. Native Jolt is retained in the desktop adapter, where factory lifetime and calls are serialized. Moving native DLL dependencies into core would make browser deployment depend on desktop binaries, so core shares the API and validation rather than a native package. Jolt itself supports Windows, Linux, macOS and WebAssembly; the browser adapter uses the upstream [JoltPhysics.js port](https://github.com/jrouwe/JoltPhysics.js), pinned at 0.24.0.
+`AquariusBuild` registers targets through `IWasmBuildTarget`; new platforms do not
+change CLI parsing. Windows deployment preserves the self-contained runtime-pack
+design and checksummed executable overlay. Overlay version 2 contains Wasm plus
+entry metadata; runtime packs declare the Wasm ABI version. The application host
+runs the embedded module through Wasmtime. Runtime packs are rebuilt by release
+tooling, and generated applications need no installed SDK or .NET runtime.
 
-Both hosts allow 4,096 bodies. The browser uses 8,192 body pairs and 4,096 contact constraints so that updates fit the pinned WASM port's temporary allocator; desktop retains 65,536 pairs and 16,384 constraints. These capacities affect dense collision scenes, and exhaustion reports an error. Numerical tolerances are tested rather than assuming identical floating-point results across native and WASM builds.
+Core retains `IWgpuBackend`, device/buffer/shader/render-target contracts, validation,
+aliases, shader declarations and the 1,120-byte Processing uniform ABI. Desktop
+uses Silk.NET and wgpu-native; browsers use WebGPU. Devices own GPU resources and
+reject foreign or disposed handles. Window integration remains host-specific.
+OpenGL remains available for compatibility with existing examples; future main
+graphics implementations use the core WebGPU boundary.
 
-The website compiler serializes core instructions and typed constants to versioned JSON. The JavaScript interpreter uses explicit frames and lexical scopes, preserving integer/float/double arithmetic, closures, module exports, loops and bilingual function declarations. Browser host calls can await GPU mapping, physics initialization and animation frames without blocking input. Shared library metadata supplies both aliases and argument counts. Shared WGSL sources and field alignment keep custom shaders portable across hosts.
+Core also owns external library descriptors, pinned versions, contracts and portable
+assets. JoltPhysics.js 0.24.0 is an Emscripten module requiring JavaScript glue.
+Both platforms execute the same binary and shared world code embedded by core;
+desktop supplies ClearScript/V8 for Emscripten while Aquarius itself uses Wasmtime.
+The C# Jolt binding and joltc binaries are removed. Both hosts use the same physics
+capacities and validate behavior with numerical tolerances. See
+[external libraries](docs/external-libraries.md) for extension rules and profiles.
 
-Each generated site includes modules and assets in a virtual filesystem, plus local copies of pinned Jolt WASM, matrix and triangulation dependencies with their licenses. Runtime imports cannot read outside the package. Rendering capability failures and unsupported APIs produce explicit errors. Static output requires localhost or HTTPS and a browser WebGPU adapter. The web runtime does not emulate physics or GPU computation when those capabilities are unavailable.
+Application contracts and language registration remain in `AquariusCore/application`.
+Adapters provide file resources, codecs, clipboard, windows/input, fonts, persistence
+and host services. User documents retain opaque provider identities, separate from
+bundled assets. Desktop assets are materialized in a private temporary directory
+and cleaned up with the runtime; writable output paths remain relative to the
+relocated application. Browsers use a virtual filesystem. See the
+[application API](docs/application-libraries.md).
 
-See [the compiler README](AquariusWebCompiler/README.md) for build, serving and verification commands. The current example programs and marble-run are the compatibility target; this does not claim that every desktop library function is already available in browsers.
-
-Application contracts and language registration live in `AquariusLangVM/application`.
-Desktop and browser adapters implement file resources, image codecs, clipboard,
-window/input integration, fonts, persistence and host services through those boundaries.
-User documents have opaque provider identities and remain separate from packaged assets.
-The existing RGBA PNG writer is shared in core; window and text adapters retain existing
-GLFW/Processing/canvas ownership. See [the application API and capability table](docs/application-libraries.md).
+Validation includes language semantics through Wasmtime, Wasm round trips and
+corruption, deep recursion, async browser calls/cancellation, callback reentry,
+desktop/browser execution of identical binaries, shared Jolt numerical tests,
+source-free imports/assets, CLI and standalone EXE smoke tests, and opt-in desktop
+and browser WebGPU regressions. The example scripts and marble-run remain the
+compatibility target.

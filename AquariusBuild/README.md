@@ -1,20 +1,20 @@
 # Platform build backends
 
 `AquariusBuild` owns deployment targets. `AquariusPackaging` owns portable
-bytecode containers, and `AquariusAppHost` executes a contained desktop program.
-The CLI compiles sources to bottles or dispatches a `BottleBuildRequest` through
+WebAssembly applications, and `AquariusAppHost` executes a contained desktop program.
+The CLI compiles sources to Wasm or dispatches a `WasmBuildRequest` through
 `BuildTargets`. Web and Windows share the same dispatch path.
 
-To add a platform, implement `IBottleBuildTarget` and register it in
+To add a platform, implement `IWasmBuildTarget` and register it in
 the CLI's `CompilerBuildTargets.Default` composition root. Its backend owns output layout and platform validation;
-the CLI continues to validate one bottle, output and optional entry. A platform
+the CLI continues to validate one wasm, output and optional entry. A platform
 with a compatible desktop runtime can reuse `SelfContainedExecutableTarget`
 with its own runtime identifier and executable extension. Browser/mobile or
 other deployment models can implement their own backend. Adding a runtime
 identifier alone does not establish native-library support.
 
 The current Windows backend produces one Windows x64 console-subsystem `.exe`
-with full desktop libraries. It validates the bottle and selected entry, checks
+with full desktop libraries. It validates the wasm and selected entry, checks
 an installed runtime pack, writes a sibling staging file, and replaces only the
 specified output file after completion. It does not compile source, execute
 application code, invoke an SDK, or download dependencies.
@@ -40,9 +40,8 @@ Each pack contains `host.exe` and `runtime.json`:
   "format": "aquarius-runtime-pack",
   "version": 1,
   "runtimeIdentifier": "win-x64",
-  "bundleVersion": 1,
-  "bottleVersion": 2,
-  "bytecodeVersion": 1,
+  "bundleVersion": 2,
+  "wasmAbiVersion": 1,
   "templateSha256": "<SHA-256 of host.exe>"
 }
 ```
@@ -52,32 +51,32 @@ formats, while checksums detect corrupted templates. Checksums are integrity
 checks, not publisher authentication. Only the raw, unbundled host accepts
 `--runtime-info`; packaged apps treat all arguments as launch files.
 
-## Executable overlay version 1
+## Executable overlay version 2
 
 `ExecutableBundle` in the host-independent packaging library writes:
 
 ```text
-[unmodified host template][original bottle ZIP][UTF-8 entry JSON][64-byte footer]
+[unmodified host template][original wasm Wasm][UTF-8 entry JSON][64-byte footer]
 ```
 
-The JSON is `{"EntryPoint":"canonical/module.rius"}`. Footer integers are
+The JSON is `{"EntryPoint":"canonical/module.aqua"}`. Footer integers are
 little-endian:
 
 | Offset | Bytes | Meaning |
 | --- | --- | --- |
 | 0 | 4 | Overlay version, currently 1 |
 | 4 | 4 | Entry JSON length |
-| 8 | 8 | Original bottle ZIP length |
-| 16 | 32 | SHA-256 of bottle bytes followed by entry JSON |
-| 48 | 16 | ASCII `AQUARIUS-APP-V1!` |
+| 8 | 8 | Original wasm Wasm length |
+| 16 | 32 | SHA-256 of wasm bytes followed by entry JSON |
+| 48 | 16 | ASCII `AQUARIUS-APP-V2!` |
 
 The reader derives the payload offset from the file length, bounds all sizes,
-verifies the checksum, and loads a seekable view whose ZIP offsets start at
-zero. It then applies normal bottle/bytecode validation and resolves the entry.
+verifies the checksum, and loads a seekable view whose Wasm payload offsets start at
+zero. It then applies normal Wasm metadata and engine validation and resolves the entry.
 No embedded program is executed during validation. Metadata is limited to
-64 KiB; compressed bottles to 272 MiB, allowing ZIP overhead beyond the existing
+64 KiB; compressed wasms to 272 MiB, allowing Wasm overhead beyond the existing
 256 MiB uncompressed package limit. The overlay version is independent of the
-bottle, bytecode, and .NET single-file formats.
+Wasm ABI and .NET single-file formats.
 
 `AquariusAppHost` reads its own process executable and runs the validated package
 through `ScriptRunner.RunPackage`. Its virtual module root is the executable's

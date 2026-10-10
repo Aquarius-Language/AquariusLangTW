@@ -9,7 +9,7 @@ export function resizeSurfaceSize(previous,width,height,pixelWidth,pixelHeight) 
 
 export class BrowserSurface {
   constructor(container,width,height,title) {
-    this.canvas=document.createElement('canvas');this.canvas.tabIndex=0;
+    this.canvas=document.createElement('canvas');this.canvas.tabIndex=0;this.canvas.style.touchAction='none';
     this.canvas.setAttribute('aria-label',title);
     this.size={width,height,pixelWidth:width,pixelHeight:height};
     container.append(this.canvas);this.apply(this.readSize());

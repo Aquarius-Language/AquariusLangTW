@@ -9,7 +9,7 @@ import {
   encodeText,
   decodeText,
   bytes,
-} from "../../AquariusLangVM/application/portable.mjs";
+} from "../../AquariusCore/application/portable.mjs";
 import {
   compress,
   decompress,

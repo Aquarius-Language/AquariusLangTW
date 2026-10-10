@@ -9,7 +9,7 @@ editors/vscode/server/
 *.vsix
 .graphics-build/
 native/build/
-AquariusDesktopVMREPL/runtimes/
+AquariusDesktop/runtimes/
 /dist
 .build-home/
 .web-build/
@@ -17,3 +17,5 @@ AquariusWebCompiler/browser/vendor-*
 TestResults/
 build-targets/
 .native-build/
+AquariusCore/external/jolt/vendor-*
+AquariusWebCompiler/browser/physics-core.mjs

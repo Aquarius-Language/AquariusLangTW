@@ -1,27 +1,28 @@
 using System.Security.Cryptography;
 using System.Text.Json;
 using AquariusLang.Packaging;
-using AquariusLang.VM;
+using AquariusLang.Compiler;
+using AquariusLang.Wasm;
 
 namespace AquariusLang.Build;
 
-/// <summary>Package a bottle with an installed runtime pack. No SDK, network, or source compilation is needed.</summary>
-public sealed class SelfContainedExecutableTarget(string name, string runtimeIdentifier, string extension, string? runtimePacksDirectory = null) : IBottleBuildTarget {
+/// <summary>Package a wasm with an installed runtime pack. No SDK, network, or source compilation is needed.</summary>
+public sealed class SelfContainedExecutableTarget(string name, string runtimeIdentifier, string extension, string? runtimePacksDirectory = null) : IWasmBuildTarget {
     public string Name => name;
     public string ArtifactDescription => "Executable";
     private sealed record RuntimeManifest(string Format, int Version, string RuntimeIdentifier, int BundleVersion,
-        int BottleVersion, int BytecodeVersion, string TemplateSha256);
+        int WasmAbiVersion, string TemplateSha256);
 
-    public void Build(BottleBuildRequest request) {
+    public void Build(WasmBuildRequest request) {
         string input = Path.GetFullPath(request.Input), output = Path.GetFullPath(request.Output);
-        if (!input.EndsWith(".bottle", StringComparison.OrdinalIgnoreCase)) throw new ArgumentException("Executable builds require one .bottle input.");
+        if (!input.EndsWith(".wasm", StringComparison.OrdinalIgnoreCase)) throw new ArgumentException("Executable builds require one .wasm input.");
         if (!output.EndsWith(extension, StringComparison.OrdinalIgnoreCase)) throw new ArgumentException($"{Name} output must name an {extension} file.");
-        if (input.Equals(output, StringComparison.OrdinalIgnoreCase)) throw new ArgumentException("Output must differ from the input bottle.");
+        if (input.Equals(output, StringComparison.OrdinalIgnoreCase)) throw new ArgumentException("Output must differ from the input wasm.");
         if (Directory.Exists(output) || (File.Exists(output) && (File.GetAttributes(output) & FileAttributes.ReparsePoint) != 0))
             throw new ArgumentException("Executable output must be a regular file, not a directory or link.");
         // Read and validate the input before looking for a pack or touching output.
-        using var bottle = File.OpenRead(input);
-        var package = BottlePackage.Load(bottle);
+        using var wasm = File.OpenRead(input);
+        var package = WasmApplication.Load(wasm);
         package.ResolveScript(request.EntryPoint ?? package.EntryPoint);
         string root = runtimePacksDirectory ?? System.Environment.GetEnvironmentVariable("AQUARIUS_BUILD_TARGETS") ?? Path.Combine(AppContext.BaseDirectory, "build-targets");
         string pack = Path.Combine(root, runtimeIdentifier);
@@ -34,7 +35,7 @@ public sealed class SelfContainedExecutableTarget(string name, string runtimeIde
         catch (JsonException error) { throw new InvalidDataException("Invalid executable runtime pack manifest.", error); }
         if (manifest == null || manifest.Format != "aquarius-runtime-pack" || manifest.Version != 1 ||
             manifest.RuntimeIdentifier != runtimeIdentifier || manifest.BundleVersion != ExecutableBundle.FormatVersion ||
-            manifest.BottleVersion != BottlePackage.FormatVersion || manifest.BytecodeVersion != BytecodeSerializer.FormatVersion)
+            manifest.WasmAbiVersion != WasmAbi.Version)
             throw new InvalidDataException("Incompatible executable runtime pack. Rebuild or reinstall the pack with this compiler version.");
         using var template = File.OpenRead(templatePath);
         string checksum = Convert.ToHexString(SHA256.HashData(template));
@@ -47,7 +48,7 @@ public sealed class SelfContainedExecutableTarget(string name, string runtimeIde
         string stage = Path.Combine(parent, $".{Path.GetFileName(output)}.{Guid.NewGuid():N}.tmp");
         try {
             using (var stream = new FileStream(stage, FileMode.CreateNew, FileAccess.Write)) {
-                ExecutableBundle.Write(template, bottle, stream, request.EntryPoint);
+                ExecutableBundle.Write(template, wasm, stream, request.EntryPoint);
                 stream.Flush(flushToDisk: true);
             }
             File.Move(stage, output, overwrite: true);

@@ -1,7 +1,7 @@
 # Aquarius Language Server
 
 A standalone .NET 8 LSP server using the lexer, parser and AST owned by
-`AquariusLangVM`. It references the portable VM library for the language frontend.
+`AquariusCore`. It references the portable VM library for the language frontend.
 Build with `dotnet build AquariusLanguageServer/AquariusLanguageServer.csproj -c Release`
 from the repository root, then configure an LSP editor to launch:
 

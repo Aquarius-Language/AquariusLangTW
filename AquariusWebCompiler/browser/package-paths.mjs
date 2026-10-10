@@ -26,9 +26,8 @@ export function lookupPath(files, name, {module = false} = {}) {
     return Array.from(upper).length === 1 && (c.codePointAt(0) < 128 || upper.codePointAt(0) >= 128) ? upper : c;
   }).join('');
   const names = Object.keys(files);
-  if (module && !/\.(aqua|rius)$/i.test(name)) throw new Error('Packaged imports require an .aqua or .rius path');
+  if (module && !/\.aqua$/i.test(name)) throw new Error('Compiled imports require an .aqua module path');
   const candidates = [name];
-  if (module) candidates.push(name.replace(/\.(aqua|rius)$/i, /\.aqua$/i.test(name) ? '.rius' : '.aqua'));
   for (const candidate of candidates) {
     const found = names.find(key => fold(key) === fold(candidate));
     if (found !== undefined) return found;

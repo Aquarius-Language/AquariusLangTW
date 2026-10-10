@@ -6,9 +6,9 @@
     <Nullable>enable</Nullable>
   </PropertyGroup>
   <ItemGroup>
-    <ProjectReference Include="../AquariusLangVM/AquariusLangVM.csproj" />
+    <ProjectReference Include="../AquariusCore/AquariusCore.csproj" />
     <ProjectReference Include="../AquariusPackaging/AquariusPackaging.csproj" />
-    <EmbeddedResource Include="browser/**/*" Exclude="browser/node_modules/**/*;browser/application-core.mjs" />
-    <EmbeddedResource Include="../AquariusLangVM/application/portable.mjs" LogicalName="AquariusWebCompiler.browser.application-core.mjs" />
+    <EmbeddedResource Include="browser/**/*" Exclude="browser/node_modules/**/*;browser/application-core.mjs;browser/physics-core.mjs;browser/vendor-jolt*" />
+    <EmbeddedResource Include="../AquariusCore/application/portable.mjs" LogicalName="AquariusWebCompiler.browser.application-core.mjs" />
   </ItemGroup>
 </Project>

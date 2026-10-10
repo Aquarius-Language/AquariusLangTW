@@ -41,21 +41,21 @@ try {
     if (-not (Test-Path (Join-Path ([IO.Path]::GetDirectoryName($executablePath)) 'coreclr.dll'))) { throw 'Expected a self-contained Windows release.' }
     Invoke-Published 'help' @('--help') 'aqua build'
     $modules = @(Get-ChildItem -LiteralPath $source -Filter '*.aqua' -Recurse | Sort-Object FullName)
-    Invoke-Published 'compile' (@('build') + @($modules.FullName) + @('--root', $source, '--assets', $source, '--entry', 'main.aqua', '-o', 'app.bottle')) 'Compiled'
+    Invoke-Published 'compile' (@('build') + @($modules.FullName) + @('--root', $source, '--assets', $source, '--entry', 'main.aqua', '-o', 'app.wasm')) 'Compiled'
     $resolvedSource = [IO.Path]::GetFullPath($source)
     if (-not $resolvedSource.StartsWith([IO.Path]::GetFullPath($fixture) + [IO.Path]::DirectorySeparatorChar)) { throw 'Unsafe disposable source path.' }
     Remove-Item -LiteralPath $resolvedSource -Recurse -Force
-    Invoke-Published 'source-free run' @('run', 'app.bottle') '[40, 42, 封裝成功'
-    Invoke-Published 'source-free web export' @('build', 'app.bottle', '--target', 'web', '-o', 'web') 'Website built'
+    Invoke-Published 'source-free run' @('run', 'app.wasm') '[40, 42, 封裝成功'
+    Invoke-Published 'source-free web export' @('build', 'app.wasm', '--target', 'web', '-o', 'web') 'Website built'
     if (-not (Test-Path (Join-Path $fixture 'web/vendor-jolt.wasm'))) { throw 'Published web exporter omitted WASM.' }
-    Invoke-Published 'standalone windows export' @('build', 'app.bottle', '--target', 'windows', '-o', 'standalone/app.exe') 'Executable built'
-    Remove-Item -LiteralPath (Join-Path $fixture 'app.bottle')
+    Invoke-Published 'standalone windows export' @('build', 'app.wasm', '--target', 'windows', '-o', 'standalone/app.exe') 'Executable built'
+    Remove-Item -LiteralPath (Join-Path $fixture 'app.wasm')
     Invoke-Published 'standalone windows execution' @() '[40, 42, 封裝成功' (Join-Path $fixture 'standalone/app.exe')
-    $exampleBottle = Join-Path $build 'examples.bottle'
-    Invoke-Published 'native compute' @('run', $exampleBottle, '--entry', 'wgpu_compute/main.rius') '真'
-    Invoke-Published 'native image output' @('run', $exampleBottle, '--entry', 'wgpu_triangle/main.rius') '真'
-    Invoke-Published 'native Jolt' @('run', $exampleBottle, '--entry', 'jolt_physics/main.rius') '真'
-    Invoke-Published 'native OpenGL assets' @('run', $exampleBottle, '--entry', 'opengl_cube/main.rius') 'OpenGL error: 0'
+    $exampleWasm = Join-Path $build 'examples.wasm'
+    Invoke-Published 'native compute' @('run', $exampleWasm, '--entry', 'wgpu_compute/main.aqua') '真'
+    Invoke-Published 'native image output' @('run', $exampleWasm, '--entry', 'wgpu_triangle/main.aqua') '真'
+    Invoke-Published 'native Jolt' @('run', $exampleWasm, '--entry', 'jolt_physics/main.aqua') '真'
+    Invoke-Published 'native OpenGL assets' @('run', $exampleWasm, '--entry', 'opengl_cube/main.aqua') 'OpenGL error: 0'
 } finally {
     $results | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath (Join-Path $build 'published-cli-results.json') -Encoding utf8
 }

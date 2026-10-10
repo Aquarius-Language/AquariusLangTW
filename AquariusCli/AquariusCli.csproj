@@ -9,7 +9,7 @@
   <ItemGroup>
     <ProjectReference Include="../AquariusBuild/AquariusBuild.csproj" />
     <ProjectReference Include="../AquariusPackaging/AquariusPackaging.csproj" />
-    <ProjectReference Include="../AquariusDesktopVMREPL/AquariusDesktopVMREPL.csproj" />
+    <ProjectReference Include="../AquariusDesktop/AquariusDesktop.csproj" />
     <ProjectReference Include="../AquariusWebCompiler/AquariusWebCompiler.csproj" />
   </ItemGroup>
   <ItemGroup>

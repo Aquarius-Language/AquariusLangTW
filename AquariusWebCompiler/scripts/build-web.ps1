@@ -24,10 +24,10 @@ try {
     )) {
         $sourceRoot = [IO.Path]::GetFullPath($project.source)
         $sources = @(Get-ChildItem -LiteralPath $sourceRoot -Filter '*.aqua' -Recurse | Sort-Object FullName)
-        $bottle = ".web-build/$($project.name).bottle"
-        & $Dotnet AquariusCli/bin/Debug/net8.0/aqua.dll build @($sources.FullName) --root $sourceRoot --assets $sourceRoot --entry $project.entry -o $bottle
-        if ($LASTEXITCODE -ne 0) { throw 'Portable bottle compilation failed.' }
-        & $Dotnet AquariusCli/bin/Debug/net8.0/aqua.dll build $bottle --target web -o ".web-build/$($project.name)-bottle"
-        if ($LASTEXITCODE -ne 0) { throw 'Bottle website compilation failed.' }
+        $wasm = ".web-build/$($project.name).wasm"
+        & $Dotnet AquariusCli/bin/Debug/net8.0/aqua.dll build @($sources.FullName) --root $sourceRoot --assets $sourceRoot --entry $project.entry -o $wasm
+        if ($LASTEXITCODE -ne 0) { throw 'Portable wasm compilation failed.' }
+        & $Dotnet AquariusCli/bin/Debug/net8.0/aqua.dll build $wasm --target web -o ".web-build/$($project.name)-wasm"
+        if ($LASTEXITCODE -ne 0) { throw 'Wasm website compilation failed.' }
     }
 } finally { Pop-Location }

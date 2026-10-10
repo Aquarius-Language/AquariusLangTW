@@ -1,6 +1,6 @@
 import {mat4,vec3,vec4} from './vendor-gl-matrix.mjs';
 import earcut from './vendor-earcut.mjs';
-import {num,unwrap} from './vm.mjs';
+import {num,unwrap} from './values.mjs';
 import {defaultUniforms} from './wgpu.mjs';
 import {resizeSurfaceSize} from './surface.mjs';
 export const pack = c => ((Math.round(c[3]*255)<<24)|(Math.round(c[0]*255)<<16)|(Math.round(c[1]*255)<<8)|Math.round(c[2]*255))>>>0;
@@ -20,7 +20,7 @@ export class Processing {
     for(const [n,v] of Object.entries({CORNER:0,CORNERS:1,CENTER:2,RADIUS:3,RGB:0,HSB:1,ARGB:2,OPEN:0,CHORD:1,PIE:2,CLOSE:1,POINTS:0,LINES:1,TRIANGLES:4,TRIANGLE_STRIP:5,TRIANGLE_FAN:6,QUADS:7,QUAD_STRIP:8,POLYGON:9,LEFT:0,RIGHT:1,TOP:101,BOTTOM:102,BASELINE:103,ROUND:1,SQUARE:0,PROJECT:2,MITER:0,BEVEL:2,BLEND:0,ADD:1,MULTIPLY:2,SCREEN:3,REPLACE:4,GRAY:0,INVERT:1,THRESHOLD:2,POSTERIZE:3,OPAQUE:4,BLUR:5,NORMAL:0,IMAGE:1,ESC:256,SPACE:32,PI:Math.PI,TWO_PI:Math.PI*2,TAU:Math.PI*2,HALF_PI:Math.PI/2,QUARTER_PI:Math.PI/4,P2D:'P2D',P3D:'P3D',backend:'wgpu',frameCount:0,mouseX:0,mouseY:0,pmouseX:0,pmouseY:0,keyCode:0,key:'',mouseButton:0,wheelCount:0,isMousePressed:false,isKeyPressed:false,inputText:'',compositionText:'',compositionCursor:0,isComposing:false,textInputEnabled:false}))s(n,v);
     b('size',async(w,hh,renderer='P2D',title='Aquarius')=>{if(this.device)throw new Error('size() can only be called once');if(!['P2D','P3D'].includes(renderer))throw new Error('Invalid renderer');this.device=await h.graphics.createDevice();this.shader=await this.device.createShader(h.bundle.graphics.vertex,h.bundle.graphics.fragment);this.surface=h.surface(w,hh,title);this.surface.requestSize(w,hh);this.dom=this.surface.canvas;this.presentation=this.device.createSurface(this.dom);this.screen.is3D=renderer==='P3D';const size=this.surface.size;this.screen.resize(size.width,size.height,size.pixelWidth,size.pixelHeight);this.screen.defaultCamera();this.screen.drawing=true;this.clock=performance.now();});
     b('resize',(w,hh)=>{if(!this.surface)throw new Error('Call Processing.size() first');this.surface.requestSize(w,hh);});
-    b('run',async(setup,draw)=>{if(this.running)throw new Error('run() cannot be nested');this.running=true;this.exiting=false;try{await h.vm.invoke(setup);if(!this.device)throw new Error('Call Processing.size() first');while(!this.exiting&&!h.signal.aborted){await h.nextFrame(this.fps);await this.beginFrame();if(this.exiting)break;if(this.screen.pixelWidth===0||this.screen.pixelHeight===0)continue;if(this.looping||this.redraw||this.frameCount===0){this.redraw=false;this.frameCount++;s('frameCount',num(this.frameCount,'int'));await h.vm.invoke(draw);await this.endFrame();if(h.frameLimit>0&&this.frameCount>=h.frameLimit)break;}}}finally{this.running=false;}});
+    b('run',async(setup,draw)=>{if(this.running)throw new Error('run() cannot be nested');this.running=true;this.exiting=false;try{await h.runtime.invoke(setup);if(!this.device)throw new Error('Call Processing.size() first');while(!this.exiting&&!h.signal.aborted){await h.nextFrame(this.fps);await this.beginFrame();if(this.exiting)break;if(this.screen.pixelWidth===0||this.screen.pixelHeight===0)continue;if(this.looping||this.redraw||this.frameCount===0){this.redraw=false;this.frameCount++;s('frameCount',num(this.frameCount,'int'));await h.runtime.invoke(draw);await this.endFrame();if(h.frameLimit>0&&this.frameCount>=h.frameLimit)break;}}}finally{this.running=false;}});
     b('on',(name,fn)=>{if(fn?.type!=='closure'&&typeof fn!=='function')throw new Error('Expected a function callback');this.events.set(name,fn);});
     b('beginFrame',()=>this.beginFrame());b('endFrame',()=>this.endFrame());
     b('noLoop',()=>this.looping=false);b('loop',()=>this.looping=true);b('redraw',()=>this.redraw=true);b('exit',()=>this.exiting=true);b('close',()=>this.exiting=true);
@@ -51,11 +51,13 @@ export class Processing {
   }
   retained(){const h=this.host,m=h.newModule(),shape={vertices:[],style:style(),matrix:mat4.create(),kind:9,closed:false,children:[]};h.objects.set(m,shape);const b=(n,f)=>h.bind(m,'PShape',n,f);b('beginShape',(kind=9)=>{shape.kind=kind;shape.vertices=[];});b('vertex',(...a)=>shape.vertices.push(point(a,a.length)));b('endShape',(close=0)=>shape.closed=close===1);b('fill',(...a)=>{shape.style.fill=color(shape.style,a);shape.style.hasFill=true;});b('stroke',(...a)=>shape.style.stroke=color(shape.style,a));b('noStroke',()=>shape.style.hasStroke=false);b('noFill',()=>shape.style.hasFill=false);b('strokeWeight',w=>shape.style.weight=w);b('getVertexCount',()=>num(shape.vertices.length,'int'));b('getVertex',i=>shape.vertices[i]);b('setVertex',(i,...v)=>shape.vertices[i]=point(v,v.length));b('setFill',c=>shape.style.fill=unpack(c));b('translate',(...a)=>mat4.translate(shape.matrix,shape.matrix,point(a,a.length)));b('rotate',n=>mat4.rotateZ(shape.matrix,shape.matrix,n));b('scale',n=>mat4.scale(shape.matrix,shape.matrix,[n,n,n]));b('resetMatrix',()=>shape.matrix=mat4.create());b('addChild',child=>{const obj=h.objects.get(child);const contains=s=>s===shape||s.children.some(contains);if(contains(obj))throw new Error('Shape groups cannot contain cycles');shape.children.push(obj);});return m;}
   input(){const h=this.host,s=(n,v)=>h.set(this.module,n,v),signal=this.abort.signal;const queue=(name,fields)=>this.eventQueue.push({name,fields});
-    window.addEventListener('keydown',e=>{if(e.target.tagName==='SELECT')return;const code=keyCode(e);this.keys.add(code);if(!e.isComposing&&!this.composing)queue('keyPressed',{keyCode:num(code,'int'),key:e.key,isKeyPressed:true});if(code===256&&!this.module.scope.get('textInputEnabled')&&!this.composing)this.exiting=true;if(['ArrowUp','ArrowDown','ArrowLeft','ArrowRight','Space'].includes(e.code))e.preventDefault();},{signal});
+    window.addEventListener('keydown',e=>{if(e.target.tagName==='SELECT')return;const code=keyCode(e);this.keys.add(code);if(!e.isComposing&&!this.composing)queue('keyPressed',{keyCode:num(code,'int'),key:e.key,isKeyPressed:true});if(code===256&&!this.module.scope.get('textInputEnabled')&&!this.composing)this.exiting=true;if(['ArrowUp','ArrowDown','ArrowLeft','ArrowRight','Space'].includes(e.code)||((e.target===this.dom||e.target===this.textarea)&&this.events.has('keyPressed')&&(e.ctrlKey||e.metaKey)&&['s','o','n','a','z','y'].includes(e.key.toLowerCase())))e.preventDefault();},{signal});
     window.addEventListener('keyup',e=>{const code=keyCode(e);this.keys.delete(code);if(!e.isComposing&&!this.composing)queue('keyReleased',{keyCode:num(code,'int'),key:e.key,isKeyPressed:this.keys.size>0});},{signal});
     // CSS coordinates are already logical host coordinates. Scaling by the last
     // frame's dimensions would misplace events arriving during a viewport resize.
-    const area=document.getElementById('surfaces');for(const type of ['pointermove','pointerdown','pointerup'])area.addEventListener(type,e=>{if(!this.dom)return;const r=this.dom.getBoundingClientRect(),x=e.clientX-r.left,y=e.clientY-r.top;const fields={pmouseX:this.module.scope.get('mouseX'),pmouseY:this.module.scope.get('mouseY'),mouseX:x,mouseY:y,mouseButton:num(e.button,'int')};if(type!=='pointermove')fields.isMousePressed=type==='pointerdown';queue(type==='pointerdown'?'mousePressed':type==='pointerup'?'mouseReleased':e.buttons?'mouseDragged':'mouseMoved',fields);if(type==='pointerup')queue('mouseClicked',fields);},{signal});
+    const area=document.getElementById('surfaces');for(const type of ['pointermove','pointerdown','pointerup'])area.addEventListener(type,e=>{if(!this.dom)return;if(type==='pointerdown'&&e.target===this.dom)this.dom.setPointerCapture?.(e.pointerId);if(type==='pointerup'&&this.dom.hasPointerCapture?.(e.pointerId))this.dom.releasePointerCapture(e.pointerId);const r=this.dom.getBoundingClientRect(),x=e.clientX-r.left,y=e.clientY-r.top;const fields={pmouseX:this.module.scope.get('mouseX'),pmouseY:this.module.scope.get('mouseY'),mouseX:x,mouseY:y,mouseButton:num(e.button,'int')};if(type!=='pointermove')fields.isMousePressed=type==='pointerdown';queue(type==='pointerdown'?'mousePressed':type==='pointerup'?'mouseReleased':e.buttons?'mouseDragged':'mouseMoved',fields);if(type==='pointerup')queue('mouseClicked',fields);},{signal});
+    area.addEventListener('pointercancel',()=>queue('mouseReleased',{isMousePressed:false}),{signal});
+    area.addEventListener('contextmenu',e=>{if(e.target===this.dom)e.preventDefault();},{signal});
     area.addEventListener('wheel',e=>{queue('mouseWheel',{wheelCount:e.deltaY/100});e.preventDefault();},{signal,passive:false});
     this.textarea=document.createElement('textarea');Object.assign(this.textarea.style,{position:'fixed',opacity:'0.01',width:'1px',height:'1px',pointerEvents:'none'});this.textarea.setAttribute('aria-label','Aquarius text input');document.body.append(this.textarea);
     this.textarea.addEventListener('input',e=>{if(!e.isComposing&&e.data){queue('textInput',{inputText:e.data});for(const char of e.data)queue('keyTyped',{key:char});this.textarea.value='';}},{signal});for(const [type,name] of [['compositionstart','compositionStarted'],['compositionupdate','compositionUpdated'],['compositionend','compositionEnded']])this.textarea.addEventListener(type,e=>{this.composing=type!=='compositionend';queue(name,{compositionText:this.composing?e.data:'',compositionCursor:this.composing?e.data.length:0,isComposing:this.composing});},{signal});
@@ -66,10 +68,30 @@ export class Processing {
     if(this.surface){const size=this.surface.readSize();resized=c.resize(size.width,size.height,size.pixelWidth,size.pixelHeight);this.surface.apply(size);}
     c.model=mat4.create();c.matrices=[];c.style.lights=[];c.style.lit=false;
     // Attachments and public dimensions are ready before callbacks can draw/read.
-    if(resized){this.redraw=true;if(c.pixelWidth>0&&c.pixelHeight>0&&this.events.has('windowResized'))await this.host.vm.invoke(this.events.get('windowResized'));}
-    for(const e of this.eventQueue.splice(0)){for(const [n,v] of Object.entries(e.fields))this.host.set(this.module,n,v);this.redraw=true;if(this.events.has(e.name))await this.host.vm.invoke(this.events.get(e.name));}
+    this.processingEvents=true;
+    try {
+      if(resized){this.redraw=true;if(c.pixelWidth>0&&c.pixelHeight>0)await this.dispatchEvent('windowResized');}
+      for(const e of this.eventQueue.splice(0)){for(const [n,v] of Object.entries(e.fields))this.host.set(this.module,n,v);this.redraw=true;await this.dispatchEvent(e.name);}
+    } finally {this.processingEvents=false;}
   }
-  async endFrame(){if(this.screen.pixelWidth>0&&this.screen.pixelHeight>0)await this.presentation.present(this.screen.target);}
+  async dispatchEvent(name){
+    if(!this.events.has(name))return;
+    try {await this.host.runtime.invoke(this.events.get(name));}
+    catch(error){
+      if(this.host.signal.aborted||this.host.runtime.cancelled||name==='error'||!this.events.has('error'))throw error;
+      for(const c of this.canvases){if(c.drawing){c.target?.flush();c.drawing=false;c.vertices=null;}}
+      this.host.set(this.module,'errorEvent',name);this.host.set(this.module,'errorMessage',error.message);
+      await this.host.runtime.invoke(this.events.get('error'));
+    }
+  }
+  collectResources(){
+    if(this.canvases.size<8&&this.images.size<24&&this.host.application.objects.size<24)return;
+    const live=this.host.runtime.reachable([...this.host.modules.values(),...this.host.cache.values(),...this.events.values()]);
+    for(const c of this.canvases)if(!c.drawing&&!live.has(c.module)){c.dispose();this.host.objects.delete(c.module);this.canvases.delete(c);}
+    for(const img of this.images)if(!live.has(img.module)){img.texture?.destroy();if(img.texture)this.device?.resources.delete(img.texture);this.host.objects.delete(img.module);this.images.delete(img);}
+    for(const [m,img] of this.host.application.objects)if(img.pixels instanceof Uint8Array&&!live.has(m))this.host.application.objects.delete(m);
+  }
+  async endFrame(){if(this.screen.pixelWidth>0&&this.screen.pixelHeight>0)await this.presentation.present(this.screen.target);this.collectResources();}
   dispose(){this.exiting=true;this.abort.abort();this.textarea.remove();for(const c of this.canvases)c.dispose();for(const image of this.images)image.texture?.destroy();for(const t of this.textCache.values())t.texture.destroy();this.screen.dispose();this.presentation?.dispose();this.surface?.dispose();}
 }
 class Canvas {

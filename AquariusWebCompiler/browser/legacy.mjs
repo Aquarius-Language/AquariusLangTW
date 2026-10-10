@@ -1,4 +1,4 @@
-import {num,unwrap} from './vm.mjs';
+import {num,unwrap} from './values.mjs';
 // The existing OpenGL example maps to WebGL2. Processing and WGPU use WebGPU.
 export function registerLegacy(h){const glfw=h.library('GLFW'),glad=h.library('GLAD'),gl=h.library('GL'),stb=h.library('STBImage');let surface,canvas,context,closed=false,frames=0;const resources=new Set(),requireGl=()=>{if(!context)throw new Error('Call GLFW.CreateWindow first');return context;},b=(m,lib,n,fn,raw=false)=>h.bind(m,lib,n,fn,raw);
   const resize=()=>{if(surface)surface.apply(surface.readSize());};

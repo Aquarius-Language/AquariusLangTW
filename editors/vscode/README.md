@@ -82,13 +82,13 @@ repository's VM desktop host, install the .NET 8 SDK (which includes the runtime
 and run this from the repository root:
 
 ```powershell
-dotnet run --project AquariusDesktopVMREPL -- AquariusDesktopVMREPL/examples/increment.aqua
+dotnet run --project AquariusDesktop -- AquariusDesktop/examples/increment.aqua
 ```
 
 Or run an already-built VM host:
 
 ```powershell
-dotnet AquariusDesktopVMREPL/bin/Debug/net8.0/AquariusDesktopVMREPL.dll AquariusDesktopVMREPL/examples/increment.aqua
+dotnet AquariusDesktop/bin/Debug/net8.0/AquariusDesktop.dll AquariusDesktop/examples/increment.aqua
 ```
 
 ## Tests

@@ -9,16 +9,16 @@ const server=createServer(async(req,res)=>{try{const requested=decodeURIComponen
 await new Promise(r=>server.listen(0,'127.0.0.1',r));const port=server.address().port;
 const browser=await chromium.launch({channel:process.env.AQUARIUS_BROWSER??'chrome',headless:true,args:['--enable-unsafe-webgpu']});
 try{
-  for(const project of (process.env.AQUARIUS_WEB_PROJECTS?.split(',')??['examples','marble','examples-bottle','marble-bottle','portable-bottle'])){
+  for(const project of (process.env.AQUARIUS_WEB_PROJECTS?.split(',')??['examples','marble','examples-wasm','marble-wasm','portable-wasm'])){
     const isMarble=project.startsWith('marble'),isExamples=project.startsWith('examples');
     const page=await browser.newPage({viewport:{width:1280,height:960}}),errors=[];page.on('pageerror',e=>errors.push(e.message));page.on('console',m=>{if(m.type()==='error')errors.push(m.text());});
     await page.goto(`http://127.0.0.1:${port}/${project}/?autorun=0`);try{await page.waitForFunction(()=>!!window.aquarius);}catch(e){throw new Error(`Browser initialization: ${errors.join('\n') || e.message}`);}
     let entries=await page.evaluate(()=>Object.keys(window.aquarius.bundle.modules));
     if(process.env.AQUARIUS_WEB_ENTRIES)entries=entries.filter(n=>process.env.AQUARIUS_WEB_ENTRIES.split(',').includes(n));
     for(const entry of entries){errors.length=0;const start=Date.now();try{
-      const logical=entry.replace(/\.rius$/i,'.aqua');
+      const logical=entry.replace(/\.aqua$/i,'.aqua');
       const frames=logical==='smoke.aqua'?0:logical==='color_mapping/main.aqua'?1:2;
-      const r=await page.evaluate(async({entry,frames})=>{let timeout;try{return await Promise.race([window.aquarius.run(entry,frames).then(r=>({...r,ok:true})),new Promise((_,reject)=>{timeout=setTimeout(()=>{window.aquarius.host.vm.cancelled=true;reject(new Error(`Smoke test timed out at instruction ${window.aquarius.host.vm.instructions}, frame ${window.aquarius.host.processing.frameCount}`));},60000);})]);}catch(e){return {ok:false,error:e.stack,output:document.getElementById('output').textContent};}finally{clearTimeout(timeout);}},{entry,frames});
+      const r=await page.evaluate(async({entry,frames})=>{let timeout;try{return await Promise.race([window.aquarius.run(entry,frames).then(r=>({...r,ok:true})),new Promise((_,reject)=>{timeout=setTimeout(()=>{window.aquarius.host.runtime.cancelled=true;reject(new Error(`Smoke test timed out at instruction ${window.aquarius.host.runtime.instructions}, frame ${window.aquarius.host.processing.frameCount}`));},60000);})]);}catch(e){return {ok:false,error:e.stack,output:document.getElementById('output').textContent};}finally{clearTimeout(timeout);}},{entry,frames});
       if(entry.startsWith('generate_errors/')){if(r.ok||!r.error.includes('Identifier not found: array'))throw new Error('Expected undeclared array error');results.push({project,entry,passed:true,expectedFailure:true});console.log(`PASS expected error ${entry}`);continue;}
       if(!r.ok)throw new Error(r.error);if(errors.length)throw new Error(errors.join('\n'));
       if(logical==='smoke.aqua'&&!r.output.includes('整合驗證通過'))throw new Error('Marble gameplay assertions did not complete');
@@ -28,11 +28,11 @@ try{
       }
       if(logical==='opengl_cube/main.aqua'&&!r.output.includes('OpenGL error: 0'))throw new Error('OpenGL error');
       if(isMarble&&(logical==='main.aqua'||logical==='smoke.aqua'))await page.screenshot({path:path.join(build,`${project}-${logical.replace('.aqua','')}.png`)});
-      if(project==='portable-bottle'&&logical==='main.aqua'&&!r.result.startsWith('[40, 42, 封裝成功'))throw new Error(`Portable import/asset parity failed: ${r.result}`);
+      if(project==='portable-wasm'&&logical==='main.aqua'&&!r.result.startsWith('[40, 42, 封裝成功'))throw new Error(`Portable import/asset parity failed: ${r.result}`);
       results.push({project,entry,passed:true,ms:Date.now()-start});console.log(`PASS ${project}/${entry} (${Date.now()-start} ms)`);
     }catch(e){results.push({project,entry,passed:false,error:e.message,ms:Date.now()-start});console.log(`FAIL ${project}/${entry}: ${e.message}`);}}
     if(!process.env.AQUARIUS_WEB_ENTRIES){
-      if(project==='portable-bottle'){
+      if(project==='portable-wasm'){
         await page.evaluate(async()=>{
           const h=window.aquarius.host,scope=h.processing.module.scope;
           const encode=s=>btoa(String.fromCharCode(...new TextEncoder().encode(s)));
@@ -58,9 +58,9 @@ try{
         await page.evaluate(()=>{window.gameTask=window.aquarius.run('main.aqua',0).catch(()=>{});});
         await page.waitForFunction(()=>window.aquarius.host?.processing.frameCount>=3);
         await page.keyboard.press('p');
-        await page.waitForFunction(async()=>{const host=window.aquarius.host,physics=host.cache.get('physics.aqua');const state=await host.vm.invoke(physics.scope.get('取得狀態快照'));return state.get('string:paused')[1]===true;});
+        await page.waitForFunction(async()=>{const host=window.aquarius.host,physics=host.cache.get('physics.aqua');const state=await host.runtime.invoke(physics.scope.get('取得狀態快照'));return state.get('string:paused')[1]===true;});
         await page.keyboard.press('p');await page.keyboard.down('w');
-        await page.waitForFunction(async()=>{const host=window.aquarius.host,physics=host.cache.get('physics.aqua');const state=await host.vm.invoke(physics.scope.get('取得狀態快照'));return state.get('string:started')[1]===true;});
+        await page.waitForFunction(async()=>{const host=window.aquarius.host,physics=host.cache.get('physics.aqua');const state=await host.runtime.invoke(physics.scope.get('取得狀態快照'));return state.get('string:started')[1]===true;});
         await page.keyboard.up('w');await page.evaluate(()=>window.aquarius.stop());
         results.push({project,entry:'DOM gameplay pause, movement, and Stop',passed:true});console.log('PASS DOM gameplay pause, movement, and Stop');
       }

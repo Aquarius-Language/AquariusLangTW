@@ -1,9 +1,10 @@
 using AquariusLang.Object;
 using AquariusLang.Packaging;
-using AquariusLang.VM;
+using AquariusLang.Compiler;
+using AquariusLang.Wasm;
 using System.Runtime.InteropServices;
 using System.Text.Json;
-using AquariusREPL.runtime;
+using AquariusLang.Desktop.runtime;
 
 Console.OutputEncoding = new System.Text.UTF8Encoding(false);
 try {
@@ -11,15 +12,14 @@ try {
     using var stream = File.OpenRead(path);
     if (args is ["--runtime-info"] && !ExecutableBundle.HasProgram(stream)) {
         string[] required = {
-            "wgpu_native.dll", "joltc.dll", "joltc_double.dll", "Magick.Native-Q8-x64.dll", "vcruntime140.dll",
+            "wgpu_native.dll", "wasmtime.dll", "ClearScriptV8.win-x64.dll", "Magick.Native-Q8-x64.dll", "vcruntime140.dll",
             "runtimes/win-x64/native/aquarius_graphics.dll"
         };
         string[] missing = required.Where(file => !File.Exists(Path.Combine(AppContext.BaseDirectory, file))).ToArray();
         if (missing.Length != 0) throw new IOException("Application runtime dependencies are missing: " + string.Join(", ", missing));
         Console.WriteLine(JsonSerializer.Serialize(new {
             format = "aquarius-runtime-pack", version = 1, runtimeIdentifier = RuntimeInformation.RuntimeIdentifier,
-            bundleVersion = ExecutableBundle.FormatVersion, bottleVersion = BottlePackage.FormatVersion,
-            bytecodeVersion = BytecodeSerializer.FormatVersion
+            bundleVersion = ExecutableBundle.FormatVersion, wasmAbiVersion = WasmAbi.Version
         }));
         return;
     }

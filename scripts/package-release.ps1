@@ -1,4 +1,5 @@
 ﻿#requires -Version 5.1
+# Keep this script UTF-8 with BOM so Windows PowerShell 5.1 reads Chinese literals correctly.
 param(
     [string]$Dotnet = 'dotnet',
     [string]$Python = 'python',
@@ -115,7 +116,7 @@ try {
     Start-Transcript -LiteralPath (Join-Path $stage 'build.log') | Out-Null
     $transcribing = $true
     # Ensure spawned .NET test processes use the selected SDK's runtime as well.
-    foreach ($name in @('PATH', 'DOTNET_ROOT', 'DOTNET_ROOT_X64', 'DOTNET_HOST_PATH', 'AQUARIUS_OPENGL_TESTS', 'AQUARIUS_WGPU_TESTS')) {
+    foreach ($name in @('PATH', 'DOTNET_ROOT', 'DOTNET_ROOT_X64', 'DOTNET_HOST_PATH', 'AQUARIUS_OPENGL_TESTS', 'AQUARIUS_WGPU_TESTS', 'AQUARIUS_COMPILER_DLL')) {
         $savedEnvironment[$name] = [Environment]::GetEnvironmentVariable($name, 'Process')
     }
     $env:PATH = [IO.Path]::GetDirectoryName($dotnetPath) + [IO.Path]::PathSeparator + [IO.Path]::GetDirectoryName($pythonPath) + [IO.Path]::PathSeparator + $env:PATH
@@ -134,18 +135,19 @@ try {
     if ($CMake) { $nativeOptions.CMake = $CMake }
     if ($Generator) { $nativeOptions.Generator = $Generator }
     & (Join-Path $repository 'native/build.ps1') @nativeOptions
-    Assert-File (Join-Path $repository 'AquariusDesktopVMREPL/runtimes/win-x64/native/aquarius_graphics.dll')
+    Assert-File (Join-Path $repository 'AquariusDesktop/runtimes/win-x64/native/aquarius_graphics.dll')
 
     Write-Host '[4/8] Restoring, building and testing Release...'
     Invoke-Checked $dotnetPath @('restore', 'AquariusLang.sln')
     Invoke-Checked $dotnetPath @('build', 'AquariusLang.sln', '-c', 'Release', '--no-restore', '-m:1', '--nologo')
-    Invoke-Checked $dotnetPath @('test', 'AquariusLangVMTesting', '-c', 'Release', '--no-build', '--no-restore', '-m:1', '--logger', 'trx;LogFileName=compiler.trx', '--results-directory', $reports)
+    Invoke-Checked $dotnetPath @('test', 'AquariusTests', '-c', 'Release', '--no-build', '--no-restore', '-m:1', '--logger', 'trx;LogFileName=compiler.trx', '--results-directory', $reports)
+    $env:AQUARIUS_COMPILER_DLL = Join-Path $repository 'AquariusCli/bin/Release/net8.0/aqua.dll'
     Invoke-Checked 'npm.cmd' @('test', '--prefix', 'AquariusWebCompiler')
 
     Write-Host '[5/8] Publishing the self-contained compiler...'
     & (Join-Path $PSScriptRoot 'publish-apphost.ps1') -Dotnet $dotnetPath
     Invoke-Checked $dotnetPath @('publish', 'AquariusCli/AquariusCli.csproj', '-c', 'Release', '-f', 'net8.0', '-r', 'win-x64', '--self-contained', 'true', '-p:UseAppHost=true', '-p:PublishSingleFile=false', '-p:PublishTrimmed=false', '-p:DebugType=None', '-p:DebugSymbols=false', '-o', $package)
-    foreach ($file in @('aqua.exe', 'aqua.dll', 'aqua.runtimeconfig.json', 'coreclr.dll', 'hostfxr.dll', 'hostpolicy.dll', 'wgpu_native.dll', 'joltc.dll', 'joltc_double.dll', 'Magick.NET.Core.dll', 'Magick.NET-Q8-AnyCPU.dll', 'Magick.Native-Q8-x64.dll', 'runtimes/win-x64/native/aquarius_graphics.dll', 'examples/increment.aqua', 'licenses/WGPU-NOTICES.md', 'licenses/JOLT-NOTICES.md', 'licenses/MAGICK-NET-LICENSE.txt', 'licenses/MAGICK-NET-NOTICES.txt')) {
+    foreach ($file in @('aqua.exe', 'aqua.dll', 'aqua.runtimeconfig.json', 'coreclr.dll', 'hostfxr.dll', 'hostpolicy.dll', 'wgpu_native.dll', 'wasmtime.dll', 'ClearScriptV8.win-x64.dll', 'Magick.NET.Core.dll', 'Magick.NET-Q8-AnyCPU.dll', 'Magick.Native-Q8-x64.dll', 'runtimes/win-x64/native/aquarius_graphics.dll', 'examples/increment.aqua', 'licenses/WGPU-NOTICES.md', 'licenses/JOLT-NOTICES.md', 'licenses/MAGICK-NET-LICENSE.txt', 'licenses/MAGICK-NET-NOTICES.txt')) {
         Assert-File (Join-Path $package $file)
     }
     Copy-Item -LiteralPath (Join-Path $repository 'LICENSE') -Destination $package
@@ -162,10 +164,10 @@ try {
 
 ```powershell
 .\aqua.exe --help
-.\aqua.exe build .\examples\increment.aqua -o app.bottle
-.\aqua.exe run .\app.bottle
-.\aqua.exe build .\app.bottle --target web -o web
-.\aqua.exe build .\app.bottle --target windows -o app.exe
+.\aqua.exe build .\examples\increment.aqua -o app.wasm
+.\aqua.exe run .\app.wasm
+.\aqua.exe build .\app.wasm --target web -o web
+.\aqua.exe build .\app.wasm --target windows -o app.exe
 .\aqua.exe repl
 ```
 
@@ -239,31 +241,31 @@ try {
 }
 印出("Image codecs OK");
 '@ | Set-Content -LiteralPath (Join-Path $smoke 'images.aqua') -Encoding utf8
-        Invoke-Published 'compile image codecs' @('build', 'images.aqua', '-o', 'images.bottle') 'Compiled'
+        Invoke-Published 'compile image codecs' @('build', 'images.aqua', '-o', 'images.wasm') 'Compiled'
         $imageSource = Assert-InDirectory (Join-Path $smoke 'images.aqua') $smoke
         Remove-Item -LiteralPath $imageSource
-        Invoke-Published 'native image codecs' @('run', 'images.bottle') 'Image codecs OK'
+        Invoke-Published 'native image codecs' @('run', 'images.wasm') 'Image codecs OK'
         $modules = @(Get-ChildItem -LiteralPath $source -Filter '*.aqua' -Recurse | Sort-Object FullName)
-        Invoke-Published 'compile' (@('build') + @($modules.FullName) + @('--root', $source, '--assets', $source, '--entry', 'main.aqua', '-o', 'app.bottle')) 'Compiled'
+        Invoke-Published 'compile' (@('build') + @($modules.FullName) + @('--root', $source, '--assets', $source, '--entry', 'main.aqua', '-o', 'app.wasm')) 'Compiled'
         $source = Assert-InDirectory $source $smoke
         Remove-Item -LiteralPath $source -Recurse -Force
-        Invoke-Published 'source-free run' @('run', 'app.bottle') '[40, 42, 封裝成功'
-        Invoke-Published 'source-free web export' @('build', 'app.bottle', '--target', 'web', '-o', 'web') 'Website built'
-        Invoke-Published 'standalone windows export' @('build', 'app.bottle', '--target', 'windows', '-o', 'standalone/app.exe') 'Executable built'
+        Invoke-Published 'source-free run' @('run', 'app.wasm') '[40, 42, 封裝成功'
+        Invoke-Published 'source-free web export' @('build', 'app.wasm', '--target', 'web', '-o', 'web') 'Website built'
+        Invoke-Published 'standalone windows export' @('build', 'app.wasm', '--target', 'windows', '-o', 'standalone/app.exe') 'Executable built'
         $standalone = Join-Path $smoke 'standalone/app.exe'
-        $bottleToRemove = Assert-InDirectory (Join-Path $smoke 'app.bottle') $smoke
-        Remove-Item -LiteralPath $bottleToRemove
+        $wasmToRemove = Assert-InDirectory (Join-Path $smoke 'app.wasm') $smoke
+        Remove-Item -LiteralPath $wasmToRemove
         Invoke-Published 'standalone windows execution' @() '[40, 42, 封裝成功' '' $standalone
         foreach ($file in @('index.html', 'program.json', 'vendor-jolt.wasm', 'vendor-jolt.mjs', 'vendor-jolt.LICENSE.txt', 'vendor-earcut.LICENSE.txt', 'vendor-gl-matrix.LICENSE.txt')) { Assert-File (Join-Path $smoke "web/$file") }
         $examples = Join-Path $package 'examples'
         $exampleSources = @(Get-ChildItem -LiteralPath $examples -Filter '*.aqua' -Recurse | Sort-Object FullName)
-        Invoke-Published 'compile examples' (@('build') + @($exampleSources.FullName) + @('--root', $examples, '--assets', $examples, '--entry', 'increment.aqua', '-o', 'examples.bottle')) 'Compiled'
-        Invoke-Published 'native Jolt' @('run', 'examples.bottle', '--entry', 'jolt_physics/main.rius') '真'
+        Invoke-Published 'compile examples' (@('build') + @($exampleSources.FullName) + @('--root', $examples, '--assets', $examples, '--entry', 'increment.aqua', '-o', 'examples.wasm')) 'Compiled'
+        Invoke-Published 'native Jolt' @('run', 'examples.wasm', '--entry', 'jolt_physics/main.aqua') '真'
         if ($VerifyGraphics) {
-            Invoke-Published 'native compute' @('run', 'examples.bottle', '--entry', 'wgpu_compute/main.rius') '真'
-            Invoke-Published 'native image' @('run', 'examples.bottle', '--entry', 'wgpu_triangle/main.rius') '真'
-            Invoke-Published 'native OpenGL' @('run', 'examples.bottle', '--entry', 'opengl_cube/main.rius') 'OpenGL error: 0' (Join-Path $reports 'opengl.ppm')
-            Invoke-Published 'Processing' @('run', 'examples.bottle', '--entry', 'processing_showcase/main.rius') '' (Join-Path $reports 'processing.png')
+            Invoke-Published 'native compute' @('run', 'examples.wasm', '--entry', 'wgpu_compute/main.aqua') '真'
+            Invoke-Published 'native image' @('run', 'examples.wasm', '--entry', 'wgpu_triangle/main.aqua') '真'
+            Invoke-Published 'native OpenGL' @('run', 'examples.wasm', '--entry', 'opengl_cube/main.aqua') 'OpenGL error: 0' (Join-Path $reports 'opengl.ppm')
+            Invoke-Published 'Processing' @('run', 'examples.wasm', '--entry', 'processing_showcase/main.aqua') '' (Join-Path $reports 'processing.png')
         }
     } finally {
         $checks | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath (Join-Path $reports 'published-cli.json') -Encoding utf8

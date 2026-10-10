@@ -1,7 +1,7 @@
 # Application libraries
 
 Core contracts, validation, ownership, document formats, editing and registration live
-in `AquariusLangVM/application`. Desktop adapters live in `AquariusDesktopVMREPL/application`;
+in `AquariusCore/application`. Desktop adapters live in `AquariusDesktop/application`;
 browser adapters live in `AquariusWebCompiler/browser/application-*.mjs`. Core's
 `portable.mjs` supplies shared browser behavior without DOM or storage dependencies.
 Adapters attach to existing GLFW windows/canvases. Rendering, shaping, presentation,
@@ -141,9 +141,9 @@ dialog; browser spool completion/cancellation cannot be confirmed. Accessibility
 semantic DOM mirror, while application drawing and interactions retain ownership.
 
 Associations accept `{extension:"aqd",applicationId:"MyApp",description:"My document",
-executable:"C:/path/AquariusDesktopVMREPL.exe",arguments:["C:/path/app.bottle","--documents"]}`.
+executable:"C:/path/AquariusDesktop.exe",arguments:["C:/path/app.wasm","--documents"]}`.
 Registration explicitly advertises a per-user Open With handler without overriding
-default-app choices. `app.bottle --documents file1 file2` supplies `LaunchFiles()`;
+default-app choices. `app.wasm --documents file1 file2` supplies `LaunchFiles()`;
 embedders can pass launch files to the desktop host/runner. Browser launch resources
 require an installed web app with file handlers and `launchQueue`. Static sites cannot
 register OS associations or enforce single-instance activation.
@@ -192,7 +192,7 @@ and bundled dependencies' notices ship in `licenses/MAGICK-NET-NOTICES.txt` alon
 `licenses/MAGICK-NET-LICENSE.txt`. ImageMagick WASM 0.0.44/fflate 0.8.3 licenses/notices
 ship with every website. Desktop codec operations serialize access to ImageMagick's
 process-wide resource limits, disallow disk caches and external delegates, and check
-cancellation before and after native operations. Run `dotnet test AquariusLangVMTesting` and
+cancellation before and after native operations. Run `dotnet test AquariusTests` and
 `npm test --prefix AquariusWebCompiler`. Tests cover corruption/expansion, codecs,
 alpha/metadata/pages, ownership, settings migration/cancellation and desktop-to-browser
 document/ZIP/compression/TIFF parity. Set `AQUARIUS_APPLICATION_NATIVE_TESTS=1` on Windows

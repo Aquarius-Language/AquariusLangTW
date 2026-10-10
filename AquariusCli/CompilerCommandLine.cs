@@ -1,16 +1,16 @@
 using AquariusLang.Object;
 using AquariusLang.Packaging;
-using AquariusLang.VM;
+using AquariusLang.Compiler;
 using AquariusLang.Build;
-using AquariusREPL.runtime;
+using AquariusLang.Desktop.runtime;
 
 namespace AquariusLang.Cli;
 
 public static class CompilerCommandLine {
-    public const string Usage = "aqua build main.aqua [more.aqua ...] [--root directory] [--assets path ...] [-o app.bottle]\n" +
-        "aqua build app.bottle --target web -o output-directory [--entry main.rius]\n" +
-        "aqua build app.bottle --target windows -o app.exe [--entry main.rius]\n" +
-        "aqua run app.bottle [--entry main.rius]\naqua repl\n" +
+    public const string Usage = "aqua build main.aqua [more.aqua ...] [--root directory] [--assets path ...] [-o app.wasm]\n" +
+        "aqua build app.wasm --target web -o output-directory [--entry main.aqua]\n" +
+        "aqua build app.wasm --target windows -o app.exe [--entry main.aqua]\n" +
+        "aqua run app.wasm [--entry main.aqua]\naqua repl\n" +
         "Exit codes: 0 success, 1 compilation/runtime/IO failure, 2 invalid command or options.";
     public static int Run(string[] args) {
         try {
@@ -34,25 +34,32 @@ public static class CompilerCommandLine {
             }
             string? Value(string name) => options.GetValueOrDefault(name);
             if (args[0] == "run") {
-                if (files.Count != 1 || options.Keys.Any(k => k != "--entry") || assets.Count != 0) throw new ArgumentException("run requires one bottle and an optional --entry.");
-                if (!files[0].EndsWith(".bottle", StringComparison.OrdinalIgnoreCase)) throw new ArgumentException("run requires a .bottle file.");
-                var result = ScriptRunner.RunBottle(files[0], Value("--entry"));
+                if (files.Count != 1 || options.Keys.Any(k => k != "--entry") || assets.Count != 0) throw new ArgumentException("run requires one wasm and an optional --entry.");
+                if (!files[0].EndsWith(".wasm", StringComparison.OrdinalIgnoreCase)) throw new ArgumentException("run requires a .wasm file.");
+                var result = ScriptRunner.RunWasm(files[0], Value("--entry"));
                 return result is ErrorObj ? 1 : 0;
             }
-            string target = Value("--target") ?? "bottle";
-            if (target != "bottle") {
+            string target = Value("--target") ?? "wasm";
+            if (target != "wasm") {
                 var backend = CompilerBuildTargets.Default.Resolve(target);
-                if (files.Count != 1 || !files[0].EndsWith(".bottle", StringComparison.OrdinalIgnoreCase) || Value("-o") == null ||
-                    Value("--root") != null || assets.Count != 0) throw new ArgumentException($"{target} builds require one .bottle input and -o output; resources come from the bottle.");
-                backend.Build(new BottleBuildRequest(files[0], Value("-o")!, Value("--entry")));
+                if (Value("-o") == null) throw new ArgumentException($"{target} builds require -o output.");
+                if (files.Count == 1 && files[0].EndsWith(".wasm", StringComparison.OrdinalIgnoreCase)) {
+                    if (Value("--root") != null || assets.Count != 0) throw new ArgumentException("Compiled inputs already contain modules and assets.");
+                    backend.Build(new WasmBuildRequest(files[0], Value("-o")!, Value("--entry")));
+                } else {
+                    if(files.Count==0 || files.Any(f=>!f.EndsWith(".aqua",StringComparison.OrdinalIgnoreCase))) throw new ArgumentException("Provide .aqua sources or one .wasm application.");
+                    string temporary=Path.Combine(Path.GetTempPath(),"aquarius-build-"+Guid.NewGuid().ToString("N")+".wasm");
+                    try { WasmApplication.Compile(files,temporary,Value("--root"),assets,Value("--entry")); backend.Build(new WasmBuildRequest(temporary,Value("-o")!,Value("--entry"))); }
+                    finally { if(File.Exists(temporary)) File.Delete(temporary); }
+                }
                 Console.WriteLine($"{backend.ArtifactDescription} built: {Path.GetFullPath(Value("-o")!)}"); return 0;
             }
-            if (files.Count == 0 || files.Any(p => !p.EndsWith(".aqua", StringComparison.OrdinalIgnoreCase))) throw new ArgumentException("Bottle builds require .aqua source files.");
-            string output = Value("-o") ?? Path.GetFileNameWithoutExtension(files[0]) + ".bottle";
-            BottlePackage.Compile(files, output, Value("--root"), assets, Value("--entry"));
+            if (files.Count == 0 || files.Any(p => !p.EndsWith(".aqua", StringComparison.OrdinalIgnoreCase))) throw new ArgumentException("Wasm builds require .aqua source files.");
+            string output = Value("-o") ?? Path.GetFileNameWithoutExtension(files[0]) + ".wasm";
+            WasmApplication.Compile(files, output, Value("--root"), assets, Value("--entry"));
             Console.WriteLine($"Compiled {files.Count} script(s) to {Path.GetFullPath(output)}"); return 0;
         } catch (ArgumentException error) { Console.Error.WriteLine(error.Message + "\n" + Usage); return 2; }
-        catch (Exception error) when (error is IOException or InvalidDataException or UnauthorizedAccessException or VmCompilationException or NotSupportedException or OverflowException) {
+        catch (Exception error) when (error is IOException or InvalidDataException or UnauthorizedAccessException or CompilationException or NotSupportedException or OverflowException) {
             Console.Error.WriteLine(error.Message); return 1;
         }
     }

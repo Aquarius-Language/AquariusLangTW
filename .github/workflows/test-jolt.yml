@@ -16,14 +16,21 @@ jobs:
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '8.0.x'
-      - name: Numerical unit tests and source/bottle CLI smoke tests
-        run: dotnet test AquariusLangVMTesting -c Release --filter FullyQualifiedName~Jolt --logger "trx;LogFileName=jolt.trx"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Prepare shared Jolt WASM
+        run: |
+          npm ci --prefix AquariusWebCompiler
+          npm run --prefix AquariusWebCompiler prepare:browser
+      - name: Numerical unit tests and source/wasm CLI smoke tests
+        run: dotnet test AquariusTests -c Release --filter FullyQualifiedName~Jolt --logger "trx;LogFileName=jolt.trx"
       - name: Publish desktop host and native assets
-        run: dotnet publish AquariusDesktopVMREPL -c Release -o jolt-publish -p:PublishSingleFile=false -p:PublishTrimmed=false
+        run: dotnet publish AquariusDesktop -c Release -o jolt-publish -p:PublishSingleFile=false -p:PublishTrimmed=false
       - name: Smoke test published application
-        run: dotnet jolt-publish/AquariusDesktopVMREPL.dll jolt-publish/examples/jolt_physics/main.aqua
+        run: dotnet jolt-publish/AquariusDesktop.dll jolt-publish/examples/jolt_physics/main.aqua
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: jolt-tests-${{ matrix.os }}
-          path: AquariusLangVMTesting/TestResults/*.trx
+          path: AquariusTests/TestResults/*.trx
