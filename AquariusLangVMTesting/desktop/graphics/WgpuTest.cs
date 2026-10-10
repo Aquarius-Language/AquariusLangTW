@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Numerics;
+using System.Runtime.InteropServices;
 using AquariusLang.Graphics;
 using System.Text;
 using AquariusLang.Object;
@@ -25,6 +26,31 @@ public sealed class WgpuTheoryAttribute : TheoryAttribute {
 }
 
 public class WgpuTest {
+    [Fact] public void ProcessingUniformsPreserveMatrixLayoutAndIndependentSnapshots() {
+        using var runtime = new GraphicsRuntime();
+        var canvas = new ProcessingCanvas(runtime, 640, 480, true) {
+            Model = Matrix4x4.CreateScale(2, 3, 4) * Matrix4x4.CreateTranslation(5, 6, 7),
+            View = Matrix4x4.CreateTranslation(8, 9, 10),
+            Projection = Matrix4x4.CreatePerspectiveFieldOfView(.7f, 1.5f, .1f, 100)
+        };
+        var first = WgpuShaders.Uniforms(canvas, false, false, false);
+        Assert.Equal(WgpuShaderAbi.UniformBytes / sizeof(float), first.Length);
+        var matrices = MemoryMarshal.Cast<float, Matrix4x4>(first.AsSpan(0, 64));
+        Assert.Equal(canvas.Model, matrices[0]);
+        Assert.Equal(canvas.View, matrices[1]);
+        Assert.Equal(canvas.Projection, matrices[2]);
+        Assert.True(Matrix4x4.Invert(canvas.Model * canvas.View, out var inverse));
+        Assert.Equal(Matrix4x4.Transpose(inverse), matrices[3]);
+
+        var originalModel = canvas.Model;
+        canvas.Model = Matrix4x4.Identity;
+        var second = WgpuShaders.Uniforms(canvas, true, true, false);
+        Assert.Equal(originalModel, MemoryMarshal.Cast<float, Matrix4x4>(first.AsSpan(0, 16))[0]);
+        Assert.Equal(Matrix4x4.Identity, MemoryMarshal.Cast<float, Matrix4x4>(second.AsSpan(0, 16))[0]);
+        Assert.Equal(0f, first[64]); Assert.Equal(1f, second[64]);
+        Assert.Equal(0f, first[66]); Assert.Equal(1f, second[66]);
+    }
+
     [Fact] public void ModulesImportWithoutInitializingGpuAndKeepOpenGl() {
         using var runtime=new GraphicsRuntime();
         foreach(string name in new[]{"WGPU","wgpu","Processing","GL","GLAD","GLFW","GLM","STBImage"})Assert.True(runtime.TryImport(name,out _));

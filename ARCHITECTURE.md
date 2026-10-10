@@ -7,7 +7,12 @@ flowchart TD
     Bytecode --> Bottle[AquariusPackaging: bottle modules and assets]
     Cli[AquariusCli: aqua] --> Compiler
     Cli --> Desktop[Desktop VirtualMachine]
-    Cli --> WebCompiler[AquariusWebCompiler]
+    Cli --> Targets[AquariusBuild: target registry]
+    Targets --> WebCompiler[AquariusWebCompiler]
+    Targets --> Windows[Self-contained executable backend]
+    Bottle --> Windows
+    Windows --> App[AquariusAppHost + runtime pack + bottle overlay]
+    App --> Desktop
     Bottle --> Desktop
     Bottle --> WebCompiler
     WebCompiler --> Browser[Browser stack VM]
@@ -26,6 +31,15 @@ modules and assets into a portable bottle; `run` loads that bottle on the deskto
 browser without parsing or executing sources. Existing desktop and web entry
 points remain compatible. The legacy source-based web command first constructs
 a bottle through the shared packaging pipeline.
+
+`AquariusBuild` registers platform backends behind `IBottleBuildTarget`. Both
+web and Windows export use this interface; new platforms add a backend without
+changing CLI parsing. `--target windows -o app.exe` combines a validated bottle
+with a prepublished self-contained Windows x64 runtime. `AquariusAppHost` reads
+the versioned, checksummed overlay from its own executable and runs it through
+the existing desktop VM. The compiler and generated app require no installed
+SDK/runtime. Runtime pack creation belongs to release tooling, where the SDK
+bundles desktop dependencies and licenses. See [platform builds](AquariusBuild/README.md).
 
 `AquariusPackaging` depends only on core. New version 2 manifests declare modules,
 assets, the default entry and the RIUS version; version 1 bottles remain readable.

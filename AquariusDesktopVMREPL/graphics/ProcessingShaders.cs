@@ -18,8 +18,8 @@ internal sealed partial class GraphicsRuntime {
         var env=AquaEnvironment.NewEnvironment();var module=new ModuleObj(env);processingShaders.Add(module,program);
         PAction(env,"set",2,5,a=> {
             RequireSketch();if(program.Disposed)throw new ArgumentException("Shader is disposed.");
-            var values=a.Length==2&&a[1] is ArrayObj array?array.Elements:a.Skip(1).ToArray();
-            program.Uniforms.Set(Text(a[0]),values.Select(F).ToArray());
+            var values=a.Length==2&&a[1] is ArrayObj array?array.Elements.AsSpan():a[1..];
+            program.Uniforms.Set(Text(a[0]),ProcessingFloats(values));
         });
         PAction(env,"setInt",2,2,a=> {
             RequireSketch();if(program.Disposed)throw new ArgumentException("Shader is disposed.");program.Uniforms.Set(Text(a[0]),new float[1],true,Int(a[1]));

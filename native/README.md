@@ -1,5 +1,9 @@
 # Aquarius desktop graphics
 
+Windows builds link the bridge and GLFW against the static MSVC C runtime.
+Standalone application publishing bundles wgpu-native's release VC runtime
+DLLs separately, so recipients do not need a Visual C++ redistributable installer.
+
 The desktop VM host supports a complete **OpenGL 3.3 core** function surface:
 344 entry points and the constants from the vendored GLAD header. This includes
 VAO/VBO/EBOs, GLSL, uniforms, textures, samplers, depth/stencil/blending, FBOs,

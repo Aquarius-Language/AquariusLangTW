@@ -6,11 +6,11 @@ namespace AquariusREPL.Graphics;
 
 internal sealed partial class GraphicsRuntime {
     private void RegisterCanvas(AquaEnvironment env,ProcessingCanvas c) {
-        void Action(string name,int min,int max,Action<IObject[]> fn)=>PAction(env,name,min,max,a=> {if(c.Disposed)throw new InvalidOperationException("Canvas is disposed.");fn(a);});
-        void Draw(string name,int min,int max,Action<IObject[]> fn)=>Action(name,min,max,a=> {RequireSketch();c.RequireDrawing();fn(a);});
-        void Transform(string name,int min,int max,Action<IObject[]> fn)=>Action(name,min,max,a=>{if(c.ShapeMode!=-1)throw new InvalidOperationException("Transforms are not allowed between beginShape() and endShape().");fn(a);});
-        void Result(string name,int min,int max,Func<IObject[],IObject> fn)=>PBind(env,name,min,max,fn);
-        Vector3 Point(IObject[] a,int i,int dimensions=2)=>new(F(a[i]),F(a[i+1]),dimensions==3?F(a[i+2]):0);
+        void Action(string name,int min,int max,ProcessingAction fn)=>PAction(env,name,min,max,a=> {if(c.Disposed)throw new InvalidOperationException("Canvas is disposed.");fn(a);});
+        void Draw(string name,int min,int max,ProcessingAction fn)=>Action(name,min,max,a=> {RequireSketch();c.RequireDrawing();fn(a);});
+        void Transform(string name,int min,int max,ProcessingAction fn)=>Action(name,min,max,a=>{if(c.ShapeMode!=-1)throw new InvalidOperationException("Transforms are not allowed between beginShape() and endShape().");fn(a);});
+        void Result(string name,int min,int max,BorrowedBuiltinFunction fn)=>PBind(env,name,min,max,fn);
+        Vector3 Point(ReadOnlySpan<IObject> a,int i,int dimensions=2)=>new(F(a[i]),F(a[i+1]),dimensions==3?F(a[i+2]):0);
         Action("colorMode",1,5,a=> {
             if(a.Length==3)throw new ArgumentException("Use mode[,max] or mode,max1,max2,max3[,maxAlpha].");
             c.Style.ColorMode=Choice(a[0],0,1);
@@ -53,7 +53,7 @@ internal sealed partial class GraphicsRuntime {
         Action("bezierDetail",1,1,a=>c.Detail=Detail(a[0]));Action("curveDetail",1,1,a=>c.Detail=Detail(a[0]));Action("curveTightness",1,1,a=>c.Tightness=F(a[0]));
         foreach(string curve in new[]{"bezier","curve"}) {
             string name=curve;Draw(name,8,12,a=> {if(a.Length!=8&&a.Length!=12)throw new ArgumentException("Use 8 (2D) or 12 (3D) coordinates.");
-                int d=a.Length/4;var p=Enumerable.Range(0,4).Select(i=>Point(a,i*d,d)).ToArray();var pts=new List<Vector3>();
+                int d=a.Length/4;var p=new Vector3[4];for(int j=0;j<p.Length;j++)p[j]=Point(a,j*d,d);var pts=new List<Vector3>();
                 for(int i=0;i<=c.Detail;i++) {float t=(float)i/c.Detail;float Component(float x,float y,float z,float w)=>name=="bezier"?ProcessingGeometry.Bezier(x,y,z,w,t):ProcessingGeometry.Curve(x,y,z,w,t,c.Tightness);
                     pts.Add(new(Component(p[0].X,p[1].X,p[2].X,p[3].X),Component(p[0].Y,p[1].Y,p[2].Y,p[3].Y),Component(p[0].Z,p[1].Z,p[2].Z,p[3].Z)));}
                 c.Polyline(pts);
@@ -83,7 +83,7 @@ internal sealed partial class GraphicsRuntime {
         Draw("lights",0,0,_=> {c.Style.Lit=true;c.Style.Ambient=new(.5f);c.Style.Lights.Clear();c.Style.Lights.Add(new(0,new(.5f),Vector3.Zero,new(0,0,-1),new(1,0,0),Vector3.Zero,0,0));});
         Action("noLights",0,0,_=> {c.Style.Lit=false;c.Style.Lights.Clear();c.Style.Ambient=Vector3.Zero;});
         Action("ambientLight",3,3,a=> {var color=Color(c.Style,a);if(!c.Style.Lit)c.Style.Ambient=Vector3.Zero;c.Style.Ambient+=new Vector3(color.X,color.Y,color.Z);c.Style.Lit=true;});
-        void AddLight(IObject[] a,int kind) {if(c.Style.Lights.Count==8)throw new ArgumentException("A canvas supports at most eight directional, point, or spot lights.");var color=Color(c.Style,a.Take(3).ToArray());
+        void AddLight(ReadOnlySpan<IObject> a,int kind) {if(c.Style.Lights.Count==8)throw new ArgumentException("A canvas supports at most eight directional, point, or spot lights.");var color=Color(c.Style,a[..3]);
             var position=kind==0?Vector3.Zero:Vector3.Transform(Point(a,3,3),c.Model);var direction=kind==0?Normalized(Vector3.TransformNormal(Point(a,3,3),c.Model)):kind==2?Normalized(Vector3.TransformNormal(Point(a,6,3),c.Model)):Vector3.UnitZ;
             if(!c.Style.Lit)c.Style.Ambient=Vector3.Zero;c.Style.Lit=true;c.Style.Lights.Add(new(kind,new(color.X,color.Y,color.Z),position,direction,c.Style.Falloff,c.Style.LightSpecular,kind==2?MathF.Cos(F(a[9])):0,kind==2?Positive(a[10]):0));}
         Action("directionalLight",6,6,a=>AddLight(a,0));Action("pointLight",6,6,a=>AddLight(a,1));Action("spotLight",11,11,a=>AddLight(a,2));
@@ -106,8 +106,8 @@ internal sealed partial class GraphicsRuntime {
         Action("normal",3,3,a=>c.Normal=Normalized(Point(a,0,3)));
         Action("texture",1,1,a=> {if(c.ShapeMode==-1)throw new InvalidOperationException("texture() belongs inside beginShape().");c.Texture=ImageObject(a[0]);});
         Action("textureMode",1,1,a=>c.TextureMode=Choice(a[0],0,1));
-        Action("bezierVertex",6,9,a=>c.BezierVertex(a.Select(F).ToArray()));
-        Action("quadraticVertex",4,6,a=>c.QuadraticVertex(a.Select(F).ToArray()));
+        Action("bezierVertex",6,9,a=>c.BezierVertex(ProcessingFloats(a)));
+        Action("quadraticVertex",4,6,a=>c.QuadraticVertex(ProcessingFloats(a)));
         Action("curveVertex",2,3,a=> {if(c.ShapeMode!=9)throw new InvalidOperationException("curveVertex() belongs in a polygon.");c.CurveVertices.Add(Point(a,0,a.Length));if(c.CurveVertices.Count>=4){var p=c.CurveVertices.TakeLast(4).ToArray();for(int i=c.CurveVertices.Count==4?0:1;i<=c.Detail;i++){float t=(float)i/c.Detail;c.ActiveVertices.Add(c.V(new(ProcessingGeometry.Curve(p[0].X,p[1].X,p[2].X,p[3].X,t,c.Tightness),ProcessingGeometry.Curve(p[0].Y,p[1].Y,p[2].Y,p[3].Y,t,c.Tightness),ProcessingGeometry.Curve(p[0].Z,p[1].Z,p[2].Z,p[3].Z,t,c.Tightness)),c.Style.Fill));}}});
         Action("endShape",0,1,a=> {if(c.ShapeMode==-1||c.InContour)throw new InvalidOperationException("Finish any contour and call beginShape() first.");c.EndShape(a.Length==1&&Choice(a[0],0,1)==1);});
         Draw("image",3,5,a=> {if(a.Length!=3&&a.Length!=5)throw new ArgumentException("image() takes image,x,y[,width,height].");c.Image(ImageObject(a[0]),F(a[1]),F(a[2]),a.Length==5?F(a[3]):null,a.Length==5?F(a[4]):null);});

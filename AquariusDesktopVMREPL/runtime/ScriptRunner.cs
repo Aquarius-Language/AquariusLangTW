@@ -80,6 +80,11 @@ public class ScriptRunner {
     /// <summary>Load .rius instructions from a bottle and execute its default or selected entry point.</summary>
     public static IObject RunBottle(string fileName, string? entryPoint = null, IEnumerable<string>? launchFiles = null) {
         var package = BottlePackage.Load(fileName);
+        return RunPackage(package, fileName, entryPoint, launchFiles);
+    }
+
+    /// <summary>Run a validated package using the artifact's location as its virtual module root.</summary>
+    public static IObject RunPackage(BottlePackage package, string fileName, string? entryPoint = null, IEnumerable<string>? launchFiles = null) {
         using var runtime = new BottleRuntime(package, fileName, launchFiles);
         IObject result;
         try { result = runtime.Execute(package.ResolveScript(entryPoint ?? package.EntryPoint)); }

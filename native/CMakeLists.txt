@@ -1,4 +1,7 @@
 cmake_minimum_required(VERSION 3.20)
+# Link the CRT into our bridge and GLFW so standalone apps need no VC++ redistributable.
+set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+set(USE_MSVC_RUNTIME_LIBRARY_DLL OFF CACHE BOOL "Use MSVC runtime library DLL" FORCE)
 project(aquarius_graphics LANGUAGES C)
 if(POLICY CMP0135)
     cmake_policy(SET CMP0135 NEW)

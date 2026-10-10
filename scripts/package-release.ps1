@@ -143,11 +143,14 @@ try {
     Invoke-Checked 'npm.cmd' @('test', '--prefix', 'AquariusWebCompiler')
 
     Write-Host '[5/8] Publishing the self-contained compiler...'
+    & (Join-Path $PSScriptRoot 'publish-apphost.ps1') -Dotnet $dotnetPath
     Invoke-Checked $dotnetPath @('publish', 'AquariusCli/AquariusCli.csproj', '-c', 'Release', '-f', 'net8.0', '-r', 'win-x64', '--self-contained', 'true', '-p:UseAppHost=true', '-p:PublishSingleFile=false', '-p:PublishTrimmed=false', '-p:DebugType=None', '-p:DebugSymbols=false', '-o', $package)
     foreach ($file in @('aqua.exe', 'aqua.dll', 'aqua.runtimeconfig.json', 'coreclr.dll', 'hostfxr.dll', 'hostpolicy.dll', 'wgpu_native.dll', 'joltc.dll', 'joltc_double.dll', 'Magick.NET.Core.dll', 'Magick.NET-Q8-AnyCPU.dll', 'Magick.Native-Q8-x64.dll', 'runtimes/win-x64/native/aquarius_graphics.dll', 'examples/increment.aqua', 'licenses/WGPU-NOTICES.md', 'licenses/JOLT-NOTICES.md', 'licenses/MAGICK-NET-LICENSE.txt', 'licenses/MAGICK-NET-NOTICES.txt')) {
         Assert-File (Join-Path $package $file)
     }
     Copy-Item -LiteralPath (Join-Path $repository 'LICENSE') -Destination $package
+    Assert-File (Join-Path $package 'build-targets/win-x64/host.exe')
+    Assert-File (Join-Path $package 'build-targets/win-x64/runtime.json')
     # Include the .NET distribution notices alongside the bundled runtime.
     $dotnetDirectory = [IO.Path]::GetDirectoryName($dotnetPath)
     Copy-Item -LiteralPath (Join-Path $dotnetDirectory 'LICENSE.txt') -Destination (Join-Path $package 'licenses/DOTNET-LICENSE.txt')
@@ -162,6 +165,7 @@ try {
 .\aqua.exe build .\examples\increment.aqua -o app.bottle
 .\aqua.exe run .\app.bottle
 .\aqua.exe build .\app.bottle --target web -o web
+.\aqua.exe build .\app.bottle --target windows -o app.exe
 .\aqua.exe repl
 ```
 
@@ -186,8 +190,9 @@ try {
     $source = Join-Path $smoke 'source'
     Copy-Item -LiteralPath (Join-Path $repository 'AquariusWebCompiler/tests/fixtures/portable') -Destination $source -Recurse
     $checks = [Collections.Generic.List[object]]::new()
-    function Invoke-Published([string]$name, [string[]]$arguments, [string]$expected = '', [string]$capture = '') {
-        $start = [Diagnostics.ProcessStartInfo]::new((Join-Path $package 'aqua.exe'))
+    function Invoke-Published([string]$name, [string[]]$arguments, [string]$expected = '', [string]$capture = '', [string]$program = '') {
+        if (-not $program) { $program = Join-Path $package 'aqua.exe' }
+        $start = [Diagnostics.ProcessStartInfo]::new($program)
         $start.WorkingDirectory = $smoke
         $start.UseShellExecute = $false
         $start.CreateNoWindow = $true
@@ -244,6 +249,11 @@ try {
         Remove-Item -LiteralPath $source -Recurse -Force
         Invoke-Published 'source-free run' @('run', 'app.bottle') '[40, 42, 封裝成功'
         Invoke-Published 'source-free web export' @('build', 'app.bottle', '--target', 'web', '-o', 'web') 'Website built'
+        Invoke-Published 'standalone windows export' @('build', 'app.bottle', '--target', 'windows', '-o', 'standalone/app.exe') 'Executable built'
+        $standalone = Join-Path $smoke 'standalone/app.exe'
+        $bottleToRemove = Assert-InDirectory (Join-Path $smoke 'app.bottle') $smoke
+        Remove-Item -LiteralPath $bottleToRemove
+        Invoke-Published 'standalone windows execution' @() '[40, 42, 封裝成功' '' $standalone
         foreach ($file in @('index.html', 'program.json', 'vendor-jolt.wasm', 'vendor-jolt.mjs', 'vendor-jolt.LICENSE.txt', 'vendor-earcut.LICENSE.txt', 'vendor-gl-matrix.LICENSE.txt')) { Assert-File (Join-Path $smoke "web/$file") }
         $examples = Join-Path $package 'examples'
         $exampleSources = @(Get-ChildItem -LiteralPath $examples -Filter '*.aqua' -Recurse | Sort-Object FullName)

@@ -16,13 +16,13 @@ internal sealed partial class GraphicsRuntime {
         foreach(var pair in unary) {var f=pair.Value;bool integerResult=pair.Key is "floor" or "ceil" or "round";PBind(env,pair.Key,1,1,a=> {double n=f(Number(a[0]));if(!double.IsFinite(n))throw new ArgumentException("Arguments are outside the function's domain.");return integerResult?new IntegerObj(checked((int)n)):new DoubleObj(n);});}
         PBind(env,"pow",2,2,a=> {double n=Math.Pow(Number(a[0]),Number(a[1]));if(!double.IsFinite(n))throw new ArgumentException("Invalid power.");return new DoubleObj(n);});
         PBind(env,"atan2",2,2,a=>new DoubleObj(Math.Atan2(Number(a[0]),Number(a[1]))));
-        foreach(string name in new[]{"min","max"}) {string operation=name;PBind(env,name,1,64,a=> {var values=(a.Length==1&&a[0] is ArrayObj array?array.Elements:a).Select(Number).ToArray();if(values.Length==0)throw new ArgumentException("Expected nonempty numbers.");return new DoubleObj(operation=="min"?values.Min():values.Max());});}
+        foreach(string name in new[]{"min","max"}) {string operation=name;PBind(env,name,1,64,a=> {var values=a.Length==1&&a[0] is ArrayObj array?array.Elements.AsSpan():a;if(values.Length==0)throw new ArgumentException("Expected nonempty numbers.");double result=Number(values[0]);for(int i=1;i<values.Length;i++){double value=Number(values[i]);if(operation=="min"?value<result:value>result)result=value;}return new DoubleObj(result);});}
         PBind(env,"constrain",3,3,a=> {double lo=Number(a[1]),hi=Number(a[2]);if(lo>hi)throw new ArgumentException("Minimum exceeds maximum.");return new DoubleObj(Math.Clamp(Number(a[0]),lo,hi));});
         PBind(env,"lerp",3,3,a=>new DoubleObj(Number(a[0])+(Number(a[1])-Number(a[0]))*Number(a[2])));
         PBind(env,"norm",3,3,a=> {double d=Number(a[2])-Number(a[1]);if(d==0)throw new ArgumentException("Input range is zero.");return new DoubleObj((Number(a[0])-Number(a[1]))/d);});
         PBind(env,"map",5,5,a=> {double d=Number(a[2])-Number(a[1]);if(d==0)throw new ArgumentException("Input range is zero.");return new DoubleObj(Number(a[3])+(Number(a[0])-Number(a[1]))/d*(Number(a[4])-Number(a[3])));});
         PBind(env,"dist",4,6,a=> {if(a.Length is not (4 or 6))throw new ArgumentException("Expected 4 or 6 coordinates.");int d=a.Length/2;double sum=0;for(int i=0;i<d;i++)sum+=Math.Pow(Number(a[i])-Number(a[i+d]),2);return new DoubleObj(Math.Sqrt(sum));});
-        PBind(env,"mag",2,3,a=>new DoubleObj(Math.Sqrt(a.Sum(v=>Math.Pow(Number(v),2)))));
+        PBind(env,"mag",2,3,a=>{double sum=0;for(int i=0;i<a.Length;i++)sum+=Math.Pow(Number(a[i]),2);return new DoubleObj(Math.Sqrt(sum));});
         PAction(env,"randomSeed",1,1,a=>processingRandom=new Random(Int(a[0])));
         PBind(env,"random",1,2,a=> {if(a.Length==1&&a[0] is ArrayObj arr){if(arr.Elements.Length==0)throw new ArgumentException("Cannot select from an empty array.");return arr.Elements[processingRandom.Next(arr.Elements.Length)];}
             double lo=a.Length==2?Number(a[0]):0,hi=Number(a[^1]);if(lo>hi)throw new ArgumentException("Minimum exceeds maximum.");return new DoubleObj(lo+processingRandom.NextDouble()*(hi-lo));});
@@ -40,7 +40,7 @@ internal sealed partial class GraphicsRuntime {
     private ModuleObj CreateVector(Vector3 vector) {
         var env=AquaEnvironment.NewEnvironment();var module=new ModuleObj(env);
         void Update(){env.Create("x",new FloatObj(vector.X));env.Create("y",new FloatObj(vector.Y));env.Create("z",new FloatObj(vector.Z));}
-        void Mutate(string name,int min,int max,Func<IObject[],Vector3> fn)=>PBind(env,name,min,max,a=>{vector=fn(a);Update();return module;});
+        void Mutate(string name,int min,int max,VectorMutation fn)=>PBind(env,name,min,max,a=>{vector=fn(a);Update();return module;});
         Update();
         Mutate("set",2,3,a=>new(F(a[0]),F(a[1]),a.Length==3?F(a[2]):0));
         Mutate("add",1,1,a=>vector+ReadVector(a[0]));Mutate("sub",1,1,a=>vector-ReadVector(a[0]));Mutate("mult",1,1,a=>vector*F(a[0]));

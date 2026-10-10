@@ -19,7 +19,8 @@ public static class RgbaImageEncoding {
     }
     private static void Chunk(Stream output, string name, byte[] bytes) {
         Span<byte> size = stackalloc byte[4]; BinaryPrimitives.WriteInt32BigEndian(size, bytes.Length); output.Write(size); var type = Encoding.ASCII.GetBytes(name); output.Write(type); output.Write(bytes);
-        var content = new byte[4 + bytes.Length]; type.CopyTo(content, 0); bytes.CopyTo(content, 4); BinaryPrimitives.WriteUInt32BigEndian(size, DocumentSerialization.Crc32(content)); output.Write(size);
+        uint crc = DocumentSerialization.UpdateCrc32(uint.MaxValue, type);
+        BinaryPrimitives.WriteUInt32BigEndian(size, ~DocumentSerialization.UpdateCrc32(crc, bytes)); output.Write(size);
     }
     public static byte[] Tiff(PixelImage image, ImageEncodingOptions? options = null) {
         options ??= new(); var pixels = options.Prepare(image, ImageFormat.Tiff); byte[] encoded;

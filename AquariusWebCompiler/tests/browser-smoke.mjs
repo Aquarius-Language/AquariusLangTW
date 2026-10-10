@@ -3,7 +3,7 @@ import {createServer} from 'node:http';
 import {readFile,writeFile,mkdir} from 'node:fs/promises';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
-const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'../..'),build=path.join(root,'.web-build'),results=[];
+const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'../..'),build=path.resolve(process.env.AQUARIUS_WEB_BUILD_ROOT??path.join(root,'.web-build')),results=[];
 const mime={'.html':'text/html','.mjs':'text/javascript','.js':'text/javascript','.json':'application/json','.wasm':'application/wasm'};
 const server=createServer(async(req,res)=>{try{const requested=decodeURIComponent(new URL(req.url,'http://localhost').pathname),file=path.resolve(build,'.'+requested+(requested.endsWith('/')?'index.html':''));if(!file.startsWith(build+path.sep))throw new Error('Outside build');res.setHeader('Content-Type',mime[path.extname(file)]??'application/octet-stream');res.end(await readFile(file));}catch(e){res.statusCode=404;res.end(e.message);}});
 await new Promise(r=>server.listen(0,'127.0.0.1',r));const port=server.address().port;

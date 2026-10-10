@@ -13,6 +13,17 @@ namespace AquariusLang.Application;
 
 /// <summary>JSON values: null, Boolean, finite numbers, strings, arrays and string-keyed objects. No type activation.</summary>
 public static class DocumentSerialization {
+    private static readonly uint[] Crc32Table = CreateCrc32Table();
+
+    private static uint[] CreateCrc32Table() {
+        var table = new uint[256];
+        for (uint i = 0; i < table.Length; i++) {
+            uint crc = i;
+            for (int bit = 0; bit < 8; bit++) crc = crc >> 1 ^ ((crc & 1) != 0 ? 0xEDB88320u : 0);
+            table[i] = crc;
+        }
+        return table;
+    }
     public static byte[] Json(object? value, ApplicationLimits? limits = null) {
         limits ??= new();
         var bytes = JsonSerializer.SerializeToUtf8Bytes(value, new JsonSerializerOptions { MaxDepth = limits.MaxDepth });
@@ -46,12 +57,24 @@ public static class DocumentSerialization {
             throw new ApplicationFailure(FailureKind.InvalidData, "Invalid document length, schema or checksum.");
         return (schema, Parse(data[16..], limits));
     }
-    public static uint Crc32(ReadOnlySpan<byte> bytes) {
-        uint crc = uint.MaxValue;
-        foreach (byte b in bytes) { crc ^= b; for (int bit = 0; bit < 8; bit++) crc = crc >> 1 ^ ((crc & 1) != 0 ? 0xEDB88320u : 0); }
-        return ~crc;
+    public static uint Crc32(ReadOnlySpan<byte> bytes) => ~UpdateCrc32(uint.MaxValue, bytes);
+
+    // Raw state: callers invert only after the final segment.
+    internal static uint UpdateCrc32(uint crc, ReadOnlySpan<byte> bytes) {
+        foreach (byte value in bytes) crc = crc >> 8 ^ Crc32Table[(crc ^ value) & 255];
+        return crc;
     }
-    public static uint Adler32(ReadOnlySpan<byte> bytes) { uint a = 1, b = 0; foreach (byte value in bytes) { a = (a + value) % 65521; b = (b + a) % 65521; } return b << 16 | a; }
+    public static uint Adler32(ReadOnlySpan<byte> bytes) {
+        uint a = 1, b = 0;
+        while (!bytes.IsEmpty) {
+            // 5,552 bytes bounds both uint accumulators even for all-255 input.
+            int length = Math.Min(bytes.Length, 5552);
+            foreach (byte value in bytes[..length]) { a += value; b += a; }
+            a %= 65521; b %= 65521;
+            bytes = bytes[length..];
+        }
+        return b << 16 | a;
+    }
 }
 public enum CompressionFormat { Gzip, Zlib, Deflate, Brotli }
 public static class DocumentCompression {

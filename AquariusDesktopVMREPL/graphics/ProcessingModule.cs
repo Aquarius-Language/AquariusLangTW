@@ -24,8 +24,10 @@ internal sealed partial class GraphicsRuntime {
     private double previousX,previousY;
     private bool rebindingCanvas;
 
-    private void PBind(AquaEnvironment env,string name,int min,int max,Func<IObject[],IObject> fn) {
-        var function = new BuiltinObj(a=> {
+    private delegate void ProcessingAction(ReadOnlySpan<IObject> args);
+    private delegate Vector3 VectorMutation(ReadOnlySpan<IObject> args);
+    private void PBind(AquaEnvironment env,string name,int min,int max,BorrowedBuiltinFunction fn) {
+        var function = BuiltinObj.FromBorrowed(a=> {
             try {
                 if(disposed) throw new InvalidOperationException("Graphics runtime has been disposed.");
                 if(a.Length<min||a.Length>max) throw new ArgumentException($"Expected {min}..{max} arguments, got {a.Length}.");
@@ -38,11 +40,14 @@ internal sealed partial class GraphicsRuntime {
             FunctionRegistration.Replace(env, function, LibraryCatalog.TraditionalChinese(name), name);
         else FunctionRegistration.Define(env, function, LibraryCatalog.TraditionalChinese(name), name);
     }
-    private void PAction(AquaEnvironment env,string name,int min,int max,Action<IObject[]> fn) => PBind(env,name,min,max,a=>{fn(a);return Null();});
+    private void PAction(AquaEnvironment env,string name,int min,int max,ProcessingAction fn) => PBind(env,name,min,max,a=>{fn(a);return Null();});
     private static float F(IObject v) { float f=(float)Number(v); if(!float.IsFinite(f))throw new ArgumentException("Number exceeds float range.");return f; }
+    private static float[] ProcessingFloats(ReadOnlySpan<IObject> args) {
+        var result=new float[args.Length];for(int i=0;i<result.Length;i++)result[i]=F(args[i]);return result;
+    }
     private static uint Packed(IObject v) { double n=Integral(v); if(n<0||n>uint.MaxValue)throw new ArgumentException("Expected an ARGB color in 0..4294967295.");return (uint)n; }
     private static int Choice(IObject v,params int[] options) { int n=Int(v); if(!options.Contains(n))throw new ArgumentException("Invalid mode constant.");return n; }
-    private Vector4 Color(ProcessingStyle style,IObject[] a) {
+    private Vector4 Color(ProcessingStyle style,ReadOnlySpan<IObject> a) {
         if(a.Length<1||a.Length>4)throw new ArgumentException("Expected grayscale[,alpha], RGB/HSB[,alpha], or packed color.");
         float alpha=a.Length is 2 or 4?F(a[^1])/style.ColorMax.W:1;
         if(a.Length<=2) {

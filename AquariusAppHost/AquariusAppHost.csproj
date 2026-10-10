@@ -1,0 +1,32 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <AssemblyName>AquariusAppHost</AssemblyName>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <PublishSingleFile Condition="'$(RuntimeIdentifier)' != ''">true</PublishSingleFile>
+    <SelfContained Condition="'$(RuntimeIdentifier)' != ''">true</SelfContained>
+    <PublishTrimmed>false</PublishTrimmed>
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+    <IncludeAllContentForSelfExtract>true</IncludeAllContentForSelfExtract>
+    <DebugType>None</DebugType>
+    <DebugSymbols>false</DebugSymbols>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../AquariusDesktopVMREPL/AquariusDesktopVMREPL.csproj" />
+    <Content Include="../LICENSE" Link="licenses/AQUARIUS-LICENSE.txt" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="../native/vendor/GLFW-LICENSE.md" Link="licenses/GLFW-LICENSE.md" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="../native/vendor/glad/LICENSE" Link="licenses/GLAD-LICENSE.txt" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="../native/vendor/stb/LICENSE" Link="licenses/STB-LICENSE.txt" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="$(AquariusDotnetLicenseRoot)/LICENSE.txt" Link="licenses/DOTNET-LICENSE.txt" CopyToPublishDirectory="PreserveNewest" Condition="Exists('$(AquariusDotnetLicenseRoot)/LICENSE.txt')" />
+    <Content Include="$(AquariusDotnetLicenseRoot)/ThirdPartyNotices.txt" Link="licenses/DOTNET-NOTICES.txt" CopyToPublishDirectory="PreserveNewest" Condition="Exists('$(AquariusDotnetLicenseRoot)/ThirdPartyNotices.txt')" />
+    <Content Include="$(AquariusVCRuntimeDirectory)/*.dll" Link="%(Filename)%(Extension)" CopyToPublishDirectory="PreserveNewest" Condition="'$(AquariusVCRuntimeDirectory)' != ''" />
+    <Content Include="licenses/**/*" CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
+  <Target Name="SelectApplicationContent" AfterTargets="ComputeFilesToPublish" BeforeTargets="GenerateSingleFileBundle">
+    <ItemGroup>
+      <ResolvedFileToPublish Remove="@(ResolvedFileToPublish)" Condition="$([System.String]::Copy('%(RelativePath)').StartsWith('examples/')) Or $([System.String]::Copy('%(RelativePath)').StartsWith('examples\'))" />
+    </ItemGroup>
+  </Target>
+</Project>

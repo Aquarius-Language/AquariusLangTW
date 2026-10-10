@@ -53,8 +53,8 @@ internal sealed partial class GraphicsRuntime {
         try {var image=ProcessingImage.Create(this,w,h);Marshal.Copy(p,image.Bytes,0,image.Bytes.Length);return RegisterImage(image);}finally{Native.aqua_image_free(p);}
     }
     private void RegisterCanvasPixels(AquaEnvironment env,ProcessingCanvas c) {
-        void Action(string name,int min,int max,Action<IObject[]> fn)=>PAction(env,name,min,max,a=>{RequireSketch();c.RequireDrawing();fn(a);});
-        void ReadAction(string name,int min,int max,Action<IObject[]> fn)=>PAction(env,name,min,max,a=>{RequireSketch();c.RequireReadable();fn(a);});
+        void Action(string name,int min,int max,ProcessingAction fn)=>PAction(env,name,min,max,a=>{RequireSketch();c.RequireDrawing();fn(a);});
+        void ReadAction(string name,int min,int max,ProcessingAction fn)=>PAction(env,name,min,max,a=>{RequireSketch();c.RequireReadable();fn(a);});
         ReadAction("loadPixels",0,0,_=>env.Create("pixels",PixelArray(c.ReadPixels())));
         Action("updatePixels",0,0,a=> {var pixels=env.Get("pixels",out _);if(pixels is not ArrayObj array)throw new InvalidOperationException("Call loadPixels() first.");WriteCanvasPixels(c,PixelBytes(array,c.PixelWidth*c.PixelHeight));});
         PBind(env,"get",0,4,a=> {

@@ -1,0 +1,30 @@
+name: Standalone Windows applications
+on: [push, pull_request]
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: AquariusWebCompiler/package-lock.json
+      - name: Prepare runtime dependencies
+        shell: pwsh
+        run: |
+          npm ci --prefix AquariusWebCompiler
+          npm run --prefix AquariusWebCompiler prepare:browser
+          ./native/build.ps1
+          ./scripts/publish-apphost.ps1
+      - name: Test package exports and relocated standalone executables
+        shell: pwsh
+        run: dotnet test AquariusLangVMTesting -m:1 --filter "FullyQualifiedName~Packaging" --logger "trx;LogFileName=windows.trx"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: windows-executable-test-results
+          path: AquariusLangVMTesting/TestResults/*.trx

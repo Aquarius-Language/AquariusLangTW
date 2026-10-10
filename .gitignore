@@ -15,3 +15,5 @@ AquariusDesktopVMREPL/runtimes/
 .web-build/
 AquariusWebCompiler/browser/vendor-*
 TestResults/
+build-targets/
+.native-build/

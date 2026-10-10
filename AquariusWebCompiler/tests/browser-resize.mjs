@@ -4,7 +4,7 @@ import {createServer} from 'node:http';
 import {readFile} from 'node:fs/promises';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
-const build=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'../../.web-build');
+const build=path.resolve(process.env.AQUARIUS_WEB_BUILD_ROOT??path.resolve(path.dirname(fileURLToPath(import.meta.url)),'../../.web-build'));
 const mime={'.html':'text/html','.mjs':'text/javascript','.json':'application/json','.wasm':'application/wasm'};
 const server=createServer(async(req,res)=>{
   try{const requested=new URL(req.url,'http://localhost').pathname,file=path.resolve(build,'.'+requested+(requested.endsWith('/')?'index.html':''));

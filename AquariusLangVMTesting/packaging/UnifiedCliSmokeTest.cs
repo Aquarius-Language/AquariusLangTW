@@ -51,6 +51,10 @@ public class UnifiedCliSmokeTest {
     [InlineData("build", "main.aqua", "--target", "native")]
     [InlineData("build", "main.aqua", "--target", "web", "-o", "web")]
     [InlineData("build", "main.bottle", "--target", "web")]
+    [InlineData("build", "main.aqua", "--target", "windows", "-o", "app.exe")]
+    [InlineData("build", "main.bottle", "--target", "windows")]
+    [InlineData("build", "main.bottle", "--target", "windows", "-o", "app.exe", "--root", ".")]
+    [InlineData("build", "main.bottle", "--target", "windows", "-o", "app.exe", "--assets", "assets")]
     [InlineData("build", "main.aqua", "-o")][InlineData("build", "main.aqua", "--assets")]
     [InlineData("build", "main.aqua", "--root", ".", "--root", ".")]
     [InlineData("build", "main.aqua", "-o", "a.bottle", "-o", "b.bottle")]
@@ -66,6 +70,7 @@ public class UnifiedCliSmokeTest {
     [InlineData("build", "missing.aqua")][InlineData("run", "missing.bottle")]
     [InlineData("build", "bad.aqua")][InlineData("run", "bad.bottle")]
     [InlineData("build", "bad.bottle", "--target", "web", "-o", "web")]
+    [InlineData("build", "bad.bottle", "--target", "windows", "-o", "app.exe")]
     public void CompilationAndIoFailuresAreHandledWithoutStackTraces(params string[] args) {
         using var t = new BottleTestDirectory(); t.Write("bad.aqua", "變數 = ;"); t.Write("bad.bottle", "invalid archive");
         var result = Run(t.Path, args); Assert.Equal(1, result.Code); Assert.NotEmpty(result.Error); Assert.DoesNotContain("Unhandled exception", result.Error);

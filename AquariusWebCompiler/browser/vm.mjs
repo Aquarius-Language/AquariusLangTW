@@ -4,10 +4,16 @@ export const num = (value, type = 'double') => ({type, value: type === 'int' ? (
 export const numeric = v => v && ['int','float','double'].includes(v.type);
 export const unwrap = v => numeric(v) ? v.value : Array.isArray(v) ? v.map(unwrap) : v;
 export const wrap = v => typeof v === 'number' ? num(v) : Array.isArray(v) || ArrayBuffer.isView(v) ? Array.from(v, wrap) : v;
+// Hosts may expose a synchronous entry alongside their Promise-based public API.
+// This symbol is an implementation detail; bytecode and Aquarius callables are unchanged.
+export const nativeCall = Symbol('Aquarius native call');
+export const isPromiseLike = value => value != null && (typeof value === 'object' || typeof value === 'function') && typeof value.then === 'function';
 export class Scope {
   constructor(outer = null) { this.outer = outer; this.store = new Map(); this.owned = new Set(); }
   create(n,v) { this.store.set(n,v); this.owned.add(n); }
-  get(n) { for(let s=this;s;s=s.outer) if(s.store.has(n)) return s.store.get(n); throw new Error(`Identifier not found: ${n}`); }
+  // Return the binding scope so a stored undefined value is distinct from absence.
+  resolve(n) { for(let s=this;s;s=s.outer) if(s.store.has(n)) return s; return null; }
+  get(n) { const s=this.resolve(n); if(s)return s.store.get(n); throw new Error(`Identifier not found: ${n}`); }
   set(n,v) { let s=this; while(s && !s.owned.has(n)) { s.store.set(n,v); s=s.outer; } if(!s) throw new Error(`Identifier not found: ${n}`); s.store.set(n,v); }
 }
 export const module = scope => ({type:'module', scope});
@@ -52,13 +58,7 @@ export class VirtualMachine {
     const frame=(p,e,b,base=stack.length)=>({p,e,b,base,ip:0,loops:[]});
     frames.push(frame(program,env,builtins,0));
     const args=n=>stack.splice(stack.length-n,n);
-    const load=(f,n)=>{ try{return f.e.get(n);}catch(e){ if(f.b.has(n))return f.b.get(n);throw e; } };
-    const call=async(f,fn,a)=>{
-      if(typeof fn==='function') { stack.push(await fn(...a));return; }
-      if(fn?.type!=='closure') throw new Error('Not a function');
-      if(fn.parameters.length!==a.length) throw new Error(`Function expects ${fn.parameters.length} arguments, got ${a.length}.`);
-      const scope=new Scope(fn.env);fn.parameters.forEach((p,i)=>scope.create(p,a[i]));frames.push(frame(fn.program,scope,fn.builtins));
-    };
+    const load=(f,n)=>{ const s=f.e.resolve(n);if(s)return s.store.get(n);if(f.b.has(n))return f.b.get(n);throw new Error(`Identifier not found: ${n}`); };
     while(frames.length) {
       if(this.cancelled||this.host.signal?.aborted) throw new Error('Execution cancelled');
       // Yield periodically even for non-graphics programs, so Stop and input work.
@@ -81,7 +81,32 @@ export class VirtualMachine {
         case 'Jump':f.ip=n;break;case 'JumpIfFalse':if(!truthy(stack.pop()))f.ip=n;break;
         case 'JumpIfBreak':if(stack.at(-1)?.type==='break')f.ip=n;break;
         case 'Closure':stack.push({...c,type:'closure',env:f.e,builtins:f.b});break;
-        case 'Call':{const a=args(n),fn=stack.pop();await call(f,fn,a);break;}
+        case 'Call':{
+          const base=stack.length-n-1,fn=stack[base];
+          if(typeof fn==='function') {
+            const entry=fn[nativeCall]??fn;
+            let result;
+            // Common Processing calls avoid splice/spread argument copies.
+            switch(n) {
+              case 0:result=entry();break;
+              case 1:result=entry(stack[base+1]);break;
+              case 2:result=entry(stack[base+1],stack[base+2]);break;
+              case 3:result=entry(stack[base+1],stack[base+2],stack[base+3]);break;
+              case 4:result=entry(stack[base+1],stack[base+2],stack[base+3],stack[base+4]);break;
+              case 5:result=entry(stack[base+1],stack[base+2],stack[base+3],stack[base+4],stack[base+5]);break;
+              default:result=entry(...stack.slice(base+1));break;
+            }
+            stack.length=base;
+            stack.push(isPromiseLike(result)?await result:result);
+          } else {
+            if(fn?.type!=='closure') throw new Error('Not a function');
+            if(fn.parameters.length!==n) throw new Error(`Function expects ${fn.parameters.length} arguments, got ${n}.`);
+            const scope=new Scope(fn.env);
+            for(let i=0;i<n;i++)scope.create(fn.parameters[i],stack[base+1+i]);
+            stack.length=base;frames.push(frame(fn.program,scope,fn.builtins));
+          }
+          break;
+        }
         case 'Return':{const r=stack.pop();stack.length=f.base;frames.pop();if(!frames.length)return r;stack.push(r);break;}
         case 'Array':stack.push(args(n));break;
         case 'CheckHashKey':key(stack.at(-1));break;

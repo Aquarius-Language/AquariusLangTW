@@ -7,6 +7,7 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'Browser dependencies could not be installed.' }
     & npm.cmd run --prefix AquariusWebCompiler prepare:browser
     if ($LASTEXITCODE -ne 0) { throw 'Browser resources could not be prepared.' }
+    & (Join-Path $PSScriptRoot 'publish-apphost.ps1') -Dotnet $Dotnet
     & $Dotnet publish AquariusCli -c Release -r $Runtime --self-contained true -p:PublishSingleFile=false -p:PublishTrimmed=false -o $Output
     if ($LASTEXITCODE -ne 0) { throw 'CLI publishing failed.' }
     $executable = Join-Path $Output $(if ($Runtime.StartsWith('win-')) { 'aqua.exe' } else { 'aqua' })

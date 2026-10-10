@@ -61,7 +61,7 @@ namespace AquariusLang.Object {
     /// Value equality makes equivalent type/value pairs usable as dictionary keys.
     /// A reference-type replacement must implement consistent Equals and GetHashCode methods.
     /// </summary>
-    public struct HashKey {
+    public struct HashKey : IEquatable<HashKey> {
         private string type;
         private int value;
 
@@ -69,6 +69,10 @@ namespace AquariusLang.Object {
             this.type = type;
             this.value = value;
         }
+
+        public readonly bool Equals(HashKey other) => type == other.type && value == other.value;
+        public override readonly bool Equals(object? obj) => obj is HashKey other && Equals(other);
+        public override readonly int GetHashCode() => HashCode.Combine(type, value);
 
         public string Type {
             get => type;
@@ -356,13 +360,27 @@ namespace AquariusLang.Object {
 
     public delegate IObject BuiltinFunction(IObject[] args);
 
+    /// <summary>A synchronous native call borrowing the VM's arguments for the duration of the call.
+    /// Copy arguments explicitly if they must outlive the call. The span itself cannot escape.</summary>
+    public delegate IObject BorrowedBuiltinFunction(ReadOnlySpan<IObject> args);
+
     public class BuiltinObj : IObject {
         private BuiltinFunction fn;
+        private BorrowedBuiltinFunction? borrowed;
         // private Environment environment;
 
         public BuiltinObj(BuiltinFunction fn) {
             this.fn = fn;
         }
+
+        /// <summary>Opt into allocation-free VM calls while retaining the array-based Fn API.</summary>
+        public static BuiltinObj FromBorrowed(BorrowedBuiltinFunction function) {
+            if (function == null) throw new ArgumentNullException(nameof(function));
+            return new BuiltinObj(args => function(args)) { borrowed = function };
+        }
+
+        internal bool BorrowsArguments => borrowed != null;
+        internal IObject InvokeBorrowed(ReadOnlySpan<IObject> args) => borrowed!(args);
 
         public string Type() {
             return ObjectType.BUILTIN_OBJ;
@@ -374,7 +392,10 @@ namespace AquariusLang.Object {
 
         public BuiltinFunction Fn {
             get => fn;
-            set => fn = value ?? throw new ArgumentNullException(nameof(value));
+            set {
+                fn = value ?? throw new ArgumentNullException(nameof(value));
+                borrowed = null; // Host replacement must also replace the optimized entry point.
+            }
         }
     }
 

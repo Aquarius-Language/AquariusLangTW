@@ -224,13 +224,23 @@ public sealed class VirtualMachine {
             return arguments;
         }
         private void Call(Frame frame, int argumentCount) {
-            var arguments = Arguments(argumentCount); var callee = Pop();
-            if (callee is BuiltinObj builtin) { Push(builtin.Fn(arguments)); return; }
+            int calleePosition = count - argumentCount - 1;
+            var callee = stack[calleePosition];
+            if (callee is BuiltinObj builtin) {
+                // Legacy hosts receive an independent array they may retain or modify.
+                // Opted-in synchronous hosts borrow this execution's stack; callback reentry
+                // owns a separate Execution and cannot invalidate the borrowed arguments.
+                var result = builtin.BorrowsArguments
+                    ? builtin.InvokeBorrowed(stack.AsSpan(calleePosition + 1, argumentCount)!)
+                    : builtin.Fn(Arguments(argumentCount));
+                Reset(calleePosition); Push(result); return;
+            }
             if (!(callee is FunctionObj)) Fail($"Not a function: {callee?.Type() ?? "NULL"}");
             var function = (FunctionObj)callee!;
-            if (function.Parameters.Length != arguments.Length) Fail($"Function expects {function.Parameters.Length} arguments, got {arguments.Length}.");
+            if (function.Parameters.Length != argumentCount) Fail($"Function expects {function.Parameters.Length} arguments, got {argumentCount}.");
             var scope = AquaEnvironment.NewEnclosedEnvironment(function.Env);
-            for (int i = 0; i < arguments.Length; i++) scope.Create(function.Parameters[i].Value, arguments[i]);
+            for (int i = 0; i < argumentCount; i++) scope.Create(function.Parameters[i].Value, stack[calleePosition + 1 + i]!);
+            Reset(calleePosition);
             frames.Push(new Frame(VmEvaluator.GetFunctionCode(function), scope, count, VmEvaluator.GetFunctionBuiltins(function) ?? frame.Builtins));
         }
     }

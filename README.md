@@ -134,7 +134,7 @@ dist/releases/AquariusCompiler-win-x64-<建置識別>/
 `dist/.package-<建置識別>/`，不會加入 `dist/releases/`。修正錯誤後重新執行即可。
 此腳本打包編譯器；LSP 與 VSIX 的獨立建置流程見編輯器文件。
 
-## 編譯、執行與網頁輸出
+## 編譯、執行與平台輸出
 
 以下範例在自己的星泉專案目錄執行，假設已將 `aqua.exe` 所在資料夾加入 PATH：
 
@@ -148,6 +148,9 @@ aqua run app.bottle
 # 從同一套件輸出靜態網站
 aqua build app.bottle --target web -o dist\web
 
+# 從同一套件輸出獨立 Windows x64 執行檔
+aqua build app.bottle --target windows -o dist\app.exe
+
 # 以 localhost 提供網站，再開啟 http://localhost:8080
 python -m http.server 8080 --directory dist\web
 ```
@@ -157,14 +160,21 @@ python -m http.server 8080 --directory dist\web
 | `--root` | 設定套件根目錄，模組與資源保留相對路徑。 |
 | `--assets` | 封裝檔案或資料夾，可重複指定；不將原始碼當作資源封裝。 |
 | `--entry` | 編譯時選擇 `.aqua` 入口；執行／網頁輸出時可選擇 `.rius` 入口或其 `.aqua` 別名。 |
-| `-o` | 指定 `.bottle` 檔名或網頁輸出資料夾。 |
+| `-o` | 指定 `.bottle`／`.exe` 檔名或網頁輸出資料夾。 |
 | `--target web` | 將單一 `.bottle` 輸出為靜態網站，須搭配 `-o`。 |
+| `--target windows` | 將單一 `.bottle` 輸出為 Windows x64 獨立 `.exe`，須搭配 `-o`。 |
 
 `build` 預設產生 `.bottle`，第一個原始碼檔案為預設入口。
 必須列出所有匯入的腳本，包括動態匯入；資源須位於套件根目錄內。
 模組匯入以定義該模組的目錄為基準，不能逃出套件。
 新套件使用版本 2 manifest，包含模組與資源清單；版本 1 套件仍可載入。
-編譯與網頁輸出不執行程式，失敗時保留既有輸出。
+編譯與平台輸出不執行程式，失敗時保留既有輸出。
+
+Windows 執行檔內含 VM、.NET 執行階段、原生圖學／物理／影像函式庫與封裝資源，
+使用者只需複製 `.exe`，不需另行安裝星泉或 .NET。首次執行時會自動解開執行階段到使用者快取。
+正式版編譯器附帶 `build-targets/win-x64`；從原始碼開發時先執行
+`./native/build.ps1`、`./scripts/publish-apphost.ps1`，再重新建置 CLI。
+自行呼叫 Python 等外部程式時仍需提供該外部程式。平台擴充設計見 [部署後端](AquariusBuild/README.md)。
 
 網頁輸出只讀取 `.bottle`，內含 JavaScript VM、虛擬檔案系統與本機副本的瀏覽器相依套件。
 請透過 localhost 或 HTTPS 提供網站；圖學需要瀏覽器可用的 WebGPU adapter。

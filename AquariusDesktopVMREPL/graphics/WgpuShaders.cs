@@ -12,7 +12,12 @@ internal static class WgpuShaders {
     internal const string Blit = AquariusLang.Graphics.WgpuShaderAbi.Blit;
     internal static float[] Uniforms(ProcessingCanvas c, bool textured, bool premultiplied, bool lit) {
         var data = new float[UniformBytes/4]; int offset=0;
-        void Matrix(Matrix4x4 m) { foreach(float v in new[]{m.M11,m.M12,m.M13,m.M14,m.M21,m.M22,m.M23,m.M24,m.M31,m.M32,m.M33,m.M34,m.M41,m.M42,m.M43,m.M44}) data[offset++]=v; }
+        void Matrix(Matrix4x4 m) {
+            data[offset++]=m.M11;data[offset++]=m.M12;data[offset++]=m.M13;data[offset++]=m.M14;
+            data[offset++]=m.M21;data[offset++]=m.M22;data[offset++]=m.M23;data[offset++]=m.M24;
+            data[offset++]=m.M31;data[offset++]=m.M32;data[offset++]=m.M33;data[offset++]=m.M34;
+            data[offset++]=m.M41;data[offset++]=m.M42;data[offset++]=m.M43;data[offset++]=m.M44;
+        }
         void Vec(Vector3 v,float w=0) { data[offset++]=v.X;data[offset++]=v.Y;data[offset++]=v.Z;data[offset++]=w; }
         Matrix(c.Model);Matrix(c.View);Matrix(c.Projection);
         Matrix4x4.Invert(c.Model*c.View,out var inverse); Matrix(Matrix4x4.Transpose(inverse));

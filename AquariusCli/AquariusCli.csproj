@@ -7,8 +7,13 @@
     <Nullable>enable</Nullable>
   </PropertyGroup>
   <ItemGroup>
+    <ProjectReference Include="../AquariusBuild/AquariusBuild.csproj" />
     <ProjectReference Include="../AquariusPackaging/AquariusPackaging.csproj" />
     <ProjectReference Include="../AquariusDesktopVMREPL/AquariusDesktopVMREPL.csproj" />
     <ProjectReference Include="../AquariusWebCompiler/AquariusWebCompiler.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <Content Include="../build-targets/**/*" Exclude="../build-targets/.aquarius-*/**/*" Link="build-targets/%(RecursiveDir)%(Filename)%(Extension)"
+             CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

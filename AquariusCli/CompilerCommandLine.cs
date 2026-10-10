@@ -1,7 +1,7 @@
 using AquariusLang.Object;
 using AquariusLang.Packaging;
 using AquariusLang.VM;
-using AquariusLang.Web;
+using AquariusLang.Build;
 using AquariusREPL.runtime;
 
 namespace AquariusLang.Cli;
@@ -9,6 +9,7 @@ namespace AquariusLang.Cli;
 public static class CompilerCommandLine {
     public const string Usage = "aqua build main.aqua [more.aqua ...] [--root directory] [--assets path ...] [-o app.bottle]\n" +
         "aqua build app.bottle --target web -o output-directory [--entry main.rius]\n" +
+        "aqua build app.bottle --target windows -o app.exe [--entry main.rius]\n" +
         "aqua run app.bottle [--entry main.rius]\naqua repl\n" +
         "Exit codes: 0 success, 1 compilation/runtime/IO failure, 2 invalid command or options.";
     public static int Run(string[] args) {
@@ -39,13 +40,13 @@ public static class CompilerCommandLine {
                 return result is ErrorObj ? 1 : 0;
             }
             string target = Value("--target") ?? "bottle";
-            if (target == "web") {
+            if (target != "bottle") {
+                var backend = CompilerBuildTargets.Default.Resolve(target);
                 if (files.Count != 1 || !files[0].EndsWith(".bottle", StringComparison.OrdinalIgnoreCase) || Value("-o") == null ||
-                    Value("--root") != null || assets.Count != 0) throw new ArgumentException("Web builds require one .bottle input and -o output-directory; resources come from the bottle.");
-                WebsiteCompiler.BuildBottle(files[0], Value("-o")!, Value("--entry"));
-                Console.WriteLine($"Website built: {Path.GetFullPath(Value("-o")!)}"); return 0;
+                    Value("--root") != null || assets.Count != 0) throw new ArgumentException($"{target} builds require one .bottle input and -o output; resources come from the bottle.");
+                backend.Build(new BottleBuildRequest(files[0], Value("-o")!, Value("--entry")));
+                Console.WriteLine($"{backend.ArtifactDescription} built: {Path.GetFullPath(Value("-o")!)}"); return 0;
             }
-            if (target != "bottle") throw new ArgumentException($"Unknown target: {target}");
             if (files.Count == 0 || files.Any(p => !p.EndsWith(".aqua", StringComparison.OrdinalIgnoreCase))) throw new ArgumentException("Bottle builds require .aqua source files.");
             string output = Value("-o") ?? Path.GetFileNameWithoutExtension(files[0]) + ".bottle";
             BottlePackage.Compile(files, output, Value("--root"), assets, Value("--entry"));

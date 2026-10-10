@@ -36,19 +36,11 @@ namespace AquariusLang.Object {
         /// <param name="name"></param>
         /// <returns></returns>
         public IObject Get(string name, out bool hasVar) {
-            if (!store.ContainsKey(name)) {
-                Environment _outer = outer;
-                while (_outer != null) {
-                    if (_outer.store.ContainsKey(name)) {
-                        hasVar = true;
-                        return _outer.store[name];
-                    }
-
-                    _outer = _outer.outer;
+            for (Environment scope = this; scope != null; scope = scope.outer) {
+                if (scope.store.TryGetValue(name, out var value)) {
+                    hasVar = true;
+                    return value;
                 }
-            } else {
-                hasVar = true;
-                return store[name];
             }
 
             hasVar = false;
@@ -61,11 +53,7 @@ namespace AquariusLang.Object {
         /// <param name="name"></param>
         /// <returns>Variable value if exists. Otherwise, return null.</returns>
         public IObject GetOwned(string name) {
-            if (owned.ContainsKey(name)) {
-                return owned[name];
-            }
-
-            return null;
+            return owned.TryGetValue(name, out var value) ? value : null;
         }
 
         public bool Owns(string name) {

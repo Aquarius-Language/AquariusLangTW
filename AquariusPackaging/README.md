@@ -40,3 +40,8 @@ components, Windows reserved names, alternate data streams and nonportable
 characters. Duplicate names are rejected case-insensitively. Input symlinks
 are not followed. Missing entries, undeclared resources, unknown versions and
 malformed/truncated instructions are rejected.
+
+`BottlePackage.Load(Stream)` also supports seekable bottle views and leaves
+the stream open. `ExecutableBundle` wraps a bottle and selected entry in a
+versioned executable overlay without introducing desktop dependencies here.
+See [the deployment container specification](../AquariusBuild/README.md).

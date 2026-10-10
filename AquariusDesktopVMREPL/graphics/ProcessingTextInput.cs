@@ -16,7 +16,7 @@ internal sealed partial class GraphicsRuntime {
             RequireSketch(); SetTextInput(sketchWindow!, false); ResetProcessingTextInput();
         });
         PAction(processing, "textInputRect", 4, 4, a => {
-            RequireSketch(); SetTextInputRect(sketchWindow!, a);
+            RequireSketch(); SetTextInputRect(sketchWindow!, a.ToArray());
         });
     }
     private void ResetProcessingTextInput() {

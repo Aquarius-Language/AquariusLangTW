@@ -94,7 +94,13 @@ public sealed class BottlePackage {
     }
 
     public static BottlePackage Load(string path) {
-        using var archive = ZipFile.OpenRead(path);
+        using var stream = File.OpenRead(path);
+        return Load(stream);
+    }
+
+    /// <summary>Load a seekable bottle stream, leaving ownership with the caller.</summary>
+    public static BottlePackage Load(Stream input) {
+        using var archive = new ZipArchive(input, ZipArchiveMode.Read, leaveOpen: true);
         if (archive.Entries.Count > MaxEntries + 1) throw new InvalidDataException("Too many entries in the bottle.");
         long total = 0;
         var entries = new Dictionary<string, ZipArchiveEntry>(StringComparer.OrdinalIgnoreCase);

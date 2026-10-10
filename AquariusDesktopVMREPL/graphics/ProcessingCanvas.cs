@@ -93,7 +93,12 @@ internal sealed partial class ProcessingCanvas : IDisposable {
         if(vertices.Count==0)return;
         Bind();image?.Upload(this);
         var floats=new float[vertices.Count*12];int i=0;
-        foreach(var v in vertices)foreach(float f in new[]{v.Position.X,v.Position.Y,v.Position.Z,v.Normal.X,v.Normal.Y,v.Normal.Z,v.UV.X,v.UV.Y,v.Color.X,v.Color.Y,v.Color.Z,v.Color.W})floats[i++]=f;
+        foreach(var v in vertices) {
+            floats[i++]=v.Position.X;floats[i++]=v.Position.Y;floats[i++]=v.Position.Z;
+            floats[i++]=v.Normal.X;floats[i++]=v.Normal.Y;floats[i++]=v.Normal.Z;
+            floats[i++]=v.UV.X;floats[i++]=v.UV.Y;
+            floats[i++]=v.Color.X;floats[i++]=v.Color.Y;floats[i++]=v.Color.Z;floats[i++]=v.Color.W;
+        }
         Vector4? clip=Clip is Vector4 c?new Vector4(c.X*PixelWidth/Width,c.Y*PixelHeight/Height,c.Z*PixelWidth/Width,c.W*PixelHeight/Height):null;
         Target.Draw(CustomProgram??program!,floats,WgpuShaders.Uniforms(this,image!=null,image?.Premultiplied==true,lit),mode,BlendMode,Is3D,clip,image?.GpuTexture,stencilMode);
     }
