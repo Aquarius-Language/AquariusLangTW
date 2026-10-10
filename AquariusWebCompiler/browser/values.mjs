@@ -3,9 +3,10 @@ export const numeric = v => v && ['int','float','double'].includes(v.type);
 export const unwrap = v => numeric(v) ? v.value : Array.isArray(v) ? v.map(unwrap) : v;
 export const wrap = v => typeof v === 'number' ? num(v) : Array.isArray(v) || ArrayBuffer.isView(v) ? Array.from(v, wrap) : v;
 // Hosts may expose a synchronous entry alongside their Promise-based public API.
-// This symbol is an implementation detail; bytecode and Aquarius callables are unchanged.
+// This symbol marks capability transport; language execution stays in Wasm.
 export const nativeCall = Symbol('Aquarius native call');
 export const nativeOwner = Symbol('Aquarius native owner');
+export const portableBuiltin = Symbol('Aquarius portable builtin');
 export const isPromiseLike = value => value != null && (typeof value === 'object' || typeof value === 'function') && typeof value.then === 'function';
 export class Scope {
   constructor(outer = null) { this.outer = outer; this.store = new Map(); this.owned = new Set(); }

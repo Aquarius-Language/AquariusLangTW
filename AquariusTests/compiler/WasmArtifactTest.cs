@@ -33,6 +33,11 @@ public class WasmArtifactTest
     [InlineData("reference")]
     [InlineData("literal")]
     [InlineData("asset")]
+    [InlineData("valueAbi")]
+    [InlineData("programAddress")]
+    [InlineData("heapStart")]
+    [InlineData("frame")]
+    [InlineData("cacheBindings")]
     public void MalformedMetadataIsRejectedBeforeInstantiation(string damage)
     {
         var program = new WasmCompiler().Compile("函式(x){x;};");
@@ -47,6 +52,11 @@ public class WasmArtifactTest
                 case "reference": node["functions"]![0]!["pool"]![0]!["function"] = 999; break;
                 case "literal": node["functions"]![0]!["pool"]![0]!["type"] = "unknown"; break;
                 case "asset": node["assets"]!["safe.txt"] = null; break;
+                case "valueAbi": node["valueAbi"] = 1; break;
+                case "programAddress": node["programAddress"] = 0; break;
+                case "heapStart": node["heapStart"] = 16; break;
+                case "frame": node["functions"]![0]!["stackCapacity"] = 0; break;
+                case "cacheBindings": node["functions"]![0]!["cacheBindings"] = "yes"; break;
             }
         });
         Assert.Throws<InvalidDataException>(() => WasmProgram.Load(bytes));

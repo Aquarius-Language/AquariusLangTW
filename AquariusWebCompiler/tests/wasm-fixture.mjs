@@ -19,7 +19,7 @@ export function compile(modules,entry='main.aqua') {
     execFileSync(dotnet,[compiler,'build',...sources,'--root',temp,'--entry',entry,'-o',output],{encoding:'utf8',timeout:30000});
     const compiledModule=new WebAssembly.Module(readFileSync(output));
     const metadata=JSON.parse(new TextDecoder().decode(WebAssembly.Module.customSections(compiledModule,'aquarius.application')[0]));
-    const bundle={version:1,compiledModule,modules:metadata.modules,entry,assets:{}};
+    const bundle={version:2,compiledModule,modules:metadata.modules,entry,assets:{}};
     cache.set(key,bundle);return bundle;
   } finally {if(path.dirname(path.resolve(temp))!==path.resolve(directory))throw new Error('Invalid fixture cleanup path');rmSync(temp,{recursive:true,force:true});}
 }

@@ -42,6 +42,10 @@ public sealed class ExternalLibraryRegistry : IDisposable
     public void Register<T>(ExternalLibraryDescriptor descriptor, int contractVersion, Func<T> factory) where T : class
     {
         ObjectDisposedException.ThrowIf(disposed, this);
+        if (descriptor.Profile == ExternalLibraryProfile.CoreWasm)
+            throw new ArgumentException("CoreWasm libraries require verified Wasm artifacts and a library ABI. A CLR factory cannot admit a computational library.");
+        if (descriptor.Profile == ExternalLibraryProfile.Emscripten && descriptor != ExternalLibraries.Jolt)
+            throw new ArgumentException("New computational libraries must use the Wasm library ABI. Only the existing Jolt adapter is transitional.");
         if (descriptor.Contract != typeof(T) || descriptor.ContractVersion != contractVersion) throw new ArgumentException("Incompatible external library contract.");
         if (!factories.TryAdd(descriptor.Id, (descriptor, () => factory() ?? throw new InvalidOperationException("Adapter factory returned null.")))) throw new ArgumentException($"Duplicate external library adapter: {descriptor.Id}");
     }

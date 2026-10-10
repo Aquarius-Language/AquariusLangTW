@@ -82,7 +82,7 @@ public class WgpuTest {
         string path=Path.Combine(AppContext.BaseDirectory,"examples",name,"main.aqua");
         var lexer=Lexer.NewInstance(File.ReadAllText(path));var parser=Parser.NewInstance(lexer);parser.ParseAST();Assert.Empty(lexer.Errors);Assert.Empty(parser.Errors);
         var root=new DirectoryInfo(AppContext.BaseDirectory);while(root!=null&&!File.Exists(Path.Combine(root.FullName,"AquariusLang.sln")))root=root.Parent;
-        if(root!=null)Assert.Equal(File.ReadAllBytes(Path.Combine(root.FullName,"examples",name,"main.aqua")),File.ReadAllBytes(path));
+        if(root!=null)Assert.Equal(File.ReadAllText(Path.Combine(root.FullName,"examples",name,"main.aqua")).Replace("\r\n","\n"),File.ReadAllText(path).Replace("\r\n","\n"));
     }
 }
 

@@ -5,12 +5,21 @@ namespace AquariusTests.Compiler;
 
 public class ExternalLibraryTest
 {
+    [Theory, InlineData(ExternalLibraryProfile.CoreWasm), InlineData(ExternalLibraryProfile.Emscripten)]
+    public void ComputationalLibrariesCannotBeAdmittedAsHostFactories(ExternalLibraryProfile profile)
+    {
+        using var registry = new ExternalLibraryRegistry();
+        var descriptor = new ExternalLibraryDescriptor("new-library", "1.0", 1, profile, typeof(IExample), Array.Empty<string>());
+        bool created = false;
+        Assert.Contains("Wasm", Assert.Throws<ArgumentException>(() => registry.Register<IExample>(descriptor, 1, () => { created = true; return new Adapter(new(), 1); })).Message);
+        Assert.False(created);
+    }
     private interface IExample { }
     private sealed class Adapter(List<int> disposed, int id) : IExample, IDisposable
     {
         public void Dispose() => disposed.Add(id);
     }
-    private static ExternalLibraryDescriptor Descriptor(string id) => new(id, "1.0", 1, ExternalLibraryProfile.CoreWasm, typeof(IExample), Array.Empty<string>());
+    private static ExternalLibraryDescriptor Descriptor(string id) => new(id, "1.0", 1, ExternalLibraryProfile.HostCapability, typeof(IExample), Array.Empty<string>());
     [Fact]
     public void RegistryChecksVersionsCreatesLazilyAndDisposesInReverseOrder()
     {

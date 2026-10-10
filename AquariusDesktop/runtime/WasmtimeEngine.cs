@@ -6,10 +6,19 @@ using Wasmtime;
 
 namespace AquariusLang.Desktop.runtime;
 
-/// <summary>Desktop engine adapter. A store and its host bindings belong to exactly one execution.</summary>
+/// <summary>Desktop engine adapter. Each Wasm session owns its store and capability bindings.</summary>
 public sealed class WasmtimeEngine : IWasmEngine
 {
-    private static readonly Engine Engine = new();
+    private static readonly Engine Engine = CreateEngine();
+    private static Engine CreateEngine()
+    {
+        using var config = new Config();
+        // Wasmtime owns validation and cache keys, including target and compiler settings.
+        // Read-only machines can run without an on-disk compilation cache.
+        try { config.WithCacheConfig(null!); }
+        catch (WasmtimeException) { }
+        return new Engine(config);
+    }
     private static readonly ConditionalWeakTable<byte[], Wasmtime.Module> Modules = new();
     [ModuleInitializer]
     public static void Register() => WasmRuntime.EngineFactory ??= () => new WasmtimeEngine();
@@ -20,7 +29,7 @@ public sealed class WasmtimeEngine : IWasmEngine
         private readonly Linker linker = new(Engine);
         private Wasmtime.Module? ownedModule;
         private readonly Instance instance;
-        private readonly Dictionary<int, Func<int, int>> functions = new();
+        private readonly Dictionary<string, Function> functions = new();
         internal Execution(ReadOnlyMemory<byte> bytes, IReadOnlyDictionary<string, Delegate> imports)
         {
             try
@@ -36,6 +45,7 @@ public sealed class WasmtimeEngine : IWasmEngine
                         case Action a: linker.DefineFunction(WasmAbi.ImportModule, item.Key, a); break;
                         case Action<int> a: linker.DefineFunction(WasmAbi.ImportModule, item.Key, a); break;
                         case Func<int> f: linker.DefineFunction(WasmAbi.ImportModule, item.Key, f); break;
+                        case Func<int, int, int, int, int, int, int, int> f: linker.DefineFunction(WasmAbi.ImportModule, item.Key, f); break;
                         default: throw new InvalidOperationException($"Unsupported host signature: {item.Key}");
                     }
                 }
@@ -44,18 +54,14 @@ public sealed class WasmtimeEngine : IWasmEngine
             catch (WasmtimeException e) { Dispose(); throw new InvalidDataException($"Invalid Aquarius WebAssembly module: {e.Message}", e); }
             catch { Dispose(); throw; }
         }
-        public Func<int, int> GetFunction(int index)
+        public int Invoke(string name, params int[] arguments)
         {
-            if (functions.TryGetValue(index, out var result)) return result;
-            var fn = instance.GetFunction<int, int>($"aqua_f{index}") ?? throw new InvalidDataException("Missing compiled function export.");
-            result = pc =>
-            {
-                try { return fn(pc); }
-                catch (WasmtimeException e) when (e.InnerException != null) { ExceptionDispatchInfo.Capture(e.InnerException).Throw(); throw; }
-                catch (WasmtimeException e) { throw new InvalidDataException($"WebAssembly execution failed: {e.Message}", e); }
-            };
-            functions.Add(index, result); return result;
+            if (!functions.TryGetValue(name, out var function)) functions.Add(name, function = instance.GetFunction(name) ?? throw new InvalidDataException($"Missing Wasm runtime export: {name}"));
+            var values = new ValueBox[arguments.Length]; for (int i = 0; i < arguments.Length; i++) values[i] = arguments[i];
+            try { return Convert.ToInt32(function.Invoke(values)); }
+            catch (WasmtimeException e) when (e.InnerException != null) { ExceptionDispatchInfo.Capture(e.InnerException).Throw(); throw; }
         }
+        public Span<byte> Memory(int address, int length) => (instance.GetMemory("memory") ?? throw new InvalidDataException("Missing Wasm memory.")).GetSpan(address, length);
         public void Dispose() { linker.Dispose(); store.Dispose(); ownedModule?.Dispose(); }
     }
 }

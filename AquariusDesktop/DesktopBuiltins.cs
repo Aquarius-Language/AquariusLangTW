@@ -13,25 +13,20 @@ using AquariusLang.Desktop.Graphics;
 namespace AquariusLang.Desktop;
 
 public class DesktopBuiltins : Builtins, IDisposable {
-    private readonly GraphicsRuntime graphics;
+    private readonly Lazy<GraphicsRuntime> graphics;
     private readonly bool ownsGraphics;
     internal Func<string, IObject>? ScriptImport { get; set; }
     internal Func<string, string> ResourceArgument { get; set; } = path => path;
-    public DesktopBuiltins() : this(new GraphicsRuntime(), true) { }
-    public DesktopBuiltins(Application.DesktopApplicationHost applicationHost) : this(new GraphicsRuntime(applicationHost), true) { }
-    internal DesktopBuiltins(GraphicsRuntime graphics) : this(graphics, false) { }
-    private DesktopBuiltins(GraphicsRuntime graphics, bool ownsGraphics) {
+    public DesktopBuiltins() : this(new Lazy<GraphicsRuntime>(() => new GraphicsRuntime()), true) { }
+    public DesktopBuiltins(Application.DesktopApplicationHost applicationHost) : this(new Lazy<GraphicsRuntime>(() => new GraphicsRuntime(applicationHost)), true) { }
+    internal DesktopBuiltins(GraphicsRuntime graphics) : this(new Lazy<GraphicsRuntime>(() => graphics), false) { }
+    internal DesktopBuiltins(Lazy<GraphicsRuntime> graphics) : this(graphics, false) { }
+    private DesktopBuiltins(Lazy<GraphicsRuntime> graphics, bool ownsGraphics) {
         this.graphics = graphics;
         this.ownsGraphics = ownsGraphics;
-        graphics.InvokeAqua = (callback, args) => {
-            if (callback is BuiltinObj builtin) return builtin.Fn(args);
-            if (callback is not FunctionObj function) return new ErrorObj("Expected an Aquarius function callback.");
-            if (function.Parameters.Length != args.Length) return new ErrorObj($"Callback expects {function.Parameters.Length} arguments, got {args.Length}.");
-            return CompiledEvaluator.NewInstance(this).Invoke(function, args);
-        };
         builtinFuncs = new Dictionary<string, BuiltinObj> {
             {
-                "長度", new BuiltinObj(args => {
+                "長度", BuiltinObj.FromPortable(1, args => {
                     ErrorObj argsCountMatch = checkArgsCount("長度", 1, args.Length);
                     if (argsCountMatch != null) return argsCountMatch;
 
@@ -50,7 +45,7 @@ public class DesktopBuiltins : Builtins, IDisposable {
                     return newError($"Argument to `長度` not supported, got {arg0.Type()}");
                 })
             }, {
-                "最後一個", new BuiltinObj(args => {
+                "最後一個", BuiltinObj.FromPortable(2, args => {
                     ErrorObj argsCountMatch = checkArgsCount("最後一個", 1, args.Length);
                     if (argsCountMatch != null) return argsCountMatch;
                     
@@ -63,7 +58,7 @@ public class DesktopBuiltins : Builtins, IDisposable {
                     return length > 0 ? array.Elements[length - 1] : RepeatedPrimitives.NULL;
                 })
             }, {
-                "其餘", new BuiltinObj(args => {
+                "其餘", BuiltinObj.FromPortable(3, args => {
                     ErrorObj argsCountMatch = checkArgsCount("其餘", 1, args.Length);
                     if (argsCountMatch != null) return argsCountMatch;
                     
@@ -79,7 +74,7 @@ public class DesktopBuiltins : Builtins, IDisposable {
                     return RepeatedPrimitives.NULL;
                 })
             }, {
-                "加入", new BuiltinObj(args => {
+                "加入", BuiltinObj.FromPortable(4, args => {
                     ErrorObj argsCountMatch = checkArgsCount("加入", 2, args.Length);
                     if (argsCountMatch != null) return argsCountMatch;
                     
@@ -108,7 +103,14 @@ public class DesktopBuiltins : Builtins, IDisposable {
                     if (argsCountMatch != null) return argsCountMatch;
                     
                     if (args[0] is StringObj stringObj) {
-                        if (graphics.TryImport(stringObj.Value, out ModuleObj nativeModule)) return nativeModule;
+                        var services = graphics.Value;
+                        services.InvokeAqua = (callback, values) => {
+                            if (callback is BuiltinObj builtin) return builtin.Fn(values);
+                            if (callback is not FunctionObj function) return new ErrorObj("Expected an Aquarius function callback.");
+                            if (function.Parameters.Length != values.Length) return new ErrorObj($"Callback expects {function.Parameters.Length} arguments, got {values.Length}.");
+                            return CompiledEvaluator.NewInstance(this).Invoke(function, values);
+                        };
+                        if (services.TryImport(stringObj.Value, out ModuleObj nativeModule)) return nativeModule;
                         if (ScriptImport != null) return ScriptImport(stringObj.Value);
                         try {
                             String fileStr = File.ReadAllText(stringObj.Value);
@@ -195,7 +197,7 @@ public class DesktopBuiltins : Builtins, IDisposable {
         _Builtins.Add("currWorkingDir", _Builtins["目前工作目錄"]);
     }
 
-    public void Dispose() { if (ownsGraphics) graphics.Dispose(); }
+    public void Dispose() { if (ownsGraphics && graphics.IsValueCreated) graphics.Value.Dispose(); }
 
     private ErrorObj checkArgsCount(string funcName, int expected, int actual) {
         if (expected != actual) {

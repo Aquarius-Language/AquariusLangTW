@@ -111,7 +111,7 @@ public class WebArchitectureTest {
         }) yield return new object[] { source };
     }
     [Theory, MemberData(nameof(ParitySources))]
-    public void BrowserAndCoreExecuteTheSameCompiledInstructions(string source) {
+    public void BrowserAndCoreExecuteTheSameWasmArtifact(string source) {
         var program = new WasmCompiler().Compile(source);var result = new WasmRuntime(engine:new AquariusLang.Desktop.runtime.WasmtimeEngine()).Execute(program);
         var file = Path.Combine(Path.GetTempPath(), "aquarius-parity-" + Guid.NewGuid().ToString("N") + ".json");
         try {
@@ -119,7 +119,7 @@ public class WebArchitectureTest {
             var start = new ProcessStartInfo("node") { UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true, RedirectStandardError = true, StandardOutputEncoding = System.Text.Encoding.UTF8, StandardErrorEncoding = System.Text.Encoding.UTF8 };
             start.ArgumentList.Add(Path.Combine(Root, "AquariusWebCompiler", "tests", "execute-wasm.mjs"));start.ArgumentList.Add(file);
             using var process = Process.Start(start)!;var output = process.StandardOutput.ReadToEndAsync();var error = process.StandardError.ReadToEndAsync();
-            Assert.True(process.WaitForExit(15000), "Browser VM parity test timed out");Assert.True(process.ExitCode == 0, error.GetAwaiter().GetResult());
+            Assert.True(process.WaitForExit(15000), "Browser Wasm parity test timed out");Assert.True(process.ExitCode == 0, error.GetAwaiter().GetResult());
             Assert.Equal(result?.Inspect() ?? "", output.GetAwaiter().GetResult().TrimEnd());
         } finally { File.Delete(file); }
     }

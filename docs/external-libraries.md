@@ -31,7 +31,7 @@ ClearScript, Silk.NET or native-library package dependencies.
 
 | Profile | Deployment and execution |
 | --- | --- |
-| `CoreWasm` | A freestanding module with explicit Wasm imports; a host may link it with Wasmtime or browser WebAssembly. |
+| `CoreWasm` | Reserved for verified freestanding libraries using the upcoming library ABI. The CLR factory registry rejects this profile; it is not evidence that a loader already exists. |
 | `Emscripten` | A Wasm module plus generated JavaScript glue; requires an Emscripten-capable host. |
 | `HostCapability` | A platform API such as WebGPU, windowing or user documents; represented by a core contract. |
 
@@ -40,6 +40,11 @@ contract type and version, rejects duplicate adapters, creates each adapter lazi
 and disposes owned instances in reverse creation order. Resolving an unavailable
 capability fails explicitly. Engine choice never silently falls back to another
 library implementation.
+
+Computational libraries cannot be registered as CLR factories with a `CoreWasm`
+label. New Emscripten adapters are rejected; the existing pinned Jolt descriptor
+is the transitional exception. This admission gate does not replace the pending
+library manifest, linker, feature validation and Wasm binding implementation.
 
 Jolt uses the pinned `jolt-physics` 0.24.0 Emscripten build. `AquariusCore/external/jolt`
 contains the shared world implementation and generated vendor assets; the npm

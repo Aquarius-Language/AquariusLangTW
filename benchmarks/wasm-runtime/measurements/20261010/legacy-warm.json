@@ -1,0 +1,307 @@
+{
+  "method": "Legacy bytecode program and VM reused; source compilation excluded. Five warmups and five samples. Matching minimal builtins. Managed allocated bytes are not peak memory.",
+  "dotnet": "8.0.31",
+  "process_affinity_mask": "0x1",
+  "fingerprints": {
+    "AquariusLangVM.dll": "35ff1ce803a1a4e6dd5cb261dce386e91c6ef74e632876597ee0e760a9705355"
+  },
+  "results": {
+    "ackermann": {
+      "valid": true,
+      "samples": [
+        {
+          "elapsed_ms": 70.9291,
+          "allocated_bytes": 115082408
+        },
+        {
+          "elapsed_ms": 71.171,
+          "allocated_bytes": 115082408
+        },
+        {
+          "elapsed_ms": 71.9545,
+          "allocated_bytes": 115082408
+        },
+        {
+          "elapsed_ms": 72.3606,
+          "allocated_bytes": 115082936
+        },
+        {
+          "elapsed_ms": 71.196,
+          "allocated_bytes": 115082408
+        }
+      ],
+      "source_sha256": "14f7c671233ac6b7add53bc447aa72b93a28727580e0b61b1a0ababe216a8894",
+      "result": "RESULT 509"
+    },
+    "binary_trees": {
+      "valid": true,
+      "samples": [
+        {
+          "elapsed_ms": 59.0608,
+          "allocated_bytes": 93318992
+        },
+        {
+          "elapsed_ms": 59.951,
+          "allocated_bytes": 93319520
+        },
+        {
+          "elapsed_ms": 59.1319,
+          "allocated_bytes": 93318992
+        },
+        {
+          "elapsed_ms": 59.1132,
+          "allocated_bytes": 93319520
+        },
+        {
+          "elapsed_ms": 60.7161,
+          "allocated_bytes": 93318992
+        }
+      ],
+      "source_sha256": "d40ac96ef892c27b932ce850cfb34b33f0e52ea44a75b3fc3de648a60b60e6fb",
+      "result": "RESULT 65528"
+    },
+    "collatz": {
+      "valid": true,
+      "samples": [
+        {
+          "elapsed_ms": 394.8599,
+          "allocated_bytes": 560790992
+        },
+        {
+          "elapsed_ms": 384.0478,
+          "allocated_bytes": 560790992
+        },
+        {
+          "elapsed_ms": 383.5394,
+          "allocated_bytes": 560790992
+        },
+        {
+          "elapsed_ms": 385.6715,
+          "allocated_bytes": 560790992
+        },
+        {
+          "elapsed_ms": 382.8838,
+          "allocated_bytes": 560790992
+        }
+      ],
+      "source_sha256": "a0aa527cdc0c9cb06c0a4a217468d878761375275fc026b12aed807552a7386a",
+      "result": "RESULT 849666"
+    },
+    "fibonacci": {
+      "valid": true,
+      "samples": [
+        {
+          "elapsed_ms": 244.6739,
+          "allocated_bytes": 662328824
+        },
+        {
+          "elapsed_ms": 239.1669,
+          "allocated_bytes": 662328824
+        },
+        {
+          "elapsed_ms": 244.3532,
+          "allocated_bytes": 662329352
+        },
+        {
+          "elapsed_ms": 241.845,
+          "allocated_bytes": 662328824
+        },
+        {
+          "elapsed_ms": 240.3328,
+          "allocated_bytes": 662328824
+        }
+      ],
+      "source_sha256": "e0611d98cb082685dd109eac70948c8cc68cf532f7a6d2c25ce6f7168aa0a71a",
+      "result": "RESULT 317811"
+    },
+    "mandelbrot": {
+      "valid": true,
+      "samples": [
+        {
+          "elapsed_ms": 130.74,
+          "allocated_bytes": 148515488
+        },
+        {
+          "elapsed_ms": 129.3418,
+          "allocated_bytes": 148515488
+        },
+        {
+          "elapsed_ms": 128.2117,
+          "allocated_bytes": 148515488
+        },
+        {
+          "elapsed_ms": 129.1233,
+          "allocated_bytes": 148515488
+        },
+        {
+          "elapsed_ms": 129.3388,
+          "allocated_bytes": 148515488
+        }
+      ],
+      "source_sha256": "e5fe83f2ff2e7a07620f68483bb67071a9c5b6b4ec695518b77619ebeec5fb20",
+      "result": "RESULT 129059"
+    },
+    "matrix": {
+      "valid": true,
+      "samples": [
+        {
+          "elapsed_ms": 65.4702,
+          "allocated_bytes": 98949032
+        },
+        {
+          "elapsed_ms": 65.903,
+          "allocated_bytes": 98949032
+        },
+        {
+          "elapsed_ms": 65.5743,
+          "allocated_bytes": 98949032
+        },
+        {
+          "elapsed_ms": 62.9909,
+          "allocated_bytes": 98949032
+        },
+        {
+          "elapsed_ms": 63.7723,
+          "allocated_bytes": 98949032
+        }
+      ],
+      "source_sha256": "89eb653842f72537fd3c9025ea585c5136dbfad469259942ab1bd85bf7381884",
+      "result": "RESULT 545940"
+    },
+    "noop": {
+      "valid": true,
+      "samples": [
+        {
+          "elapsed_ms": 0.0012,
+          "allocated_bytes": 1688
+        },
+        {
+          "elapsed_ms": 0.0005,
+          "allocated_bytes": 1688
+        },
+        {
+          "elapsed_ms": 0.0005,
+          "allocated_bytes": 1688
+        },
+        {
+          "elapsed_ms": 0.0004,
+          "allocated_bytes": 1688
+        },
+        {
+          "elapsed_ms": 0.0005,
+          "allocated_bytes": 1688
+        }
+      ],
+      "source_sha256": "362915fbd3e41225aa3e0e6a62c3a7159d49c8526d80b54b047606b17763fe00",
+      "result": "RESULT 0"
+    },
+    "nqueens": {
+      "valid": true,
+      "samples": [
+        {
+          "elapsed_ms": 40.7107,
+          "allocated_bytes": 38587288
+        },
+        {
+          "elapsed_ms": 39.2977,
+          "allocated_bytes": 38587288
+        },
+        {
+          "elapsed_ms": 40.6696,
+          "allocated_bytes": 38587288
+        },
+        {
+          "elapsed_ms": 40.9376,
+          "allocated_bytes": 38587288
+        },
+        {
+          "elapsed_ms": 40.0636,
+          "allocated_bytes": 38587816
+        }
+      ],
+      "source_sha256": "6b148f8295e18b2f606ff7935766426401de2190e41b8f1f010e95e149625b79",
+      "result": "RESULT 92"
+    },
+    "quicksort": {
+      "valid": true,
+      "samples": [
+        {
+          "elapsed_ms": 19.8433,
+          "allocated_bytes": 42605152
+        },
+        {
+          "elapsed_ms": 19.1346,
+          "allocated_bytes": 42604624
+        },
+        {
+          "elapsed_ms": 20.4055,
+          "allocated_bytes": 42604624
+        },
+        {
+          "elapsed_ms": 19.6705,
+          "allocated_bytes": 42604624
+        },
+        {
+          "elapsed_ms": 20.0174,
+          "allocated_bytes": 42604624
+        }
+      ],
+      "source_sha256": "7288546dbd3d04e185828907f0a20b649a8bde44dca6fee26cda15a28204e96e",
+      "result": "RESULT 616973"
+    },
+    "sieve": {
+      "valid": true,
+      "samples": [
+        {
+          "elapsed_ms": 33.1745,
+          "allocated_bytes": 420053072
+        },
+        {
+          "elapsed_ms": 67.9695,
+          "allocated_bytes": 420053072
+        },
+        {
+          "elapsed_ms": 44.6608,
+          "allocated_bytes": 420053072
+        },
+        {
+          "elapsed_ms": 43.4741,
+          "allocated_bytes": 420053072
+        },
+        {
+          "elapsed_ms": 33.5909,
+          "allocated_bytes": 420053072
+        }
+      ],
+      "source_sha256": "a8fc02130cc97fa22aa84f639f3772058b6e0a2aa9123d30c20f9e4fa14306d0",
+      "result": "RESULT 1229"
+    },
+    "spectral_norm": {
+      "valid": true,
+      "samples": [
+        {
+          "elapsed_ms": 166.0906,
+          "allocated_bytes": 207795896
+        },
+        {
+          "elapsed_ms": 169.5018,
+          "allocated_bytes": 207795368
+        },
+        {
+          "elapsed_ms": 179.5601,
+          "allocated_bytes": 207795896
+        },
+        {
+          "elapsed_ms": 191.828,
+          "allocated_bytes": 207795368
+        },
+        {
+          "elapsed_ms": 160.6817,
+          "allocated_bytes": 207795896
+        }
+      ],
+      "source_sha256": "2892cb02ac6d8c9b3762b5669145d15686a2b59063a3b4662c509653b122cfde",
+      "result": "RESULT 1.6236011690579908"
+    }
+  }
+}

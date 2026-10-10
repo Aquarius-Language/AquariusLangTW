@@ -19,17 +19,21 @@ try {for(const project of ['marble','painter','snake']) {
   page.on('pageerror',e=>errors.push(e.message));
   page.on('console',m=>{if(m.type()==='error')errors.push(m.text());});
   try {
+    console.log(`CHECK ${project}/load`);
     await page.goto(`http://127.0.0.1:${server.address().port}/${project}/?autorun=0`);await page.waitForFunction(()=>window.aquarius);
     const entry=await page.evaluate(()=>window.aquarius.bundle.entry);
+    console.log(`CHECK ${project}/render`);
     await page.evaluate(({entry,frames})=>window.aquarius.run(entry,frames),{entry,frames:project==='painter'?1:2});
     const colors=await page.evaluate(async()=>{const pixels=await window.aquarius.host.processing.screen.target.readPixels(),colors=new Set();for(let i=0;i<pixels.length;i+=4)colors.add(`${pixels[i]},${pixels[i+1]},${pixels[i+2]}`);return colors.size;});
     assert.ok(colors>30,`${project} did not render a detailed GPU frame`);
     await page.screenshot({path:path.join(root,`${project}-browser.png`)});
     if(project==='marble') {
+      console.log(`CHECK ${project}/assertions`);
       const checked=await page.evaluate(()=>window.aquarius.run('smoke.aqua',0));assert.match(checked.output,/整合驗證通過/);
       await page.evaluate(()=>{window.gameTask=window.aquarius.run('main.aqua',0).catch(()=>{});});
       await page.waitForFunction(()=>window.aquarius.host.processing.frameCount>=3);
       await page.keyboard.press('p');
+      console.log(`CHECK ${project}/pause`);
       await page.waitForFunction(async()=>{const h=window.aquarius.host,state=await h.runtime.invoke(h.cache.get('physics.aqua').scope.get('取得狀態快照'));return state.get('string:paused')[1];});
       await page.keyboard.press('p');await page.keyboard.down('w');
       await page.waitForFunction(async()=>{const h=window.aquarius.host,state=await h.runtime.invoke(h.cache.get('physics.aqua').scope.get('取得狀態快照'));return state.get('string:started')[1];});

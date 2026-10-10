@@ -48,9 +48,16 @@ public sealed class WasmCompiler
             LoweredProgram b => new("program", Function: ids[b]),
             _ => throw new ArgumentException($"Unsupported constant {value.GetType().Name}")
         };
-        var functions = bodies.Select(b => new WasmFunction(b.WrapReturn, b.Constants.Select(Constant).ToArray())).ToArray();
+        var parameters = new Dictionary<LoweredProgram, string[]>();
+        foreach (var body in bodies) foreach (var item in body.Constants)
+            if (item is FunctionCode function) parameters[function.BodyCode] = function.Parameters.Select(p => p.Value).ToArray();
+        var functions = bodies.Select(b => new WasmFunction(b.WrapReturn, b.Constants.Select(Constant).ToArray(),
+            parameters.GetValueOrDefault(b, System.Array.Empty<string>()), WasmStackAnalysis.Capacity(b), b.Code.Any(op => op.Code == IrOperation.EnterLoop))).ToArray();
+        var runtime = new WasmRuntimeImage();
+        var data = new WasmRuntimeImage.Data(); data.Build(functions);
         var metadata = new WasmMetadata(WasmAbi.Version, entry, exports, functions,
-            assets?.ToDictionary(p => p.Key, p => Convert.ToBase64String(p.Value)) ?? new());
+            assets?.ToDictionary(p => p.Key, p => Convert.ToBase64String(p.Value)) ?? new(),
+            ProgramAddress: WasmRuntimeImage.ProgramAddress, HeapStart: data.End);
         using var output = new MemoryStream();
         output.Write(new byte[] { 0, 97, 115, 109, 1, 0, 0, 0 });
         void Section(byte id, Action<BinaryWriter> write)
@@ -58,37 +65,30 @@ public sealed class WasmCompiler
             using var bytes = new MemoryStream(); using var writer = new BinaryWriter(bytes, Encoding.UTF8, true);
             write(writer); output.WriteByte(id); WriteUnsigned(output, (uint)bytes.Length); bytes.Position = 0; bytes.CopyTo(output);
         }
-        // Types: ()->void, (i32)->void, ()->i32, (i32)->i32.
-        Section(1, w =>
+        runtime.Sections[1] = WasmRuntimeImage.Extend(runtime.Sections[1], 1, w => w.Write(new byte[] { 0x60, 1, 0x7f, 1, 0x7f }));
+        using (var memory = new MemoryStream()) { using var w = new BinaryWriter(memory); U(w, 1); U(w, 1); U(w, Math.Max(256, checked((data.End + 65535) / 65536))); U(w, 8192); runtime.Sections[5] = memory.ToArray(); }
+        runtime.Sections[3] = WasmRuntimeImage.Extend(runtime.Sections[3], bodies.Count, w => { foreach (var _ in bodies) U(w, runtime.TypeCount); });
+        // Runtime function pointers dispatch compiled Aquarius functions directly.
+        using (var table = new MemoryStream()) { using var w = new BinaryWriter(table); U(w, 1); w.Write((byte)0x70); U(w, 0); U(w, bodies.Count + 1); runtime.Sections[4] = table.ToArray(); }
+        runtime.Sections[7] = WasmRuntimeImage.Extend(runtime.Sections[7], bodies.Count, w =>
+            { for (int i = 0; i < bodies.Count; i++) { Text(w, $"aqua_f{i}"); w.Write((byte)0); U(w, runtime.FunctionCount + i); } });
+        using (var elements = new MemoryStream()) { using var w = new BinaryWriter(elements); U(w, 1); U(w, 0); w.Write((byte)0x41); Signed(w, 1); w.Write((byte)0x0b); U(w, bodies.Count); for (int i = 0; i < bodies.Count; i++) U(w, runtime.FunctionCount + i); runtime.Sections[9] = elements.ToArray(); }
+        runtime.Sections[10] = WasmRuntimeImage.Extend(runtime.Sections[10], bodies.Count, w =>
         {
-            U(w, 4); foreach (var t in new[] { (0, 0), (1, 0), (0, 1), (1, 1) })
-            {
-                w.Write((byte)0x60); U(w, t.Item1); if (t.Item1 == 1) w.Write((byte)0x7f);
-                U(w, t.Item2); if (t.Item2 == 1) w.Write((byte)0x7f);
-            }
-        });
-        Section(2, w =>
-        {
-            U(w, WasmAbi.Imports.Length); foreach (var i in WasmAbi.Imports)
-            {
-                Text(w, WasmAbi.ImportModule); Text(w, i.Name); w.Write((byte)0); U(w, i.Result ? 2 : i.Arguments);
-            }
-        });
-        Section(3, w => { U(w, bodies.Count); foreach (var _ in bodies) U(w, 3); });
-        Section(7, w => { U(w, bodies.Count); for (int i = 0; i < bodies.Count; i++) { Text(w, $"aqua_f{i}"); w.Write((byte)0); U(w, WasmAbi.Imports.Length + i); } });
-        Section(10, w =>
-        {
-            U(w, bodies.Count); foreach (var body in bodies)
+            for (int f = 0; f < bodies.Count; f++)
             {
                 using var bytes = new MemoryStream(); using var code = new BinaryWriter(bytes, Encoding.UTF8, true);
-                EmitBody(code, body); U(w, (int)bytes.Length); w.Write(bytes.ToArray());
+                EmitBody(code, bodies[f], runtime.Functions, data.Pools[f]); U(w, (int)bytes.Length); w.Write(bytes.ToArray());
             }
         });
+        runtime.Sections[11] = WasmRuntimeImage.Extend(runtime.Sections[11], 1, w =>
+            { U(w, 0); w.Write((byte)0x41); Signed(w, WasmRuntimeImage.ProgramAddress); w.Write((byte)0x0b); var payload = data.Bytes; U(w, payload.Length); w.Write(payload); });
+        foreach (var section in runtime.Sections.OrderBy(p => p.Key)) Section(section.Key, w => w.Write(section.Value));
         Section(0, w => { Text(w, WasmAbi.MetadataSection); w.Write(WasmProgram.SerializeMetadata(metadata)); });
         return new WasmProgram(output.ToArray(), metadata);
     }
 
-    private static void EmitBody(BinaryWriter w, LoweredProgram body)
+    private static void EmitBody(BinaryWriter w, LoweredProgram body, IReadOnlyDictionary<string, int> helpers, int pool)
     {
         var leaders = new SortedSet<int> { 0, body.Code.Length };
         for (int i = 0; i < body.Code.Length; i++)
@@ -102,15 +102,51 @@ public sealed class WasmCompiler
         void I(int n) { w.Write((byte)0x41); Signed(w, n); }
         void Call(string name, int? operand = null)
         {
-            if (operand.HasValue) I(operand.Value);
-            w.Write((byte)0x10); U(w, System.Array.FindIndex(WasmAbi.Imports, x => x.Name == name));
+            w.Write(new byte[] { 0x20, 0 }); I(operand ?? 0);
+            w.Write((byte)0x10); U(w, helpers["rt_" + name]);
         }
         void Resume(int n) { I(n); w.Write((byte)0x0f); }
-        U(w, 0); // No additional locals; parameter 0 is the continuation block.
+        void Get(int index) { w.Write((byte)0x20); U(w, index); }
+        void Set(int index) { w.Write((byte)0x21); U(w, index); }
+        void Memory(byte op, int align, int offset = 0) { w.Write(op); U(w, align); U(w, offset); }
+        void F(double value) { w.Write((byte)0x44); w.Write(value); }
+        void Checked() { Get(0); Memory(0x28, 2, 4); Memory(0x28, 2, 28); I(3); w.Write(new byte[] { 0x46, 0x04, 0x40 }); Resume(-1); w.Write((byte)0x0b); }
+        void StackAddress(int offset) { Get(0); Get(0); Memory(0x28, 2, 28); I(4); w.Write(new byte[] { 0x74, 0x6a }); I(offset); w.Write((byte)0x6a); Set(2); }
+        void StackChange(int change) { Get(0); Get(0); Memory(0x28, 2, 28); I(change); w.Write((byte)0x6a); Memory(0x36, 2, 28); }
+        void Literal(int index) {
+            StackAddress(56);
+            for (int offset = 0; offset <= 8; offset += 8) { Get(2); I(checked(pool + index * 16)); Memory(0x29, 3, offset); Memory(0x37, 3, offset); }
+            StackChange(1);
+        }
+        void Numeric(IrOperation op, string helper) {
+            StackAddress(24); Get(2); I(16); w.Write((byte)0x6a); Set(3);
+            Get(2); Memory(0x28, 2); Set(4); Get(3); Memory(0x28, 2); Set(5);
+            foreach (int tag in new[] { 4, 5 }) { Get(tag); I(1); w.Write((byte)0x4f); Get(tag); I(3); w.Write(new byte[] { 0x4d, 0x71 }); }
+            w.Write(new byte[] { 0x71, 0x04, 0x40 });
+            Get(2); Memory(0x2b, 3, 8); Get(3); Memory(0x2b, 3, 8);
+            bool comparison = op is IrOperation.Less or IrOperation.Greater or IrOperation.LessEqual or IrOperation.GreaterEqual or IrOperation.Equal or IrOperation.NotEqual;
+            w.Write(op switch { IrOperation.Add => (byte)0xa0, IrOperation.Subtract => (byte)0xa1, IrOperation.Multiply => (byte)0xa2, IrOperation.Divide => (byte)0xa3,
+                IrOperation.Less => (byte)0x63, IrOperation.Greater => (byte)0x64, IrOperation.LessEqual => (byte)0x65, IrOperation.GreaterEqual => (byte)0x66,
+                IrOperation.Equal => (byte)0x61, IrOperation.NotEqual => (byte)0x62, _ => throw new InvalidOperationException("Invalid numeric operation.") });
+            if (comparison) w.Write((byte)0xb7); Set(6);
+            if (comparison) { I(4); Set(4); }
+            else {
+                Get(4); Get(5); w.Write(new byte[] { 0x4b, 0x04, 0x7f }); Get(4); w.Write((byte)0x05); Get(5); w.Write((byte)0x0b); Set(4);
+                Get(4); I(1); w.Write(new byte[] { 0x46, 0x04, 0x40 });
+                Get(6); F(-2147483648d); w.Write((byte)0x66); Get(6); F(2147483648d); w.Write(new byte[] { 0x63, 0x71, 0x04, 0x7c });
+                Get(6); w.Write(new byte[] { 0xaa, 0xb7, 0x05 }); F(-2147483648d); w.Write((byte)0x0b); Set(6);
+                w.Write((byte)0x05); Get(4); I(2); w.Write(new byte[] { 0x46, 0x04, 0x40 }); Get(6); w.Write(new byte[] { 0xb6, 0xbb }); Set(6); w.Write(new byte[] { 0x0b, 0x0b });
+            }
+            Get(2); Get(4); Memory(0x36, 2); Get(2); I(0); Memory(0x36, 2, 4); Get(2); Get(6); Memory(0x39, 3, 8); StackChange(-1);
+            w.Write((byte)0x05); Call(helper); w.Write(new byte[] { 0x1a, 0x0b }); Checked();
+        }
+        // Parameter 0 is the Wasm-owned frame; local 1 is its continuation.
+        U(w, 2); U(w, 5); w.Write((byte)0x7f); U(w, 1); w.Write((byte)0x7c);
+        Call("pc"); w.Write(new byte[] { 0x21, 1 });
         w.Write(new byte[] { 0x03, 0x40 }); // loop
         w.Write(new byte[] { 0x02, 0x40 }); // invalid continuation
         for (int i = count - 1; i >= 0; i--) w.Write(new byte[] { 0x02, 0x40 });
-        w.Write(new byte[] { 0x20, 0, 0x0e }); U(w, count); for (int i = 0; i < count; i++) U(w, i); U(w, count);
+        w.Write(new byte[] { 0x20, 1, 0x0e }); U(w, count); for (int i = 0; i < count; i++) U(w, i); U(w, count);
         for (int b = 0; b < count; b++)
         {
             w.Write((byte)0x0b);
@@ -127,19 +163,25 @@ public sealed class WasmCompiler
                     case IrOperation.LoopCondition:
                     case IrOperation.JumpIfBreak:
                         Call(op.Code == IrOperation.JumpIfFalse ? "truth" : op.Code == IrOperation.LoopCondition ? "loopCondition" : "isBreak");
+                        Checked();
                         w.Write(new byte[] { 0x04, 0x7f }); I(Block(op.Code == IrOperation.JumpIfBreak ? n : i + 1)); w.Write((byte)0x05); I(Block(op.Code == IrOperation.JumpIfBreak ? i + 1 : n)); w.Write((byte)0x0b); break;
-                    case IrOperation.Break: Call("break"); I(Block(n)); break;
-                    case IrOperation.Call: Call("call", n); Resume(Block(i + 1)); terminated = true; break;
-                    case IrOperation.ResolveMemberFunction: Call("resolveMemberFunction", n); Resume(Block(i + 1)); terminated = true; break;
-                    case IrOperation.Return: Call("returned"); Resume(-1); terminated = true; break;
+                    case IrOperation.Break: Call("break"); w.Write((byte)0x1a); I(Block(n)); break;
+                    case IrOperation.Call: Call("call", n); w.Write((byte)0x1a); Resume(Block(i + 1)); terminated = true; break;
+                    case IrOperation.ResolveMemberFunction: Call("resolveMemberFunction", n); w.Write((byte)0x1a); Resume(Block(i + 1)); terminated = true; break;
+                    case IrOperation.Return: Call("returned"); w.Write((byte)0x1a); Resume(-1); terminated = true; break;
+                    case IrOperation.Constant: Literal(n); continue;
+                    case IrOperation.Pop: StackChange(-1); continue;
+                    case IrOperation.Add: case IrOperation.Subtract: case IrOperation.Multiply: case IrOperation.Divide:
+                    case IrOperation.Less: case IrOperation.Greater: case IrOperation.LessEqual: case IrOperation.GreaterEqual:
+                    case IrOperation.Equal: case IrOperation.NotEqual:
+                        Numeric(op.Code, char.ToLowerInvariant(op.Code.ToString()[0]) + op.Code.ToString()[1..]); continue;
                     default:
                         string name = op.Code == IrOperation.MemberFunction ? "member" : char.ToLowerInvariant(op.Code.ToString()[0]) + op.Code.ToString()[1..];
-                        var import = WasmAbi.Imports.First(x => x.Name == name);
-                        Call(name, import.Arguments == 0 ? null : n); continue;
+                        Call(name, n); w.Write((byte)0x1a); Checked(); continue;
                 }
-                if (!terminated) { w.Write(new byte[] { 0x21, 0, 0x0c }); U(w, count - b); terminated = true; }
+                if (!terminated) { w.Write(new byte[] { 0x21, 1, 0x0c }); U(w, count - b); terminated = true; }
             }
-            if (!terminated) { I(b + 1); w.Write(new byte[] { 0x21, 0, 0x0c }); U(w, count - b); }
+            if (!terminated) { I(b + 1); w.Write(new byte[] { 0x21, 1, 0x0c }); U(w, count - b); }
         }
         w.Write(new byte[] { 0x0b, 0x00, 0x0b, 0x00, 0x0b });
     }

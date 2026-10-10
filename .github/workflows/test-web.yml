@@ -15,7 +15,10 @@ jobs:
           cache-dependency-path: AquariusWebCompiler/package-lock.json
       - name: Build example and marble websites
         shell: pwsh
-        run: ./AquariusWebCompiler/scripts/build-web.ps1
+        run: |
+          ./scripts/install-wasm-toolchain.ps1
+          ./scripts/build-wasm-runtime.ps1 -Check
+          ./AquariusWebCompiler/scripts/build-web.ps1
       - name: Language, packaging, CLI smoke tests and browser Wasm parity
         run: dotnet test AquariusTests --no-build -m:1 --logger "trx;LogFileName=compiler.trx"
       - name: Browser validation unit tests

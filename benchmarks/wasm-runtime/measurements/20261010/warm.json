@@ -1,0 +1,353 @@
+{
+  "method": "Compiled Wasm module and guest session reused; source and engine compilation excluded. Five warmups and five samples. Counters run in a separate fresh session. Managed allocated bytes are not peak memory; guest heap is a high-water mark. Wasmtime persistent compilation cache enabled.",
+  "dotnet": "8.0.31",
+  "process_affinity_mask": "0x1",
+  "fingerprints": {
+    "AquariusCore.dll": "34d99f59aaeb5ded30c1a083ae8fab20c88f3326a6f22bf4aebfc2b15d8d3042",
+    "AquariusDesktop.dll": "91c060b67c030711539b22fb5c90986173452d0e0f9026db97af2761557b7d60",
+    "Wasmtime.Dotnet.dll": "ba2a630c87c6febfadbdf8670907ccbb024453e8197361d315fb1f7041c746f0"
+  },
+  "results": {
+    "ackermann": {
+      "valid": true,
+      "samples": [
+        {
+          "elapsed_ms": 41.3048,
+          "allocated_bytes": 77384
+        },
+        {
+          "elapsed_ms": 41.8808,
+          "allocated_bytes": 77384
+        },
+        {
+          "elapsed_ms": 41.6328,
+          "allocated_bytes": 77384
+        },
+        {
+          "elapsed_ms": 41.8446,
+          "allocated_bytes": 77384
+        },
+        {
+          "elapsed_ms": 41.2867,
+          "allocated_bytes": 77384
+        }
+      ],
+      "native_calls": 1,
+      "lookups": 1,
+      "scheduler_entries": 232,
+      "guest_heap_high_water_bytes": 368944,
+      "wasm_sha256": "2a01e410bc8950812e8c7e290b181e31bc56dc79b5c37b841a7df3df38206f1a",
+      "result": "RESULT 509"
+    },
+    "binary_trees": {
+      "valid": true,
+      "samples": [
+        {
+          "elapsed_ms": 72.0776,
+          "allocated_bytes": 43600
+        },
+        {
+          "elapsed_ms": 70.9777,
+          "allocated_bytes": 43600
+        },
+        {
+          "elapsed_ms": 71.3219,
+          "allocated_bytes": 43600
+        },
+        {
+          "elapsed_ms": 71.2466,
+          "allocated_bytes": 43600
+        },
+        {
+          "elapsed_ms": 73.2513,
+          "allocated_bytes": 43600
+        }
+      ],
+      "native_calls": 1,
+      "lookups": 1,
+      "scheduler_entries": 129,
+      "guest_heap_high_water_bytes": 1188288,
+      "wasm_sha256": "6f175a026fc6b7a38fde847ab08e0cf8e568dbb3c10e3a637fa2cc1ccdc05171",
+      "result": "RESULT 65528"
+    },
+    "collatz": {
+      "valid": true,
+      "samples": [
+        {
+          "elapsed_ms": 225.0063,
+          "allocated_bytes": 413920
+        },
+        {
+          "elapsed_ms": 211.2823,
+          "allocated_bytes": 413920
+        },
+        {
+          "elapsed_ms": 190.5592,
+          "allocated_bytes": 413920
+        },
+        {
+          "elapsed_ms": 189.8613,
+          "allocated_bytes": 413920
+        },
+        {
+          "elapsed_ms": 189.6727,
+          "allocated_bytes": 413920
+        }
+      ],
+      "native_calls": 1,
+      "lookups": 1,
+      "scheduler_entries": 1258,
+      "guest_heap_high_water_bytes": 1360,
+      "wasm_sha256": "6593a336d3506986b70b25e985a91f141c5a4324cc72c24c77c46876be913902",
+      "result": "RESULT 849666"
+    },
+    "fibonacci": {
+      "valid": true,
+      "samples": [
+        {
+          "elapsed_ms": 196.6657,
+          "allocated_bytes": 330936
+        },
+        {
+          "elapsed_ms": 212.746,
+          "allocated_bytes": 330936
+        },
+        {
+          "elapsed_ms": 193.1905,
+          "allocated_bytes": 330936
+        },
+        {
+          "elapsed_ms": 199.1399,
+          "allocated_bytes": 330936
+        },
+        {
+          "elapsed_ms": 195.4411,
+          "allocated_bytes": 330936
+        }
+      ],
+      "native_calls": 1,
+      "lookups": 1,
+      "scheduler_entries": 1005,
+      "guest_heap_high_water_bytes": 21184,
+      "wasm_sha256": "d830b0cd38b5679c01916b7a6fb27d16dbdef7282b26fb082113a2551259e307",
+      "result": "RESULT 317811"
+    },
+    "mandelbrot": {
+      "valid": true,
+      "samples": [
+        {
+          "elapsed_ms": 42.7654,
+          "allocated_bytes": 69192
+        },
+        {
+          "elapsed_ms": 34.6811,
+          "allocated_bytes": 69192
+        },
+        {
+          "elapsed_ms": 36.479,
+          "allocated_bytes": 69192
+        },
+        {
+          "elapsed_ms": 34.9693,
+          "allocated_bytes": 69192
+        },
+        {
+          "elapsed_ms": 39.3808,
+          "allocated_bytes": 69192
+        }
+      ],
+      "native_calls": 1,
+      "lookups": 1,
+      "scheduler_entries": 207,
+      "guest_heap_high_water_bytes": 1920,
+      "wasm_sha256": "3f0b05087792a3d18e24591f638f804c3cc5db57eb6e16ec01b1e42c1e6421fe",
+      "result": "RESULT 129059"
+    },
+    "matrix": {
+      "valid": true,
+      "samples": [
+        {
+          "elapsed_ms": 75.5743,
+          "allocated_bytes": 26224
+        },
+        {
+          "elapsed_ms": 76.0064,
+          "allocated_bytes": 26224
+        },
+        {
+          "elapsed_ms": 72.8367,
+          "allocated_bytes": 26224
+        },
+        {
+          "elapsed_ms": 71.9956,
+          "allocated_bytes": 26224
+        },
+        {
+          "elapsed_ms": 71.6271,
+          "allocated_bytes": 26224
+        }
+      ],
+      "native_calls": 1,
+      "lookups": 2,
+      "scheduler_entries": 76,
+      "guest_heap_high_water_bytes": 176400,
+      "wasm_sha256": "135d170597698ba4fd846818ff6c6765d8823513b1d0474f9d10f3e1c9d7eebd",
+      "result": "RESULT 545940"
+    },
+    "noop": {
+      "valid": true,
+      "samples": [
+        {
+          "elapsed_ms": 0.0057,
+          "allocated_bytes": 1576
+        },
+        {
+          "elapsed_ms": 0.0053,
+          "allocated_bytes": 1576
+        },
+        {
+          "elapsed_ms": 0.0053,
+          "allocated_bytes": 1576
+        },
+        {
+          "elapsed_ms": 0.0075,
+          "allocated_bytes": 1576
+        },
+        {
+          "elapsed_ms": 0.0053,
+          "allocated_bytes": 1576
+        }
+      ],
+      "native_calls": 1,
+      "lookups": 1,
+      "scheduler_entries": 1,
+      "guest_heap_high_water_bytes": 848,
+      "wasm_sha256": "de552baaa4389494756791670e6fe18ce546629b075d835c9e32daceb5f9ca9a",
+      "result": "RESULT 0"
+    },
+    "nqueens": {
+      "valid": true,
+      "samples": [
+        {
+          "elapsed_ms": 15.3102,
+          "allocated_bytes": 34704
+        },
+        {
+          "elapsed_ms": 15.5931,
+          "allocated_bytes": 34704
+        },
+        {
+          "elapsed_ms": 15.4129,
+          "allocated_bytes": 34704
+        },
+        {
+          "elapsed_ms": 15.358,
+          "allocated_bytes": 34704
+        },
+        {
+          "elapsed_ms": 15.2975,
+          "allocated_bytes": 34704
+        }
+      ],
+      "native_calls": 1,
+      "lookups": 2,
+      "scheduler_entries": 102,
+      "guest_heap_high_water_bytes": 12896,
+      "wasm_sha256": "9f497290e27f01a20a8a41919ff06e1528e19832a3f01d58a1e7167abd2e809a",
+      "result": "RESULT 92"
+    },
+    "quicksort": {
+      "valid": true,
+      "samples": [
+        {
+          "elapsed_ms": 11.0583,
+          "allocated_bytes": 17368
+        },
+        {
+          "elapsed_ms": 10.8533,
+          "allocated_bytes": 17368
+        },
+        {
+          "elapsed_ms": 10.5064,
+          "allocated_bytes": 17368
+        },
+        {
+          "elapsed_ms": 10.5518,
+          "allocated_bytes": 17368
+        },
+        {
+          "elapsed_ms": 10.5044,
+          "allocated_bytes": 17368
+        }
+      ],
+      "native_calls": 1,
+      "lookups": 2,
+      "scheduler_entries": 49,
+      "guest_heap_high_water_bytes": 152832,
+      "wasm_sha256": "3b9bedf52e26c869dc5d243be0e0951911256f91b28c58b9125ad936d65e243e",
+      "result": "RESULT 616973"
+    },
+    "sieve": {
+      "valid": true,
+      "samples": [
+        {
+          "elapsed_ms": 12.6674,
+          "allocated_bytes": 12768
+        },
+        {
+          "elapsed_ms": 12.5922,
+          "allocated_bytes": 12768
+        },
+        {
+          "elapsed_ms": 12.7281,
+          "allocated_bytes": 12768
+        },
+        {
+          "elapsed_ms": 12.824,
+          "allocated_bytes": 12768
+        },
+        {
+          "elapsed_ms": 12.6714,
+          "allocated_bytes": 12768
+        }
+      ],
+      "native_calls": 1,
+      "lookups": 2,
+      "scheduler_entries": 35,
+      "guest_heap_high_water_bytes": 837328,
+      "wasm_sha256": "cd125fb241b0db3bde3b50b27904d061b0a0564b3b13e1e1f80ef1befd66f547",
+      "result": "RESULT 1229"
+    },
+    "spectral_norm": {
+      "valid": true,
+      "samples": [
+        {
+          "elapsed_ms": 128.0019,
+          "allocated_bytes": 129920
+        },
+        {
+          "elapsed_ms": 124.3916,
+          "allocated_bytes": 129920
+        },
+        {
+          "elapsed_ms": 123.4171,
+          "allocated_bytes": 129920
+        },
+        {
+          "elapsed_ms": 123.7749,
+          "allocated_bytes": 129920
+        },
+        {
+          "elapsed_ms": 125.553,
+          "allocated_bytes": 129920
+        }
+      ],
+      "native_calls": 1,
+      "lookups": 2,
+      "scheduler_entries": 392,
+      "guest_heap_high_water_bytes": 20016,
+      "wasm_sha256": "8d3dc7d38d5061ce1a333917e1a568b46f9e964d835dbe366650bb65c0b00680",
+      "result": "RESULT 1.6236011690579908"
+    }
+  }
+}

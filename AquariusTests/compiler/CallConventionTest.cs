@@ -13,7 +13,7 @@ public class CallConventionTest {
     public CallConventionTest(ITestOutputHelper output) { this.output = output; }
 
     [Fact]
-    public void LegacyNativeArgumentsRemainIndependentAndMayBeRetained() {
+    public void OwnedNativeArgumentsRemainIndependentAndMayBeRetained() {
         var saved = new List<IObject[]>();
         var builtins = new Builtins();
         builtins.BuiltinFuncs["保存"] = new BuiltinObj(args => { saved.Add(args); return args[0]; });

@@ -56,7 +56,7 @@ public class JoltCliSmokeTest {
         var root = new DirectoryInfo(AppContext.BaseDirectory);
         while (root != null && !File.Exists(Path.Combine(root.FullName, "AquariusLang.sln"))) root = root.Parent;
         Assert.NotNull(root);
-        Assert.Equal(File.ReadAllBytes(Path.Combine(root!.FullName, "examples", "jolt_physics", "main.aqua")), File.ReadAllBytes(example));
+        Assert.Equal(File.ReadAllText(Path.Combine(root!.FullName, "examples", "jolt_physics", "main.aqua")).Replace("\r\n", "\n"), File.ReadAllText(example).Replace("\r\n", "\n"));
         var result = Run(AppContext.BaseDirectory, "--disassemble", example);
         Assert.Equal(0, result.Code); Assert.NotEmpty(result.Output); Assert.Empty(result.Error);
     }

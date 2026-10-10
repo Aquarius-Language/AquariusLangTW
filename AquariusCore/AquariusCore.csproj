@@ -6,6 +6,7 @@
     <RootNamespace>AquariusLang.Compiler</RootNamespace>
   </PropertyGroup>
   <ItemGroup>
+    <EmbeddedResource Include="wasm/runtime/runtime.wasm" LogicalName="AquariusLang.Wasm.runtime.wasm" />
     <EmbeddedResource Include="external/jolt/*" LogicalName="AquariusLang.External.jolt.%(Filename)%(Extension)" />
   </ItemGroup>
 </Project>

@@ -9,9 +9,9 @@ namespace AquariusLang.Wasm;
 
 public sealed record WasmConstant(string Type, double Number = 0, string? Text = null, bool Boolean = false,
     int Function = -1, string[]? Parameters = null, string? Operation = null, string? Display = null);
-public sealed record WasmFunction(bool WrapReturn, WasmConstant[] Pool);
+public sealed record WasmFunction(bool WrapReturn, WasmConstant[] Pool, string[]? Parameters = null, int StackCapacity = 0, bool CacheBindings = false);
 public sealed record WasmMetadata(int AbiVersion, string Entry, Dictionary<string, int> Modules,
-    WasmFunction[] Functions, Dictionary<string, string> Assets);
+    WasmFunction[] Functions, Dictionary<string, string> Assets, int ValueAbi = 2, int ProgramAddress = 0, int HeapStart = 0);
 
 /// <summary>A standard WebAssembly module with bounded, versioned application metadata in a custom section.</summary>
 public sealed class WasmProgram
@@ -64,6 +64,8 @@ public sealed class WasmProgram
         }
         if (metadata == null || metadata.AbiVersion != WasmAbi.Version || metadata.Modules == null || metadata.Functions == null || metadata.Assets == null)
             throw new InvalidDataException("Missing or incompatible Aquarius WebAssembly ABI.");
+        if (metadata.ValueAbi != 2 || metadata.ProgramAddress != WasmRuntimeImage.ProgramAddress || metadata.HeapStart < metadata.ProgramAddress + 8 || metadata.HeapStart > MaxBytes)
+            throw new InvalidDataException("Invalid Aquarius value ABI or memory layout.");
         if (metadata.Modules.Count == 0 || metadata.Modules.Count + metadata.Assets.Count > 10000 || metadata.Functions.Length > 100000)
             throw new InvalidDataException("Invalid application module count.");
         var paths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -81,6 +83,8 @@ public sealed class WasmProgram
         foreach (var f in metadata.Functions)
         {
             if (f?.Pool == null) throw new InvalidDataException("Missing function constants.");
+            if (f.Parameters == null || f.Parameters.Length > 10000 || f.Parameters.Any(p => string.IsNullOrWhiteSpace(p)) || f.StackCapacity < 16 || f.StackCapacity > 1000000)
+                throw new InvalidDataException("Invalid function frame layout.");
             foreach (var c in f.Pool)
             {
                 if (c == null || !new[] { "name", "int", "float", "double", "string", "bool", "null", "break", "assignment", "function", "program" }.Contains(c.Type)) throw new InvalidDataException("Invalid constant type.");
@@ -91,6 +95,8 @@ public sealed class WasmProgram
                 if (c.Type == "int" && (c.Number < int.MinValue || c.Number > int.MaxValue || c.Number != Math.Truncate(c.Number))) throw new InvalidDataException("Invalid integer constant.");
             }
         }
+        var data = new WasmRuntimeImage.Data(); data.Build(metadata.Functions);
+        if (metadata.HeapStart != data.End) throw new InvalidDataException("Application metadata does not match its memory layout.");
         return new WasmProgram((byte[])bytes.Clone(), metadata);
     }
     public static void ValidatePath(string path)

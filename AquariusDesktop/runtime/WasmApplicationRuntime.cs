@@ -12,11 +12,12 @@ internal sealed class WasmApplicationRuntime : IDisposable {
     private readonly string directory;
     private readonly string? resources;
     internal string? ResourceDirectory => resources;
-    private readonly GraphicsRuntime graphics;
+    private readonly Lazy<GraphicsRuntime> graphics;
+    private readonly WasmRuntime runtime = new();
     private readonly HashSet<string> importing = new(StringComparer.OrdinalIgnoreCase);
 
     internal WasmApplicationRuntime(WasmApplication package, string path, IEnumerable<string>? launchFiles = null) {
-        graphics = new(new Application.DesktopApplicationHost(launchFiles: launchFiles));
+        graphics = new(() => new GraphicsRuntime(new Application.DesktopApplicationHost(launchFiles: launchFiles)) { ResourcePath = ResolveAsset });
         this.package = package;
         directory = Path.GetDirectoryName(Path.GetFullPath(path))!;
         if (package.Assets.Count != 0) {
@@ -29,7 +30,6 @@ internal sealed class WasmApplicationRuntime : IDisposable {
                     File.WriteAllBytes(target, asset.Value);
                 }
             } catch { Dispose(); throw; }
-            graphics.ResourcePath = ResolveAsset;
         }
     }
 
@@ -43,7 +43,7 @@ internal sealed class WasmApplicationRuntime : IDisposable {
             desktop.NewDefaultBuiltins(scriptPath);
             desktop.ResourceArgument = ResolveAssetArgument;
             desktop.ScriptImport = path => Import(entry, path);
-            return new WasmRuntime(desktop).Execute(program, environment, entry);
+            return runtime.Execute(program, environment, entry, desktop);
         } finally { importing.Remove(entry); }
     }
 
@@ -97,8 +97,9 @@ internal sealed class WasmApplicationRuntime : IDisposable {
     private static string QuoteResource(string path) => path.Contains(' ') ? "\"" + path + "\"" : path;
 
     public void Dispose() {
-        try { graphics.Dispose(); }
+        try { if (graphics.IsValueCreated) graphics.Value.Dispose(); }
         finally {
+            runtime.Dispose();
             if (resources != null && Directory.Exists(resources) &&
                 Path.GetFullPath(resources).StartsWith(Path.GetFullPath(Path.GetTempPath()), StringComparison.OrdinalIgnoreCase))
                 Directory.Delete(resources, true);

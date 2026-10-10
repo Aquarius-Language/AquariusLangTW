@@ -3,7 +3,8 @@
 This document describes the current implementation. The
 [remaining Wasm migration work](docs/wasm-architecture-migration.md) tracks moving
 language execution and portable libraries into Wasm, removing unnecessary C#/.NET
-dependencies, and completing cross-platform deployment. Future computational
+dependencies, and completing cross-platform deployment. The [implementation status](docs/wasm-migration-progress.md)
+distinguishes completed runtime changes from remaining library and toolchain work. Future computational
 libraries must follow the [Wasm inclusion requirement](docs/external-libraries.md#requirement-for-future-libraries).
 
 ```mermaid
@@ -31,19 +32,23 @@ flowchart TD
 Aquarius is a compiled language. The front end lowers syntax to compiler-only IR,
 then emits standard WebAssembly functions and control flow. No Aquarius instruction
 stream, AST interpreter or opcode dispatcher is deployed. Dynamic values, lexical
-bindings, arrays, hashes, closures and platform capabilities are supplied by the
-versioned `aquarius_v1` host ABI. A future optimizer can specialize dynamic value
-operations without changing platform APIs or the application format.
+bindings, arrays, hashes, closures, script-call scheduling and garbage collection
+execute in the linked freestanding Wasm runtime. The `aquarius_v2.service` import
+transports capability lookup, calls and native module access. Hosts project values
+only at capability and embedding boundaries. Portable builtins execute in Wasm.
 
-Each compiled function exports `aqua_fN(i32 continuation) -> i32`. Compiled basic
-blocks use structured Wasm branches and `br_table`; host imports implement value
-operations rather than interpreting instructions. A nonnegative result is a
+Each compiled function exports `aqua_fN(i32 frame) -> i32`. The frame and its
+continuation live in Wasm memory. Compiled basic blocks use structured Wasm branches
+and `br_table`, calling guest runtime helpers directly. A nonnegative result is a
 continuation; -1 completes the function. Calls and member resolution suspend at
-compiler-generated boundaries. Hosts schedule compiled function frames without
+compiler-generated boundaries. The guest scheduler runs compiled function frames without
 using the C# or JavaScript call stack for Aquarius recursion. Browser host calls
 can await GPU mapping, external-library initialization and animation frames.
 Checkpoints bound each browser turn and make cancellation observable in pure loops.
-Every execution owns its value frames and imports, including callback reentry.
+Every execution owns its value frames, including callback reentry. Native handles
+are traced from guest roots and recycled; transport leases retain externally held
+arrays, modules, closures and projected scopes. Changed host-visible arrays are
+copied back before capability access. Bulk transport remains migration work.
 
 Hosts trace active language scopes, operands, suspended native arguments and
 callback closures at frame boundaries to reclaim unused Processing canvases and
@@ -55,8 +60,10 @@ in the error handler and browser cancellation still terminate execution.
 
 A `.wasm` file contains executable Wasm sections and exactly one
 `aquarius.application` custom section: ABI version, module/function mapping,
-constants, function metadata and base64 assets. Module identities retain their
-source-relative `.aqua` names; source contents are absent. Application loaders
+inspection metadata and base64 assets. Executable constants, function definitions
+and parameter names are in Wasm data segments. Module identities retain their
+source-relative `.aqua` names. Function display metadata currently retains rendered
+source-derived bodies for inspection. Application loaders
 bound sizes and reject malformed metadata and unsafe paths. Engines independently
 validate Wasm types and code. Repeated script imports create independent globals;
 registered native modules are shared within a host session. Closures retain their

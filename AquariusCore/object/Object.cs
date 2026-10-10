@@ -63,14 +63,14 @@ namespace AquariusLang.Object {
     /// </summary>
     public struct HashKey : IEquatable<HashKey> {
         private string type;
-        private int value;
+        private object value;
 
-        public HashKey(string type, int value) {
+        public HashKey(string type, object value) {
             this.type = type;
             this.value = value;
         }
 
-        public readonly bool Equals(HashKey other) => type == other.type && value == other.value;
+        public readonly bool Equals(HashKey other) => type == other.type && Equals(value, other.value);
         public override readonly bool Equals(object? obj) => obj is HashKey other && Equals(other);
         public override readonly int GetHashCode() => HashCode.Combine(type, value);
 
@@ -79,7 +79,7 @@ namespace AquariusLang.Object {
             set => type = value;
         }
 
-        public int Value {
+        public object Value {
             get => value;
             set => this.value = value;
         }
@@ -136,7 +136,7 @@ namespace AquariusLang.Object {
         }
 
         public HashKey HashKey() {
-            return new HashKey(Type(), value.GetHashCode());
+            return new HashKey(Type(), value);
         }
 
         public double GetNumValue() {
@@ -168,7 +168,7 @@ namespace AquariusLang.Object {
         }
 
         public HashKey HashKey() {
-            return new HashKey(Type(), value.GetHashCode());
+            return new HashKey(Type(), value);
         }
 
         public double GetNumValue() {
@@ -228,7 +228,7 @@ namespace AquariusLang.Object {
         }
 
         public HashKey HashKey() {
-            return new HashKey(Type(), value.GetHashCode());
+            return new HashKey(Type(), value);
         }
     }
 
@@ -365,6 +365,11 @@ namespace AquariusLang.Object {
     public delegate IObject BorrowedBuiltinFunction(ReadOnlySpan<IObject> args);
 
     public class BuiltinObj : IObject {
+        public int PortableId { get; private set; }
+        public static BuiltinObj FromPortable(int id, BuiltinFunction function) {
+            if (id is < 1 or > 4) throw new System.ArgumentOutOfRangeException(nameof(id));
+            return new BuiltinObj(function) { PortableId = id };
+        }
         /// <summary>Language scope retained by a native method extracted from a resource.</summary>
         public Environment? RetainedEnvironment { get; set; }
         private BuiltinFunction fn;
@@ -397,6 +402,7 @@ namespace AquariusLang.Object {
             set {
                 fn = value ?? throw new ArgumentNullException(nameof(value));
                 borrowed = null; // Host replacement must also replace the optimized entry point.
+                PortableId = 0;
             }
         }
     }

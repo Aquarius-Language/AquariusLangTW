@@ -1,4 +1,4 @@
-import {Scope,module,num,numeric,wrap,unwrap,inspect,nativeCall,nativeOwner,isPromiseLike} from './values.mjs';
+import {Scope,module,num,numeric,wrap,unwrap,inspect,nativeCall,nativeOwner,isPromiseLike,portableBuiltin} from './values.mjs';
 import {WasmRuntime} from './wasm.mjs';
 import {BrowserWgpuBackend} from './wgpu.mjs';
 import {BrowserJoltBackend,vector,number} from './physics.mjs';
@@ -10,7 +10,7 @@ import {BrowserSurface} from './surface.mjs';
 import {BrowserApplication} from './application.mjs';
 export class BrowserHost {
   constructor(bundle,{signal=new AbortController().signal,frameLimit=0,print=console.log}={}) {
-    if(bundle.version!==1)throw new Error('Unsupported website version');this.bundle=bundle;this.signal=signal;this.frameLimit=frameLimit;this.print=print;this.modules=new Map();this.objects=new Map();this.cache=new Map();this.importing=new Set();this.downloads=new Map();this.graphics=new BrowserWgpuBackend(bundle.graphics);this.physics=new BrowserJoltBackend();this.builtins=new Map();this.runtime=new WasmRuntime(this);this.register();
+    if(bundle.version!==2)throw new Error('Unsupported website version');this.bundle=bundle;this.signal=signal;this.frameLimit=frameLimit;this.print=print;this.modules=new Map();this.objects=new Map();this.cache=new Map();this.importing=new Set();this.downloads=new Map();this.graphics=new BrowserWgpuBackend(bundle.graphics);this.physics=new BrowserJoltBackend();this.builtins=new Map();this.runtime=new WasmRuntime(this);this.register();
   }
   newModule(){return module(new Scope());}
   set(m,n,v){m.scope.create(n,wrap(v));}
@@ -22,6 +22,7 @@ export class BrowserHost {
   async execute(entry){entry=lookupPath(this.bundle.modules,this.resolve(entry),{module:true});if(this.importing.has(entry))throw new Error(`Circular import: ${entry}`);this.importing.add(entry);try{return await this.runtime.execute(this.bundle.modules[entry],new Scope(),this.builtinsFor(entry));}finally{this.importing.delete(entry);}}
   register(){const globals=this.newModule(),b=(n,f,raw=false)=>this.bind(globals,'',n,f,raw);
     b('len',v=>num(typeof v==='string'?v.length:Array.isArray(v)?v.length:(()=>{throw new Error('len expects string or array');})(),'int'),true);b('last',v=>{if(!Array.isArray(v))throw new Error('last expects array');return v.at(-1)??null;},true);b('rest',v=>{if(!Array.isArray(v))throw new Error('rest expects array');return v.length?v.slice(1):null;},true);b('push',(a,v)=>{if(!Array.isArray(a))throw new Error('push expects array');return [...a,v];},true);b('print',(...a)=>{this.print(a.map(inspect).join(' '));},true);for(const n of ['isOSWindows','isOSLinux','isOSMacOS'])b(n,()=>false);b('execFile',()=>{throw new Error('execFile requires a desktop host');});this.builtins=new Map(globals.scope.store);
+    for(const [name,id]of [['len',1],['last',2],['rest',3],['push',4]])this.builtins.get(name)[portableBuiltin]=id;
     this.processing=new Processing(this);this.modules.set('Processing',this.processing.module);this.registerGpu();this.registerPhysics();this.registerMath();this.registerText();registerLegacy(this);
     this.application=new BrowserApplication(this);
   }
