@@ -1,5 +1,27 @@
 # External libraries and platform capabilities
 
+## Requirement for future libraries
+
+Every future included computational library, its Aquarius binding and its transitive
+computational dependencies must execute in Wasm. Use an approved core-Wasm ABI or
+a supported Wasm component interface, with explicit imports/exports, versions,
+memory ownership, capabilities and desktop/browser validation. A `.wasm` file
+that delegates its algorithms to C# or JavaScript does not meet this requirement.
+
+Host adapters provide necessary OS, browser and GPU services. Browser JavaScript
+may load modules, transport buffers/handles and deliver asynchronous events; it
+must not implement portable library algorithms. Retain C# only for a documented
+native integration that still needs it. A library without a compatible Wasm build
+must be ported/rebuilt or deferred, rather than replaced with a managed/native
+algorithm provider or subprocess.
+
+The profiles and Jolt implementation below describe the current transitional
+architecture. They do not authorize new Emscripten/JS algorithm implementations.
+See the [complete migration checklist](wasm-architecture-migration.md) for ABI,
+linking, packaging and existing-library migration work.
+
+## Current implementation
+
 Core owns library identities, pinned versions, contract versions, portable assets,
 argument validation, language registration, aliases and object ownership rules.
 Platform projects provide adapters and execution engines. Core has no Wasmtime,
@@ -40,12 +62,12 @@ WGSL shaders, layouts and the 1,120-byte Processing uniform ABI. Desktop impleme
 the contract with Silk.NET/wgpu-native; browsers implement it with WebGPU. Future
 output platforms should implement this contract for their primary graphics layer.
 
-For a new library, define a platform-neutral contract and versioned descriptor,
-choose its actual execution profile, declare every binary/glue/license asset and its deployment name,
-implement adapters in the host projects, register them in the composition roots,
-and add cross-platform behavior, validation, ownership and disposal tests. A raw
-Wasm extension should specify memory ownership, export signatures, imports and
-error transport; an Emscripten extension must include its glue and engine needs.
+For a new library, first satisfy the Wasm requirement above and define a versioned,
+language-neutral ABI. Declare its Wasm/data/license assets and deployment names,
+dependencies, required features, capability imports, ownership and error transport.
+Add cross-platform behavior, validation, linking and disposal tests. The existing
+CLR-interface registry and Emscripten hosting are transitional mechanisms; the
+checklist identifies the changes needed for general Wasm library inclusion.
 Do not infer compatibility from the `.wasm` extension alone.
 
 Upstream: [JoltPhysics.js](https://github.com/jrouwe/JoltPhysics.js),

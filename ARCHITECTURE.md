@@ -1,5 +1,11 @@
 # WebAssembly compiler and cross-platform hosts
 
+This document describes the current implementation. The
+[remaining Wasm migration work](docs/wasm-architecture-migration.md) tracks moving
+language execution and portable libraries into Wasm, removing unnecessary C#/.NET
+dependencies, and completing cross-platform deployment. Future computational
+libraries must follow the [Wasm inclusion requirement](docs/external-libraries.md#requirement-for-future-libraries).
+
 ```mermaid
 flowchart TD
     Source[Aquarius source] --> Frontend[Core lexer and parser]
