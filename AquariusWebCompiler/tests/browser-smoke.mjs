@@ -15,6 +15,7 @@ try{
     await page.goto(`http://127.0.0.1:${port}/${project}/?autorun=0`);try{await page.waitForFunction(()=>!!window.aquarius);}catch(e){throw new Error(`Browser initialization: ${errors.join('\n') || e.message}`);}
     let entries=await page.evaluate(()=>Object.keys(window.aquarius.bundle.modules));
     if(process.env.AQUARIUS_WEB_ENTRIES)entries=entries.filter(n=>process.env.AQUARIUS_WEB_ENTRIES.split(',').includes(n));
+    if(process.env.AQUARIUS_WEBCAM_HARDWARE!=='1')entries=entries.filter(n=>!/^webcam\/(main|影格驗證)\.aqua$/.test(n));
     for(const entry of entries){errors.length=0;const start=Date.now();try{
       const logical=entry.replace(/\.aqua$/i,'.aqua');
       const frames=logical==='smoke.aqua'?0:logical==='color_mapping/main.aqua'?1:2;

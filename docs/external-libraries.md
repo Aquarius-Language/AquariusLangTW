@@ -31,7 +31,7 @@ ClearScript, Silk.NET or native-library package dependencies.
 
 | Profile | Deployment and execution |
 | --- | --- |
-| `CoreWasm` | Reserved for verified freestanding libraries using the upcoming library ABI. The CLR factory registry rejects this profile; it is not evidence that a loader already exists. |
+| `CoreWasm` | Memory-only libraries with an explicit Wasm ABI. Audio implements ABI 1; the general library loader remains future work. The CLR factory registry rejects this profile. |
 | `Emscripten` | A Wasm module plus generated JavaScript glue; requires an Emscripten-capable host. |
 | `HostCapability` | A platform API such as WebGPU, windowing or user documents; represented by a core contract. |
 
@@ -40,6 +40,13 @@ contract type and version, rejects duplicate adapters, creates each adapter lazi
 and disposes owned instances in reverse creation order. Resolving an unavailable
 capability fails explicitly. Engine choice never silently falls back to another
 library implementation.
+
+Audio uses pinned miniaudio 0.11.25 in `AquariusCore/audio/audio.wasm`, with no
+host imports and explicit allocation, sound ownership, control and PCM rendering
+exports. Core embeds the Wasm, JS ABI adapter and license. Desktop executes it
+in Wasmtime and sends PCM to a miniaudio device ring; browser playback executes
+the same Wasm in an AudioWorklet. Neither host implements decoder or mixer
+algorithms. The library ABI is documented in [the audio guide](../AquariusCore/audio/README.md).
 
 Computational libraries cannot be registered as CLR factories with a `CoreWasm`
 label. New Emscripten adapters are rejected; the existing pinned Jolt descriptor

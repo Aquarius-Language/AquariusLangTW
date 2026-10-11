@@ -13,7 +13,7 @@ public class BilingualLibraryTest {
     public void EveryNativeFunctionResolvesBothNamesAndSharesValidation(string library, string english, string chinese, int max) {
         using var runtime = new GraphicsRuntime(); Assert.True(runtime.TryImport(library, out var module));
         var original = Assert.IsType<BuiltinObj>(module._Environment.GetOwned(english));
-        Assert.Same(original, module._Environment.GetOwned(chinese)); FunctionRegistration.Names(chinese, english);
+        Assert.Same(original, module._Environment.GetOwned(chinese)); FunctionRegistration.Names(chinese, english == chinese ? null : english);
         var invalid = Enumerable.Repeat<IObject>(new IntegerObj(0), max + 1).ToArray(); var vm = new CompiledRuntime();
         Assert.IsType<ErrorObj>(vm.Invoke(original, invalid));
         Assert.Equal(vm.Invoke(original, invalid).Inspect(), vm.Invoke(module._Environment.GetOwned(chinese), invalid).Inspect());
@@ -59,7 +59,7 @@ public class BilingualLibraryTest {
         foreach (var group in LibraryCatalog.Functions.GroupBy(f => f.Library)) {
             var names = new HashSet<string>(StringComparer.Ordinal);
             foreach (var descriptor in group) {
-                foreach (string name in FunctionRegistration.Names(descriptor.TraditionalChineseName, descriptor.EnglishName))
+                foreach (string name in descriptor.Names)
                     Assert.True(names.Add(name), $"Duplicate {group.Key}.{name}");
                 Assert.True(descriptor.MinimumArguments <= descriptor.MaximumArguments);
                 if (descriptor.ReturnLibrary != null) Assert.NotEmpty(LibraryCatalog.Members(descriptor.ReturnLibrary));

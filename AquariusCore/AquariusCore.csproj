@@ -8,5 +8,7 @@
   <ItemGroup>
     <EmbeddedResource Include="wasm/runtime/runtime.wasm" LogicalName="AquariusLang.Wasm.runtime.wasm" />
     <EmbeddedResource Include="external/jolt/*" LogicalName="AquariusLang.External.jolt.%(Filename)%(Extension)" />
+    <EmbeddedResource Include="audio/audio.wasm;audio/audio-core.mjs;audio/AUDIO-THIRD-PARTY-NOTICES.txt" LogicalName="AquariusLang.External.audio.%(Filename)%(Extension)" />
+    <EmbeddedResource Include="../native/vendor/miniaudio/LICENSE" LogicalName="AquariusLang.External.audio.MINIAUDIO-LICENSE.txt" />
   </ItemGroup>
 </Project>

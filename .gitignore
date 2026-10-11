@@ -19,3 +19,4 @@ build-targets/
 .native-build/
 AquariusCore/external/jolt/vendor-*
 AquariusWebCompiler/browser/physics-core.mjs
+AquariusWebCompiler/browser/audio-core.mjs

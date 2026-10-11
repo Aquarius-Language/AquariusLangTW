@@ -10,6 +10,7 @@
 - **可攜編譯成果**：將模組、圖片與著色器等資源一起封裝，執行與網頁輸出不需原始碼。
 - **雙語函式庫**：腳本與桌面原生函式支援繁體中文／英文名稱，共用函式與閉包。
 - **圖學與物理**：核心保留跨平台 WebGPU 介面；桌面與瀏覽器共用 Jolt WebAssembly 引擎與物理實作。
+- **跨平台音訊**：[音訊抽象與函式庫](AquariusCore/audio/README.md)共用 miniaudio WebAssembly 解碼與混音，支援音檔、音調、循環、聲像、音高及無硬體的離線樣本輸出。
 
 ## 目錄
 
@@ -312,3 +313,7 @@ Linux／macOS 的原生建置與發佈方式見 [原生指南](native/README.md)
 本專案採用 [MIT License](LICENSE)，Copyright (c) 2026 Temple Lin。
 第三方相依套件保留各自授權，原始授權位於 `native/vendor/` 與
 `AquariusDesktop/licenses/`；正式套件會一併附上授權檔。
+
+## 攝影機功能
+
+攝影機提供核心契約、桌面與網頁實作，以及 [繁體中文架構指南](docs/webcam.md) 和 [展示範例](examples/webcam/README.md)。執行 `scripts/test-webcam.ps1` 可完成單元及冒煙測試。

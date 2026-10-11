@@ -25,6 +25,8 @@
              CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <Content Include="licenses/**/*"
              CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="../native/vendor/miniaudio/LICENSE" Link="licenses/MINIAUDIO-LICENSE.txt" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="../AquariusCore/audio/AUDIO-THIRD-PARTY-NOTICES.txt" Link="licenses/AUDIO-THIRD-PARTY-NOTICES.txt" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <Content Include="../AquariusCore/external/jolt/vendor-jolt.LICENSE.txt" Link="licenses/JOLT-WASM-LICENSE.txt" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <Content Include="$(NuGetPackageRoot)microsoft.clearscript.v8/7.5.1.1/licenses/**/*" Link="licenses/clearscript/%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <Content Include="examples/**/*"

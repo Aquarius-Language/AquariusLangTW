@@ -6,6 +6,11 @@ WebAssembly. `program.json` contains entry/module mapping, application assets,
 shared library catalog, WGSL ABI and external-library version/hash declarations.
 There is no JavaScript Aquarius bytecode interpreter.
 
+[Audio](../AquariusCore/audio/README.md) runs the same miniaudio Wasm as desktop,
+inside an AudioWorklet for realtime output and native WebAssembly for offline
+rendering. The exporter includes the engine, ABI adapter and license; playback
+requires HTTPS or localhost and may request a user gesture on first Start.
+
 ```powershell
 npm ci --prefix AquariusWebCompiler
 npm run --prefix AquariusWebCompiler prepare:browser

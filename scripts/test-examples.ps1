@@ -1,4 +1,4 @@
-param([string]$Dotnet = 'dotnet', [string]$Configuration = 'Debug', [switch]$SkipBuild, [switch]$RetryFailed)
+﻿param([string]$Dotnet = 'dotnet', [string]$Configuration = 'Debug', [switch]$SkipBuild, [switch]$RetryFailed)
 $ErrorActionPreference = 'Stop'
 $repository = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 $build = Join-Path $repository '.web-build'
@@ -61,6 +61,7 @@ try {
         $entries = @($sources | ForEach-Object { [IO.Path]::GetRelativePath($inputDirectory, $_.FullName).Replace('\', '/') })
         # Sources are run in a disposable copy so example output does not modify the repository.
         foreach ($entry in $entries) {
+            if ($entry -match '^webcam/(main|影格驗證)\.aqua$' -and $env:AQUARIUS_WEBCAM_HARDWARE -ne '1') { Write-Host "略過實體攝影機範例：$entry"; continue }
             if ($RetryFailed -and -not $retryKeys.ContainsKey("$name/source/$entry")) { continue }
             $capture = if ($entry -eq 'opengl_cube/main.aqua') { Join-Path $build "$name-source-opengl.ppm" } elseif ($entry -match '^(processing_|color_mapping/|multilingual_input/)') { Join-Path $build "$name-source-$($entry.Replace('/','-')).png" } else { '' }
             try {
@@ -77,6 +78,7 @@ try {
         if (-not $resolvedInput.StartsWith([IO.Path]::GetFullPath($build) + [IO.Path]::DirectorySeparatorChar) -or -not ([IO.Path]::GetFileName($resolvedInput)).StartsWith('example-inputs-')) { throw 'Unsafe temporary input path.' }
         Remove-Item -LiteralPath $resolvedInput -Recurse -Force
         foreach ($entry in $entries) {
+            if ($entry -match '^webcam/(main|影格驗證)\.aqua$' -and $env:AQUARIUS_WEBCAM_HARDWARE -ne '1') { Write-Host "略過實體攝影機範例：$entry"; continue }
             if ($RetryFailed -and -not $retryKeys.ContainsKey("$name/wasm/$entry")) { continue }
             $capture = if ($entry -eq 'opengl_cube/main.aqua') { Join-Path $build "$name-wasm-opengl.ppm" } elseif ($entry -match '^(processing_|color_mapping/|multilingual_input/)') { Join-Path $build "$name-wasm-$($entry.Replace('/','-')).png" } else { '' }
             try {

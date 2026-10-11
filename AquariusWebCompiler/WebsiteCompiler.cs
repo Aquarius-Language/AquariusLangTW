@@ -23,7 +23,7 @@ public static class WebsiteCompiler {
         string Name(string p) => Path.GetRelativePath(root, p).Replace('\\', '/');
         entry ??= single ? Name(source) : sources.Any(p => Name(p) == "main.aqua") ? "main.aqua" : sources.Select(Name).FirstOrDefault();
         if (entry == null) throw new ArgumentException("Entry must name a bundled Aquarius script.");
-        var assets = files.Where(p => new[] { ".png", ".jpg", ".jpeg", ".ppm", ".txt", ".wgsl", ".py" }.Contains(Path.GetExtension(p).ToLowerInvariant())).ToArray();
+        var assets = files.Where(p => new[] { ".png", ".jpg", ".jpeg", ".ppm", ".txt", ".wgsl", ".py", ".wav", ".flac", ".mp3" }.Contains(Path.GetExtension(p).ToLowerInvariant())).ToArray();
         string wasm = Path.Combine(Path.GetTempPath(), "aquarius-web-" + Guid.NewGuid().ToString("N") + ".wasm");
         try {
             WasmApplication.Compile(sources, wasm, root, assets, entry);

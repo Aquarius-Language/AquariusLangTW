@@ -17,13 +17,17 @@ internal sealed partial class GraphicsRuntime : IDisposable {
     private WindowObject? current;
     private bool loaded, disposed;
     private readonly Physics.PhysicsRuntime physics = new();
+    private readonly AquariusLang.Audio.AudioRuntime audio;
+    private readonly AquariusLang.Webcam.WebcamRuntime webcam;
     internal readonly Application.DesktopApplicationHost ApplicationHost;
     internal readonly AquariusLang.Application.ApplicationRuntime Application;
     internal AquaEnvironment GlEnvironment = AquaEnvironment.NewEnvironment();
 
-    internal GraphicsRuntime(Application.DesktopApplicationHost? applicationHost = null) {
+    internal GraphicsRuntime(Application.DesktopApplicationHost? applicationHost = null, AquariusLang.Webcam.IWebcamBackend? webcamBackend = null) {
+        audio = new(new Audio.DesktopAudioBackend(), path => File.ReadAllBytes(ResourcePath(path)));
         ApplicationHost = applicationHost ?? new();
         Application = new(ApplicationHost);
+        webcam = new(webcamBackend ?? new Webcam.DesktopWebcamBackend(), pixels => Application.Image(pixels));
         modules["GL"] = new ModuleObj(GlEnvironment);
         RegisterGl();
         RegisterGlHelpers();
@@ -36,7 +40,7 @@ internal sealed partial class GraphicsRuntime : IDisposable {
         RegisterApplicationGraphics();
     }
     internal bool TryImport(string name, out ModuleObj module) =>
-        Application.TryImport(name, out module) || physics.TryImport(name, out module) || sharedWgpu.TryImport(name, out module) || modules.TryGetValue(name, out module!);
+        Application.TryImport(name, out module) || webcam.TryImport(name, out module) || audio.TryImport(name, out module) || physics.TryImport(name, out module) || sharedWgpu.TryImport(name, out module) || modules.TryGetValue(name, out module!);
     private AquaEnvironment Module(string name) {
         var env = AquaEnvironment.NewEnvironment(); modules[name] = new ModuleObj(env); return env;
     }
@@ -152,6 +156,8 @@ internal sealed partial class GraphicsRuntime : IDisposable {
     }
     public void Dispose() {
         if (disposed) return;
+        webcam.Dispose();
+        audio.Dispose();
         physics.Dispose();
         DisposeProcessing();
         sharedWgpu.Dispose();

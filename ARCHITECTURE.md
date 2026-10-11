@@ -1,5 +1,7 @@
 # WebAssembly compiler and cross-platform hosts
 
+攝影機的核心抽象、桌面與網頁配接器、生命週期及驗證方式見 [攝影機架構指南](docs/webcam.md)。
+
 This document describes the current implementation. The
 [remaining Wasm migration work](docs/wasm-architecture-migration.md) tracks moving
 language execution and portable libraries into Wasm, removing unnecessary C#/.NET
@@ -22,6 +24,9 @@ flowchart TD
     Website --> Web
     Core[Core capability contracts and external library catalog] --> GPU[Desktop and browser WebGPU adapters]
     Core --> Jolt[Shared Jolt WASM and physics implementation]
+    Core --> Audio[Shared miniaudio WASM decoder and mixer]
+    Audio --> AudioDesktop[Wasmtime and miniaudio PCM sink]
+    Audio --> AudioWeb[AudioWorklet and browser PCM sink]
     Jolt --> Emscripten[Emscripten adapters: browser and desktop V8]
     Desktop --> GPU
     Web --> GPU

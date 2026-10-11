@@ -10,6 +10,7 @@ try {
     if ($Runtime -ne 'win-x64' -or [Environment]::OSVersion.Platform -ne 'Win32NT') { throw 'The current application runtime pack supports Windows x64 and must be published on Windows.' }
     $bridge = Join-Path $repository "AquariusDesktop/runtimes/$Runtime/native/aquarius_graphics.dll"
     if (-not (Test-Path -LiteralPath $bridge -PathType Leaf)) { throw 'Build the native graphics bridge with ./native/build.ps1 before publishing the application runtime.' }
+    if (-not (Test-Path -LiteralPath (Join-Path $repository "AquariusDesktop/runtimes/$Runtime/native/aquarius_audio.dll") -PathType Leaf)) { throw 'Build the native audio bridge with ./native/build.ps1 before publishing the application runtime.' }
     # wgpu-native imports the VC runtime. Bundle the release redistributable DLLs,
     # sourced from Visual Studio's redist directory rather than the system installation.
     if (-not $VCRuntimeDirectory) {

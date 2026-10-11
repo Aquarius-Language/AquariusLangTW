@@ -21,7 +21,11 @@ public static class ExternalLibraries
         new[] { "vendor-jolt.mjs", "vendor-jolt.wasm", "vendor-jolt.LICENSE.txt", "physics.mjs" },
         new Dictionary<string,string> { ["vendor-jolt.mjs"]="vendor-jolt.mjs", ["vendor-jolt.wasm"]="vendor-jolt.wasm", ["vendor-jolt.LICENSE.txt"]="vendor-jolt.LICENSE.txt", ["physics.mjs"]="physics-core.mjs" });
     public static ExternalLibraryDescriptor WebGpu { get; } = new("webgpu", "1", 1, ExternalLibraryProfile.HostCapability, typeof(AquariusLang.Graphics.IWgpuBackend), System.Array.Empty<string>());
-    public static IReadOnlyList<ExternalLibraryDescriptor> All { get; } = System.Array.AsReadOnly(new[] { Jolt, WebGpu });
+    public static ExternalLibraryDescriptor Audio { get; } = new("audio", "miniaudio-0.11.25", 1, ExternalLibraryProfile.CoreWasm, typeof(AquariusLang.Audio.IAudioBackend),
+        new[] { "audio.wasm", "audio-core.mjs", "MINIAUDIO-LICENSE.txt", "AUDIO-THIRD-PARTY-NOTICES.txt" },
+        new Dictionary<string,string> { ["audio.wasm"]="audio.wasm", ["audio-core.mjs"]="audio-core.mjs", ["MINIAUDIO-LICENSE.txt"]="MINIAUDIO-LICENSE.txt", ["AUDIO-THIRD-PARTY-NOTICES.txt"]="AUDIO-THIRD-PARTY-NOTICES.txt" });
+    public static ExternalLibraryDescriptor Webcam { get; } = new("webcam", "1", 1, ExternalLibraryProfile.HostCapability, typeof(AquariusLang.Webcam.IWebcamBackend), System.Array.Empty<string>());
+    public static IReadOnlyList<ExternalLibraryDescriptor> All { get; } = System.Array.AsReadOnly(new[] { Jolt, WebGpu, Audio, Webcam });
     public static byte[] ReadAsset(ExternalLibraryDescriptor library, string name)
     {
         if (!library.Assets.Contains(name, StringComparer.Ordinal)) throw new ArgumentException("Asset is not declared by this library.");

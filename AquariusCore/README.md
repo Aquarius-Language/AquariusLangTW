@@ -3,6 +3,10 @@
 Portable compiler and runtime contracts targeting .NET 8. Core has no native engine,
 graphics or physics package dependencies.
 
+Core also owns [audio contracts and the miniaudio Wasm library](audio/README.md).
+The same memory-only decoder/mixer executes on desktop and browser hosts; hardware
+output adapters remain in the platform projects.
+
 Source flows through the lexer/parser, `LoweringCompiler` and compiler-only IR to
 `WasmCompiler`, which emits a standard WebAssembly module. `WasmProgram` loads and
 validates versioned application metadata. `WasmRuntime` supplies dynamic values,

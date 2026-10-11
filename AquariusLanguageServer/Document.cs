@@ -270,7 +270,7 @@ internal sealed class Document
     private static IEnumerable<object> MemberCompletion(ModuleInfo? module, string prefix)
     {
         if (module?.Library != null)
-            return LibraryCatalog.Members(module.Library).SelectMany(f => new[] { f.TraditionalChineseName, f.EnglishName }
+            return LibraryCatalog.Members(module.Library).SelectMany(f => f.Names
                 .Where(n => n.StartsWith(prefix, StringComparison.Ordinal)).Select(n => (object)new { label = n, kind = 3, detail = f.Detail }));
         return module?.Script?.Exports().Where(d => d.Token.Literal.StartsWith(prefix, StringComparison.Ordinal))
             .Select(d => (object)new { label = d.Token.Literal, kind = d.Kind == 12 ? 3 : 6, detail = d.Detail }) ?? [];

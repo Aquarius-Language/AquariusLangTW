@@ -13,6 +13,7 @@ await copyFile(path.join(jolt,'dist/jolt-physics.wasm.wasm'),path.join(root,'bro
 await copyFile(path.join(jolt,'LICENSE'),path.join(root,'browser/vendor-jolt.LICENSE.txt'));
 for(const name of ['vendor-jolt.mjs','vendor-jolt.wasm','vendor-jolt.LICENSE.txt'])await copyFile(path.join(root,'browser',name),path.join(joltCore,name));
 await copyFile(path.join(joltCore,'physics.mjs'),path.join(root,'browser/physics-core.mjs'));
+await copyFile(path.join(root,'../AquariusCore/audio/audio-core.mjs'),path.join(root,'browser/audio-core.mjs'));
 for(const name of ['earcut','gl-matrix']){
   let dir=path.dirname(require.resolve(name));
   while(!existsSync(path.join(dir,'LICENSE')))dir=path.dirname(dir);

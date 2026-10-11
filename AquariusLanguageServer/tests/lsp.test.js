@@ -286,6 +286,16 @@ test('native returned objects and chained calls infer bilingual method names', a
   }
 });
 
+test('攝影機提供繁體中文補全且不重複列出單一名稱', async t => {
+  const s = new Session(t); await s.initialize();
+  assert.deepEqual(await s.open('變數 裝置=匯入("攝影機");\n裝置.是否支援();'), []);
+  const items = await s.feature('completion', 1, 3);
+  assert.deepEqual(items.map(item => item.label).sort(), ['列出裝置', '是否支援', '開啟'].sort());
+  assert.ok(items.every(item => item.detail.includes('參數數量')));
+  assert.deepEqual(await s.open('變數 裝置=匯入("攝影機");變數 相機=裝置.開啟("",640,480,30);\n相機.擷取影格();'), []);
+  assert.ok((await s.feature('completion', 1, 3)).some(item => item.label === '擷取影格'));
+});
+
 test('script-library aliases resolve from disk and unsaved buffers without executing the library', async t => {
   const folder = fs.mkdtempSync(path.join(os.tmpdir(), 'aquarius-bilingual-lsp-'));
   t.after(() => fs.rmSync(folder, { recursive: true, force: true }));

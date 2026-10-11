@@ -5,6 +5,11 @@ execution. It implements core WebGPU, application and external-library contracts
 Jolt uses the same core Emscripten Wasm and world implementation as browsers,
 with ClearScript/V8 supplying its glue environment.
 
+[Audio](../AquariusCore/audio/README.md) executes the shared miniaudio Wasm in
+Wasmtime. The separate `aquarius_audio` bridge only drains a PCM ring to a miniaudio
+device; build it with `native/build.ps1`. Importing audio or running offline audio
+never loads the native device bridge.
+
 The preferred compiler driver is `aqua`. The desktop entry also supports:
 
 ```powershell

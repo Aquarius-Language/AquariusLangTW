@@ -4,16 +4,17 @@ namespace AquariusLang.Desktop.Graphics;
 
 internal static class Native {
     private const string Library = "aquarius_graphics";
-    static Native() {
+    [System.Runtime.CompilerServices.ModuleInitializer]
+    internal static void RegisterLibraryResolver() {
         NativeLibrary.SetDllImportResolver(typeof(Native).Assembly, (name, assembly, search) => {
-            if (name != Library) return IntPtr.Zero;
+            if (name != Library && name != "aquarius_audio") return IntPtr.Zero;
             string os = OperatingSystem.IsWindows() ? "win" : OperatingSystem.IsMacOS() ? "osx" : "linux";
             string rid = os + "-" + RuntimeInformation.ProcessArchitecture.ToString().ToLowerInvariant();
-            string file = os == "win" ? Library + ".dll" : os == "osx" ? "lib" + Library + ".dylib" : "lib" + Library + ".so";
+            string file = os == "win" ? name + ".dll" : os == "osx" ? "lib" + name + ".dylib" : "lib" + name + ".so";
             string path = Path.Combine(AppContext.BaseDirectory, "runtimes", rid, "native", file);
             if (File.Exists(path)) return NativeLibrary.Load(path);
             if (NativeLibrary.TryLoad(file, assembly, search, out IntPtr handle)) return handle;
-            throw new DllNotFoundException($"Graphics library missing for {rid}. Build native/CMakeLists.txt and install to runtimes/{rid}/native; on Windows run native/build.ps1, then rebuild AquariusDesktop.");
+            throw new DllNotFoundException($"Native library {name} missing for {rid}. Build native/CMakeLists.txt and install to runtimes/{rid}/native; on Windows run native/build.ps1, then rebuild AquariusDesktop.");
         });
     }
     [DllImport(Library, CallingConvention = CallingConvention.Cdecl)] internal static extern int aqua_init();
