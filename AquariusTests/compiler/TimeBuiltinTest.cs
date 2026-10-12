@@ -7,6 +7,15 @@ using AquariusLang.Wasm;
 namespace AquariusTests.Compiler;
 
 public class TimeBuiltinTest {
+    [Fact]
+    public void 目前日期採主機本地西元日期且拒絕參數() {
+        using var runtime = new WasmRuntime();
+        var before = DateTime.Now.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture);
+        var actual = Assert.IsType<StringObj>(runtime.Execute(new WasmCompiler().Compile("目前日期();"))).Value;
+        var after = DateTime.Now.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture);
+        Assert.True(actual == before || actual == after);
+        Assert.IsType<ErrorObj>(runtime.Execute(new WasmCompiler().Compile("currentDate(1);")));
+    }
     [Theory]
     [InlineData(false)]
     [InlineData(true)]

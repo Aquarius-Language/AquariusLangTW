@@ -1,4 +1,6 @@
 using System.Collections.Generic;
+using System;
+using System.Globalization;
 using System.Diagnostics;
 using AquariusLang.Object;
 using AquariusLang.utils;
@@ -13,10 +15,20 @@ namespace AquariusLang.runtime {
         public Builtins(Dictionary<string, BuiltinObj> builtinFuncs) {
             this.builtinFuncs = builtinFuncs;
             builtins = new Dictionary<string, IObject>();
-            DefineFunction(BuiltinObj.FromBorrowed(args => args.Length == 0
+            // 純量主機函式不保留或修改呼叫者範圍，避免讀取時間時回寫整份文件。
+            var 純量範圍 = AquariusLang.Object.Environment.NewEnvironment();
+            var 時間函式 = BuiltinObj.FromBorrowed(args => args.Length == 0
                 ? new DoubleObj(Stopwatch.GetElapsedTime(clockOrigin).TotalMilliseconds)
-                : newError($"currentTime / 目前時間: Expected 0 arguments, got {args.Length}.")),
+                : newError($"currentTime / 目前時間: Expected 0 arguments, got {args.Length}."));
+            時間函式.RetainedEnvironment = 純量範圍;
+            DefineFunction(時間函式,
                 traditionalChineseName: "目前時間", englishName: "currentTime");
+            var 日期函式 = BuiltinObj.FromBorrowed(args => args.Length == 0
+                ? new StringObj(DateTime.Now.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture))
+                : newError($"currentDate / 目前日期: Expected 0 arguments, got {args.Length}."));
+            日期函式.RetainedEnvironment = 純量範圍;
+            DefineFunction(日期函式,
+                traditionalChineseName: "目前日期", englishName: "currentDate");
         }
 
         public Builtins() : this(new Dictionary<string, BuiltinObj>()) { }

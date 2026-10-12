@@ -46,7 +46,10 @@ See [the architecture](../ARCHITECTURE.md) and [ABI](../AquariusPackaging/README
 - A loop's declared control variable stays local to the loop and carries its value
   into the next iteration. Body declarations get a fresh scope each iteration;
   closures can retain the environment from the iteration that created them.
-- Arrays support indexed writes. Hash keys use `IHashable` and `HashKey` values.
+- Arrays and hashes support indexed writes. Hash assignment replaces an existing
+  typed key or adds a new one, preserving aliases and nested object identity.
+  Invalid keys are rejected before evaluating the right-hand side.
+  Hash keys use `IHashable` and `HashKey` values.
   Out-of-range array reads and missing hash entries return `NullObj`; invalid
   array writes return a language error.
 - Imported script modules expose their environment through `ModuleObj`.
@@ -80,6 +83,10 @@ The clock's origin is arbitrary and host-specific: readings are not Unix or
 calendar timestamps and must not be compared across separate processes or pages.
 The clock is unaffected by wall-clock corrections; precision depends on the host
 (browsers may reduce timer precision).
+
+`目前日期()` / `currentDate()` is a zero-argument core global returning the host's
+local calendar date as `yyyy-MM-dd`. Use it for due dates and calendar comparisons;
+use `目前時間()` for elapsed durations. It is available on desktop and browser hosts.
 
 ## Extending the language
 

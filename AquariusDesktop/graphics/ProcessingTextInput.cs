@@ -22,6 +22,8 @@ internal sealed partial class GraphicsRuntime {
     private void ResetProcessingTextInput() {
         processing.Create("textInputEnabled", new BooleanObj(false));
         processing.Create("inputText", new StringObj(""));
+        processing.Create("inputTimestamp", new DoubleObj(0));
+        processing.Create("keyTimestamp", new DoubleObj(0));
         ClearProcessingComposition(false);
     }
     private void ClearProcessingComposition(bool composing) {
@@ -34,6 +36,7 @@ internal sealed partial class GraphicsRuntime {
         case "textInput":
             redraw = true;
             processing.Create("inputText", new StringObj(input.Text));
+            processing.Create("inputTimestamp", new DoubleObj(input.Timestamp));
             processing.Create("compositionText", new StringObj(""));
             processing.Create("compositionCursor", N(0));
             Event("textInput");

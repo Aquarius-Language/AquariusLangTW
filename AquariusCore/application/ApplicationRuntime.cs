@@ -35,6 +35,8 @@ public sealed partial class ApplicationRuntime : IDisposable {
             }
         });
         function.RetainedEnvironment = module._Environment;
+        // 應用程式函式庫讀取傳入資料，修改資源由其擁有的主機物件處理。
+        function.PreservesArguments = true;
         FunctionRegistration.Define(module._Environment, function, ApplicationCatalog.TraditionalChinese(name), name);
     }
     private void Action(ModuleObj module, string name, int min, int max, Action<IObject[]> action) => Bind(module, name, min, max, a => { action(a); return RepeatedPrimitives.NULL; });

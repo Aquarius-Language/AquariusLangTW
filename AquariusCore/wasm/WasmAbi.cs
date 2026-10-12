@@ -9,7 +9,7 @@ public static class WasmAbi
     public const int Version = 2;
     public const string ImportModule = "aquarius_v2";
     public const string MetadataSection = "aquarius.application";
-    public const int Quantum = 4096;
+    public const int Quantum = 32768;
 }
 
 public interface IWasmEngine

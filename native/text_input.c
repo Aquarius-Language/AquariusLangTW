@@ -16,6 +16,7 @@ enum { TEXT_COMMIT = 1, TEXT_START = 2, TEXT_UPDATE = 3, TEXT_END = 4 };
 typedef struct TextEvent {
     struct TextEvent* next;
     int kind, cursor;
+    double timestamp;
     size_t size;
     char text[1];
 } TextEvent;
@@ -50,7 +51,7 @@ static void enqueue(TextInput* input, int kind, const char* text, size_t length,
     if (size > 1024 * 1024 || input->bytes > 1024 * 1024 - size) { input->failed = 1; return; }
     TextEvent* event = (TextEvent*)malloc(size);
     if (!event) { input->failed = 1; return; }
-    event->next = NULL; event->kind = kind; event->cursor = cursor; event->size = size;
+    event->next = NULL; event->kind = kind; event->cursor = cursor; event->size = size; event->timestamp = glfwGetTime();
     memcpy(event->text, text, length); event->text[length] = 0;
     if (input->last) input->last->next = event; else input->first = event;
     input->last = event; input->bytes += size;
@@ -65,6 +66,8 @@ void aqua_text_character(GLFWwindow* window, unsigned int c) {
     else { utf8[0] = (char)(0xf0 | (c >> 18)); utf8[1] = (char)(0x80 | ((c >> 12) & 63)); utf8[2] = (char)(0x80 | ((c >> 6) & 63)); utf8[3] = (char)(0x80 | (c & 63)); length = 4; }
     enqueue(input, TEXT_COMMIT, utf8, length, 0);
 }
+AQUA double aqua_text_event_time(GLFWwindow* window) { TextInput* input=state(window); return input&&input->returned ? input->returned->timestamp : glfwGetTime(); }
+AQUA int aqua_text_is_composing(GLFWwindow* window) { TextInput* input=state(window); return input&&input->composing; }
 static void end_composition(TextInput* input) {
     if (!input->composing) return;
     input->composing = 0;

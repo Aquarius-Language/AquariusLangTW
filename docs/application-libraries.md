@@ -30,7 +30,7 @@ values are arrays of integers in 0..255. Failures never report successful no-ops
 | editor | `State()`, `Select(anchor,caret)`, `Insert(text)`, `Backspace()`, `Delete()`, `Move(direction,unit,extendSelection)`, `Convert(position,fromUnit,toUnit)` |
 | editor | `Composition(text,cursor[,cursorUnit])`, `CancelComposition()`, `Commit(text)`, `Copy()`, `Cut()`, `Paste()`, `Shortcut(logicalKey,modifierMask)` |
 | `Fonts` | `Enumerate()`, `Available(family)`, `Measure(text,family,size)`, `Selection(text,startUtf16,endUtf16,family,size)` |
-| `Serialization` | `Json(value)`, `ParseJson(text)`, `Binary(value,schemaVersion)`, `ParseBinary(bytes)`, `Compress(bytes,format[,level])`, `Decompress(bytes,format)`, `Archive(resourceHash)`, `ReadArchive(bytes)` |
+| `Serialization` | `Json(value)`, `ParseJson(text)`, `Binary(value,schemaVersion)`, `ParseBinary(bytes)`, `TryParseBinary(bytes)` / `嘗試解析二進位(bytes)`, `Compress(bytes,format[,level])`, `Decompress(bytes,format)`, `Archive(resourceHash)`, `ReadArchive(bytes)` |
 | `Storage` | `SettingsDirectory()`, `DataDirectory()`, `Read(key)`, `Write(key,bytes)`, `Delete(key)`, `GetPreference(key)`, `SetPreference(key,value)`, `Recent()`, `Remember(resource)` |
 | `Application` | `Capabilities()`, `OpenFiles(options)`, `SaveFile(options)`, `PickDirectory()`, `LaunchFiles()`, `AcquireImage()`, `Print(image)`, `Accessibility(nodes)`, `RegisterFileAssociation(options)` |
 | `Tasks` | `CreateCancellation()`, `UseCancellation(token)`; token has `Cancel()`, `IsCancelled()`, `Dispose()` |
@@ -41,6 +41,19 @@ Resources are opaque, scoped handles with `provider`, `id`, `name`, `kind` (0 fi
 recent descriptors through their provider; descriptors grant no new permissions.
 Browser-selected `File`s are read-only and scoped to the run. Packaged assets remain
 separate, with unchanged package validation and loading.
+
+`Serialization.TryParseBinary(bytes)` / `嘗試解析二進位(bytes)` returns a record
+with `ok`, `schema`, `value`, and `error`. A valid document has `ok=true` and an
+empty error. Invalid bytes, checksum failures and invalid input types return
+`ok=false`, `schema=0`, `value=null` and diagnostic text, allowing applications
+to try a backup without terminating execution. `ParseBinary` retains its throwing
+behavior. Both APIs enforce the same binary format validation.
+
+Processing's `inputTimestamp` and `keyTimestamp` use the same monotonic seconds
+as Window events. Input callbacks can process only keyboard events at or before
+their text commit, preserving rapid key/text ordering. `TextInput.Poll` records
+also include `timestamp`. A key event with `state=true` belongs to an active IME
+composition; applications should let the IME handle that key.
 
 Save operations return whether replacement was atomic. Desktop stages a neighboring
 temporary file, flushes it, then replaces/renames it. Browser IndexedDB commits a

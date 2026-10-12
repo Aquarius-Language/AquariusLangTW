@@ -48,7 +48,8 @@ public class TextInputTest {
         Assert.True(Assert.IsType<BooleanObj>(p._Environment.Get("isComposing", out _)).Value);
         Assert.Equal(4, GraphicsRuntime.Number(p._Environment.Get("compositionCursor", out _)));
         Assert.Equal("", Assert.IsType<StringObj>(p._Environment.Get("inputText", out _)).Value);
-        runtime.DispatchTextInput(new("textInput", "繁體😀é", 0));
+        runtime.DispatchTextInput(new("textInput", "繁體😀é", 0, 12.5));
+        Assert.Equal(12.5, Assert.IsType<DoubleObj>(p._Environment.Get("inputTimestamp", out _)).Value);
         runtime.DispatchTextInput(new("compositionEnded", "", 0));
         Assert.False(Assert.IsType<BooleanObj>(p._Environment.Get("isComposing", out _)).Value);
         Assert.Equal("", Assert.IsType<StringObj>(p._Environment.Get("compositionText", out _)).Value);
@@ -127,6 +128,9 @@ public class TextInputIntegrationTest {
         Assert.True(events.Elements.Length > 256);
         Assert.All(events.Elements, e => Assert.Equal("textInput", Field(e, "type")));
         Assert.Equal(text, string.Concat(events.Elements.Select(e => Field(e, "text"))));
+        var times = events.Elements.Select(e => Assert.IsType<DoubleObj>(Assert.IsType<ModuleObj>(e)._Environment.Get("timestamp", out _)).Value).ToArray();
+        Assert.All(times, time => Assert.InRange(time, 0, Native.aqua_time()));
+        Assert.Equal(times.OrderBy(time => time), times);
         Assert.Empty(Assert.IsType<ArrayObj>(TextInputTest.Call(input, "Poll", window)).Elements);
         // Observe composition start/end without requiring a particular installed IME.
         SendMessageW(hwnd, 0x10d, UIntPtr.Zero, IntPtr.Zero);

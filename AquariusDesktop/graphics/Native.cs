@@ -53,6 +53,8 @@ internal static class Native {
     [DllImport(Library, CallingConvention = CallingConvention.Cdecl)] internal static extern IntPtr aqua_image_error();
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)] internal delegate void ApplicationCallback(IntPtr window, int kind, int a, int b, int c, double x, double y, IntPtr text);
     [DllImport(Library, CallingConvention = CallingConvention.Cdecl)] internal static extern int aqua_application_version();
+    [DllImport(Library, CallingConvention = CallingConvention.Cdecl)] internal static extern double aqua_text_event_time(IntPtr window);
+    [DllImport(Library, CallingConvention = CallingConvention.Cdecl)] internal static extern int aqua_text_is_composing(IntPtr window);
     [DllImport(Library, CallingConvention = CallingConvention.Cdecl)] internal static extern void aqua_application_subscribe(IntPtr window, ApplicationCallback callback);
     [DllImport(Library, CallingConvention = CallingConvention.Cdecl)] internal static extern void aqua_title(IntPtr window, [MarshalAs(UnmanagedType.LPUTF8Str)] string title);
     [DllImport(Library, CallingConvention = CallingConvention.Cdecl)] internal static extern int aqua_standard_cursor(IntPtr window, int shape);

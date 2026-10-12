@@ -6,7 +6,7 @@ import {runtime} from './wasm-fixture.mjs';
 
 function globals() {
   const host=Object.create(BrowserHost.prototype);
-  host.bundle={catalog:[{library:'',english:'currentTime',chinese:'目前時間',min:0,max:0}]};
+  host.bundle={catalog:[{library:'',english:'currentTime',chinese:'目前時間',min:0,max:0},{library:'',english:'currentDate',chinese:'目前日期',min:0,max:0}]};
   host.signal=new AbortController().signal;
   host.registerGlobals();
   return host.builtins;
@@ -53,4 +53,10 @@ test('clock readings retain their origin across executions and stored aliases',a
   const {vm,index}=await runtime('變數 read=目前時間;read();',globals());
   const first=await vm.execute(index),second=await vm.execute(index);
   assert.ok(second.value>=first.value);
+});
+test('本地日期在編譯後的瀏覽器星泉環境可用且拒絕額外參數',async()=>{
+  const builtins=globals(),日期=()=>{const d=new Date();return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');};
+  assert.equal(builtins.get('currentDate'),builtins.get('目前日期'));
+  const 起=日期(),{vm,index}=await runtime('目前日期();',builtins),值=await vm.execute(index),終=日期();assert.ok(值===起||值===終);
+  const 壞=await runtime('currentDate(1);',builtins);await assert.rejects(壞.vm.execute(壞.index),/Expected 0/);
 });

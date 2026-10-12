@@ -5,12 +5,13 @@ using AquaEnvironment = AquariusLang.Object.Environment;
 
 namespace AquariusLang.Desktop.Graphics;
 
-internal readonly record struct TextInputEvent(string Type, string Text, int Cursor) {
+internal readonly record struct TextInputEvent(string Type, string Text, int Cursor, double Timestamp = 0) {
     internal ModuleObj ToObject() {
         var env = AquaEnvironment.NewEnvironment();
         env.Create("type", new StringObj(Type));
         env.Create("text", new StringObj(Text));
         env.Create("cursor", new IntegerObj(Cursor));
+        env.Create("timestamp", new DoubleObj(Timestamp));
         return new ModuleObj(env);
     }
 }
@@ -52,7 +53,10 @@ internal sealed partial class GraphicsRuntime {
             if (kind == 0) return events;
             if (kind == -1) throw new InvalidOperationException("Text input queue exceeded 1 MiB or allocation failed; poll input more often.");
             string type = kind switch { 1 => "textInput", 2 => "compositionStarted", 3 => "compositionUpdated", 4 => "compositionEnded", _ => throw new InvalidOperationException("Unknown native text input event.") };
-            events.Add(new TextInputEvent(type, Marshal.PtrToStringUTF8(pointer) ?? "", cursor));
+            double timestamp;
+            try { timestamp = Native.aqua_text_event_time(window); }
+            catch (EntryPointNotFoundException) { timestamp = Native.aqua_time(); }
+            events.Add(new TextInputEvent(type, Marshal.PtrToStringUTF8(pointer) ?? "", cursor, timestamp));
         }
     }
 }

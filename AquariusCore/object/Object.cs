@@ -372,6 +372,8 @@ namespace AquariusLang.Object {
         }
         /// <summary>Language scope retained by a native method extracted from a resource.</summary>
         public Environment? RetainedEnvironment { get; set; }
+        /// <summary>原生函式保證不修改傳入的語言集合，可省略重複回寫。</summary>
+        public bool PreservesArguments { get; set; }
         private BuiltinFunction fn;
         private BorrowedBuiltinFunction? borrowed;
         // private Environment environment;
@@ -403,6 +405,7 @@ namespace AquariusLang.Object {
                 fn = value ?? throw new ArgumentNullException(nameof(value));
                 borrowed = null; // Host replacement must also replace the optimized entry point.
                 PortableId = 0;
+                PreservesArguments = false;
             }
         }
     }

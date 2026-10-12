@@ -28,6 +28,12 @@ public sealed partial class ApplicationRuntime {
         Bind(data, "ParseJson", 1, 1, a => FromJson(DocumentSerialization.Parse(TextEncoding.Get("utf-8").GetBytes(Text(a[0])))));
         Bind(data, "Binary", 2, 2, a => Binary(DocumentSerialization.Binary(JsonValue(a[0]), checked((uint)WholeNumber(a[1])))));
         Bind(data, "ParseBinary", 1, 1, a => { var (schema, value) = DocumentSerialization.ReadBinary(Bytes(a[0])); var result = Record(new { schema }); result._Environment.Create("value", FromJson(value)); return result; });
+        Bind(data, "TryParseBinary", 1, 1, a => {
+            try { var (schema, value) = DocumentSerialization.ReadBinary(Bytes(a[0])); var result = Record(new { ok = true, schema, error = "" }); result._Environment.Create("value", FromJson(value)); return result; }
+            catch (Exception e) when (e is ApplicationFailure or ArgumentException or System.Text.Json.JsonException or OverflowException) {
+                var result = Record(new { ok = false, schema = 0, error = e.Message }); result._Environment.Create("value", AquariusLang.runtime.RepeatedPrimitives.NULL); return result;
+            }
+        });
         Bind(data, "Compress", 2, 3, a => Binary(DocumentCompression.Compress(Bytes(a[0]), Enum.Parse<CompressionFormat>(Text(a[1]), true), a.Length == 3 ? Enum.Parse<CompressionLevel>(Text(a[2]), true) : CompressionLevel.Optimal)));
         Bind(data, "Decompress", 2, 2, a => Binary(Await(DocumentCompression.Decompress(Bytes(a[0]), Enum.Parse<CompressionFormat>(Text(a[1]), true), cancellation: cancellation))));
         Bind(data, "Archive", 1, 1, a => { if (a[0] is not HashObj hash) throw new ArgumentException("Expected resource hash."); return Binary(DocumentArchive.Create(hash.Pairs.Values.ToDictionary(p => Text(p.Key), p => Bytes(p.Value)))); });

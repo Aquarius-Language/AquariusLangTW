@@ -9,6 +9,15 @@ using AquariusLang.Desktop;
 namespace AquariusTests.Application;
 
 public class SharedApplicationTest {
+    [Fact] public void 安全解析文件保留成功內容且失敗不終止程式() {
+        using var host=new DesktopBuiltins(); var vm=CompiledEvaluator.NewInstance(host);
+        Assert.Equal("[真, 3, 42, 假, 假, 4]",vm.Evaluate("""
+            變數 序列=匯入("Serialization");變數 位元=序列.二進位序列化(42,3);
+            變數 好=序列.嘗試解析二進位(位元);位元[長度(位元)-1]=0;
+            變數 壞=序列.嘗試解析二進位(位元);變數 錯型=序列.嘗試解析二進位("錯誤");
+            [好.ok,好.schema,好.value,壞.ok,錯型.ok,4];
+            """).Inspect());
+    }
     [Theory]
     [InlineData("a/../b//./c", "b/c")]
     [InlineData("../a/../../b", "../../b")]

@@ -29,7 +29,11 @@ internal sealed class DesktopWindow : IWindowIntegration {
             if (type is 1 or 3) modifiers = (KeyModifiers)c;
             if (type == 5 && a == 0) modifiers = KeyModifiers.None;
             switch (type) {
-                case 1: e = new(x == 0 ? "keyReleased" : x == 2 ? "keyRepeat" : "keyPressed", now, LogicalKey(a, Marshal.PtrToStringUTF8(text)), "scan:" + b, (KeyModifiers)c); break;
+                case 1:
+                    bool composing;
+                    try { composing = Native.aqua_text_is_composing(window) != 0; }
+                    catch (EntryPointNotFoundException) { composing = false; }
+                    e = new(x == 0 ? "keyReleased" : x == 2 ? "keyRepeat" : "keyPressed", now, LogicalKey(a, Marshal.PtrToStringUTF8(text)), "scan:" + b, (KeyModifiers)c, State: composing ? true : null); break;
                 case 2: e = new("pointerMoved", now, Modifiers: modifiers, DeviceId: 0, Device: "mouse", Samples: new[] { new PointerSample(x, y, now) }); break;
                 case 3: e = new(b == 0 ? "pointerReleased" : "pointerPressed", now, Modifiers: (KeyModifiers)c, DeviceId: 0, Device: "mouse", Button: a, Samples: new[] { new PointerSample(x, y, now) }, Contact: b != 0); break;
                 case 4: e = new("wheel", now, Modifiers: modifiers, DeviceId: 0, Device: "mouse", WheelX: x, WheelY: -y, WheelUnit: "line"); break;

@@ -9,7 +9,7 @@ public static class ApplicationCatalog {
         ["Capabilities"]="功能支援",["Resolve"]="解析資源",["Stat"]="取得資訊",["ReadBytes"]="讀取位元組",["ReadText"]="讀取文字",["ReadAssetBytes"]="讀取資產位元組",["ReadAssetText"]="讀取資產文字",["SaveBytes"]="儲存位元組",["SaveText"]="儲存文字",
         ["Enumerate"]="列舉",["CreateDirectory"]="建立目錄",["Delete"]="刪除",["Copy"]="複製",["Move"]="移動",["Temporary"]="暫存",["Open"]="開啟",["Read"]="讀取",["Write"]="寫入",["Seek"]="定位",["Flush"]="寫入緩衝",["Close"]="關閉",
         ["Normalize"]="正規化",["Join"]="組合",["Name"]="檔名",["Extension"]="副檔名",["Parent"]="父目錄",["Relative"]="相對路徑",["Formats"]="格式",["Create"]="建立",["Inspect"]="檢查",["Decode"]="解碼",["Load"]="載入",["Encode"]="編碼",["Save"]="儲存",["Pixels"]="像素",
-        ["Json"]="JSON序列化",["ParseJson"]="解析JSON",["Binary"]="二進位序列化",["ParseBinary"]="解析二進位",["Compress"]="壓縮",["Decompress"]="解壓縮",["Archive"]="封裝",["ReadArchive"]="讀取封裝",
+        ["Json"]="JSON序列化",["ParseJson"]="解析JSON",["Binary"]="二進位序列化",["ParseBinary"]="解析二進位",["TryParseBinary"]="嘗試解析二進位",["Compress"]="壓縮",["Decompress"]="解壓縮",["Archive"]="封裝",["ReadArchive"]="讀取封裝",
         ["SettingsDirectory"]="設定目錄",["DataDirectory"]="資料目錄",["GetPreference"]="取得偏好",["SetPreference"]="設定偏好",["Recent"]="最近資源",["Remember"]="記錄最近資源",
         ["ReadImage"]="讀取圖片",["WriteImage"]="寫入圖片",["WriteText"]="寫入文字",["Available"]="可用",["Measure"]="測量",["Selection"]="選取範圍",["State"]="狀態",["Select"]="選取",["Insert"]="插入",["Backspace"]="退格",["Convert"]="轉換位置",["Composition"]="組字",["CancelComposition"]="取消組字",["Commit"]="提交",["Cut"]="剪下",["Paste"]="貼上",["Shortcut"]="快速鍵",
         ["LaunchFiles"]="啟動檔案",["OpenFiles"]="開啟檔案",["SaveFile"]="儲存檔案",["PickDirectory"]="選擇目錄",["Print"]="列印",["AcquireImage"]="取得圖片",["Accessibility"]="可及性",["RegisterFileAssociation"]="註冊檔案關聯",
@@ -34,7 +34,7 @@ public static class ApplicationCatalog {
         Add("Paths", ("Normalize",1,1),("Join",1,1),("Name",1,1),("Extension",1,1),("Parent",1,1),("Relative",2,2));
         Add("Images", ("Formats",0,0),("Inspect",1,1),("Create",3,3),("Decode",2,2),("Load",2,2),("Encode",3,3),("Save",4,4));
         Add("Images.Image", ("Pixels",0,0));
-        Add("Serialization", ("Json",1,1),("ParseJson",1,1),("Binary",2,2),("ParseBinary",1,1),("Compress",2,3),("Decompress",2,2),("Archive",1,1),("ReadArchive",1,1));
+        Add("Serialization", ("Json",1,1),("ParseJson",1,1),("Binary",2,2),("ParseBinary",1,1),("TryParseBinary",1,1),("Compress",2,3),("Decompress",2,2),("Archive",1,1),("ReadArchive",1,1));
         Add("Storage", ("SettingsDirectory",0,0),("DataDirectory",0,0),("Read",1,1),("Write",2,2),("Delete",1,1),("GetPreference",1,1),("SetPreference",2,2),("Recent",0,0),("Remember",1,1));
         Add("Clipboard", ("Capabilities",0,0),("Formats",0,0),("ReadText",0,0),("ReadImage",0,0),("WriteText",1,1),("WriteImage",1,2));
         Add("Fonts", ("Enumerate",0,0),("Available",1,1),("Measure",3,3),("Selection",5,5));

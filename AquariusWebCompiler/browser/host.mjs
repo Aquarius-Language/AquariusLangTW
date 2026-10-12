@@ -23,7 +23,7 @@ export class BrowserHost {
   resolve(name,path=''){return resolvePath(name,path);}
   async execute(entry){entry=lookupPath(this.bundle.modules,this.resolve(entry),{module:true});if(this.importing.has(entry))throw new Error(`Circular import: ${entry}`);this.importing.add(entry);try{return await this.runtime.execute(this.bundle.modules[entry],new Scope(),this.builtinsFor(entry));}finally{this.importing.delete(entry);this.webcam?.closeSessions();}}
   registerGlobals(){const globals=this.newModule(),b=(n,f,raw=false)=>this.bind(globals,'',n,f,raw);
-    b('currentTime',()=>num(performance.now(),'double'),true);
+    b('currentTime',()=>num(performance.now(),'double'),true);b('currentDate',()=>{const d=new Date();return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');});
     b('len',v=>num(typeof v==='string'?v.length:Array.isArray(v)?v.length:(()=>{throw new Error('len expects string or array');})(),'int'),true);b('last',v=>{if(!Array.isArray(v))throw new Error('last expects array');return v.at(-1)??null;},true);b('rest',v=>{if(!Array.isArray(v))throw new Error('rest expects array');return v.length?v.slice(1):null;},true);b('push',(a,v)=>{if(!Array.isArray(a))throw new Error('push expects array');return [...a,v];},true);b('print',(...a)=>{this.print(a.map(inspect).join(' '));},true);for(const n of ['isOSWindows','isOSLinux','isOSMacOS'])b(n,()=>false);b('execFile',()=>{throw new Error('execFile requires a desktop host');});this.builtins=new Map(globals.scope.store);
     for(const [name,id]of [['len',1],['last',2],['rest',3],['push',4]])this.builtins.get(name)[portableBuiltin]=id;
   }

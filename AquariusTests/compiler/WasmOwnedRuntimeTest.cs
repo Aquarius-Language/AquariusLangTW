@@ -8,6 +8,55 @@ namespace AquariusTests.Wasm;
 
 public class WasmOwnedRuntimeTest
 {
+    [Fact]
+    public void 雜湊表寫入保留別名型別與主機同步()
+    {
+        var builtins = new Builtins();
+        var key = new StringObj("值"); var hash = new HashObj(new Dictionary<HashKey, HashPair> { [key.HashKey()] = new(key, new IntegerObj(1)) });
+        var retained = AquaEnvironment.NewEnvironment(); retained.Create("資料", hash);
+        builtins.BuiltinFuncs["檢查"] = new BuiltinObj(_ => hash.Pairs[key.HashKey()].Value) { RetainedEnvironment = retained };
+        var scope = AquaEnvironment.NewEnvironment(); scope.Create("資料", hash);
+        using var runtime = new WasmRuntime(builtins);
+        Assert.Equal("[7, 7, 8, 9, 10]", runtime.Execute(new WasmCompiler().Compile("""
+            變數 別名=資料;資料["值"]=7;資料[1]=8;資料[1.0d]=9;資料[真]=10;
+            [檢查(),別名["值"],資料[1],資料[1.0d],資料[真]];
+            """), scope).Inspect());
+    }
+    [Fact]
+    public void 整數批次搬運保留極值與別名且替換原生函式後仍可修改引數()
+    {
+        var data = new ArrayObj(Enumerable.Range(0, 8192).Select(i => (IObject)new IntegerObj(i)).ToArray());
+        var builtins = new Builtins(); var owner = AquaEnvironment.NewEnvironment();
+        builtins.BuiltinFuncs["資料"] = new BuiltinObj(_ => data) { RetainedEnvironment = owner, PreservesArguments = true };
+        var check = new BuiltinObj(args => {
+            var values = Assert.IsType<ArrayObj>(args[0]).Elements;
+            Assert.Equal(int.MinValue, Assert.IsType<IntegerObj>(values[0]).Value);
+            Assert.Equal(int.MaxValue, Assert.IsType<IntegerObj>(values[8191]).Value);
+            return RepeatedPrimitives.NULL;
+        }) { RetainedEnvironment = owner, PreservesArguments = true };
+        builtins.BuiltinFuncs["檢查"] = check;
+        using var runtime = new WasmRuntime(builtins);
+        Assert.Equal("[-2147483648, 2147483647]", runtime.Execute(new WasmCompiler().Compile("變數 a=資料();變數 b=a;a[0]=0-2147483647-1;a[8191]=2147483647;檢查(a);[b[0],b[8191]];")).Inspect());
+        check.Fn = args => { ((ArrayObj)args[0]).Elements[3] = new StringObj("繁體中文"); return RepeatedPrimitives.NULL; };
+        Assert.Equal("繁體中文", runtime.Execute(new WasmCompiler().Compile("變數 a=資料();變數 b=a;檢查(a);b[3];")).Inspect());
+    }
+    [Fact]
+    public void 雜湊表無效鍵先拒絕且成長循環可回收()
+    {
+        int calls = 0; var builtins = new Builtins();
+        builtins.BuiltinFuncs["副作用"] = new BuiltinObj(_ => { calls++; return new IntegerObj(1); });
+        using var runtime = new WasmRuntime(builtins);
+        Assert.IsType<ErrorObj>(runtime.Execute(new WasmCompiler().Compile("變數 表={};表[[]]=副作用();")));
+        Assert.Equal(0, calls);
+        Assert.Equal("[999, 真]", runtime.Execute(new WasmCompiler().Compile("""
+            變數 表={};變數 別名=表;迴圈(變數 索=0;索<1000;索++){表[索]=索;}
+            表["自己"]=表;[別名[999],表["自己"]==表];
+            """)).Inspect());
+        Assert.Equal("[4, 5, 6]", runtime.Execute(new WasmCompiler().Compile("""
+            變數 表={};變數 倍=0.0d/0.0d;變數 單=0.0f/0.0f;
+            表[倍]=4;表[單]=5;表[-0.0d]=6;[表[倍],表[單],表[0.0d]];
+            """)).Inspect());
+    }
     [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
     private static void ExecuteTemporaryRuntime(Counter counter)
     {
@@ -130,6 +179,19 @@ public class WasmOwnedRuntimeTest
         var counter = new Counter();
         Assert.Equal("999", new WasmRuntime(engine: counter).Execute(new WasmCompiler().Compile("變數 pixels=image.pixels;迴圈(變數 i=0;i<1000;i++){pixels[i]=math.scalar(i);};image.update();"), scope).Inspect());
         Assert.Equal(1001, counter.NativeCalls); Assert.InRange(counter.ArrayTransfers, 1, 10);
+    }
+    [Fact]
+    public void 修改雜湊欄位不重複傳輸未變更的子陣列()
+    {
+        var data = new HashObj(new Dictionary<HashKey, HashPair>());
+        var key = new StringObj("卡片");
+        data.Pairs[key.HashKey()] = new HashPair(key, new ArrayObj(Enumerable.Range(0, 1000).Select(i => (IObject)new IntegerObj(i)).ToArray()));
+        var math = AquaEnvironment.NewEnvironment();
+        math.Create("scalar", new BuiltinObj(args => args[0]) { RetainedEnvironment = math });
+        var scope = AquaEnvironment.NewEnvironment(); scope.Create("資料", data); scope.Create("math", new ModuleObj(math));
+        var counter = new Counter();
+        Assert.Equal("499", new WasmRuntime(engine: counter).Execute(new WasmCompiler().Compile("迴圈(變數 i=0;i<500;i++){資料[\"計數\"]=i;math.scalar(i);目前時間();目前日期();}資料[\"計數\"];"), scope).Inspect());
+        Assert.InRange(counter.ArrayTransfers, 1, 10);
     }
     [Fact]
     public void NumericLoopsClosuresCollectionsAndPortableBuiltinsExecuteWithoutNativeCalls()

@@ -325,6 +325,10 @@ export class BrowserApplication {
   }
   registerData(b, data, text, integer) {
     const m = this.module("Serialization");
+    b(m, "Serialization", "TryParseBinary", (d) => {
+      try { const parsed = parseBinary(data(d)); const result = this.record({ok:true,schema:parsed.schema,error:""}); result.scope.create("value",fromValue(parsed.value)); return result; }
+      catch (error) { const result = this.record({ok:false,schema:0,error:error.message}); result.scope.create("value",null); return result; }
+    });
     b(m, "Serialization", "Json", (v) =>
       JSON.stringify(jsonValue(this.value(v))),
     );

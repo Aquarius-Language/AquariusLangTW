@@ -13,7 +13,7 @@ typedef struct Scope { struct Scope *outer; Binding *bindings; u32 count, capaci
 typedef struct { u32 references,capacity,used,padding; Value values[]; } ArrayStorage;
 typedef struct Array { u32 count, capacity; Value *values; struct Array *dirty_next; u32 dirty, exposed; ArrayStorage *storage; } Array;
 typedef struct { Value key, value; } Pair;
-typedef struct { u32 count; Pair *pairs; } Hash;
+typedef struct Hash { u32 count,capacity; Pair *pairs; struct Hash *dirty_next; u32 dirty,exposed; } Hash;
 typedef struct { u32 table, arity, capacity, wrap_return; Text **parameters; Value *constants; } Function;
 typedef struct { u32 count; Function *functions; } Program;
 typedef struct { Program *program; u32 function; Scope *scope; u32 context; } Closure;
@@ -39,6 +39,7 @@ static Pin *pins;
 static Value empty;
 static u32 mark_pending;
 static Array *dirty_arrays;
+static Hash *dirty_hashes;
 static unsigned char native_live[65536];
 static u32 bytes_since_collection;
 static u32 scope_epoch=1;
@@ -135,10 +136,13 @@ u32 aqua_array_count(u32 p) { return ((Array*)pointer(p))->count; }
 u32 aqua_array_resize(u32 p,u32 n) { Array*a=pointer(p);writable_array(a,n);if(n>a->count)memset(a->values+a->count,0,(n-a->count)*sizeof(Value));a->count=n;a->storage->used=n;return 0; }
 u32 aqua_array_expose(u32 p) { ((Array*)pointer(p))->exposed=1;return 0; }
 u32 aqua_take_dirty_array(void) { Array*a=dirty_arrays;if(!a)return 0;dirty_arrays=a->dirty_next;a->dirty_next=0;a->dirty=0;return address(a); }
-u32 aqua_hash(u32 n) { Hash*h=allocate(sizeof(Hash),HASHES);h->count=n;h->pairs=allocate(n*sizeof(Pair),RAW);return address(h); }
+u32 aqua_hash(u32 n) { Hash*h=allocate(sizeof(Hash),HASHES);h->count=n;h->pairs=allocate(n*sizeof(Pair),RAW);h->capacity=((Block*)h->pairs-1)->size/sizeof(Pair);return address(h); }
 u32 aqua_hash_pairs(u32 p) { return address(((Hash*)pointer(p))->pairs); }
 u32 aqua_hash_count(u32 p) { return ((Hash*)pointer(p))->count; }
-u32 aqua_hash_resize(u32 p,u32 n) { Hash*h=pointer(p);if(n!=h->count){Pair*next=allocate(n*sizeof(Pair),RAW);memcpy(next,h->pairs,(n<h->count?n:h->count)*sizeof(Pair));release(h->pairs);h->pairs=next;h->count=n;}return 0; }
+u32 aqua_hash_resize(u32 p,u32 n) { Hash*h=pointer(p);if(n>h->capacity){Pair*next=allocate(n*sizeof(Pair),RAW);memcpy(next,h->pairs,h->count*sizeof(Pair));release(h->pairs);h->pairs=next;h->capacity=((Block*)next-1)->size/sizeof(Pair);}if(n>h->count)memset(h->pairs+h->count,0,(n-h->count)*sizeof(Pair));h->count=n;return 0; }
+u32 aqua_hash_write_support(void) { return 1; }
+u32 aqua_hash_expose(u32 p) { ((Hash*)pointer(p))->exposed=1;return 0; }
+u32 aqua_take_dirty_hash(void) { Hash*h=dirty_hashes;if(!h)return 0;dirty_hashes=h->dirty_next;h->dirty_next=0;h->dirty=0;return address(h); }
 static Frame *frame(Execution*e,Frame*parent,Program*p,u32 id,Scope*s,u32 context) {
     if(id>=p->count)__builtin_trap();Function*fn=p->functions+id;
     Frame*f=allocate(sizeof(Frame)+fn->capacity*sizeof(Value),FRAMES);f->parent=parent;f->execution=e;f->program=p;f->function=fn;f->scope=s;f->context=context;f->capacity=fn->capacity;u32 cached=fn->wrap_return>>1;if(cached)f->binding_cache=allocate(cached*8,RAW);return f;
@@ -209,8 +213,11 @@ int rt_array(Frame*f,int n){Array*a=array(n);for(int i=n-1;i>=0;i--)a->values[i]
 int rt_checkHashKey(Frame*f,int n){Value v=peek(f,1);if(!numeric(v)&&v.tag!=STRING&&v.tag!=BOOL)named_failure(f,"Unusable as hash key: ",ascii(type_name(v.tag)));return 0;}
 int rt_hash(Frame*f,int n){Hash*h=pointer(aqua_hash(n));u32 count=0,base=f->sp-n*2;for(int i=0;i<n;i++){Value k=f->values[base+i*2],v=f->values[base+i*2+1];u32 j=0;while(j<count&&!equal(h->pairs[j].key,k,1))j++;h->pairs[j]=(Pair){k,v};if(j==count)count++;}h->count=count;f->sp=base;push(f,value(HASH,address(h),0));return 0;}
 int rt_index(Frame*f,int n){Value i=pop(f),v=pop(f),out=value(NULL_VALUE,0,0);if(v.tag==ARRAY&&i.tag==INT){Array*a=pointer(v.ref);if(i.number>=0&&i.number<a->count)out=a->values[(u32)i.number];}else if(v.tag==STRING&&i.tag==INT){Text*t=pointer(v.ref);if(i.number>=0&&i.number<t->length){Text*c=pointer(aqua_text(1));c->data[0]=t->data[(u32)i.number];out=value(STRING,address(c),0);}}else if(v.tag==HASH){if(!numeric(i)&&i.tag!=BOOL&&i.tag!=STRING){named_failure(f,"Unusable as hash key: ",ascii(type_name(i.tag)));return 0;}Hash*h=pointer(v.ref);for(u32 j=0;j<h->count;j++)if(equal(i,h->pairs[j].key,1)){out=h->pairs[j].value;break;}}else {named_failure(f,"Index operator not supported: ",ascii(type_name(v.tag)));return 0;}push(f,out);return 0;}
-int rt_checkArrayWrite(Frame*f,int n){Value i=peek(f,1),a=peek(f,2);if(a.tag!=ARRAY)failure(f,"Indexed assignment requires an array.");else if(i.tag!=INT)failure(f,"Array assignment index must be an integer.");else if(i.number<0||i.number>=((Array*)pointer(a.ref))->count)failure(f,"Array assignment index is out of bounds.");return 0;}
-int rt_writeIndex(Frame*f,int n){Value v=pop(f);rt_checkArrayWrite(f,0);Value i=pop(f),a=pop(f);if(!f->execution->status){Array*x=pointer(a.ref);writable_array(x,x->count);x->values[(u32)i.number]=v;if(x->exposed&&!x->dirty){x->dirty=1;x->dirty_next=dirty_arrays;dirty_arrays=x;}}push(f,v);return 0;}
+int rt_checkArrayWrite(Frame*f,int n){Value i=peek(f,1),a=peek(f,2);if(a.tag==HASH){if(!numeric(i)&&i.tag!=STRING&&i.tag!=BOOL)named_failure(f,"Unusable as hash key: ",ascii(type_name(i.tag)));}else if(a.tag!=ARRAY)failure(f,"Indexed assignment requires an array or hash.");else if(i.tag!=INT)failure(f,"Array assignment index must be an integer.");else if(i.number<0||i.number>=((Array*)pointer(a.ref))->count)failure(f,"Array assignment index is out of bounds.");return 0;}
+int rt_writeIndex(Frame*f,int n){Value v=pop(f);rt_checkArrayWrite(f,0);Value i=pop(f),a=pop(f);if(!f->execution->status){
+    if(a.tag==HASH){Hash*h=pointer(a.ref);u32 j=0;while(j<h->count&&!equal(i,h->pairs[j].key,1))j++;if(j==h->count)aqua_hash_resize(a.ref,h->count+1);h->pairs[j]=(Pair){i,v};if(h->exposed&&!h->dirty){h->dirty=1;h->dirty_next=dirty_hashes;dirty_hashes=h;}}
+    else{Array*x=pointer(a.ref);writable_array(x,x->count);x->values[(u32)i.number]=v;if(x->exposed&&!x->dirty){x->dirty=1;x->dirty_next=dirty_arrays;dirty_arrays=x;}}
+}push(f,v);return 0;}
 int rt_member(Frame*f,int n){Value m=pop(f),out=empty;Text*t=name(f,n);if(m.tag==MODULE){Binding*b=find(pointer(m.ref),t);if(!b)named_failure(f,"Module member not found: ",t);else out=b->value;}else if(m.tag==NATIVE){if(host_service(2,f->context,m.ref,address(t),0,0,address(&out)))named_failure(f,"Module member not found: ",t);}else named_failure(f,"Cannot access member of ",ascii(type_name(m.tag)));push(f,out);return 0;}
 int rt_resolveMemberFunction(Frame*f,int n){Value m=pop(f);if(m.tag==NATIVE){Value out=empty;if(host_service(3,f->context,m.ref,0,0,0,address(&out))){failure(f,"Cannot access computed member of native value.");return 0;}m=out;}if(m.tag!=MODULE){failure(f,"Computed member requires a module.");return 0;}Value c=constant(f,n);f->execution->current=frame(f->execution,f,f->program,(u32)c.number,pointer(m.ref),f->context);return 0;}
 int rt_enterLoop(Frame*f,int n){invalidate_scopes();Loop*l=allocate(sizeof(Loop),LOOPS);l->previous=f->loops;l->outer=f->scope;l->base=f->sp;l->binding=n<0?0:name(f,n);f->loops=l;f->scope=scope(f->scope);return 0;}
@@ -226,6 +233,7 @@ u32 aqua_collect(void){
     for(Block*b=pointer(blocks);b;b=pointer(b->next))b->marked=0;memset(native_live,0,sizeof(native_live));mark_pending=0;
     for(Execution*e=executions;e;e=e->next)mark_ref(e);for(Pin*p=pins;p;p=p->next)mark_ref(p);for(u32 i=0;i<65536;i++)if(builtin_scopes[i])mark_ref(builtin_scopes[i]);
     for(Array*a=dirty_arrays;a;a=a->dirty_next)mark_ref(a);
+    for(Hash*h=dirty_hashes;h;h=h->dirty_next)mark_ref(h);
     while(mark_pending){void*p=pointer(mark_pending);Block*b=(Block*)p-1;mark_pending=b->marked&~1u;b->marked=1;switch(b->kind){
         case ENV:{Scope*s=p;mark_ref(s->outer);mark_ref(s->bindings);mark_ref(s->index);for(u32 i=0;i<s->count;i++){mark_ref(s->bindings[i].name);mark_value(s->bindings[i].value);}break;}
         case CLOSURES:{Closure*c=p;mark_ref(c->scope);break;}

@@ -1,4 +1,5 @@
 using System;
+using System.IO;
 using System.Buffers.Binary;
 using System.Collections.Generic;
 using System.Linq;
@@ -94,6 +95,8 @@ public sealed class WasmRuntime : IDisposable
         private readonly HashSet<(int Tag, int Reference)> reading = new();
         private readonly HashSet<IObject> writing = new(ReferenceEqualityComparer.Instance);
         private readonly HashSet<int> dirtyArrays = new();
+        private readonly bool mutableHashes;
+        private bool refreshingDirtyHashes;
         private readonly Dictionary<int, List<WeakReference<AquaEnvironment>>> arrayOwners = new();
         internal Session(WasmProgram program, IWasmEngine engine)
         {
@@ -105,6 +108,9 @@ public sealed class WasmRuntime : IDisposable
                     owner.TryGetTarget(out var session) ? session.Service(op, context, subject, name, arguments, count, output)
                         : throw new ObjectDisposedException(nameof(WasmRuntime))) });
             Call("aqua_initialize", program.Metadata.HeapStart);
+            // 舊編譯成果未匯出此功能，仍沿用原本唯讀雜湊表的主機行為。
+            try { mutableHashes = Call("aqua_hash_write_support") != 0; }
+            catch (InvalidDataException) { mutableHashes = false; }
         }
         ~Session() { try { Dispose(); } catch { /* Finalization cannot report native cleanup failures. */ } }
         public void Dispose()
@@ -135,6 +141,7 @@ public sealed class WasmRuntime : IDisposable
             int pin = Call("aqua_pin", address); leases.Add((new WeakReference<IObject>(value), pin));
             objects[(tag, reference)] = new(value);
             if (tag == 6) Call("aqua_array_expose", reference);
+            if (tag == 7 && mutableHashes) Call("aqua_hash_expose", reference);
         }
         private void Collect()
         {
@@ -182,6 +189,13 @@ public sealed class WasmRuntime : IDisposable
         private void FlushDirtyArrays(AquaEnvironment? owner = null)
         {
             int reference;
+            // 每個修改過的雜湊表都有自己的佇列項目；保留已投影的子物件身分，
+            // 避免修改一個欄位時反覆遞迴走訪整份文件。
+            if (mutableHashes) {
+                refreshingDirtyHashes = true;
+                try { while ((reference = Call("aqua_take_dirty_hash")) != 0) Refresh(7, reference); }
+                finally { refreshingDirtyHashes = false; }
+            }
             while ((reference = Call("aqua_take_dirty_array")) != 0) dirtyArrays.Add(reference);
             foreach (int item in dirtyArrays.ToArray())
             {
@@ -193,7 +207,10 @@ public sealed class WasmRuntime : IDisposable
         private void SynchronizeOut()
         {
             FlushDirtyArrays();
-            foreach (var pair in scopeLeases.ToArray()) if (pair.Mirror && pair.Owner.TryGetTarget(out var environment)) foreach (var binding in Bindings(pair.Address)) environment.Create(binding.Key, binding.Value);
+            // 已變更的集合已同步；範圍只需更新繫結，既有子物件共用同一投影。
+            refreshingDirtyHashes = true;
+            try { foreach (var pair in scopeLeases.ToArray()) if (pair.Mirror && pair.Owner.TryGetTarget(out var environment)) foreach (var binding in Bindings(pair.Address)) environment.Create(binding.Key, binding.Value); }
+            finally { refreshingDirtyHashes = false; }
         }
         internal IObject? Execute(int function, AquaEnvironment? environment, Builtins builtins)
         {
@@ -244,7 +261,7 @@ public sealed class WasmRuntime : IDisposable
             bool synchronize = natives[subject] is not BuiltinObj { RetainedEnvironment: not null };
             try { if (synchronize) SynchronizeOut(); else FlushDirtyArrays(((BuiltinObj)natives[subject]!).RetainedEnvironment); IObject? result = natives[subject] switch { BuiltinObj fn => fn.BorrowsArguments ? fn.InvokeBorrowed(args) : fn.Fn(args),
                 FunctionObj fn when Callables.TryGetValue(fn, out var compiled) => compiled.Session.Invoke(compiled.Value, args), _ => new ErrorObj("Not a function.") };
-                if (synchronize) SynchronizeIn(); for (int i = 0; i < count; i++) Write(arguments + i * 16, args[i]); Write(output, result); if (!synchronize) ArrayOwner(result, ((BuiltinObj)natives[subject]!).RetainedEnvironment!); return 0; }
+                if (synchronize) SynchronizeIn(); if (natives[subject] is not BuiltinObj { PreservesArguments: true }) for (int i = 0; i < count; i++) Write(arguments + i * 16, args[i]); Write(output, result); if (!synchronize) ArrayOwner(result, ((BuiltinObj)natives[subject]!).RetainedEnvironment!); return 0; }
             finally { nativeArguments.Pop(); }
         }
         private void Write(int address, IObject? value)
@@ -265,13 +282,13 @@ public sealed class WasmRuntime : IDisposable
                 WriteRaw(address, origin.Tag, origin.Reference);
                 if (!writing.Add(value)) return;
                 try {
-                    if (value is ArrayObj array) { if (Call("aqua_array_count", origin.Reference) != array.Elements.Length) Call("aqua_array_resize", origin.Reference, array.Elements.Length); int items = Call("aqua_array_values", origin.Reference); for (int i = 0; i < array.Elements.Length; i++) Write(items + i * 16, array.Elements[i]); }
+                    if (value is ArrayObj array) { if (Call("aqua_array_count", origin.Reference) != array.Elements.Length) Call("aqua_array_resize", origin.Reference, array.Elements.Length); int items = Call("aqua_array_values", origin.Reference); WriteElements(items, array.Elements); }
                     else if (value is HashObj mirroredHash) { Call("aqua_hash_resize", origin.Reference, mirroredHash.Pairs.Count); int items = Call("aqua_hash_pairs", origin.Reference), i = 0; foreach (var pair in mirroredHash.Pairs.Values) { Write(items + i * 32, pair.Key); Write(items + i * 32 + 16, pair.Value); i++; } }
                 }
                 finally { writing.Remove(value); } return;
             }
             if (value is ArrayObj a) { int reference = Call("aqua_array", a.Elements.Length); WriteRaw(address, 6, reference); Lease(a, address, 6, reference);
-                int items = Call("aqua_array_values", reference); for (int i = 0; i < a.Elements.Length; i++) Write(items + i * 16, a.Elements[i]); return; }
+                int items = Call("aqua_array_values", reference); WriteElements(items, a.Elements); return; }
             if (value is HashObj hash) { int reference = Call("aqua_hash", hash.Pairs.Count); WriteRaw(address, 7, reference); Lease(hash, address, 7, reference); int items = Call("aqua_hash_pairs", reference), i = 0;
                 foreach (var pair in hash.Pairs.Values) { Write(items + i * 32, pair.Key); Write(items + i * 32 + 16, pair.Value); i++; } return; }
             if (value is ModuleObj module && scopes.TryGetValue(module._Environment, out var moduleScope)) { WriteRaw(address, 9, moduleScope.Address); Lease(value, address, 9, moduleScope.Address); return; }
@@ -284,7 +301,7 @@ public sealed class WasmRuntime : IDisposable
                 case 4: return number != 0 ? RepeatedPrimitives.TRUE : RepeatedPrimitives.FALSE; case 5: return new StringObj(Text(reference)); case 10: return natives[reference];
                 case 11: return RepeatedPrimitives.NULL; case 12: return RepeatedPrimitives.BREAK; case 13: return new ErrorObj(Text(reference));
                 case 14: return contexts.SelectMany(c => c.BuiltinFuncs.Values).FirstOrDefault(f => f.PortableId == reference) ?? throw new InvalidOperationException("Unknown portable builtin."); }
-            if (objects.TryGetValue((tag, reference), out var cached) && cached.TryGetTarget(out var existing)) { Refresh(tag, reference); return existing; }
+            if (objects.TryGetValue((tag, reference), out var cached) && cached.TryGetTarget(out var existing)) { if (!refreshingDirtyHashes) Refresh(tag, reference); return existing; }
             IObject result;
             switch (tag) {
                 case 6: var array = new ArrayObj(new IObject[Call("aqua_array_count", reference)]); result = array; objects[(tag, reference)] = new(array); Lease(result, address, tag, reference);
@@ -301,6 +318,29 @@ public sealed class WasmRuntime : IDisposable
             }
             objects[(tag, reference)] = new(result); Lease(result, address, tag, reference); return result;
         }
+        private void WriteElements(int address, IObject[] elements)
+        {
+            // 二進位資料採連續記憶體搬運，避免每個位元組反覆查詢 Wasm 記憶體。
+            if (elements.Length >= 32 && elements.All(item => item is IntegerObj)) {
+                var buffer = instance.Memory(address, checked(elements.Length * 16));
+                for (int i = 0; i < elements.Length; i++) {
+                    var cell = buffer.Slice(i * 16, 16);
+                    BinaryPrimitives.WriteInt32LittleEndian(cell, 1);
+                    BinaryPrimitives.WriteInt32LittleEndian(cell[4..], 0);
+                    BinaryPrimitives.WriteInt64LittleEndian(cell[8..], BitConverter.DoubleToInt64Bits(((IntegerObj)elements[i]).Value));
+                }
+                return;
+            }
+            for (int i = 0; i < elements.Length; i++) Write(address + i * 16, elements[i]);
+        }
+        private bool ReadIntegerElements(int address, IObject[] elements)
+        {
+            if (elements.Length < 32) return false;
+            var buffer = instance.Memory(address, checked(elements.Length * 16));
+            for (int i = 0; i < elements.Length; i++) if (BinaryPrimitives.ReadInt32LittleEndian(buffer[(i * 16)..]) != 1) return false;
+            for (int i = 0; i < elements.Length; i++) elements[i] = new IntegerObj((int)BitConverter.Int64BitsToDouble(BinaryPrimitives.ReadInt64LittleEndian(buffer[(i * 16 + 8)..])));
+            return true;
+        }
         private void Refresh(int tag, int reference)
         {
             if (!objects.TryGetValue((tag, reference), out var owner) || !owner.TryGetTarget(out var value) || !reading.Add((tag, reference))) return;
@@ -310,7 +350,7 @@ public sealed class WasmRuntime : IDisposable
                 {
                     int count = Call("aqua_array_count", reference); if (array.Elements.Length != count) array.Elements = new IObject[count];
                     int items = Call("aqua_array_values", reference);
-                    for (int i = 0; i < array.Elements.Length; i++) array.Elements[i] = Read(items + i * 16)!;
+                    if (!ReadIntegerElements(items, array.Elements)) for (int i = 0; i < array.Elements.Length; i++) array.Elements[i] = Read(items + i * 16)!;
                 }
                 else if (value is HashObj hash)
                 {

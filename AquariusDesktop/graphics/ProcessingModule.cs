@@ -252,7 +252,7 @@ internal sealed partial class GraphicsRuntime {
             // GLFW reserves gaps in its key enumeration; skip those to avoid GLFW errors.
             if(!ValidKey(code))continue;
             bool down=Native.aqua_key(sketchWindow.Handle,code)==1;
-            if(down!=keys[code]) { keys[code]=down;processing.Create("keyCode",N(code));processing.Create("key",new StringObj(code<127?((char)code).ToString():""));
+            if(down!=keys[code]) { keys[code]=down;processing.Create("keyCode",N(code));processing.Create("keyTimestamp",new DoubleObj(Native.aqua_time()));processing.Create("key",new StringObj(code<127?((char)code).ToString():""));
                 processing.Create("isKeyPressed",new BooleanObj(keys.Any(k=>k)));if(!imeHandled)Event(down?"keyPressed":"keyReleased"); }
         }
         if(!sketchWindow.TextInputEnabled) {

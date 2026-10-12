@@ -87,6 +87,7 @@ export class BrowserWindow {
             logicalKey: e.key,
             physicalKey: e.code || null,
             modifiers: modifiers(e),
+            state: e.isComposing ? true : null,
           },
         );
       });
