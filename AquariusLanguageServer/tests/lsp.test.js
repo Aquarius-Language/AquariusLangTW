@@ -112,6 +112,18 @@ test('Chinese completion, hover, definition, and outline use real source ranges'
   assert.ok(symbols.some(symbol => symbol.name === '加法' && symbol.kind === 12));
 });
 
+test('core time aliases provide completion and explain milliseconds in hover', async t => {
+  const s = new Session(t);
+  await s.initialize();
+  assert.deepEqual(await s.open('目前時間();\ncurrentTime();'), []);
+  const completion = await s.feature('completion', 0, 0);
+  for (const name of ['目前時間', 'currentTime']) assert.ok(completion.some(item => item.label === name));
+  for (const line of [0, 1]) {
+    const hover = await s.feature('hover', line, 0);
+    assert.match(hover.contents.value, /Monotonic.*double milliseconds/);
+  }
+});
+
 test('functions and loop scopes resolve shadowed identifiers and hide locals outside their scope', async t => {
   const s = new Session(t);
   await s.initialize();

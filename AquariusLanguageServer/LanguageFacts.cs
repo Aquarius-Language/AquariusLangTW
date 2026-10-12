@@ -25,6 +25,7 @@ internal static class LanguageFacts
             ["其餘"] = "其餘(陣列) — Array without its first element.",
             ["加入"] = "加入(陣列, 值) — Return an array with a value appended.",
             ["印出"] = "印出(值, ...) — Print values to the console.",
+            ["目前時間"] = "目前時間() — Monotonic time in double milliseconds; subtract two readings to measure elapsed time. The origin is arbitrary, not a calendar timestamp.",
             ["匯入"] = "匯入(路徑) — Load an Aquarius module, or a desktop native module: GLFW, GLAD, GL, GLM, STBImage, WGPU, Processing, Jolt (JoltPhysics).",
             ["是Windows"] = "是Windows() — Whether the runtime is Windows.",
             ["是Linux"] = "是Linux() — Whether the runtime is Linux.",

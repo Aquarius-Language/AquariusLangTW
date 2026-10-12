@@ -59,6 +59,28 @@ See [the architecture](../ARCHITECTURE.md) and [ABI](../AquariusPackaging/README
 See the repository [syntax and examples](../README.md#語法) and the
 [Starship example](../AquariusDesktop/examples/starship_expedition/README.md).
 
+## Measuring elapsed time
+
+`目前時間()` / `currentTime()` is a core global function available without imports
+on desktop and browser hosts. It takes no arguments and returns a `double` reading
+of a monotonic clock in milliseconds, including fractional milliseconds. Subtract
+two readings taken in the same host execution to measure an interval:
+
+```aquarius
+變數 開始 = 目前時間();
+變數 總和 = 0;
+迴圈 (變數 i = 0; i < 10000; i++) { 總和 += i; }
+變數 耗時毫秒 = 目前時間() - 開始;
+印出("耗時（毫秒）：", 耗時毫秒);
+```
+
+Divide the difference by `1000.0d` for seconds. Both names refer to the same
+function, and readings do not reset between calls, module imports or REPL entries.
+The clock's origin is arbitrary and host-specific: readings are not Unix or
+calendar timestamps and must not be compared across separate processes or pages.
+The clock is unaffected by wall-clock corrections; precision depends on the host
+(browsers may reduce timer precision).
+
 ## Extending the language
 
 When introducing syntax, update tokens, lexer rules, parser callbacks and operator

@@ -24,7 +24,7 @@ public class DesktopBuiltins : Builtins, IDisposable {
     private DesktopBuiltins(Lazy<GraphicsRuntime> graphics, bool ownsGraphics) {
         this.graphics = graphics;
         this.ownsGraphics = ownsGraphics;
-        builtinFuncs = new Dictionary<string, BuiltinObj> {
+        builtinFuncs = new Dictionary<string, BuiltinObj>(builtinFuncs) {
             {
                 "長度", BuiltinObj.FromPortable(1, args => {
                     ErrorObj argsCountMatch = checkArgsCount("長度", 1, args.Length);
@@ -185,7 +185,8 @@ public class DesktopBuiltins : Builtins, IDisposable {
             }
         };
         foreach (var function in LibraryCatalog.GlobalFunctions)
-            FunctionRegistration.Define(builtinFuncs, builtinFuncs[function.TraditionalChineseName], englishName: function.EnglishName);
+            if (!builtinFuncs.ContainsKey(function.EnglishName))
+                FunctionRegistration.Define(builtinFuncs, builtinFuncs[function.TraditionalChineseName], englishName: function.EnglishName);
         builtins = new Dictionary<string, IObject>();
     }
     

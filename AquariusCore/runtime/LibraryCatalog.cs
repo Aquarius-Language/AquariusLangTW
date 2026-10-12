@@ -29,6 +29,7 @@ public static partial class LibraryCatalog {
         new LibraryFunction("", "len", "長度", 1, 1), new("", "last", "最後一個", 1, 1),
         new("", "rest", "其餘", 1, 1), new("", "push", "加入", 2, 2),
         new("", "print", "印出", 0, int.MaxValue), new("", "import", "匯入", 1, 1),
+        new("", "currentTime", "目前時間", 0, 0),
         new("", "isOSWindows", "是Windows", 0, 0), new("", "isOSLinux", "是Linux", 0, 0),
         new("", "isOSMacOS", "是MacOS", 0, 0), new("", "execFile", "執行檔案", 2, 2)
     });
