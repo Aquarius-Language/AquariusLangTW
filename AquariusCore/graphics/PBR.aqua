@@ -1,0 +1,100 @@
+# Metallic/roughness PBR. Bindings and mesh assembly are compiled into Wasm.
+變數 Version=1;
+變數 _models=匯入("Models");
+變數 VertexShader="
+@vertex fn vs_main(input: VertexInput) -> VertexOutput {
+    var o: VertexOutput;
+    let eye = processing.view * processing.model * vec4<f32>(input.position, 1.0);
+    var clip = processing.projection * eye;
+    clip.z = (clip.z + clip.w) * 0.5;
+    o.position = clip; o.eyePosition = eye.xyz;
+    o.normal = (processing.normalMatrix * vec4<f32>(input.normal, 0.0)).xyz;
+    o.uv = input.texcoord; o.vertexColor = input.color;
+    return o;
+}";
+變數 FragmentShader="
+struct UserUniforms {
+    baseColor: vec4<f32>, parameters: vec4<f32>, lightDirection: vec4<f32>,
+    lightColor: vec4<f32>, emissive: vec4<f32>,
+};
+@group(1) @binding(0) var<uniform> pbr: UserUniforms;
+fn safeNormal(v: vec3<f32>) -> vec3<f32> {
+    return v * inverseSqrt(max(dot(v,v), 1e-12));
+}
+fn toLinear(c: vec3<f32>) -> vec3<f32> {
+    return select(c/12.92, pow((c+0.055)/1.055,vec3<f32>(2.4)),c>vec3<f32>(0.04045));
+}
+fn toSrgb(c: vec3<f32>) -> vec3<f32> {
+    return select(c*12.92,1.055*pow(c,vec3<f32>(1.0/2.4))-0.055,c>vec3<f32>(0.0031308));
+}
+@fragment fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
+    let pi = 3.14159265359;
+    let n = safeNormal(input.normal); let v = safeNormal(-input.eyePosition);
+    let l = safeNormal((processing.view * vec4<f32>(pbr.lightDirection.xyz,0.0)).xyz);
+    let h = safeNormal(l+v);
+    let nl = max(dot(n,l),0.0); let nv = max(dot(n,v),0.0);
+    let nh = max(dot(n,h),0.0); let vh = max(dot(v,h),0.0);
+    let metal = clamp(pbr.parameters.x,0.0,1.0);
+    let roughness = clamp(pbr.parameters.y,0.045,1.0);
+    let alpha = roughness*roughness; let a2 = alpha*alpha;
+    let base = pbr.baseColor.rgb*toLinear(clamp(input.vertexColor.rgb,vec3<f32>(0.0),vec3<f32>(1.0)));
+    let f0 = mix(vec3<f32>(0.04),base,metal);
+    let fresnel = f0+(vec3<f32>(1.0)-f0)*pow(1.0-vh,5.0);
+    let denominator = nh*nh*(a2-1.0)+1.0;
+    let distribution = a2/max(pi*denominator*denominator,1e-7);
+    // Height-correlated Smith visibility, guarded at grazing/back-facing angles.
+    let visibility = 0.5/max(nl*sqrt(nv*nv*(1.0-a2)+a2)+nv*sqrt(nl*nl*(1.0-a2)+a2),1e-6);
+    let diffuse = (vec3<f32>(1.0)-fresnel)*(1.0-metal)*base/pi;
+    let specular = fresnel*distribution*visibility;
+    let ambient = base*(1.0-metal)*pbr.parameters.w;
+    var radiance = (diffuse+specular)*pbr.lightColor.rgb*nl+ambient+pbr.emissive.rgb;
+    radiance *= pbr.parameters.z;
+    // Reinhard tone mapping, then the display transfer function.
+    radiance = radiance/(vec3<f32>(1.0)+radiance);
+    var result = vec4<f32>(toSrgb(max(radiance,vec3<f32>(0.0))),1.0);
+    if(processing.flags.w>0.5){result=vec4<f32>(result.rgb*result.a,result.a);}
+    return result;
+}";
+變數 _valid = 函式(n,lo,hi){回傳 n>=lo && n<=hi;};
+變數 _rgb = 函式(c,hi){如果(長度(c)!=3){回傳 假;}回傳 _valid(c[0],0,hi) && _valid(c[1],0,hi) && _valid(c[2],0,hi);};
+變數 Material=函式(baseColor,metallic,roughness){
+    如果(!_rgb(baseColor,1) || !_valid(metallic,0,1) || !_valid(roughness,0,1)){回傳 {"ok":假,"error":"Material requires linear RGB, metallic and roughness in 0..1"};}
+    回傳 {"ok":真,"baseColor":baseColor,"metallic":metallic,"roughness":roughness};
+};
+變數 SetMaterial=函式(shader,material){
+    如果(material["ok"]==假){回傳 假;}
+    變數 checked=Material(material["baseColor"],material["metallic"],material["roughness"]);
+    如果(!checked["ok"]){回傳 假;}
+    變數 c=checked["baseColor"];shader.set("baseColor",[c[0],c[1],c[2],1]);
+    shader.set("parameters",[checked["metallic"],checked["roughness"],1.0d,0.08d]);回傳 真;
+};
+變數 SetLight=函式(shader,direction,radiance){
+    如果(長度(direction)!=3 || !_rgb(radiance,100000)){回傳 假;}
+    迴圈(變數 i=0;i<3;i++){如果(!_valid(direction[i],-100000,100000)){回傳 假;}}
+    變數 n=_models._normal(direction);如果(長度(n)==0){回傳 假;}
+    shader.set("lightDirection",[n[0],n[1],n[2],0]);shader.set("lightColor",[radiance[0],radiance[1],radiance[2],0]);回傳 真;
+};
+變數 SetEnvironment=函式(shader,material,ambient,exposure,emissive){
+    如果(!_valid(ambient,0,1) || !_valid(exposure,0.001d,100) || !_rgb(emissive,100000)){回傳 假;}
+    如果(!SetMaterial(shader,material)){回傳 假;}
+    shader.set("parameters",[material["metallic"],material["roughness"],exposure,ambient]);
+    shader.set("emissive",[emissive[0],emissive[1],emissive[2],0]);回傳 真;
+};
+變數 CreateShader=函式(canvas){
+    變數 shader=canvas.createShader(VertexShader,FragmentShader);
+    SetMaterial(shader,Material([0.8d,0.8d,0.8d],0.0d,0.5d));SetLight(shader,[1,-1,2],[4,4,4]);shader.set("emissive",[0,0,0,0]);回傳 shader;
+};
+變數 _mesh=函式(canvas,vertices,start,count){
+    變數 shape=canvas.createShape();shape.noStroke();shape.fill(255);shape.beginShape(4);
+    迴圈(變數 i=start;i<start+count;i++){變數 v=vertices[i];shape.vertex(v[0],v[1],v[2],v[6],v[7]);shape.setNormal(i-start,v[3],v[4],v[5]);}
+    shape.endShape();回傳 shape;
+};
+變數 CreateMesh=函式(canvas,model){
+    如果(!model["ok"]){回傳 model;}回傳 _mesh(canvas,model["vertices"],0,長度(model["vertices"]));
+};
+變數 CreateMeshes=函式(canvas,model){
+    如果(!model["ok"]){回傳 model;}變數 result=[];變數 groups=model["groups"];
+    迴圈(變數 i=0;i<長度(groups);i++){變數 g=groups[i];result=加入(result,{"name":g["name"],"material":g["material"],"shape":_mesh(canvas,model["vertices"],g["start"],g["count"])});}
+    回傳 result;
+};
+變數 建立著色器=CreateShader;變數 材質=Material;變數 設定材質=SetMaterial;變數 設定光源=SetLight;變數 設定環境=SetEnvironment;變數 建立網格=CreateMesh;變數 建立網格群=CreateMeshes;

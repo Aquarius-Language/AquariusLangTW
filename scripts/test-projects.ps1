@@ -1,6 +1,7 @@
 param(
     [string]$Dotnet = '', [string]$Configuration = 'Debug', [switch]$SkipBuild,
     [string]$Marble = '', [string]$Painter = '', [string]$Snake = '',
+    [string]$Pbr = '', [string]$Audio = '',
     [switch]$WindowsExecutables
 )
 $ErrorActionPreference = 'Stop'
@@ -13,6 +14,8 @@ if (-not $Dotnet) {
 if (-not $Marble) { $Marble = Join-Path $parent 'AquariusLang_MarbleRun_3D' }
 if (-not $Painter) { $Painter = Join-Path $parent 'AquariusLang_Painter' }
 if (-not $Snake) { $Snake = Join-Path $parent 'AquariusLang_Snake' }
+if (-not $Pbr) { $Pbr = Join-Path $parent 'AquariusLang_PBR_ModelViewer' }
+if (-not $Audio) { $Audio = Join-Path $parent 'AquariusLangTW_AudioExamples' }
 $output = Join-Path $repository '.web-build/projects'
 $cli = Join-Path $repository "AquariusCli/bin/$Configuration/net8.0/aqua.dll"
 $results = [Collections.Generic.List[object]]::new()
@@ -50,12 +53,17 @@ try {
     foreach ($project in @(
         @{ name = 'marble'; root = $Marble; entry = 'main.aqua'; frames = 2; check = 'smoke.aqua'; expected = '整合驗證通過' },
         @{ name = 'painter'; root = $Painter; entry = '星泉塗鴉室.aqua'; frames = 1 },
-        @{ name = 'snake'; root = $Snake; entry = '貪吃蛇.aqua'; frames = 2; check = '規則驗證.aqua'; expected = '規則驗證全部通過，共 236 項' }
+        @{ name = 'snake'; root = $Snake; entry = '貪吃蛇.aqua'; frames = 2; check = '規則驗證.aqua'; expected = '規則驗證全部通過，共 236 項' },
+        @{ name = 'pbr'; root = $Pbr; entry = 'main.aqua'; frames = 3; check = 'gpu-smoke.aqua'; expected = 'PBR GPU 驗證通過'; assets = 'assets'; optional = $true },
+        @{ name = 'audio'; root = $Audio; entry = '星泉聲音工坊.aqua'; frames = 2; check = '音訊驗證.aqua'; expected = '音訊驗證全部通過'; assets = '音色'; optional = $true }
     )) {
+        if ($project.optional -and -not (Test-Path -LiteralPath $project.root)) { continue }
         $sources = @(Get-ChildItem -LiteralPath $project.root -Filter '*.aqua' -Recurse | Where-Object { $_.FullName -notmatch '[\\/](web|dist|\.git)[\\/]' } | Sort-Object FullName)
         if (-not $sources.Count) { throw "No sources found: $($project.root)" }
         $wasm = Join-Path $output "$($project.name).wasm"
-        Invoke-Program $Dotnet (@($cli, 'build') + @($sources.FullName) + @('--root', $project.root, '--entry', $project.entry, '-o', $wasm)) | Out-Null
+        $buildArguments = @($cli, 'build') + @($sources.FullName) + @('--root', $project.root, '--entry', $project.entry, '-o', $wasm)
+        if ($project.assets) { $buildArguments += @('--assets', (Join-Path $project.root $project.assets)) }
+        Invoke-Program $Dotnet $buildArguments | Out-Null
         Invoke-Program $Dotnet @($cli, 'build', $wasm, '--target', 'web', '-o', (Join-Path $output $project.name)) | Out-Null
         $run = Invoke-Program $Dotnet @($cli, 'run', $wasm) $project.frames (Join-Path $output "$($project.name)-desktop.png")
         $results.Add(@{ project = $project.name; mode = 'wasm'; passed = $true; output = $run.output })

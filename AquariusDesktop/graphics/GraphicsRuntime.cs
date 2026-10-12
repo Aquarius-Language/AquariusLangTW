@@ -26,7 +26,7 @@ internal sealed partial class GraphicsRuntime : IDisposable {
     internal GraphicsRuntime(Application.DesktopApplicationHost? applicationHost = null, AquariusLang.Webcam.IWebcamBackend? webcamBackend = null) {
         audio = new(new Audio.DesktopAudioBackend(), path => File.ReadAllBytes(ResourcePath(path)));
         ApplicationHost = applicationHost ?? new();
-        Application = new(ApplicationHost);
+        Application = new(ApplicationHost, path => {string resolved=ResourcePath(path);new AquariusLang.Application.ApplicationLimits().Bytes(new FileInfo(resolved).Length);return File.ReadAllBytes(resolved);});
         webcam = new(webcamBackend ?? new Webcam.DesktopWebcamBackend(), pixels => Application.Image(pixels));
         modules["GL"] = new ModuleObj(GlEnvironment);
         RegisterGl();

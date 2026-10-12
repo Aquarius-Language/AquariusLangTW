@@ -94,6 +94,12 @@ reject foreign or disposed handles. Window integration remains host-specific.
 OpenGL remains available for compatibility with existing examples; future main
 graphics implementations use the core WebGPU boundary.
 
+Models and PBR are embedded Aquarius source libraries linked into the application's
+Wasm by core. OBJ/MTL parsing, validation, normal generation, ear clipping and
+material/mesh assembly execute in compiled Wasm; both adapters consume the same
+metallic/roughness WGSL and retained vertex attributes. Files' read-only asset calls
+reuse the package resource boundary. See [PBR and model import](docs/pbr-models.md).
+
 Core also owns external library descriptors, pinned versions, contracts and portable
 assets. JoltPhysics.js 0.24.0 is an Emscripten module requiring JavaScript glue.
 Both platforms execute the same binary and shared world code embedded by core;

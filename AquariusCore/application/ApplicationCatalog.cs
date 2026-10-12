@@ -6,7 +6,7 @@ namespace AquariusLang.Application;
 
 public static class ApplicationCatalog {
     private static readonly IReadOnlyDictionary<string,string> names = new Dictionary<string,string> {
-        ["Capabilities"]="功能支援",["Resolve"]="解析資源",["Stat"]="取得資訊",["ReadBytes"]="讀取位元組",["ReadText"]="讀取文字",["SaveBytes"]="儲存位元組",["SaveText"]="儲存文字",
+        ["Capabilities"]="功能支援",["Resolve"]="解析資源",["Stat"]="取得資訊",["ReadBytes"]="讀取位元組",["ReadText"]="讀取文字",["ReadAssetBytes"]="讀取資產位元組",["ReadAssetText"]="讀取資產文字",["SaveBytes"]="儲存位元組",["SaveText"]="儲存文字",
         ["Enumerate"]="列舉",["CreateDirectory"]="建立目錄",["Delete"]="刪除",["Copy"]="複製",["Move"]="移動",["Temporary"]="暫存",["Open"]="開啟",["Read"]="讀取",["Write"]="寫入",["Seek"]="定位",["Flush"]="寫入緩衝",["Close"]="關閉",
         ["Normalize"]="正規化",["Join"]="組合",["Name"]="檔名",["Extension"]="副檔名",["Parent"]="父目錄",["Relative"]="相對路徑",["Formats"]="格式",["Create"]="建立",["Inspect"]="檢查",["Decode"]="解碼",["Load"]="載入",["Encode"]="編碼",["Save"]="儲存",["Pixels"]="像素",
         ["Json"]="JSON序列化",["ParseJson"]="解析JSON",["Binary"]="二進位序列化",["ParseBinary"]="解析二進位",["Compress"]="壓縮",["Decompress"]="解壓縮",["Archive"]="封裝",["ReadArchive"]="讀取封裝",
@@ -28,6 +28,7 @@ public static class ApplicationCatalog {
         };
         void Add(string library, params (string Name, int Min, int Max)[] members) { functions.AddRange(members.Select(m => new LibraryFunction(library, m.Name, TraditionalChinese(m.Name), m.Min, m.Max, Returns(library,m.Name)))); }
         Add("Files", ("Capabilities",0,0),("Resolve",1,1),("Stat",1,1),("ReadBytes",1,1),("ReadText",2,2),("SaveBytes",2,3),("SaveText",3,4),("Enumerate",1,1),("CreateDirectory",1,1),("Delete",1,2),("Copy",2,3),("Move",2,3),("Temporary",1,1),("Open",2,2));
+        Add("Files", ("ReadAssetBytes",1,1),("ReadAssetText",2,2));
         Add("Files.Stream", ("Read",1,1),("Write",1,1),("Seek",2,2),("Flush",0,0),("Close",0,0));
         Add("Files.TemporaryResource", ("Dispose",0,0));
         Add("Paths", ("Normalize",1,1),("Join",1,1),("Name",1,1),("Extension",1,1),("Parent",1,1),("Relative",2,2));

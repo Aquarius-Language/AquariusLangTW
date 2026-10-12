@@ -10,6 +10,7 @@
 - **可攜編譯成果**：將模組、圖片與著色器等資源一起封裝，執行與網頁輸出不需原始碼。
 - **雙語函式庫**：腳本與桌面原生函式支援繁體中文／英文名稱，共用函式與閉包。
 - **圖學與物理**：核心保留跨平台 WebGPU 介面；桌面與瀏覽器共用 Jolt WebAssembly 引擎與物理實作。
+- **PBR 與模型匯入**：[核心 Models／PBR 函式庫](docs/pbr-models.md)在 Wasm 解析 OBJ／MTL，並以共用 WGSL 提供金屬度／粗糙度即時渲染。
 - **跨平台音訊**：[音訊抽象與函式庫](AquariusCore/audio/README.md)共用 miniaudio WebAssembly 解碼與混音，支援音檔、音調、循環、聲像、音高及無硬體的離線樣本輸出。
 
 ## 目錄

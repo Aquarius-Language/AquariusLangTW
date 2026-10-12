@@ -1,0 +1,206 @@
+# Core ABI 1: all parsing, validation and triangulation execute in application Wasm.
+變數 Version = 1;
+變數 _null = [][0];
+變數 _error = 函式(message, line) { 回傳 {"ok":假,"error":message,"line":line}; };
+變數 _abs = 函式(x) { 如果(x<0){回傳 -x;} 回傳 x; };
+變數 _sqrt = 函式(x) {
+    如果(x==0){回傳 0.0d;} 變數 r=1.0d; 如果(x>1){r=x;}
+    迴圈(變數 i=0;i<64;i++){r=(r+x/r)*0.5d;} 回傳 r;
+};
+變數 _normal = 函式(v) {
+    變數 d=_sqrt(v[0]*v[0]+v[1]*v[1]+v[2]*v[2]);
+    如果(d<0.000000000000001d){回傳 [];}
+    回傳 [v[0]/d,v[1]/d,v[2]/d];
+};
+變數 _digit = 函式(c) {
+    變數 digits=["0","1","2","3","4","5","6","7","8","9"];
+    迴圈(變數 i=0;i<10;i++){如果(c==digits[i]){回傳 i;}} 回傳 -1;
+};
+變數 _integer = 函式(s) {
+    變數 i=0;變數 sign=1;變數 n=0;
+    如果(s[0]=="-" || s[0]=="+"){如果(s[0]=="-"){sign=-1;}i++;}
+    如果(i==長度(s)){回傳 _null;}
+    迴圈(變數 _step=0;i<長度(s);i++){變數 d=_digit(s[i]);如果(d<0 || n>10000000){回傳 _null;}n=n*10+d;}
+    回傳 n*sign;
+};
+變數 _number = 函式(s) {
+    變數 i=0;變數 sign=1;變數 n=0.0d;變數 digits=0;
+    如果(s[0]=="-" || s[0]=="+"){如果(s[0]=="-"){sign=-1;}i++;}
+    迴圈(變數 _step=0;i<長度(s) && _digit(s[i])>=0;i++){n=n*10+_digit(s[i]);digits++;如果(n>100000000){回傳 _null;}}
+    如果(s[i]=="."){i++;變數 place=0.1d;迴圈(變數 _step=0;i<長度(s) && _digit(s[i])>=0;i++){n+=_digit(s[i])*place;place*=0.1d;digits++;}}
+    如果(digits==0){回傳 _null;}
+    如果(s[i]=="e" || s[i]=="E"){
+        i++;變數 exponent="";迴圈(變數 _step=0;i<長度(s);i++){exponent+=s[i];}
+        變數 e=_integer(exponent);如果(e==_null){回傳 _null;}如果(e < -38 || e > 38){回傳 _null;}
+        迴圈(變數 j=0;j<_abs(e);j++){如果(e>0){n*=10.0d;}否則{n*=0.1d;}}
+    }
+    如果(i!=長度(s) || n>100000000){回傳 _null;}回傳 n*sign;
+};
+變數 _lines = 函式(text) {
+    如果(長度(text)>2097152){回傳 _error("Model text exceeds 2 Mi UTF-16 units",0);}
+    變數 lines=[];變數 tokens=[];變數 token="";變數 comment=假;變數 line=1;變數 width=0;
+    迴圈(變數 i=0;i<=長度(text);i++){
+        變數 c=text[i];
+        如果(c=="
+" || i==長度(text)){
+            如果(長度(token)>0){tokens=加入(tokens,token);}
+            如果(長度(tokens)>0){lines=加入(lines,{"tokens":tokens,"line":line});}
+            tokens=[];token="";comment=假;line++;width=0;
+        }否則{
+            width++;如果(width>16384){回傳 _error("Model line exceeds 16384 units",line);}
+            如果(!comment){
+                如果(c=="#"){comment=真;}
+                如果(c==" " || c=="	" || c=="" || c=="#" || c=="﻿"){
+                    如果(長度(token)>0){tokens=加入(tokens,token);token="";}
+                }否則{token+=c;如果(長度(token)>256){回傳 _error("Model token exceeds 256 units",line);}}
+            }
+        }
+    }
+    回傳 {"ok":真,"lines":lines};
+};
+變數 _splitIndex = 函式(s) {
+    變數 parts=[];變數 p="";
+    迴圈(變數 i=0;i<=長度(s);i++){如果(s[i]=="/" || i==長度(s)){parts=加入(parts,p);p="";}否則{p+=s[i];}}
+    回傳 parts;
+};
+變數 _index = 函式(s,count) {
+    變數 n=_integer(s);如果(n==_null){回傳 -1;}
+    如果(n<0){n=count+n;}否則{n-=1;}
+    如果(n<0 || n>=count){回傳 -1;}回傳 n;
+};
+變數 _cross2 = 函式(a,b,c) {回傳 (b[0]-a[0])*(c[1]-a[1])-(b[1]-a[1])*(c[0]-a[0]);};
+變數 _overlap = 函式(a,b,c,d) {
+    回傳 !((a<c && a<d && b<c && b<d) || (a>c && a>d && b>c && b>d));
+};
+變數 _triangulate = 函式(points) {
+    變數 count=長度(points);變數 normal=[0.0d,0.0d,0.0d];變數 scale=0.0d;
+    迴圈(變數 i=0;i<count;i++){
+        變數 j=i+1;如果(j==count){j=0;}變數 a=points[i];變數 b=points[j];
+        normal[0]=normal[0]+(a[1]-b[1])*(a[2]+b[2]);normal[1]=normal[1]+(a[2]-b[2])*(a[0]+b[0]);normal[2]=normal[2]+(a[0]-b[0])*(a[1]+b[1]);
+        迴圈(變數 k=0;k<3;k++){變數 delta=_abs(a[k]-points[0][k]);如果(delta>scale){scale=delta;}}
+    }
+    normal=_normal(normal);如果(長度(normal)==0){回傳 _error("Degenerate polygon",0);}
+    變數 drop=2;如果(_abs(normal[0])>_abs(normal[2])){drop=0;}如果(_abs(normal[1])>_abs(normal[drop])){drop=1;}
+    變數 xy=[];變數 ids=[];
+    迴圈(變數 i=0;i<count;i++){
+        變數 p=points[i];變數 origin=points[0];
+        如果(_abs((p[0]-origin[0])*normal[0]+(p[1]-origin[1])*normal[1]+(p[2]-origin[2])*normal[2])>scale*0.00001d){回傳 _error("Nonplanar polygon",0);}
+        變數 q=[p[0],p[1]];如果(drop==0){q=[p[1],p[2]];}如果(drop==1){q=[p[0],p[2]];}
+        xy=加入(xy,q);ids=加入(ids,i);
+    }
+    變數 area=0.0d;變數 epsilon=scale*scale*0.0000000001d;
+    迴圈(變數 i=0;i<count;i++){
+        變數 ni=i+1;如果(ni==count){ni=0;}變數 a=xy[i];變數 b=xy[ni];area+=a[0]*b[1]-b[0]*a[1];
+        迴圈(變數 j=i+1;j<count;j++){
+            變數 nj=j+1;如果(nj==count){nj=0;}
+            如果(j!=ni && nj!=i){變數 c=xy[j];變數 d=xy[nj];
+                如果(_overlap(a[0],b[0],c[0],d[0]) && _overlap(a[1],b[1],c[1],d[1]) &&
+                    _cross2(a,b,c)*_cross2(a,b,d)<=0 && _cross2(c,d,a)*_cross2(c,d,b)<=0){回傳 _error("Self-intersecting polygon",0);}
+            }
+        }
+    }
+    如果(_abs(area)<=epsilon){回傳 _error("Degenerate polygon",0);}變數 sign=1;如果(area<0){sign=-1;}
+    變數 triangles=[];
+    迴圈(變數 _step=0;長度(ids)>3;_step++){
+        變數 found=假;
+        迴圈(變數 i=0;i<長度(ids);i++){
+            變數 prev=i-1;如果(prev<0){prev=長度(ids)-1;}變數 next=i+1;如果(next==長度(ids)){next=0;}
+            變數 a=ids[prev];變數 b=ids[i];變數 c=ids[next];
+            如果(_cross2(xy[a],xy[b],xy[c])*sign>epsilon){
+                變數 inside=假;
+                迴圈(變數 k=0;k<長度(ids);k++){變數 p=ids[k];如果(p!=a && p!=b && p!=c){
+                    如果(_cross2(xy[a],xy[b],xy[p])*sign>=-epsilon && _cross2(xy[b],xy[c],xy[p])*sign>=-epsilon && _cross2(xy[c],xy[a],xy[p])*sign>=-epsilon){inside=真;}
+                }}
+                如果(!inside){triangles=加入(triangles,[a,b,c]);變數 remaining=[];
+                    迴圈(變數 k=0;k<長度(ids);k++){如果(k!=i){remaining=加入(remaining,ids[k]);}}ids=remaining;found=真;中斷;
+                }
+            }
+        }
+        如果(!found){回傳 _error("Cannot triangulate polygon",0);}
+    }
+    triangles=加入(triangles,[ids[0],ids[1],ids[2]]);回傳 {"ok":真,"triangles":triangles,"normal":normal};
+};
+變數 ParseOBJ = 函式(text) {
+    變數 parsed=_lines(text);如果(!parsed["ok"]){回傳 parsed;}
+    變數 positions=[];變數 normals=[];變數 uvs=[];變數 vertices=[];變數 groups=[];變數 libraries=[];
+    變數 name="default";變數 material="";變數 start=0;變數 minimum=[100000000.0d,100000000.0d,100000000.0d];變數 maximum=[-100000000.0d,-100000000.0d,-100000000.0d];
+    變數 lines=parsed["lines"];
+    迴圈(變數 li=0;li<長度(lines);li++){
+        變數 t=lines[li]["tokens"];變數 line=lines[li]["line"];變數 op=t[0];
+        如果(op=="v" || op=="vn" || op=="vt"){
+            變數 required=4;如果(op=="vt"){required=3;}
+            如果(長度(t)!=required){回傳 _error("Expected v/vn xyz or vt uv",line);}
+            變數 v=[];迴圈(變數 i=1;i<required;i++){變數 n=_number(t[i]);如果(n==_null){回傳 _error("Invalid finite coordinate",line);}v=加入(v,n);}
+            如果(op=="v"){positions=加入(positions,v);迴圈(變數 i=0;i<3;i++){如果(v[i]<minimum[i]){minimum[i]=v[i];}如果(v[i]>maximum[i]){maximum[i]=v[i];}}}
+            如果(op=="vn"){v=_normal(v);如果(長度(v)==0){回傳 _error("Zero normal",line);}normals=加入(normals,v);}
+            如果(op=="vt"){uvs=加入(uvs,v);}
+            如果(長度(positions)>100000 || 長度(normals)>100000 || 長度(uvs)>100000){回傳 _error("Model attribute limit exceeded",line);}
+        }否則如果(op=="f"){
+            如果(長度(t)<4 || 長度(t)>257){回傳 _error("Face requires 3..256 vertices",line);}
+            變數 face=[];變數 points=[];
+            迴圈(變數 i=1;i<長度(t);i++){
+                變數 parts=_splitIndex(t[i]);如果(長度(parts)>3){回傳 _error("Invalid face reference",line);}
+                變數 pi=_index(parts[0],長度(positions));變數 ti=-1;變數 ni=-1;
+                如果(pi<0){回傳 _error("Position index out of range",line);}
+                如果(長度(parts)>1 && parts[1]!=""){ti=_index(parts[1],長度(uvs));如果(ti<0){回傳 _error("UV index out of range",line);}}
+                如果(長度(parts)>2 && parts[2]!=""){ni=_index(parts[2],長度(normals));如果(ni<0){回傳 _error("Normal index out of range",line);}}
+                如果((長度(parts)==2 && parts[1]=="") || (長度(parts)==3 && parts[2]=="")){回傳 _error("Incomplete face reference",line);}
+                face=加入(face,[pi,ti,ni]);points=加入(points,positions[pi]);
+            }
+            變數 triangulated=_triangulate(points);如果(!triangulated["ok"]){回傳 _error(triangulated["error"],line);}
+            變數 triangles=triangulated["triangles"];
+            迴圈(變數 i=0;i<長度(triangles);i++){迴圈(變數 j=0;j<3;j++){
+                變數 ref=face[triangles[i][j]];變數 p=positions[ref[0]];變數 n=triangulated["normal"];變數 uv=[0.0d,0.0d];
+                如果(ref[1]>=0){uv=uvs[ref[1]];}如果(ref[2]>=0){n=normals[ref[2]];}
+                vertices=加入(vertices,[p[0],p[1],p[2],n[0],n[1],n[2],uv[0],uv[1]]);
+            }}
+            如果(長度(vertices)>300000){回傳 _error("Model triangle limit exceeded",line);}
+        }否則如果(op=="o" || op=="g" || op=="usemtl"){
+            如果(長度(t)!=2){回傳 _error("Expected one group/material name",line);}
+            如果(長度(vertices)>start){groups=加入(groups,{"name":name,"material":material,"start":start,"count":長度(vertices)-start});start=長度(vertices);}
+            如果(op=="usemtl"){material=t[1];}否則{name=t[1];}
+            如果(長度(groups)>1024){回傳 _error("Model group limit exceeded",line);}
+        }否則如果(op=="mtllib"){
+            迴圈(變數 i=1;i<長度(t);i++){libraries=加入(libraries,t[i]);}
+        }否則如果(op!="s"){回傳 _error("Unsupported OBJ directive: "+op,line);}
+    }
+    如果(長度(vertices)==0){回傳 _error("Model has no polygon faces",0);}
+    如果(長度(vertices)>start){groups=加入(groups,{"name":name,"material":material,"start":start,"count":長度(vertices)-start});}
+    如果(長度(groups)>1024){回傳 _error("Model group limit exceeded",0);}
+    回傳 {"ok":真,"vertices":vertices,"groups":groups,"mtllib":libraries,"bounds":{"min":minimum,"max":maximum},"triangleCount":長度(vertices)/3};
+};
+變數 ParseMTL = 函式(text) {
+    變數 parsed=_lines(text);如果(!parsed["ok"]){回傳 parsed;}
+    變數 materials=[];變數 name="";變數 color=[0.8d,0.8d,0.8d];變數 metallic=0.0d;變數 roughness=0.5d;變數 lines=parsed["lines"];
+    迴圈(變數 li=0;li<長度(lines);li++){
+        變數 t=lines[li]["tokens"];變數 line=lines[li]["line"];變數 op=t[0];
+        如果(op=="newmtl"){
+            如果(長度(t)!=2){回傳 _error("Expected one material name",line);}
+            如果(name!=""){materials=加入(materials,{"name":name,"baseColor":color,"metallic":metallic,"roughness":roughness});}
+            name=t[1];color=[0.8d,0.8d,0.8d];metallic=0.0d;roughness=0.5d;
+            迴圈(變數 j=0;j<長度(materials);j++){如果(materials[j]["name"]==name){回傳 _error("Duplicate material",line);}}
+            如果(長度(materials)>=256){回傳 _error("Material limit exceeded",line);}
+        }否則{
+            如果(name==""){回傳 _error("MTL requires newmtl first",line);}
+            如果(op=="Kd"){
+                如果(長度(t)!=4){回傳 _error("Kd requires RGB",line);}color=[];
+                迴圈(變數 j=1;j<4;j++){變數 n=_number(t[j]);如果(n==_null){回傳 _error("Invalid Kd",line);}如果(n<0 || n>1){回傳 _error("Kd requires 0..1",line);}color=加入(color,n);}
+            }否則如果(op=="Pm" || op=="Pr" || op=="Ns"){
+                如果(長度(t)!=2){回傳 _error("Expected material scalar",line);}變數 n=_number(t[1]);如果(n==_null){回傳 _error("Invalid material scalar",line);}
+                如果(op=="Ns"){如果(n<0 || n>1000){回傳 _error("Ns requires 0..1000",line);}roughness=_sqrt(2.0d/(n+2.0d));}
+                否則{如果(n<0 || n>1){回傳 _error("Pm/Pr requires 0..1",line);}如果(op=="Pm"){metallic=n;}否則{roughness=n;}}
+            }否則如果(op!="Ka" && op!="Ks" && op!="Ke" && op!="Ni" && op!="illum"){
+                回傳 _error("Unsupported MTL directive (opaque untextured materials only): "+op,line);
+            }
+        }
+    }
+    如果(name!=""){materials=加入(materials,{"name":name,"baseColor":color,"metallic":metallic,"roughness":roughness});}
+    如果(長度(materials)==0){回傳 _error("No materials",0);}回傳 {"ok":真,"materials":materials};
+};
+# Resources are explicit capabilities; mtllib names never trigger filesystem reads.
+變數 LoadOBJ=函式(resource){變數 files=匯入("Files");回傳 ParseOBJ(files.ReadText(resource,"utf-8"));};
+變數 LoadMTL=函式(resource){變數 files=匯入("Files");回傳 ParseMTL(files.ReadText(resource,"utf-8"));};
+變數 LoadAssetOBJ=函式(path){變數 files=匯入("Files");回傳 ParseOBJ(files.ReadAssetText(path,"utf-8"));};
+變數 LoadAssetMTL=函式(path){變數 files=匯入("Files");回傳 ParseMTL(files.ReadAssetText(path,"utf-8"));};
+變數 解析OBJ=ParseOBJ;變數 解析MTL=ParseMTL;變數 載入OBJ=LoadOBJ;變數 載入MTL=LoadMTL;
+變數 載入資產OBJ=LoadAssetOBJ;變數 載入資產MTL=LoadAssetMTL;

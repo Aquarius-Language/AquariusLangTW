@@ -1,0 +1,6 @@
+變數 models=匯入("Models");變數 files=匯入("Files");變數 pbr=匯入("PBR");
+變數 model=models.LoadAssetOBJ(目前工作目錄+"/assets/orbit.obj");
+變數 mtl=models.LoadAssetMTL(目前工作目錄+"/assets/orbit.mtl");
+變數 passed=model["ok"] && mtl["ok"] && model["triangleCount"]==960 && 長度(model["groups"])==2 && 長度(mtl["materials"])==2;
+如果(passed){印出("PBR 與模型整合驗證通過：960 triangles、2 materials");}否則{印出("驗證失敗",model,mtl);}
+passed;

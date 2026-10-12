@@ -14,6 +14,9 @@ public sealed partial class ApplicationRuntime {
         Bind(m, "Stat", 1, 1, a => Record(Await(host.Files.Stat(Owned<FileResource>(a[0]), cancellation))));
         Bind(m, "ReadBytes", 1, 1, a => Binary(Await(files.Read(Owned<FileResource>(a[0]), cancellation))));
         Bind(m, "ReadText", 2, 2, a => new StringObj(Await(files.ReadText(Owned<FileResource>(a[0]), Text(a[1]), cancellation))));
+        byte[] Asset(string path) { cancellation.ThrowIfCancellationRequested();var data=readAsset?.Invoke(path) ?? throw new NotSupportedException("This host does not provide application assets.");limits.Bytes(data.Length);return data; }
+        Bind(m, "ReadAssetBytes", 1, 1, a => Binary(Asset(Text(a[0]))));
+        Bind(m, "ReadAssetText", 2, 2, a => new StringObj(TextEncoding.Get(Text(a[1])).GetString(Asset(Text(a[0])))));
         Bind(m, "SaveBytes", 2, 3, a => new BooleanObj(Await(files.Save(Owned<FileResource>(a[0]), Bytes(a[1]), a.Length == 3 && Boolean(a[2]), cancellation))));
         Bind(m, "SaveText", 3, 4, a => new BooleanObj(Await(files.SaveText(Owned<FileResource>(a[0]), Text(a[1]), Text(a[2]), a.Length == 4 && Boolean(a[3]), cancellation))));
         Bind(m, "Enumerate", 1, 1, a => new ArrayObj(Await(host.Files.Enumerate(Owned<FileResource>(a[0]), cancellation)).Select(r => (IObject)Resource(r)).ToArray()));

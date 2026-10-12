@@ -1,0 +1,9 @@
+# Original CC0 materials
+newmtl TealMetal
+Kd 0.075 0.55 0.65
+Pm 0.9
+Pr 0.22
+newmtl WarmMetal
+Kd 0.82 0.36 0.12
+Pm 0.9
+Pr 0.35

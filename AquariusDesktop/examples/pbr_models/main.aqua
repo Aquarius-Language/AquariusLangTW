@@ -1,0 +1,47 @@
+變數 p=匯入("Processing");
+變數 pbr=匯入("PBR");
+變數 models=匯入("Models");
+變數 files=匯入("Files");
+變數 scene=0;變數 shader=0;變數 meshes=[];變數 materials=[];變數 rotating=真;變數 angle=0.0d;
+變數 setup=函式(){
+    p.size(1180,740,p.P2D,"星泉 · PBR 材質與模型工作室");
+    scene=p.createGraphics(p.width,p.height,p.P3D);shader=pbr.CreateShader(scene);
+    變數 model=models.LoadAssetOBJ(目前工作目錄+"/assets/orbit.obj");
+    變數 mtl=models.LoadAssetMTL(目前工作目錄+"/assets/orbit.mtl");
+    如果(!model["ok"] || !mtl["ok"]){印出("模型匯入失敗",model,mtl);p.exit();回傳 假;}
+    meshes=pbr.CreateMeshes(scene,model);materials=mtl["materials"];
+    p.on("keyPressed",函式(){如果(p.key==" "){rotating=!rotating;印出("模型旋轉：",rotating);}});
+    印出("PBR 模型匯入成功：",model["triangleCount"],"triangles /",長度(meshes),"material groups");
+};
+變數 draw=函式(){
+    如果(長度(meshes)==0){回傳 假;}
+    如果(scene.width!=p.width || scene.height!=p.height || scene.pixelWidth!=p.pixelWidth || scene.pixelHeight!=p.pixelHeight){scene.resize(p.width,p.height,p.pixelWidth,p.pixelHeight);}
+    如果(rotating){angle+=0.014d;}
+    scene.beginDraw();scene.background(13,20,31);scene.noStroke();
+    scene.perspective(p.PI/3,p.width*1.0d/p.height,1,3000);
+    scene.camera(0,-100,720,0,0,0,0,1,0);scene.shader(shader);
+    pbr.SetLight(shader,[-0.4d,-0.7d,1.0d],[5.5d,5.1d,4.8d]);
+    迴圈(變數 row=0;row<2;row++){迴圈(變數 column=0;column<3;column++){
+        變數 roughness=0.12d+column*0.34d;
+        pbr.SetMaterial(shader,pbr.Material([0.82d,0.36d,0.12d],row*1.0d,roughness));
+        scene.pushMatrix();scene.translate(-290+column*130,-90+row*160,0);scene.sphereDetail(28,18);scene.sphere(49);scene.popMatrix();
+        pbr.SetMaterial(shader,pbr.Material([0.065d,0.085d,0.12d],0.2d,0.55d));
+        scene.pushMatrix();scene.translate(-290+column*130,-25+row*160,0);scene.box(100,10,100);scene.popMatrix();
+    }}
+    scene.pushMatrix();scene.translate(225,5,0);scene.rotateY(angle);scene.rotateX(-0.2d);
+    迴圈(變數 i=0;i<長度(meshes);i++){
+        變數 material=pbr.Material([0.12d,0.5d,0.65d],0.85d,0.22d);
+        迴圈(變數 j=0;j<長度(materials);j++){如果(materials[j]["name"]==meshes[i]["material"]){material=materials[j];}}
+        pbr.SetMaterial(shader,material);scene.shape(meshes[i]["shape"]);
+    }
+    scene.popMatrix();scene.resetShader();scene.endDraw();
+    p.background(13,20,31);p.image(scene,0,0,p.width,p.height);
+    p.fill(223,233,241);p.textSize(28);p.text("星泉 / MATERIAL STUDIO",36,55);
+    p.fill(113,139,164);p.textSize(14);p.text("REALTIME PBR · WASM · WEBGPU",36,82);
+    p.fill(200,218,231);p.textSize(17);p.text("METALLIC / ROUGHNESS",36,122);p.text("IMPORTED OBJ + MTL",p.width-320,122);
+    p.fill(110,137,160);p.textSize(14);p.text("粗糙度   0.12         0.46         0.80",62,p.height-110);
+    p.text("上排：陶瓷     下排：金屬",62,p.height-85);
+    p.text("空白鍵：暫停 / 繼續旋轉",p.width-310,p.height-85);
+    p.fill(77,190,179);p.textSize(12);p.text("SAME COMPILED WASM ON WINDOWS + WEB",36,p.height-35);
+};
+p.run(setup,draw);

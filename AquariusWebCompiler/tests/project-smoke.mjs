@@ -1,7 +1,7 @@
 // Compile the real sibling projects with scripts/test-projects.ps1 first.
 import {chromium} from 'playwright';
 import {createServer} from 'node:http';
-import {readFile,writeFile} from 'node:fs/promises';
+import {readFile,writeFile,access} from 'node:fs/promises';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import assert from 'node:assert/strict';
@@ -14,7 +14,8 @@ const server=createServer(async(req,res)=>{
 });
 await new Promise(r=>server.listen(0,'127.0.0.1',r));
 const browser=await chromium.launch({channel:process.env.AQUARIUS_BROWSER??'chrome',headless:true,args:['--enable-unsafe-webgpu']});
-try {for(const project of ['marble','painter','snake']) {
+const projects=['marble','painter','snake'];for(const optional of ['pbr','audio']){try{await access(path.join(root,optional,'program.wasm'));projects.push(optional);}catch{}}
+try {for(const project of projects) {
   const page=await browser.newPage({viewport:{width:1440,height:900}}),errors=[];
   page.on('pageerror',e=>errors.push(e.message));
   page.on('console',m=>{if(m.type()==='error')errors.push(m.text());});
@@ -40,6 +41,8 @@ try {for(const project of ['marble','painter','snake']) {
       await page.keyboard.up('w');
       await page.setViewportSize({width:960,height:600});await page.waitForFunction(()=>window.aquarius.host.processing.screen.width===960);
     }
+    if(project==='pbr'){const checked=await page.evaluate(()=>window.aquarius.run('gpu-smoke.aqua',0));assert.match(checked.output,/PBR GPU 驗證通過/);}
+    if(project==='audio'){const checked=await page.evaluate(()=>window.aquarius.run('音訊驗證.aqua',0));assert.match(checked.output,/音訊驗證全部通過/);}
     await page.evaluate(()=>window.aquarius.stop());assert.equal(await page.locator('canvas,textarea').count(),0);assert.deepEqual(errors,[]);
     results.push({project,passed:true,colors});console.log(`PASS ${project}/browser-wasm (${colors} colors)`);
   }catch(error){results.push({project,passed:false,error:error.stack,errors});console.error(`FAIL ${project}: ${error.stack}`);}

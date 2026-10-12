@@ -89,7 +89,10 @@ public class WebArchitectureTest {
             WebsiteCompiler.Build(Path.Combine(Root, "examples"), dir, "wgpu_compute/main.aqua");
             using var document = JsonDocument.Parse(File.ReadAllText(Path.Combine(dir, "program.json")));
             var json = document.RootElement;
-            Assert.Equal(Directory.GetFiles(Path.Combine(Root, "examples"), "*.aqua", SearchOption.AllDirectories).Length, json.GetProperty("modules").EnumerateObject().Count());
+            Assert.Equal(Directory.GetFiles(Path.Combine(Root, "examples"), "*.aqua", SearchOption.AllDirectories).Length,
+                json.GetProperty("modules").EnumerateObject().Count(m => !m.Name.StartsWith(".aquarius/", StringComparison.Ordinal)));
+            Assert.True(json.GetProperty("modules").TryGetProperty(".aquarius/PBR.aqua", out _));
+            Assert.True(json.GetProperty("assets").TryGetProperty("pbr_models/assets/orbit.obj", out _));
             Assert.Equal(WgpuShaderAbi.Header, json.GetProperty("graphics").GetProperty("header").GetString());
             Assert.True(json.GetProperty("assets").TryGetProperty("opengl_cube/checker.ppm", out _));
             Assert.True(File.Exists(Path.Combine(dir, "vendor-jolt.wasm")));

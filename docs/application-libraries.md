@@ -18,6 +18,7 @@ values are arrays of integers in 0..255. Failures never report successful no-ops
 |---|---|
 | `Files` | `Capabilities()`, `Resolve(location)`, `Stat(resource)`, `ReadBytes(resource)`, `ReadText(resource,encoding)`, `SaveBytes(resource,bytes[,requireAtomic])`, `SaveText(resource,text,encoding[,requireAtomic])` |
 | `Files` | `Open(resource,mode)`, `Enumerate(directory)`, `CreateDirectory(directory)`, `Delete(resource[,recursive])`, `Copy(source,destination[,overwrite])`, `Move(source,destination[,overwrite])`, `Temporary(isDirectory)` |
+| `Files` | `ReadAssetBytes(path)`, `ReadAssetText(path,encoding)` — packaged read-only assets, source-relative on desktop source execution |
 | stream | `Read(count)`, `Write(bytes)`, `Seek(offset,"Begin"/"Current"/"End")`, `Flush()`, `Close()`; `canRead`, `canWrite`, `canSeek` |
 | `Paths` | `Normalize(path)`, `Join(parts)`, `Name(path)`, `Extension(path)`, `Parent(path)`, `Relative(fromDirectory,target)` |
 | `Images` | `Formats()`, `Inspect(bytes)`, `Create(width,height,rgbaBytes)`, `Decode(bytes,frame)`, `Load(resource,frame)`, `Encode(image,format,options)`, `Save(resource,image,format,options)` |

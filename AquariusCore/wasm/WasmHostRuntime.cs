@@ -222,7 +222,19 @@ public sealed class WasmRuntime : IDisposable
         private int Service(int operation, int context, int subject, int name, int arguments, int count, int output)
         {
             if (operation == 0) { string key = Text(name); var builtin = contexts[context];
-                if (builtin.BuiltinFuncs.TryGetValue(key, out var function)) { Write(output, function); return 0; }
+                if (builtin.BuiltinFuncs.TryGetValue(key, out var function)) {
+                    if (key is "import" or "匯入") function = new BuiltinObj(args => {
+                        if (args.Length == 1 && args[0] is StringObj text &&
+                            AquariusLang.Graphics.PortableGraphicsLibraries.Modules.TryGetValue(text.Value, out var path)) {
+                            if (!Program.Metadata.Modules.TryGetValue(path, out int index)) return new ErrorObj("Core library was not linked. Include a literal import of " + text.Value + ".");
+                            var environment = AquaEnvironment.NewEnvironment();
+                            var result = Execute(index, environment, builtin);
+                            return result is ErrorObj ? result : new ModuleObj(environment);
+                        }
+                        return builtin.BuiltinFuncs[key].Fn(args);
+                    });
+                    Write(output, function); return 0;
+                }
                 if (builtin._Builtins.TryGetValue(key, out var value)) { Write(output, value); return 0; } return 1; }
             if (operation == 2) { if (natives[subject] is not ModuleObj module) return 1; FlushDirtyArrays(module._Environment);
                 var member = module._Environment.Get(Text(name), out bool found); if (!found) return 1; Write(output, member); ArrayOwner(member, module._Environment); return 0; }

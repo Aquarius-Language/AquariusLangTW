@@ -199,6 +199,8 @@ export class BrowserApplication {
     b(files, "Files", "ReadText", async (r, e) =>
       decodeText(await this.files.read(owned(r), this.signal()), text(e)),
     );
+    b(files, "Files", "ReadAssetBytes", (p) => fromValue(this.host.asset(text(p))));
+    b(files, "Files", "ReadAssetText", (p, e) => decodeText(this.host.asset(text(p)), text(e)));
     b(
       files,
       "Files",

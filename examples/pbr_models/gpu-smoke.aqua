@@ -1,0 +1,24 @@
+# Pixel assertions exercise the actual shared WGSL and retained imported mesh.
+變數 p=匯入("Processing");變數 pbr=匯入("PBR");變數 models=匯入("Models");
+p.size(96,64,p.P3D,"PBR pixel validation");
+變數 shader=pbr.CreateShader(p);pbr.SetLight(shader,[0,0,1],[4,4,4]);p.shader(shader);p.noStroke();
+變數 geometry="v 0 0 0
+v 96 0 0
+v 0 64 0
+vn 0 0 1
+vn 1 0 0
+vt 0 0
+vt 1 0
+vt 0 1
+";
+變數 front=pbr.CreateMesh(p,models.ParseOBJ(geometry+"f 1/1/1 2/2/1 3/3/1"));
+變數 side=pbr.CreateMesh(p,models.ParseOBJ(geometry+"f 1/1/2 2/2/2 3/3/2"));
+變數 material=pbr.Material([0.5d,0.2d,0.1d],0.0d,0.5d);
+pbr.SetMaterial(shader,material);p.background(0);p.shape(front);變數 lit=p.red(p.get(16,16));
+p.background(0);p.shape(side);變數 unlit=p.red(p.get(16,16));
+pbr.SetMaterial(shader,pbr.Material([0.5d,0.2d,0.1d],1.0d,0.12d));p.background(0);p.shape(front);變數 smooth=p.get(16,16);
+pbr.SetMaterial(shader,pbr.Material([0.5d,0.2d,0.1d],1.0d,0.8d));p.background(0);p.shape(front);變數 rough=p.get(16,16);
+變數 invalid=pbr.SetLight(shader,[0,0,0],[1,1,1]);
+變數 passed=lit>unlit+20 && smooth!=rough && !invalid && front.getVertexCount()==3;
+如果(passed){印出("PBR GPU 驗證通過",lit,unlit,smooth,rough);}否則{印出("PBR GPU 驗證失敗",lit,unlit,smooth,rough);}
+p.endFrame();p.close();passed;

@@ -19,6 +19,7 @@ public sealed class WasmCompiler
     public WasmProgram Compile(IReadOnlyDictionary<string, LoweredProgram> modules, string entry,
         IReadOnlyDictionary<string, byte[]>? assets = null)
     {
+        modules = AquariusLang.Graphics.PortableGraphicsLibraries.Link(modules);
         var bodies = new List<LoweredProgram>();
         var ids = new Dictionary<LoweredProgram, int>();
         int Add(LoweredProgram body)

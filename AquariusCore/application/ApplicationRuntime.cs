@@ -15,6 +15,7 @@ namespace AquariusLang.Application;
 public sealed partial class ApplicationRuntime : IDisposable {
     private readonly IApplicationHost host;
     private readonly FileService files;
+    private readonly Func<string, byte[]>? readAsset;
     private readonly ApplicationLimits limits = new();
     private readonly Dictionary<string, ModuleObj> modules = new();
     private readonly Dictionary<IObject, object> objects = new();
@@ -22,7 +23,7 @@ public sealed partial class ApplicationRuntime : IDisposable {
     private readonly List<IAsyncDisposable> asyncDisposables = new();
     private CancellationToken cancellation;
     private bool disposed;
-    public ApplicationRuntime(IApplicationHost host) { this.host = host; files = new(host.Files, limits); RegisterFiles(); RegisterData(); RegisterEditing(); RegisterHost(); }
+    public ApplicationRuntime(IApplicationHost host, Func<string, byte[]>? readAsset = null) { this.host = host; this.readAsset = readAsset; files = new(host.Files, limits); RegisterFiles(); RegisterData(); RegisterEditing(); RegisterHost(); }
     public bool TryImport(string name, out ModuleObj module) => modules.TryGetValue(name, out module!);
     private ModuleObj Module(string name) { var m = new ModuleObj(AquaEnvironment.NewEnvironment()); modules.Add(name, m); return m; }
     private void Bind(ModuleObj module, string name, int min, int max, Func<IObject[], IObject> action) {
