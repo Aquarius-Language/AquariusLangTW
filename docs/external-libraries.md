@@ -64,10 +64,14 @@ The browser adapter supplies the loader and animation environment. Desktop hosts
 the trusted Emscripten glue in ClearScript/V8, instantiates its Wasm synchronously,
 and adapts the shared world methods to `IPhysicsWorld`. Aquarius application code
 executes in Wasmtime. V8 is isolated to external libraries that need JavaScript
-glue; it is not an Aquarius execution engine. Each desktop physics world owns its
-Emscripten instance and releases it on disposal. Both platforms use 4,096 bodies,
-8,192 body pairs and 4,096 contact constraints, including the same validation and
-ownership behavior.
+glue; it is not an Aquarius execution engine. Desktop Jolt uses one lazily created,
+process-lifetime V8 runtime on its dedicated worker thread to avoid isolate teardown
+crashes during concurrent world lifecycles and CLR garbage collection. Each world
+owns a separate script context and Emscripten instance with independent Wasm memory.
+Disposal releases its physics objects and script handles; the shared V8 runtime
+remains available until process exit. Both platforms use 4,096 bodies, 8,192 body
+pairs and 4,096 contact constraints, including the same validation and ownership
+behavior.
 
 WebGPU retains `IWgpuBackend` and device/resource contracts in core, with shared
 WGSL shaders, layouts and the 1,120-byte Processing uniform ABI. Desktop implements

@@ -12,6 +12,12 @@ public sealed class WindowsExecutableFactAttribute : FactAttribute {
     }
 }
 
+// Each build hashes and copies the full self-contained runtime. Keep this disk
+// workload separate from the other process and timing-sensitive tests.
+[CollectionDefinition("Windows executables", DisableParallelization = true)]
+public sealed class WindowsExecutableCollection { }
+
+[Collection("Windows executables")]
 public class WindowsExecutableTest {
     private static (int Code, string Output, string Error) Run(string executable, string directory, params string[] args) {
         var start = new ProcessStartInfo(executable) {

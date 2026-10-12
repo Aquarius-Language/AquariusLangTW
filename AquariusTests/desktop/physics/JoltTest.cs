@@ -300,6 +300,29 @@ public class JoltTest {
     }
 
     [Fact]
+    public void LiveWorldSurvivesOtherWorldDisposalAndGarbageCollection() {
+        var backend = new WasmJoltBackend();
+        using var survivor = backend.CreateWorld(Vector3.Zero);
+        var body = survivor.CreateSphere(0.5f, Vector3.Zero, 2);
+        survivor.SetLinearVelocity(body, new Vector3(2, 0, 0));
+        for (int i = 0; i < 24; i++) {
+            using (var temporary = backend.CreateWorld(new Vector3(0, -10, 0))) {
+                var other = temporary.CreateSphere(0.5f, Vector3.Zero, 1);
+                temporary.Step(0.25f, 1);
+                Assert.InRange(temporary.GetLinearVelocity(other).Y, -2.501f, -2.499f);
+                Assert.Equal(Vector3.Zero, survivor.Gravity);
+                Assert.Equal(1, survivor.BodyCount);
+            }
+            GC.Collect(); GC.WaitForPendingFinalizers();
+            survivor.Step(0.25f, 1);
+            Assert.InRange(survivor.GetPosition(body).X, (i + 1) * 0.5f - 0.001f, (i + 1) * 0.5f + 0.001f);
+            Assert.Equal(1, JoltLifetime.WorldCount);
+        }
+        survivor.Dispose();
+        Assert.Equal(0, JoltLifetime.WorldCount);
+    }
+
+    [Fact]
     public async Task ConcurrentCompiledWorldLifecyclesFinishAndReleaseTheirResources() {
         var tasks = Enumerable.Range(0, 8).Select(_ => Task.Run(() => {
             for (int i = 0; i < 8; i++) {

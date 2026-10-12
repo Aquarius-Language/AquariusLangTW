@@ -60,6 +60,11 @@ internal sealed class WasmJoltBackend : IPhysicsBackend
 
 internal sealed class WasmJoltWorld : IPhysicsWorld
 {
+    // Keep one process-lifetime isolate, like the desktop Wasmtime engine. Repeated
+    // isolate teardown while other worlds execute can crash V8 during CLR GC.
+    // Initialize runs on JoltThread; each world still owns a separate script
+    // context, Emscripten instance and Wasm memory, disposed with that world.
+    private static readonly Lazy<V8Runtime> runtime = new(() => new V8Runtime("Aquarius Jolt"));
     private readonly object gate = new();
     private readonly V8ScriptEngine engine;
     private readonly ScriptObject world;
@@ -72,7 +77,7 @@ internal sealed class WasmJoltWorld : IPhysicsWorld
     }
     private static (V8ScriptEngine, ScriptObject) Initialize(Vector3 gravity)
     {
-        var engine = new V8ScriptEngine(V8ScriptEngineFlags.EnableTaskPromiseConversion | V8ScriptEngineFlags.EnableArrayConversion);
+        var engine = runtime.Value.CreateScriptEngine(V8ScriptEngineFlags.EnableTaskPromiseConversion | V8ScriptEngineFlags.EnableArrayConversion);
         try
         {
             engine.Execute("globalThis.console={log(){},error(){},warn(){}};globalThis.performance={now:()=>Date.now()};");

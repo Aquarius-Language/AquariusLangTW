@@ -4,6 +4,12 @@ using AquariusLang.Webcam;
 
 namespace AquariusTests.Webcam;
 
+// These tests exercise real deadlines and background continuations. Synchronous
+// CLI/packaging tests can otherwise occupy the runner's workers until they expire.
+[CollectionDefinition("Webcam latency", DisableParallelization = true)]
+public sealed class WebcamLatencyCollection { }
+
+[Collection("Webcam latency")]
 public class WebcamLatencyTest {
     /// <summary>每次推送都等待接收器開始下一次讀取，確保測試不依賴排程或延遲猜測。</summary>
     private sealed class FrameStream : Stream {

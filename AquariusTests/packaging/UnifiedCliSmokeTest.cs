@@ -29,7 +29,13 @@ public class UnifiedCliSmokeTest {
         foreach (string arg in args) start.ArgumentList.Add(arg);
         using var process = Process.Start(start)!; process.StandardInput.Close();
         var output = process.StandardOutput.ReadToEndAsync(); var error = process.StandardError.ReadToEndAsync();
-        if (!process.WaitForExit(30000)) { process.Kill(true); throw new TimeoutException("aqua did not finish."); }
+        // Windows packaging hashes, copies and flushes the entire runtime pack;
+        // its disk/scanner latency is much higher than a normal CLI invocation.
+        int timeoutMilliseconds = args.Zip(args.Skip(1)).Any(pair => pair.First == "--target" && pair.Second == "windows") ? 120000 : 30000;
+        if (!process.WaitForExit(timeoutMilliseconds)) {
+            process.Kill(true);
+            throw new TimeoutException($"aqua {string.Join(' ', args)} did not finish within {timeoutMilliseconds / 1000} seconds.");
+        }
         return (process.ExitCode, output.GetAwaiter().GetResult().Replace("\r\n", "\n"), error.GetAwaiter().GetResult());
     }
 
