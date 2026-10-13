@@ -21,12 +21,17 @@ public sealed class WasmRuntime : IDisposable
     [ThreadStatic] private static List<Session>? active;
     private readonly Builtins builtins;
     private readonly IWasmEngine engine;
+    private readonly int quantum;
     private readonly ConditionalWeakTable<WasmProgram, Session> sessions = new();
     private bool disposed;
     private sealed record Callable(Session Session, int Value);
     private sealed record Origin(Session Session, int Tag, int Reference);
-    public WasmRuntime(Builtins? builtins = null, IWasmEngine? engine = null)
+    public WasmRuntime(Builtins? builtins = null, IWasmEngine? engine = null) : this(builtins, engine, WasmAbi.DesktopQuantum) { }
+    public WasmRuntime(int quantum) : this(null, null, quantum) { }
+    public WasmRuntime(Builtins? builtins, IWasmEngine? engine, int quantum)
     {
+        if (quantum <= 0) throw new ArgumentOutOfRangeException(nameof(quantum));
+        this.quantum = quantum;
         this.builtins = builtins ?? new Builtins();
         this.engine = engine ?? EngineFactory?.Invoke() ?? throw new InvalidOperationException("This host has not registered a WebAssembly engine.");
     }
@@ -35,7 +40,7 @@ public sealed class WasmRuntime : IDisposable
         ObjectDisposedException.ThrowIf(disposed, this);
         if (!program.Metadata.Modules.TryGetValue(entry ?? program.Metadata.Entry, out int function)) return new ErrorObj("Compiled module not found.");
         var session = active?.LastOrDefault(s => ReferenceEquals(s.Program, program));
-        session ??= sessions.GetValue(program, p => new Session(p, engine));
+        session ??= sessions.GetValue(program, p => new Session(p, engine, quantum));
         return session.Execute(function, environment, context ?? builtins)!;
     }
     public IObject Invoke(IObject function, params IObject[] arguments)
@@ -78,6 +83,8 @@ public sealed class WasmRuntime : IDisposable
     {
         internal readonly WasmProgram Program;
         private readonly IWasmInstance instance;
+        private readonly int quantum;
+        private readonly bool deferredCollections;
         private bool disposed;
         private readonly List<Builtins> contexts = new();
         private readonly Dictionary<Builtins, int> contextIds = new(ReferenceEqualityComparer.Instance);
@@ -98,8 +105,9 @@ public sealed class WasmRuntime : IDisposable
         private readonly bool mutableHashes;
         private bool refreshingDirtyHashes;
         private readonly Dictionary<int, List<WeakReference<AquaEnvironment>>> arrayOwners = new();
-        internal Session(WasmProgram program, IWasmEngine engine)
+        internal Session(WasmProgram program, IWasmEngine engine, int quantum)
         {
+            this.quantum = quantum;
             // Native callback GC handles must not root the owning session forever.
             // Active executions and exported closures provide its actual lifetime.
             var owner = new WeakReference<Session>(this);
@@ -111,6 +119,9 @@ public sealed class WasmRuntime : IDisposable
             // 舊編譯成果未匯出此功能，仍沿用原本唯讀雜湊表的主機行為。
             try { mutableHashes = Call("aqua_hash_write_support") != 0; }
             catch (InvalidDataException) { mutableHashes = false; }
+            // Additive exports: older ABI 2 artifacts retain eager collection.
+            try { Call("aqua_collection_generation"); deferredCollections = true; }
+            catch (InvalidDataException) { deferredCollections = false; }
         }
         ~Session() { try { Dispose(); } catch { /* Finalization cannot report native cleanup failures. */ } }
         public void Dispose()
@@ -143,11 +154,17 @@ public sealed class WasmRuntime : IDisposable
             if (tag == 6) Call("aqua_array_expose", reference);
             if (tag == 7 && mutableHashes) Call("aqua_hash_expose", reference);
         }
-        private void Collect()
+        private void Collect(bool force = true)
         {
-            for (int i = leases.Count - 1; i >= 0; i--) if (!leases[i].Owner.TryGetTarget(out _)) { Call("aqua_unpin", leases[i].Pin); leases.RemoveAt(i); }
-            for (int i = scopeLeases.Count - 1; i >= 0; i--) if (!scopeLeases[i].Owner.TryGetTarget(out _)) { Call("aqua_unpin", scopeLeases[i].Pin); scopeLeases.RemoveAt(i); }
+            bool released = false;
+            for (int i = leases.Count - 1; i >= 0; i--) if (!leases[i].Owner.TryGetTarget(out _)) { Call("aqua_unpin", leases[i].Pin); leases.RemoveAt(i); released = true; }
+            for (int i = scopeLeases.Count - 1; i >= 0; i--) if (!scopeLeases[i].Owner.TryGetTarget(out _)) { Call("aqua_unpin", scopeLeases[i].Pin); scopeLeases.RemoveAt(i); released = true; }
+            if (deferredCollections && !force && !released && Call("aqua_collection_due") == 0) return;
+            int generation = deferredCollections ? Call("aqua_collection_generation") : 0;
             Call("aqua_collect");
+            // Stale trace results must never release live capabilities.
+            if (deferredCollections && Call("aqua_collection_generation") == generation)
+                throw new InvalidOperationException("Guest collection did not refresh native liveness.");
             for (int i = 1; i < natives.Count; i++) if (natives[i] is { } native && Call("aqua_native_live", i) == 0) { nativeIds.Remove(native); natives[i] = null; freeNativeIds.Push(i); }
         }
         internal IEnumerable<IObject> NativeRoots()
@@ -232,9 +249,10 @@ public sealed class WasmRuntime : IDisposable
         private IObject? Run(int execution)
         {
             (active ??= new()).Add(this);
-            try { while (true) { int status = Call("aqua_run", execution, WasmAbi.Quantum); if (status == 1) { Collect(); continue; }
+            try { while (true) { int status = Call("aqua_run", execution, quantum); if (status == 1) { Collect(false); continue; }
                 if (status == 2) throw new InvalidOperationException("Unresolved desktop async operation."); return Read(Call("aqua_result", execution)); } }
-            finally { SynchronizeOut(); Call("aqua_release_execution", execution); active.RemoveAt(active.Count - 1); }
+            finally { SynchronizeOut(); Call("aqua_release_execution", execution); active.RemoveAt(active.Count - 1);
+                if (deferredCollections && !active.Contains(this)) Collect(); }
         }
         private int Service(int operation, int context, int subject, int name, int arguments, int count, int output)
         {

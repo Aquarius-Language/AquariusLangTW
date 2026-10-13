@@ -34,6 +34,7 @@ extern int host_service(int operation, int context, int subject, int name, int a
 
 static u32 heap_start, heap_end, blocks, free_heads[26];
 static Scope *builtin_scopes[65536];
+static u32 builtin_contexts[65536], builtin_context_count;
 static Execution *executions;
 static Pin *pins;
 static Value empty;
@@ -41,6 +42,7 @@ static u32 mark_pending;
 static Array *dirty_arrays;
 static Hash *dirty_hashes;
 static unsigned char native_live[65536];
+static u32 marked_native_ids[65536], marked_native_count, collection_generation;
 static u32 bytes_since_collection;
 static u32 scope_epoch=1;
 u32 aqua_collect(void);
@@ -73,6 +75,8 @@ static void *allocate(u32 n,u32 kind) {
 u32 aqua_initialize(u32 start) { if(!heap_start)heap_start=heap_end=(start+15)&~15u;return heap_start; }
 u32 aqua_allocate(u32 n) { return address(allocate(n,RAW)); }
 u32 aqua_heap_bytes(void) { return heap_end-heap_start; }
+u32 aqua_collection_due(void) { return bytes_since_collection>=8u*1024*1024; }
+u32 aqua_collection_generation(void) { return collection_generation; }
 u32 aqua_value(void) { return address(allocate(sizeof(Value),RAW)); }
 u32 aqua_text(u32 length) { Text *t=allocate(sizeof(Text)+length*2,TEXT);t->length=length;return address(t); }
 static Text *ascii(const char *s) { u32 n=0;while(s[n])n++;Text*t=pointer(aqua_text(n));for(u32 i=0;i<n;i++)t->data[i]=(unsigned char)s[i];return t; }
@@ -152,6 +156,7 @@ static void dispose_scope(Scope*s) { if(s&&!s->captured){release(s->bindings);re
 static Value constant(Frame*f,u32 n) { return f->function->constants[n]; }
 static Text *name(Frame*f,u32 n) { return pointer(constant(f,n).ref); }
 static Binding *cached_binding(Frame*f,u32 n) { u32*c=f->binding_cache?f->binding_cache+n*2:0;if(c&&c[0]==scope_epoch&&c[1])return pointer(c[1]);Binding*b=find(f->scope,name(f,n));if(c){c[0]=scope_epoch;c[1]=address(b);}return b; }
+int rt_binding(Frame*f,int n) { Binding*b=cached_binding(f,(u32)n);if(!b){named_failure(f,"Identifier not found: ",name(f,(u32)n));return 0;}return (int)address(&b->value); }
 static void release_frame(Frame*f) { release(f->binding_cache);release(f); }
 u32 aqua_execute(u32 p,u32 id,u32 s,u32 context) { Execution*e=allocate(sizeof(Execution),EXECUTIONS);e->next=executions;executions=e;((Scope*)pointer(s))->captured=1;e->current=frame(e,0,pointer(p),id,pointer(s),context);return address(e); }
 u32 aqua_invoke(u32 closure,u32 arguments,u32 count) {
@@ -183,7 +188,7 @@ int rt_void(Frame*f,int n) { push(f,empty);return 0; }
 int rt_null(Frame*f,int n) { push(f,value(NULL_VALUE,0,0));return 0; }
 int rt_pop(Frame*f,int n) { pop(f);return 0; }
 int rt_duplicate(Frame*f,int n) { push(f,peek(f,1));return 0; }
-int rt_load(Frame*f,int n) { Binding*b=cached_binding(f,n);if(!b&&f->context<65536&&builtin_scopes[f->context])b=find_owned(builtin_scopes[f->context],name(f,n));if(b)push(f,b->value);else {Value v=empty;int status=host_service(0,f->context,0,address(name(f,n)),0,0,address(&v));if(status)named_failure(f,"Identifier not found: ",name(f,n));else {if(f->context<65536){if(!builtin_scopes[f->context])builtin_scopes[f->context]=scope(0);declare(builtin_scopes[f->context],name(f,n),v);}push(f,v);}}return 0; }
+int rt_load(Frame*f,int n) { Binding*b=cached_binding(f,n);if(!b&&f->context<65536&&builtin_scopes[f->context])b=find_owned(builtin_scopes[f->context],name(f,n));if(b)push(f,b->value);else {Value v=empty;int status=host_service(0,f->context,0,address(name(f,n)),0,0,address(&v));if(status)named_failure(f,"Identifier not found: ",name(f,n));else {if(f->context<65536){if(!builtin_scopes[f->context]){builtin_scopes[f->context]=scope(0);builtin_contexts[builtin_context_count++]=f->context;}declare(builtin_scopes[f->context],name(f,n),v);}push(f,v);}}return 0; }
 int rt_declare(Frame*f,int n) { declare(f->scope,name(f,n),pop(f));push(f,empty);return 0; }
 int rt_assign(Frame*f,int n) { Value v=pop(f);pop(f);Binding*b=cached_binding(f,n);if(!b)named_failure(f,"Identifier not found: ",name(f,n));else b->value=v;push(f,empty);return 0; }
 int rt_compoundAssign(Frame*f,int n) { Value c=constant(f,n),r=pop(f);pop(f);Binding*b=cached_binding(f,n);if(!b)named_failure(f,"Identifier not found: ",pointer(c.ref));else b->value=binary(f,(int)c.number,b->value,r,1);push(f,empty);return 0; }
@@ -227,11 +232,12 @@ int rt_break(Frame*f,int n){if(f->loops)f->sp=f->loops->base;return 0;}
 int rt_leaveLoop(Frame*f,int n){Loop*l=f->loops;if(!l){failure(f,"Invalid compiled loop.");return 0;}invalidate_scopes();f->sp=l->base;dispose_scope(f->scope);f->scope=l->outer;f->loops=l->previous;release(l);push(f,empty);return 0;}
 int rt_error(Frame*f,int n){fail(f,name(f,n));return 0;}
 static void mark_ref(void*p){u32 addr=address(p);if(!p||addr<heap_start||addr>=heap_end)return;Block*b=(Block*)p-1;if(b->kind==FREE||b->marked)return;b->marked=mark_pending|1;mark_pending=addr;}
-static void mark_value(Value v){if(v.tag==NATIVE){if(v.ref<65536)native_live[v.ref]=1;}else if(v.tag>=STRING&&v.tag<=MODULE||v.tag==ERROR)mark_ref(pointer(v.ref));}
+static void mark_value(Value v){if(v.tag==NATIVE){if(v.ref<65536&&!native_live[v.ref]){native_live[v.ref]=1;marked_native_ids[marked_native_count++]=v.ref;}}else if(v.tag>=STRING&&v.tag<=MODULE||v.tag==ERROR)mark_ref(pointer(v.ref));}
 u32 aqua_collect(void){
     bytes_since_collection=0;
-    for(Block*b=pointer(blocks);b;b=pointer(b->next))b->marked=0;memset(native_live,0,sizeof(native_live));mark_pending=0;
-    for(Execution*e=executions;e;e=e->next)mark_ref(e);for(Pin*p=pins;p;p=p->next)mark_ref(p);for(u32 i=0;i<65536;i++)if(builtin_scopes[i])mark_ref(builtin_scopes[i]);
+    for(Block*b=pointer(blocks);b;b=pointer(b->next))b->marked=0;
+    for(u32 i=0;i<marked_native_count;i++)native_live[marked_native_ids[i]]=0;marked_native_count=0;mark_pending=0;
+    for(Execution*e=executions;e;e=e->next)mark_ref(e);for(Pin*p=pins;p;p=p->next)mark_ref(p);for(u32 i=0;i<builtin_context_count;i++)mark_ref(builtin_scopes[builtin_contexts[i]]);
     for(Array*a=dirty_arrays;a;a=a->dirty_next)mark_ref(a);
     for(Hash*h=dirty_hashes;h;h=h->dirty_next)mark_ref(h);
     while(mark_pending){void*p=pointer(mark_pending);Block*b=(Block*)p-1;mark_pending=b->marked&~1u;b->marked=1;switch(b->kind){
@@ -247,6 +253,6 @@ u32 aqua_collect(void){
     for(Block*b=pointer(blocks);b;b=pointer(b->next))if(b->kind!=FREE&&!b->marked){reclaimed+=b->size;b->kind=FREE;}
     // Segregated free lists prevent tiny scopes from consuming reusable frames.
     memset(free_heads,0,sizeof(free_heads));
-    for(Block*b=pointer(blocks);b;b=pointer(b->next))if(b->kind==FREE){u32 bucket=allocation_class(b->size);*(u32*)(b+1)=free_heads[bucket];free_heads[bucket]=address(b);}return reclaimed;
+    for(Block*b=pointer(blocks);b;b=pointer(b->next))if(b->kind==FREE){u32 bucket=allocation_class(b->size);*(u32*)(b+1)=free_heads[bucket];free_heads[bucket]=address(b);}if(!++collection_generation)collection_generation=1;return reclaimed;
 }
 u32 aqua_native_live(u32 id){return id<65536?native_live[id]:0;}
