@@ -29,6 +29,8 @@ namespace AquariusLang.runtime {
             日期函式.RetainedEnvironment = 純量範圍;
             DefineFunction(日期函式,
                 traditionalChineseName: "目前日期", englishName: "currentDate");
+            DefineFunction(BuiltinObj.FromBorrowed(args => args.Length == 0 ? new BooleanObj(false) : newError("isOSAndroid expects 0 arguments.")), "是Android", "isOSAndroid");
+            DefineFunction(BuiltinObj.FromBorrowed(args => args.Length == 0 ? new BooleanObj(false) : newError("isWeb expects 0 arguments.")), "是網頁", "isWeb");
         }
 
         public Builtins() : this(new Dictionary<string, BuiltinObj>()) { }

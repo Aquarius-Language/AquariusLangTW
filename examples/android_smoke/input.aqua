@@ -1,0 +1,22 @@
+變數 p = 匯入("Processing");
+變數 輸入 = 匯入("Android輸入");
+變數 視窗庫=匯入("Window");變數 視窗=0;變數 視窗觸控=假;
+變數 觸碰 = 假; 變數 文字 = 假; 變數 返回 = 0;
+p.run(函式(){
+    p.size(400,700,p.P2D,"Android input smoke");
+    視窗=視窗庫.Current();
+    p.on("mousePressed",函式(){觸碰=真;印出("ANDROID_TOUCH_OK",p.mouseX,p.mouseY);});
+    p.on("textInput",函式(){如果(長度(p.inputText)>0){文字=真;印出("ANDROID_IME_OK",p.inputText);}});
+    p.on("keyPressed",函式(){印出("ANDROID_KEY_OK",p.keyCode);});
+    p.on("closeRequested",函式(){返回++;輸入.處理返回("Cancel");印出("ANDROID_BACK_CANCELLED",返回);});
+    p.startTextInput(); 印出("ANDROID_INPUT_READY");
+},函式(){
+    p.background(20,35,45);p.fill(235);p.textSize(20);p.text("Touch · IME · Back",20,60);
+    變數 狀態=輸入.讀取輸入();
+    變數 事件=視窗.Poll();
+    迴圈(變數 i=0;i<長度(事件);i++){變數 e=事件[i];如果(e.type=="pointerPressed"){視窗觸控=真;印出("ANDROID_WINDOW_POINTER_OK",e.device,e.modifiers);}}
+    變數 指標=狀態.touches;
+    如果(長度(指標)>0){變數 觸點=指標[0];印出("ANDROID_POINTER_OK",觸點.pressure);}
+    如果(觸碰 && 視窗觸控 && 文字 && 返回>=2){p.stopTextInput();p.exit();}
+});
+印出("ANDROID_INPUT_OK");

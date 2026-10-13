@@ -1,0 +1,48 @@
+# 以相同的 WebAssembly 在 Android、網頁與桌面驗證可攜能力。
+變數 圖形 = 匯入("WGPU");
+變數 相機 = 匯入("相機");
+變數 輸入 = 匯入("Android輸入");
+變數 存檔 = 匯入("Storage");
+變數 序列 = 匯入("Serialization");
+變數 聲音 = 匯入("Audio");
+變數 推論 = 匯入("ONNX");
+變數 影像 = 匯入("Images");
+變數 物理 = 匯入("Jolt");
+變數 裝置 = 圖形.建立裝置();
+變數 緩衝 = 裝置.建立緩衝區([1.0d, 2.0d, 3.0d, 4.0d]);
+裝置.派送("@group(0) @binding(0) var<storage,read_write> data:array<f32>; @compute @workgroup_size(1) fn cs_main(@builtin(global_invocation_id) id:vec3<u32>){data[id.x]=data[id.x]*2.0;}", 緩衝, 4);
+變數 值 = 緩衝.讀取();
+如果 (值[0] != 2 || 值[3] != 8) { 印出("ANDROID_GPU_FAILED"); } 否則 { 印出("ANDROID_GPU_OK"); }
+緩衝.釋放(); 裝置.釋放();
+存檔.設定偏好("android-smoke", 42);
+印出(存檔.取得偏好("android-smoke"));
+變數 音源 = 聲音.建立離線裝置();
+變數 音符 = 音源.建立音調(440, 0.02d); 音符.播放();
+印出(長度(音源.產生樣本(32))); 音符.釋放(); 音源.釋放();
+變數 輸出 = 聲音.建立裝置(); 變數 提示 = 輸出.建立音調(440, 0.02d);
+提示.播放(); 輸出.啟動(); 輸出.暫停輸出(); 提示.釋放(); 輸出.釋放();
+印出("ANDROID_AUDIO_OUTPUT_OK");
+印出(是Android(), 是網頁(), 相機.是否支援(), 輸入.是否支援());
+變數 工作 = 推論.建立工作階段("assets/add.onnx", 推論.中央處理器);
+變數 甲 = 推論.建立張量(推論.浮點32, [2], [1, 2]);
+變數 乙 = 推論.建立張量(推論.浮點32, [2], [3, 4]);
+變數 結果 = 工作.推論(["X", "B"], [甲, 乙], ["Y"]);
+印出(結果[0].取得資料()); 工作.釋放();
+變數 圖片 = 影像.建立(1, 1, [12, 34, 56, 255]);
+變數 編碼 = 影像.Encode(圖片, "Png", {});
+變數 還原 = 影像.Decode(編碼, 0);
+印出(還原.像素());
+變數 字型=匯入("Fonts");
+如果(長度(字型.Enumerate())<3 || !字型.Available("sans-serif") || 字型.Available("aquarius-missing-face-123")){印出("ANDROID_FONTS_FAILED");}
+印出("ANDROID_FONTS_OK");
+變數 剪貼=匯入("Clipboard");剪貼.WriteText("星泉 · Android");
+如果(剪貼.ReadText()!="星泉 · Android"){印出("ANDROID_CLIPBOARD_FAILED");}
+剪貼.WriteImage(圖片,"Camera snapshot");
+變數 貼圖=剪貼.ReadImage();
+變數 貼圖像素=貼圖.像素();
+如果(貼圖像素[0]!=12){印出("ANDROID_CLIPBOARD_FAILED");}
+印出("ANDROID_CLIPBOARD_OK");
+變數 世界 = 物理.建立世界([0, -9.8d, 0]);
+變數 球 = 世界.建立球體(0.5d, [0, 2, 0], 1);
+世界.步進(0.02d, 1); 印出(世界.取得位置(球)); 世界.釋放();
+印出("ANDROID_CORE_OK");

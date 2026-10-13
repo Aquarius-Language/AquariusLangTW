@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../AquariusBuild/AquariusBuild.csproj" />
+    <ProjectReference Include="../AquariusPackaging/AquariusPackaging.csproj" />
+    <EmbeddedResource Include="template/**/*" Exclude="template/**/build/**;template/**/.gradle/**" LogicalName="AquariusAndroid.Template.%(RecursiveDir)%(Filename)%(Extension)" />
+  </ItemGroup>
+</Project>

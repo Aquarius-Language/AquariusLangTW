@@ -1,0 +1,28 @@
+plugins { id 'com.android.application' }
+tasks.withType(JavaCompile).configureEach { options.encoding = 'UTF-8' }
+android {
+    namespace 'org.aquariuslang.android'
+    compileSdkVersion System.getenv('AQUARIUS_ANDROID_COMPILE_SDK') ?: 36
+    defaultConfig {
+        applicationId '@APPLICATION_ID@'
+        minSdk 29
+        targetSdk 36
+        versionCode 1
+        versionName '1.0'
+        ndk { abiFilters 'arm64-v8a', 'x86_64' }
+    }
+    if (System.getenv('AQUARIUS_ANDROID_NDK')) ndkPath System.getenv('AQUARIUS_ANDROID_NDK')
+    if (System.getenv('AQUARIUS_ANDROID_BUILD_NATIVE') == '1') {
+        externalNativeBuild { cmake { path 'src/main/cpp/CMakeLists.txt'; version '3.22.1' } }
+        defaultConfig { externalNativeBuild { cmake { cppFlags '-std=c++17'; arguments '-DANDROID_STL=c++_shared' } } }
+        sourceSets.main.jniLibs.exclude '**/libaquarius_android.so'
+    }
+    compileOptions { sourceCompatibility JavaVersion.VERSION_17; targetCompatibility JavaVersion.VERSION_17 }
+    packaging { jniLibs { useLegacyPackaging false } }
+    androidResources { noCompress 'wasm', 'onnx' }
+}
+dependencies {
+    testImplementation 'junit:junit:4.13.2'
+    implementation 'com.caoccao.javet:javet-v8-android-i18n:6.0.2'
+    implementation 'com.microsoft.onnxruntime:onnxruntime-android:1.23.2'
+}

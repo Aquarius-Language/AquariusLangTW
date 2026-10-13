@@ -145,6 +145,7 @@ export class BrowserWebcamSession {
 export function registerWebcam(host) {
   const backend = host.webcam = new BrowserWebcamBackend();
   const module = host.library('攝影機');
+  host.modules.set('Webcam', module); host.modules.set('網路攝影機', module);
   host.bind(module, '攝影機', '是否支援', () => backend.isSupported);
   host.bind(module, '攝影機', '列出裝置', async () => (await backend.enumerate(host.signal)).map(d => {
     const m = host.newModule(); host.set(m, '識別碼', d.id); host.set(m, '名稱', d.name); return m;

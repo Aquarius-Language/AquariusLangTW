@@ -1,0 +1,40 @@
+name: Native Android applications
+on: [push, pull_request]
+jobs:
+  android:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: android-actions/setup-android@v3
+      - name: Prepare pinned native and portable libraries
+        shell: pwsh
+        run: |
+          sdkmanager 'platforms;android-36' 'build-tools;35.0.0' 'ndk;28.2.13676358'
+          if ($LASTEXITCODE -ne 0) { throw 'SDK installation failed' }
+          npm ci --prefix AquariusWebCompiler
+          npm run --prefix AquariusWebCompiler prepare:browser
+          ./scripts/prepare-android.ps1
+      - name: Core, deployment and bridge tests
+        shell: pwsh
+        run: |
+          dotnet test AquariusTests -m:1 --filter 'FullyQualifiedName~AquariusTests.Android|FullyQualifiedName~WasmExternalAssets' --logger 'trx;LogFileName=android.trx'
+          if ($LASTEXITCODE -ne 0) { throw 'Android unit tests failed' }
+          ./scripts/test-android.ps1 -BuildApks
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: android-build-results
+          path: |
+            .android-build/smoke/*.apk
+            .android-build/smoke/*.log
+            AquariusTests/TestResults/*.trx

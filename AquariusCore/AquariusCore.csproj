@@ -6,6 +6,9 @@
     <RootNamespace>AquariusLang.Compiler</RootNamespace>
   </PropertyGroup>
   <ItemGroup>
+    <EmbeddedResource Include="application/portable.mjs" LogicalName="AquariusLang.Hosting.application-core.mjs" />
+    <EmbeddedResource Include="hosting/*.mjs" Exclude="hosting/application-core.mjs;hosting/audio-core.mjs;hosting/physics-core.mjs" LogicalName="AquariusLang.Hosting.%(Filename)%(Extension)" />
+    <EmbeddedResource Include="hosting/*.wasm;hosting/*.txt" LogicalName="AquariusLang.Hosting.%(Filename)%(Extension)" />
     <EmbeddedResource Include="mediapipe/pose.wasm" LogicalName="AquariusLang.External.mediapipe.pose.wasm" />
     <EmbeddedResource Include="graphics/*.aqua" LogicalName="AquariusLang.Graphics.%(Filename)%(Extension)" />
     <EmbeddedResource Include="wasm/runtime/runtime.wasm" LogicalName="AquariusLang.Wasm.runtime.wasm" />

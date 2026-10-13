@@ -53,8 +53,8 @@ public sealed class PoseTracker : IDisposable {
     public PoseResult Analyze(PixelImage image, double timestampMilliseconds) {
         lock (gate) {
             ObjectDisposedException.ThrowIf(disposed, this);
-            if (!double.IsFinite(timestampMilliseconds) || timestampMilliseconds < 0 || timestampMilliseconds > float.MaxValue || image.Width > 1920 || image.Height > 1080)
-                throw new ArgumentException("影像上限為 1920 × 1080，時間必須是非負有限毫秒數。");
+            if (!double.IsFinite(timestampMilliseconds) || timestampMilliseconds < 0 || timestampMilliseconds > float.MaxValue || image.Width > 1920 || image.Height > 1920 || (long)image.Width * image.Height > 1920 * 1080)
+                throw new ArgumentException("影像上限為 1920 × 1080（支援直式），時間必須是非負有限毫秒數。");
             var total = Stopwatch.StartNew(); double inference = 0;
             int detect = wasm.Invoke("pose_begin", image.Width, image.Height, BitConverter.SingleToInt32Bits((float)timestampMilliseconds));
             if (detect == -2) throw new ArgumentException("姿態影像或時間無效。");

@@ -29,3 +29,7 @@ await copyFile(require.resolve('@imagemagick/magick-wasm/magick.wasm'),path.join
 for(const file of ['LICENSE','NOTICE'])await copyFile(path.join(path.dirname(require.resolve('@imagemagick/magick-wasm')),'../',file),path.join(root,`browser/vendor-magick.${file}.txt`));
 await build({entryPoints:[path.join(path.dirname(require.resolve('fflate/package.json')),'esm/browser.js')],bundle:true,format:'esm',outfile:path.join(root,'browser/vendor-fflate.mjs'),minify:true,platform:'browser'});
 await copyFile(path.join(path.dirname(require.resolve('fflate')),'../LICENSE'),path.join(root,'browser/vendor-fflate.LICENSE.txt'));
+
+const hostingCore=path.join(root,"../AquariusCore/hosting");await mkdir(hostingCore,{recursive:true});
+for(const name of ["vendor-gl-matrix.mjs","vendor-earcut.mjs","vendor-fflate.mjs","vendor-magick.mjs","vendor-magick.wasm"])await copyFile(path.join(root,"browser",name),path.join(hostingCore,name));
+for(const name of ["vendor-gl-matrix.LICENSE.txt","vendor-earcut.LICENSE.txt","vendor-fflate.LICENSE.txt","vendor-magick.LICENSE.txt","vendor-magick.NOTICE.txt"])await copyFile(path.join(root,"browser",name),path.join(hostingCore,name));

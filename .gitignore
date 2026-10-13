@@ -17,6 +17,10 @@ AquariusWebCompiler/browser/vendor-*
 TestResults/
 build-targets/
 .native-build/
+.android-build/
+AquariusAndroid/template/app/src/main/jniLibs/
+AquariusAndroid/template/app/src/main/assets/aquarius/icudtl.dat
+AquariusCore/hosting/vendor-*
 AquariusCore/external/jolt/vendor-*
 AquariusWebCompiler/browser/physics-core.mjs
 AquariusWebCompiler/browser/audio-core.mjs

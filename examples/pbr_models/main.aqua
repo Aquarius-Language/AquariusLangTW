@@ -11,6 +11,7 @@
     如果(!model["ok"] || !mtl["ok"]){印出("模型匯入失敗",model,mtl);p.exit();回傳 假;}
     meshes=pbr.CreateMeshes(scene,model);materials=mtl["materials"];
     p.on("keyPressed",函式(){如果(p.key==" "){rotating=!rotating;印出("模型旋轉：",rotating);}});
+    p.on("mousePressed",函式(){rotating=!rotating;});
     印出("PBR 模型匯入成功：",model["triangleCount"],"triangles /",長度(meshes),"material groups");
 };
 變數 draw=函式(){
@@ -19,7 +20,7 @@
     如果(rotating){angle+=0.014d;}
     scene.beginDraw();scene.background(13,20,31);scene.noStroke();
     scene.perspective(p.PI/3,p.width*1.0d/p.height,1,3000);
-    scene.camera(0,-100,720,0,0,0,0,1,0);scene.shader(shader);
+    scene.camera(0,-100,p.max(720,800*p.height/p.width),0,0,0,0,1,0);scene.shader(shader);
     pbr.SetLight(shader,[-0.4d,-0.7d,1.0d],[5.5d,5.1d,4.8d]);
     迴圈(變數 row=0;row<2;row++){迴圈(變數 column=0;column<3;column++){
         變數 roughness=0.12d+column*0.34d;
@@ -36,6 +37,11 @@
     }
     scene.popMatrix();scene.resetShader();scene.endDraw();
     p.background(13,20,31);p.image(scene,0,0,p.width,p.height);
+    如果(p.width<760){
+        p.fill(223,233,241);p.textSize(22);p.text("星泉 · 材質工作室",18,44);
+        p.fill(113,139,164);p.textSize(14);p.text("WASM · WEBGPU · OBJ + MTL",18,70);
+        p.text("觸碰畫面：暫停／繼續旋轉",18,p.height-34);回傳 真;
+    }
     p.fill(223,233,241);p.textSize(28);p.text("星泉 / MATERIAL STUDIO",36,55);
     p.fill(113,139,164);p.textSize(14);p.text("REALTIME PBR · WASM · WEBGPU",36,82);
     p.fill(200,218,231);p.textSize(17);p.text("METALLIC / ROUGHNESS",36,122);p.text("IMPORTED OBJ + MTL",p.width-320,122);

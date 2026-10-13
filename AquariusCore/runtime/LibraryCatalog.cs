@@ -21,7 +21,7 @@ public static partial class LibraryCatalog {
     public static IReadOnlyList<LibraryFunction> Functions { get; }
     private static readonly IReadOnlyDictionary<string, string> chineseNames;
     static LibraryCatalog() {
-        Functions = Array.AsReadOnly(definitions.Concat(AquariusLang.Application.ApplicationCatalog.Functions).Concat(AquariusLang.Audio.AudioCatalog.Functions).Concat(AquariusLang.Webcam.WebcamCatalog.Functions).Concat(AquariusLang.Onnx.OnnxCatalog.Functions).Concat(AquariusLang.MediaPipe.PoseCatalog.Functions).Concat(AquariusLang.Graphics.PortableGraphicsLibraries.Functions).ToArray());
+        Functions = Array.AsReadOnly(definitions.Concat(AquariusLang.Application.ApplicationCatalog.Functions).Concat(AquariusLang.Audio.AudioCatalog.Functions).Concat(AquariusLang.Webcam.WebcamCatalog.Functions).Concat(AquariusLang.Camera.CameraCatalog.Functions).Concat(AquariusLang.Input.AndroidInputCatalog.Functions).Concat(AquariusLang.Onnx.OnnxCatalog.Functions).Concat(AquariusLang.MediaPipe.PoseCatalog.Functions).Concat(AquariusLang.Graphics.PortableGraphicsLibraries.Functions).ToArray());
         chineseNames = Functions.GroupBy(f => f.EnglishName)
             .ToDictionary(g => g.Key, g => g.First().TraditionalChineseName, StringComparer.Ordinal);
     }
@@ -32,11 +32,12 @@ public static partial class LibraryCatalog {
         new("", "currentTime", "目前時間", 0, 0),
         new("", "currentDate", "目前日期", 0, 0),
         new("", "isOSWindows", "是Windows", 0, 0), new("", "isOSLinux", "是Linux", 0, 0),
-        new("", "isOSMacOS", "是MacOS", 0, 0), new("", "execFile", "執行檔案", 2, 2)
+        new("", "isOSMacOS", "是MacOS", 0, 0), new("", "execFile", "執行檔案", 2, 2),
+        new("", "isOSAndroid", "是Android", 0, 0), new("", "isWeb", "是網頁", 0, 0)
     });
     public static string? TraditionalChinese(string englishName) => chineseNames.TryGetValue(englishName, out var name) ? name : null;
     public static string CanonicalLibrary(string name) => name switch {
-        "wgpu" => "WGPU", "JoltPhysics" => "Jolt", "音訊" => "Audio", "模型" => "Models", "推論引擎" or "ONNXRuntime" => "ONNX", "姿態追蹤" => "MediaPipe", _ => name
+        "wgpu" => "WGPU", "JoltPhysics" => "Jolt", "音訊" => "Audio", "模型" => "Models", "推論引擎" or "ONNXRuntime" => "ONNX", "姿態追蹤" => "MediaPipe", "相機" => "Camera", "Android輸入" => "AndroidInput", "Webcam" or "網路攝影機" => "攝影機", _ => name
     };
     public static IEnumerable<LibraryFunction> Members(string library) => Functions.Where(f => f.Library == CanonicalLibrary(library));
     public static LibraryFunction? Find(string library, string name) => Members(library).FirstOrDefault(f => f.HasName(name));

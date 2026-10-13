@@ -23,6 +23,32 @@ public sealed class WasmProgram
     public WasmMetadata Metadata { get; }
     internal WasmProgram(byte[] bytes, WasmMetadata metadata) { this.bytes = bytes; Metadata = metadata; }
     internal static byte[] SerializeMetadata(WasmMetadata metadata) => JsonSerializer.SerializeToUtf8Bytes(metadata, JsonOptions);
+    /// <summary>Retain executable sections and asset paths while a deployment host stores asset bytes separately.</summary>
+    public WasmProgram WithExternalAssets() {
+        if (Metadata.Assets.Count == 0) return this;
+        var metadata = Metadata with { Assets = Metadata.Assets.ToDictionary(p => p.Key, _ => "") };
+        using var output = new MemoryStream(); output.Write(bytes, 0, 8);
+        int position = 8;
+        uint ReadUnsigned() {
+            uint result = 0; int shift = 0; byte value;
+            do { value = bytes[position++]; result |= (uint)(value & 127) << shift; shift += 7; } while ((value & 128) != 0);
+            return result;
+        }
+        while (position < bytes.Length) {
+            int start = position; byte id = bytes[position++]; int length = (int)ReadUnsigned(); int end = checked(position + length);
+            if (id == 0) {
+                int nameLength = (int)ReadUnsigned(); string name = Encoding.UTF8.GetString(bytes, position, nameLength);
+                if (name == WasmAbi.MetadataSection) {
+                    byte[] serialized = SerializeMetadata(metadata), encodedName = Encoding.UTF8.GetBytes(name);
+                    using var section = new MemoryStream(); WasmCompiler.WriteUnsigned(section, (uint)encodedName.Length); section.Write(encodedName); section.Write(serialized);
+                    output.WriteByte(0); WasmCompiler.WriteUnsigned(output, (uint)section.Length); section.Position = 0; section.CopyTo(output);
+                    position = end; continue;
+                }
+            }
+            output.Write(bytes, start, end - start); position = end;
+        }
+        return new WasmProgram(output.ToArray(), metadata);
+    }
     public static WasmProgram Load(string path)
     {
         using var input = File.OpenRead(path);

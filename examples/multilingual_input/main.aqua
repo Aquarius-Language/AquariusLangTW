@@ -14,18 +14,25 @@
 變數 繪製 = 函式() {
     p.background(18, 26, 42); p.noStroke();
     p.fill(238); p.textSize(24);
+    變數 行動=p.width<760;
+    如果(行動){p.textSize(22);}
     p.text("Multilingual input / wgpu", 28, 46);
     p.textSize(16);
-    p.text("Type with your system keyboard or IME. Backspace deletes a whole grapheme.", 28, 78);
+    如果(行動){p.text("使用系統鍵盤、注音或其他輸入法。",28,78);}
+    否則{p.text("Type with your system keyboard or IME. Backspace deletes a whole grapheme.", 28, 78);}
     p.fill(32, 46, 68); p.rect(24, 106, p.width - 48, 94, 8);
-    p.fill(245); p.textSize(24); p.text(內容, 36, 144);
-    變數 游標 = 36 + p.textWidth(內容);
+    p.fill(245); p.textSize(24);
+    變數 位移=p.max(0,p.textWidth(內容)+p.textWidth(p.compositionText)-p.width+86);
+    p.clip(28,110,p.width-56,80);p.text(內容,36-位移,144);
+    變數 游標 = 36 + p.textWidth(內容)-位移;
     p.fill(112, 210, 255); p.text(p.compositionText, 游標, 144);
     p.stroke(112, 210, 255); p.line(游標, 150, 游標 + p.textWidth(p.compositionText), 150); p.noStroke();
-    p.textInputRect(p.ceil(游標), 118, 1, 30);
+    p.noClip();p.textInputRect(p.ceil(游標), 118, 1, 30);
     p.fill(168); p.textSize(16);
-    p.text("中文 · 日本語 · 한글 · accents · emoji", 28, 244);
-    p.text("Close the window to exit. IME candidate windows follow the caret.", 28, 280);
+    如果(p.height>280){
+        如果(行動){p.text("中文 · 日本語 · 한글 · emoji",28,244);p.text("返回即可離開，退格刪除完整字元。",28,280);}
+        否則{p.text("中文 · 日本語 · 한글 · accents · emoji",28,244);p.text("Close the window to exit. IME candidate windows follow the caret.",28,280);}
+    }
 };
 p.run(設定, 繪製);
 真;

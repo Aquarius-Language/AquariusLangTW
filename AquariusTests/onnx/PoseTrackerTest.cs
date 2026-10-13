@@ -18,6 +18,11 @@ using Xunit;
 namespace AquariusTests.Onnx;
 
 public class PoseTrackerTest {
+    [Theory][InlineData(1080,1920,1)][InlineData(1920,1080,1)][InlineData(1440,1440,1)][InlineData(1920,1920,-2)][InlineData(1921,100,-2)]
+    public void CameraPortraitFramesRespectTheSamePixelBudget(int width,int height,int expected) {
+        using var wasm=new WasmtimeEngine().Instantiate(ExternalLibraries.ReadAsset(ExternalLibraries.MediaPipe,"pose.wasm"),new Dictionary<string,Delegate>());
+        Assert.Equal(expected,wasm.Invoke("pose_begin",width,height,0));
+    }
     [Fact]
     public void RotatedRoiProjectsBackToOriginalLandscapeFrameAndClearsAfterLoss() {
         using var wasm=new WasmtimeEngine().Instantiate(ExternalLibraries.ReadAsset(ExternalLibraries.MediaPipe,"pose.wasm"),new Dictionary<string,Delegate>());

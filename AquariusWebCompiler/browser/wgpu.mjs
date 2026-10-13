@@ -1,17 +1,6 @@
 import {mat4} from './vendor-gl-matrix.mjs';
-export function uniformLayout(source) {
-  source=source.replace(/\/\*[\s\S]*?\*\/|\/\/[^\r\n]*/g,'');
-  const body=source.match(/struct\s+UserUniforms\s*\{([^}]*)\}/)?.[1],fields=new Map();let offset=0;
-  for(const text of body?.split(',').filter(x=>x.trim())??[]) {
-    const m=text.match(/^\s*([\p{L}\p{N}_]+)\s*:\s*(f32|i32|u32|vec[234]<f32>|mat4x4<f32>)\s*$/u);
-    if(!m)throw new Error('Unsupported UserUniforms field');
-    const count=m[2].startsWith('mat')?16:m[2].startsWith('vec')?Number(m[2][3]):1,align=count===1?4:count===2?8:16;
-    offset=Math.ceil(offset/align)*align;if(offset+count*4>1024||fields.has(m[1]))throw new Error('Duplicate or oversized UserUniforms field');
-    fields.set(m[1],{offset,count,type:m[2]});offset+=count*4;
-  }
-  return fields;
-}
-const safeWGSL = source => { const ids=new Map();return source.replace(/[\p{L}_][\p{L}\p{N}_]*/gu,s=>/[^\x00-\x7f]/.test(s)?(ids.has(s)?ids.get(s):(ids.set(s,`aqua_${ids.size}`),ids.get(s))):s); };
+export {uniformLayout} from './shader-layout.mjs';
+import {uniformLayout,safeWGSL} from './shader-layout.mjs';
 export class BrowserWgpuBackend {
   constructor(abi) { this.abi=abi;this.name='webgpu';this.devices=new Set(); }
   async createDevice() {
@@ -60,7 +49,10 @@ class BrowserWgpuSurface {
     if(target.owner!==this.owner||target.width!==this.canvas.width||target.height!==this.canvas.height)throw new Error('Presentation requires a target matching the surface pixel size');
     this.owner.flush();const encoder=this.owner.gpu.createCommandEncoder();
     encoder.copyTextureToTexture({texture:target.color},{texture:this.context.getCurrentTexture()},[target.width,target.height]);
-    this.owner.gpu.queue.submit([encoder.finish()]);await this.owner.poll();
+    this.owner.gpu.queue.submit([encoder.finish()]);
+    this.presentations??=new Set();const done=this.owner.gpu.queue.onSubmittedWorkDone();this.presentations.add(done);
+    done.then(()=>this.presentations.delete(done),()=>this.presentations.delete(done));
+    if(this.presentations.size>=2)await this.presentations.values().next().value;
   }
   dispose(){this.context.unconfigure();}
 }
@@ -97,5 +89,7 @@ export class BrowserTarget {
   async readPixels(){this.live();this.owner.flush();const pitch=Math.ceil(this.width*4/256)*256,size=pitch*this.height,g=this.owner.gpu,b=g.createBuffer({size,usage:GPUBufferUsage.COPY_DST|GPUBufferUsage.MAP_READ});try{const e=g.createCommandEncoder();e.copyTextureToBuffer({texture:this.color},{buffer:b,bytesPerRow:pitch},[this.width,this.height]);g.queue.submit([e.finish()]);await b.mapAsync(GPUMapMode.READ);const raw=new Uint8Array(b.getMappedRange()),out=new Uint8Array(this.width*this.height*4);for(let y=0;y<this.height;y++)out.set(raw.subarray(y*pitch,y*pitch+this.width*4),y*this.width*4);return out;}finally{b.destroy();}}
   dispose(){if(this.disposed)return;this.flush();this.color.destroy();this.depth.destroy();this.owner.resources.delete(this.color);this.owner.resources.delete(this);this.disposed=true;}
 }
-export function defaultUniforms(abi){const u=new Float32Array(abi.uniformBytes/4);for(let i=0;i<4;i++)u.set(mat4.create(),i*16);return u;}
+export {defaultUniforms} from './wgpu-uniforms.mjs';
 
+
+import {defaultUniforms} from './wgpu-uniforms.mjs';

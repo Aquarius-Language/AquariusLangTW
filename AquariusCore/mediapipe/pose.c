@@ -39,7 +39,7 @@ int pose_ptr(int slot){
 void pose_reset(void){tracked=filtered=0;last_detection=-1e9f;result[0]=0;}
 int pose_begin(int w,int h,int time_bits){
     union {int i;float f;} time={.i=time_bits};
-    if(w<1||h<1||w>1920||h>1080||w*h>MAX_PIXELS||!finite(time.f))return -2;
+    if(w<1||h<1||w>1920||h>1920||w*h>MAX_PIXELS||!finite(time.f))return -2;
     if(w!=width||h!=height||time.f<now||time.f-now>1000)pose_reset();
     width=w;height=h;last=now;now=time.f;result[0]=0;
     // Reacquire after loss. Periodic detection also prevents confident ROI drift.

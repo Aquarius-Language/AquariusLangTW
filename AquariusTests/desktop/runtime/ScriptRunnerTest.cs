@@ -92,6 +92,8 @@ public class ScriptRunnerTest {
             new BooleanObj(OperatingSystem.IsWindows()),
             new BooleanObj(OperatingSystem.IsLinux()),
             new BooleanObj(OperatingSystem.IsMacOS()),
+            new BooleanObj(false), // Android is provided by its native host.
+            new BooleanObj(false), // This test runs on the desktop host.
         }, evaluatedArr.Elements));
     }
 

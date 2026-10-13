@@ -41,7 +41,7 @@ public sealed class WebcamRuntime : IDisposable {
             return m;
         });
     }
-    public bool TryImport(string name, out ModuleObj result) { result = module; return name == "攝影機"; }
+    public bool TryImport(string name, out ModuleObj result) { result = module; return name is "攝影機" or "Webcam" or "網路攝影機"; }
     private void Bind(ModuleObj m, string name, int count, Func<IObject[], IObject> action) {
         var fn = new BuiltinObj(args => {
             try {

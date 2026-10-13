@@ -1,5 +1,5 @@
 ﻿#requires -Version 5.1
-param([switch]$略過桌面, [switch]$驗證圖形加速)
+param([switch]$略過桌面, [switch]$驗證圖形加速, [switch]$Android, [switch]$APK)
 $ErrorActionPreference = 'Stop'
 $命令 = Get-Command aqua -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
 if (-not $命令) { throw '找不到 aqua；請將支援姿態推論的星泉編譯器加入 PATH。' }
@@ -69,4 +69,8 @@ try {
     [IO.File]::WriteAllText($首頁, $內容, [Text.UTF8Encoding]::new($false))
     if (-not $略過桌面) { 執行編譯器 @('build','dist/星泉姿態觀測站.wasm','--target','windows','-o','dist/星泉姿態觀測站.exe') | Out-Null }
     Write-Host '完成：星泉姿態觀測站與網頁版本，姿態模型推論驗證通過。'
+    if ($Android -or $APK) {
+        $AndroidOutput = if ($APK) { 'dist/android.apk' } else { 'dist/android-project-' + [Guid]::NewGuid().ToString('N').Substring(0,8) }
+        執行編譯器 @('build','dist/星泉姿態觀測站.wasm','--target','android','-o',$AndroidOutput) | Out-Null
+    }
 } finally { [Console]::OutputEncoding = $原編碼; Pop-Location }

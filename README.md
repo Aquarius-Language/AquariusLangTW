@@ -2,7 +2,7 @@
 
 以 C# 實作的編譯式程式語言，支援繁體中文關鍵字、Unicode 變數與函式名稱。
 原始碼經詞法分析、語法分析與編譯後，產生標準 **WebAssembly（`.wasm`）**；
-桌面由 **Wasmtime** 執行，瀏覽器由內建 WebAssembly 引擎執行，同一份編譯成果可輸出網站與獨立 EXE。
+桌面由 **Wasmtime** 執行，瀏覽器由內建 WebAssembly 引擎執行，Android 使用原生 Java 主機與 V8 / WebAssembly；同一份編譯成果可輸出網站、獨立 EXE 與原生 APK。
 
 作者：林天牧 / Temple Lin
 
@@ -165,6 +165,7 @@ python -m http.server 8080 --directory dist\web
 | `-o` | 指定 `.wasm`／`.exe` 檔名或網頁輸出資料夾。 |
 | `--target wasm` | 預設目標；產生包含程式、模組與資源的標準 WebAssembly。 |
 | `--target web` | 輸出 `program.wasm`、瀏覽器主機與資源，須搭配 `-o`。 |
+| `--target android` | 輸出原生 Java / Gradle 專案或 `.apk`；參見[Android 平台](docs/android.md)。 |
 | `--target windows` | 輸出 Windows x64 自包含 `.exe`，須搭配 `-o`。 |
 
 必須列出所有匯入的腳本，包括動態匯入；資源須位於根目錄內。
@@ -301,6 +302,7 @@ Linux／macOS 的原生建置與發佈方式見 [原生指南](native/README.md)
 | `AquariusPackaging` | `.wasm` 模組與資源封裝、版本驗證及路徑解析；只依賴核心。 |
 | `AquariusDesktop` | 桌面內建函式、原生後端與相容桌面入口。 |
 | `AquariusWebCompiler` | 靜態網站輸出、WebAssembly 非同步主機、WebGPU 與 Emscripten adapter。 |
+| `AquariusAndroid` | 原生 Android 部署、Java 能力主機與 JNI WebGPU。 |
 | `AquariusTests` | 語言、Wasm、跨引擎一致性、CLI 與桌面功能測試。 |
 | `AquariusLanguageServer`、`editors/vscode` | LSP 與 VS Code 擴充套件。 |
 | `native`、`scripts` | 原生橋接建置、發佈及驗證腳本；根目錄 `build-release.bat` 為完整打包入口。 |

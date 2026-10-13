@@ -3,6 +3,13 @@ import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
 import {BrowserPoseTracker} from '../browser/mediapipe.mjs';
 const wasm=await readFile(new URL('../../AquariusCore/mediapipe/pose.wasm',import.meta.url));
+test('portrait camera frames are accepted within the shared pixel budget',async()=>{
+  const f=fixture(),t=await f.create();
+  const result=await t.analyze({width:1080,height:1920,pixels:new Uint8Array(1080*1920*4)},0);
+  assert.equal(result.hasPose,false);
+  await assert.rejects(t.analyze({width:1920,height:1920,pixels:new Uint8Array(1920*1920*4)},1));
+  await t.dispose();
+});
 function fixture(){
   let releases=0,runs=0;
   const info=(name,shape)=>({name,type:'float32',shape});

@@ -9,6 +9,7 @@
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="../AquariusBuild/AquariusBuild.csproj" />
+    <ProjectReference Include="../AquariusAndroid/AquariusAndroid.csproj" />
     <ProjectReference Include="../AquariusPackaging/AquariusPackaging.csproj" />
     <ProjectReference Include="../AquariusDesktop/AquariusDesktop.csproj" />
     <ProjectReference Include="../AquariusWebCompiler/AquariusWebCompiler.csproj" />
