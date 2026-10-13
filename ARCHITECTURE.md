@@ -1,6 +1,7 @@
 # WebAssembly compiler and cross-platform hosts
 
 攝影機的核心抽象、桌面與網頁配接器、生命週期及驗證方式見 [攝影機架構指南](docs/webcam.md)。
+ONNX Runtime 的雙語契約、WebGPU 配接器、模型封裝及擴充方式見 [推論架構指南](docs/onnx.md)。
 
 This document describes the current implementation. The
 [remaining Wasm migration work](docs/wasm-architecture-migration.md) tracks moving

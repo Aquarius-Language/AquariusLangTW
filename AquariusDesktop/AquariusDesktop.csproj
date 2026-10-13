@@ -6,8 +6,11 @@
     <Nullable>enable</Nullable>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <RootNamespace>AquariusLang.Desktop</RootNamespace>
+    <ApplicationManifest Condition="'$(OS)' == 'Windows_NT'">application.manifest</ApplicationManifest>
   </PropertyGroup>
   <ItemGroup>
+    <PackageReference Include="Microsoft.ML.OnnxRuntime" Version="1.30.0" />
+    <PackageReference Include="Microsoft.ML.OnnxRuntime.EP.WebGpu" Version="0.4.0" />
     <PackageReference Include="Magick.NET-Q8-AnyCPU" Version="14.17.2" />
     <PackageReference Include="Wasmtime" Version="48.0.2" />
     <PackageReference Include="Microsoft.ClearScript.V8" Version="7.5.1.1" />
@@ -25,6 +28,8 @@
              CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <Content Include="licenses/**/*"
              CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="../AquariusCore/external/onnx/LICENSE.txt;../AquariusCore/external/onnx/ThirdPartyNotices.txt" Link="licenses/onnx/%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="$(NuGetPackageRoot)microsoft.ml.onnxruntime.ep.webgpu/0.4.0/LICENSE;$(NuGetPackageRoot)microsoft.ml.onnxruntime.ep.webgpu/0.4.0/ThirdPartyNotices.txt" Link="licenses/onnx-webgpu/%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <Content Include="../native/vendor/miniaudio/LICENSE" Link="licenses/MINIAUDIO-LICENSE.txt" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <Content Include="../AquariusCore/audio/AUDIO-THIRD-PARTY-NOTICES.txt" Link="licenses/AUDIO-THIRD-PARTY-NOTICES.txt" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <Content Include="../AquariusCore/external/jolt/vendor-jolt.LICENSE.txt" Link="licenses/JOLT-WASM-LICENSE.txt" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />

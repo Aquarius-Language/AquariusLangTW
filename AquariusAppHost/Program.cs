@@ -13,6 +13,7 @@ try {
     if (args is ["--runtime-info"] && !ExecutableBundle.HasProgram(stream)) {
         string[] required = {
             "wgpu_native.dll", "wasmtime.dll", "ClearScriptV8.win-x64.dll", "Magick.Native-Q8-x64.dll", "vcruntime140.dll",
+            "onnxruntime.dll", "onnxruntime_providers_webgpu.dll",
             "runtimes/win-x64/native/aquarius_graphics.dll"
         };
         string[] missing = required.Where(file => !File.Exists(Path.Combine(AppContext.BaseDirectory, file))).ToArray();

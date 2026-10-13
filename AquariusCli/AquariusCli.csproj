@@ -2,6 +2,7 @@
   <PropertyGroup>
     <OutputType>Exe</OutputType>
     <AssemblyName>aqua</AssemblyName>
+    <ApplicationManifest Condition="'$(OS)' == 'Windows_NT'">../AquariusDesktop/application.manifest</ApplicationManifest>
     <TargetFramework>net8.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>

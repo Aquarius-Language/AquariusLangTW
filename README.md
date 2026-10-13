@@ -12,6 +12,7 @@
 - **圖學與物理**：核心保留跨平台 WebGPU 介面；桌面與瀏覽器共用 Jolt WebAssembly 引擎與物理實作。
 - **PBR 與模型匯入**：[核心 Models／PBR 函式庫](docs/pbr-models.md)在 Wasm 解析 OBJ／MTL，並以共用 WGSL 提供金屬度／粗糙度即時渲染。
 - **跨平台音訊**：[音訊抽象與函式庫](AquariusCore/audio/README.md)共用 miniaudio WebAssembly 解碼與混音，支援音檔、音調、循環、聲像、音高及無硬體的離線樣本輸出。
+- **模型推論**：[ONNX Runtime 雙語介面](docs/onnx.md)提供可擴充的核心契約、桌面與網頁 WebGPU 配接器，以及 [繁體中文姿態範例](examples/mediapipe/README.md)。
 
 ## 目錄
 

@@ -20,3 +20,4 @@ build-targets/
 AquariusCore/external/jolt/vendor-*
 AquariusWebCompiler/browser/physics-core.mjs
 AquariusWebCompiler/browser/audio-core.mjs
+AquariusCore/external/onnx/ort*

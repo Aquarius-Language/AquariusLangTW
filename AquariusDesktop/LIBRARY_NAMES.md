@@ -3,6 +3,9 @@
 Both names call the same function. Module names, constants, properties and event strings retain their existing spelling.
 OpenGL entry points retain the `gl` prefix and overload/type suffixes.
 
+ONNX Runtime additionally supplies bilingual module names, constants and metadata fields;
+see the [ONNX interface table](../docs/onnx.md#language-api).
+
 ## GL
 
 | English | 繁體中文 | Arguments |

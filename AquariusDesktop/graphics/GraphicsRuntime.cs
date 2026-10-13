@@ -19,15 +19,25 @@ internal sealed partial class GraphicsRuntime : IDisposable {
     private readonly Physics.PhysicsRuntime physics = new();
     private readonly AquariusLang.Audio.AudioRuntime audio;
     private readonly AquariusLang.Webcam.WebcamRuntime webcam;
+    private readonly AquariusLang.Onnx.OnnxRuntime onnx;
+    private readonly AquariusLang.MediaPipe.PoseRuntime pose;
     internal readonly Application.DesktopApplicationHost ApplicationHost;
     internal readonly AquariusLang.Application.ApplicationRuntime Application;
     internal AquaEnvironment GlEnvironment = AquaEnvironment.NewEnvironment();
 
-    internal GraphicsRuntime(Application.DesktopApplicationHost? applicationHost = null, AquariusLang.Webcam.IWebcamBackend? webcamBackend = null) {
+    internal GraphicsRuntime(Application.DesktopApplicationHost? applicationHost = null, AquariusLang.Webcam.IWebcamBackend? webcamBackend = null, AquariusLang.Onnx.IOnnxBackend? onnxBackend = null) {
         audio = new(new Audio.DesktopAudioBackend(), path => File.ReadAllBytes(ResourcePath(path)));
         ApplicationHost = applicationHost ?? new();
         Application = new(ApplicationHost, path => {string resolved=ResourcePath(path);new AquariusLang.Application.ApplicationLimits().Bytes(new FileInfo(resolved).Length);return File.ReadAllBytes(resolved);});
         webcam = new(webcamBackend ?? new Webcam.DesktopWebcamBackend(), pixels => Application.Image(pixels));
+        var inferenceBackend = onnxBackend ?? new Onnx.DesktopOnnxBackend();
+        byte[] ReadModel(string path) {
+            string resolved = ResourcePath(path);
+            if (new FileInfo(resolved).Length > AquariusLang.Onnx.OnnxTensor.MaxModelBytes) throw new AquariusLang.Onnx.OnnxFailure(AquariusLang.Onnx.OnnxFailureKind.InvalidArgument, "模型大小超過上限。");
+            return File.ReadAllBytes(resolved);
+        }
+        onnx = new(inferenceBackend, ReadModel);
+        pose = new(new runtime.WasmtimeEngine(), inferenceBackend, ReadModel, Application.GetImage);
         modules["GL"] = new ModuleObj(GlEnvironment);
         RegisterGl();
         RegisterGlHelpers();
@@ -40,7 +50,7 @@ internal sealed partial class GraphicsRuntime : IDisposable {
         RegisterApplicationGraphics();
     }
     internal bool TryImport(string name, out ModuleObj module) =>
-        Application.TryImport(name, out module) || webcam.TryImport(name, out module) || audio.TryImport(name, out module) || physics.TryImport(name, out module) || sharedWgpu.TryImport(name, out module) || modules.TryGetValue(name, out module!);
+        Application.TryImport(name, out module) || pose.TryImport(name, out module) || onnx.TryImport(name, out module) || webcam.TryImport(name, out module) || audio.TryImport(name, out module) || physics.TryImport(name, out module) || sharedWgpu.TryImport(name, out module) || modules.TryGetValue(name, out module!);
     private AquaEnvironment Module(string name) {
         var env = AquaEnvironment.NewEnvironment(); modules[name] = new ModuleObj(env); return env;
     }
@@ -157,6 +167,8 @@ internal sealed partial class GraphicsRuntime : IDisposable {
     public void Dispose() {
         if (disposed) return;
         webcam.Dispose();
+        onnx.Dispose();
+        pose.Dispose();
         audio.Dispose();
         physics.Dispose();
         DisposeProcessing();

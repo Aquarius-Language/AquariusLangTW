@@ -8,7 +8,7 @@ function fixture() {
   const track = new EventTarget(); track.readyState = 'live'; track.stop = () => { stops++; track.readyState = 'ended'; };
   const stream = {getTracks: () => [track], getVideoTracks: () => [track]};
   const video = new EventTarget(); Object.assign(video, {readyState: 2, play: async () => {}, pause() {}});
-  const context = {drawImage() {}, getImageData() { return {data: Uint8ClampedArray.from([++frame,2,3,255,4,5,6,255,7,8,9,255,10,11,12,255])}; }};
+  const context = {fillRect() {},drawImage() {}, getImageData() { return {data: Uint8ClampedArray.from([++frame,2,3,255,4,5,6,255,7,8,9,255,10,11,12,255])}; }};
   const backend = new BrowserWebcamBackend({secure: true, now: () => frame * 10,
     document: {createElement: type => type === 'video' ? video : {getContext: () => context}},
     mediaDevices: {getUserMedia: async constraints => {requests++; assert.equal(constraints.audio, false); return stream; },
@@ -82,4 +82,13 @@ test('同時擷取及無效像素不會留下活動工作階段', async () => {
   const capture = session.capture(); await assert.rejects(session.capture(), e => e.kind === 'Unavailable'); finish(); await capture;
   f.video.requestVideoFrameCallback = null; f.context.getImageData = () => ({data: new Uint8Array(16)});
   await assert.rejects(session.capture(), e => e.kind === 'Unavailable'); assert.equal(session.isOpen, false); assert.equal(f.stops(), 1); f.backend.dispose();
+});
+test('新影格可立即擷取，重複影格才等待，並保持攝影機比例',async()=>{
+  const f=fixture(),session=await f.backend.open('',options);let waits=0,draw;
+  f.video.currentTime=1;f.video.videoWidth=4;f.video.videoHeight=2;
+  f.video.requestVideoFrameCallback=callback=>{waits++;queueMicrotask(()=>{f.video.currentTime+=.033;callback();});return 1;};
+  f.video.cancelVideoFrameCallback=()=>{};f.context.drawImage=(...args)=>{draw=args;};
+  await session.capture();assert.equal(waits,0);assert.deepEqual(draw.slice(1),[0,.5,2,1]);
+  await session.capture();assert.equal(waits,1);f.video.currentTime+=.1;
+  await session.capture();assert.equal(waits,1);session.dispose();
 });

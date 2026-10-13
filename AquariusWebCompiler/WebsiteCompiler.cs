@@ -23,7 +23,7 @@ public static class WebsiteCompiler {
         string Name(string p) => Path.GetRelativePath(root, p).Replace('\\', '/');
         entry ??= single ? Name(source) : sources.Any(p => Name(p) == "main.aqua") ? "main.aqua" : sources.Select(Name).FirstOrDefault();
         if (entry == null) throw new ArgumentException("Entry must name a bundled Aquarius script.");
-        var assets = files.Where(p => new[] { ".png", ".jpg", ".jpeg", ".ppm", ".txt", ".wgsl", ".py", ".wav", ".flac", ".mp3", ".obj", ".mtl" }.Contains(Path.GetExtension(p).ToLowerInvariant())).ToArray();
+        var assets = files.Where(p => new[] { ".png", ".jpg", ".jpeg", ".ppm", ".txt", ".wgsl", ".py", ".wav", ".flac", ".mp3", ".obj", ".mtl", ".onnx" }.Contains(Path.GetExtension(p).ToLowerInvariant())).ToArray();
         string wasm = Path.Combine(Path.GetTempPath(), "aquarius-web-" + Guid.NewGuid().ToString("N") + ".wasm");
         try {
             WasmApplication.Compile(sources, wasm, root, assets, entry);
@@ -73,6 +73,7 @@ public static class WebsiteCompiler {
         // Rebuild only compiler-owned directories; never remove unrelated files or follow links.
         var owned = resources.Select(n => n[prefix.Length..]).Concat(externalAssets.Keys).Append("program.json").Append("program.wasm").Append(".aquarius-web-output").ToHashSet(StringComparer.OrdinalIgnoreCase);
         if(File.Exists(Path.Combine(output,".aquarius-web-output"))) owned.Add("vm.mjs"); // Retired compiler-owned runtime during migration.
+        if(File.Exists(Path.Combine(output,".aquarius-web-output"))) owned.UnionWith(new[] { "ort-wasm-simd-threaded.jsep.mjs", "ort-wasm-simd-threaded.jsep.wasm" });
         if (Directory.Exists(output)) {
             if ((File.GetAttributes(output) & FileAttributes.ReparsePoint) != 0 || Directory.EnumerateDirectories(output).Any() ||
                 Directory.EnumerateFiles(output).Any(p => !owned.Contains(Path.GetFileName(p)) || (File.GetAttributes(p) & FileAttributes.ReparsePoint) != 0))

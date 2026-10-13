@@ -21,7 +21,7 @@ public static partial class LibraryCatalog {
     public static IReadOnlyList<LibraryFunction> Functions { get; }
     private static readonly IReadOnlyDictionary<string, string> chineseNames;
     static LibraryCatalog() {
-        Functions = Array.AsReadOnly(definitions.Concat(AquariusLang.Application.ApplicationCatalog.Functions).Concat(AquariusLang.Audio.AudioCatalog.Functions).Concat(AquariusLang.Webcam.WebcamCatalog.Functions).Concat(AquariusLang.Graphics.PortableGraphicsLibraries.Functions).ToArray());
+        Functions = Array.AsReadOnly(definitions.Concat(AquariusLang.Application.ApplicationCatalog.Functions).Concat(AquariusLang.Audio.AudioCatalog.Functions).Concat(AquariusLang.Webcam.WebcamCatalog.Functions).Concat(AquariusLang.Onnx.OnnxCatalog.Functions).Concat(AquariusLang.MediaPipe.PoseCatalog.Functions).Concat(AquariusLang.Graphics.PortableGraphicsLibraries.Functions).ToArray());
         chineseNames = Functions.GroupBy(f => f.EnglishName)
             .ToDictionary(g => g.Key, g => g.First().TraditionalChineseName, StringComparer.Ordinal);
     }
@@ -36,7 +36,7 @@ public static partial class LibraryCatalog {
     });
     public static string? TraditionalChinese(string englishName) => chineseNames.TryGetValue(englishName, out var name) ? name : null;
     public static string CanonicalLibrary(string name) => name switch {
-        "wgpu" => "WGPU", "JoltPhysics" => "Jolt", "音訊" => "Audio", "模型" => "Models", _ => name
+        "wgpu" => "WGPU", "JoltPhysics" => "Jolt", "音訊" => "Audio", "模型" => "Models", "推論引擎" or "ONNXRuntime" => "ONNX", "姿態追蹤" => "MediaPipe", _ => name
     };
     public static IEnumerable<LibraryFunction> Members(string library) => Functions.Where(f => f.Library == CanonicalLibrary(library));
     public static LibraryFunction? Find(string library, string name) => Members(library).FirstOrDefault(f => f.HasName(name));

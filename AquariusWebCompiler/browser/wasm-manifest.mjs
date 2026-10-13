@@ -1,5 +1,16 @@
 import {resolvePath} from './package-paths.mjs';
 
+// Avoid repeated-group regexes: model-sized base64 strings can overflow V8's regexp stack.
+export function validAssetEncoding(value) {
+  if(typeof value!=='string')return false;
+  const bytes=value.replace(/[\r\n\t ]/g,'');
+  if(bytes.length%4!==0)return false;
+  const first=bytes.indexOf('='),end=first<0?bytes.length:first;
+  const padding=bytes.slice(end);
+  return !/[^A-Za-z0-9+/]/.test(bytes.slice(0,end)) &&
+    (padding===''||padding==='='&&end%4===3||padding==='=='&&end%4===2);
+}
+
 // Match the application contract checked by WasmProgram.Load on desktop.
 export function validateManifest(module,m){
   const invalid=message=>{throw new Error(`Invalid Aquarius metadata: ${message}`);};
@@ -10,7 +21,7 @@ export function validateManifest(module,m){
   const seen=new Set(),fold=value=>Array.from(value,c=>{const upper=c.toUpperCase();return [...upper].length===1&&(c.codePointAt(0)<128||upper.codePointAt(0)>=128)?upper:c;}).join('');
   const path=name=>{if(typeof name!=='string'||name.length>1024||resolvePath(name)!==name||seen.has(fold(name)))invalid('unsafe or duplicate path');seen.add(fold(name));};
   for(const [name,index]of Object.entries(m.modules)){path(name);if(!/\.aqua$/i.test(name)||!Number.isInteger(index)||index<0||index>=m.functions.length)invalid('module reference');}
-  for(const [name,bytes]of Object.entries(m.assets)){path(name);if(/\.aqua$/i.test(name)||typeof bytes!=='string'||!/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(bytes.replace(/[\r\n\t ]/g,'')))invalid('asset encoding');}
+  for(const [name,bytes]of Object.entries(m.assets)){path(name);if(/\.aqua$/i.test(name)||!validAssetEncoding(bytes))invalid('asset encoding');}
   if(typeof m.entry!=='string'||!Object.hasOwn(m.modules,m.entry))invalid('missing entry');
   const types=new Set(['name','int','float','double','string','bool','null','break','assignment','function','program']);
   let position=0;const strings=new Map(),reserve=(size,align=8)=>{position=Math.ceil(position/align)*align;position+=size;};

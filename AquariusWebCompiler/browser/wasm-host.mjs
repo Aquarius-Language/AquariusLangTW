@@ -5,10 +5,13 @@ export class WasmRuntime {
   constructor(host){this.host=host;this.cancelled=false;this.executions=new Set();this.nativeRoots=new Set();this.origins=new WeakMap();}
   async ready(){
     if(this.program)return this.program;
+    this.initializing??=this.initialize().catch(error=>{this.initializing=null;throw error;});return this.initializing;
+  }
+  async initialize(){
     const module=this.host.bundle.compiledModule??await WebAssembly.compile(await(await fetch(this.host.bundle.wasm)).arrayBuffer());
     const sections=WebAssembly.Module.customSections(module,'aquarius.application');if(sections.length!==1)throw new Error('Missing or duplicate Aquarius metadata');
     const metadata=validateManifest(module,JSON.parse(new TextDecoder().decode(sections[0])));
-    this.program={module,metadata};this.program.session=new Session(this,this.program);return this.program;
+    const program={module,metadata};program.session=new Session(this,program);await program.session.initialize();this.program=program;return program;
   }
   async execute(index,env=new Scope(),builtins=this.host.builtins,program=null){program??=await this.ready();const s=program.session,context=s.contexts.length;s.contexts.push(builtins);const scope=s.scope(env);if(!s.running.length)s.synchronizeIn();return s.run(s.call('aqua_execute',program.metadata.programAddress,index,scope,context));}
   async invoke(fn,args=[]){
@@ -25,7 +28,9 @@ export class WasmRuntime {
 class Session {
   constructor(runtime,program){
     this.runtime=runtime;this.program=program;this.contexts=[];this.natives=[null];this.nativeIds=new WeakMap();this.freeNativeIds=[];this.objects=new Map();this.scopes=new WeakMap();this.scopeLeases=[];this.projected=new Map();this.texts=new Map();this.leases=[];this.running=[];this.reading=new Set();this.writing=new Set();
-    this.instance=new WebAssembly.Instance(program.module,{aquarius_v2:{service:(...a)=>this.service(...a)}});this.exports=this.instance.exports;this.call('aqua_initialize',program.metadata.heapStart);
+  }
+  async initialize(){
+    this.instance=await WebAssembly.instantiate(this.program.module,{aquarius_v2:{service:(...a)=>this.service(...a)}});this.exports=this.instance.exports;this.call('aqua_initialize',this.program.metadata.heapStart);
     this.dirtyArrays=new Set();this.arrayOwners=new Map();this.mutableHashes=typeof this.exports.aqua_hash_expose==='function';
   }
   call(name,...args){return this.exports[name](...args);}

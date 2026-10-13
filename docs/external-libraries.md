@@ -22,6 +22,16 @@ linking, packaging and existing-library migration work.
 
 ## Current implementation
 
+ONNX Runtime is the explicitly documented native inference integration described in
+[the ONNX guide](onnx.md): desktop uses the official native WebGPU/Dawn plugin,
+browser uses ORT Wasm/WebGPU, and core owns contract version 1 and browser assets.
+It uses `HostCapability` and is a narrow exception to the future-library Wasm rule.
+
+MediaPipe pose preprocessing and postprocessing use `CoreWasm` ABI 1 and the
+same isolated `pose.wasm` on desktop and browser. Its adapters compose two ONNX
+sessions and bulk image/tensor transfers; pose math is never implemented in host
+code. See the pose pipeline section of the ONNX guide.
+
 Core owns library identities, pinned versions, contract versions, portable assets,
 argument validation, language registration, aliases and object ownership rules.
 Platform projects provide adapters and execution engines. Core has no Wasmtime,
@@ -31,7 +41,7 @@ ClearScript, Silk.NET or native-library package dependencies.
 
 | Profile | Deployment and execution |
 | --- | --- |
-| `CoreWasm` | Memory-only libraries with an explicit Wasm ABI. Audio implements ABI 1; the general library loader remains future work. The CLR factory registry rejects this profile. |
+| `CoreWasm` | Memory-only libraries with an explicit Wasm ABI. Audio and MediaPipe pose implement ABI 1; the general library loader remains future work. The CLR factory registry rejects this profile. |
 | `Emscripten` | A Wasm module plus generated JavaScript glue; requires an Emscripten-capable host. |
 | `HostCapability` | A platform API such as WebGPU, windowing or user documents; represented by a core contract. |
 
