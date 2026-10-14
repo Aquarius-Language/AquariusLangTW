@@ -13,6 +13,7 @@ AquariusDesktop/runtimes/
 /dist
 .build-home/
 .web-build/
+.pbr-build/
 AquariusWebCompiler/browser/vendor-*
 TestResults/
 build-targets/

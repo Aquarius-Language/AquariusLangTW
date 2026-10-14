@@ -32,6 +32,7 @@ internal sealed partial class ProcessingCanvas : IDisposable {
     internal ProcessingImage? Texture;
     internal Vector3 Normal=Vector3.UnitZ;
     internal bool Smooth=true;
+    internal Silk.NET.WebGPU.TextureFormat ColorFormat=Silk.NET.WebGPU.TextureFormat.Rgba8Unorm;
     internal Vector4? Clip;
     internal ModuleObj? Module;
 
@@ -41,7 +42,7 @@ internal sealed partial class ProcessingCanvas : IDisposable {
     internal void Initialize(WgpuDevice device,bool offscreen=false) {
         Device=device;
         try {
-            Target=new(device,PixelWidth,PixelHeight);program=new(device,WgpuShaders.Vertex,WgpuShaders.Fragment);
+            Target=new(device,PixelWidth,PixelHeight,ColorFormat);program=new(device,WgpuShaders.Vertex,WgpuShaders.Fragment);
             if(offscreen) {
                 Surface=ProcessingImage.Create(Owner,PixelWidth,PixelHeight);Surface.Canvas=this;Surface.GpuTexture=Target.Color;
                 Surface.Dirty=false;Surface.Premultiplied=true;

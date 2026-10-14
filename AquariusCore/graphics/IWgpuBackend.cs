@@ -14,7 +14,8 @@ public interface IWgpuDevice : IDisposable {
     void Poll();
     IWgpuBuffer CreateBuffer(float[] values);
     IWgpuShader CreateShader(string vertex, string fragment);
-    IWgpuRenderTarget CreateRenderTarget(int width, int height);
+    IWgpuTexture CreateTexture(WgpuTextureDescriptor descriptor, byte[] bytes);
+    IWgpuRenderTarget CreateRenderTarget(int width, int height, string format = "rgba8unorm");
     void Dispatch(string source, IWgpuBuffer buffer, uint workgroups);
 }
 public interface IWgpuBuffer : IDisposable {
@@ -28,10 +29,17 @@ public interface IWgpuShader : IDisposable {
     bool Disposed { get; }
     void Set(string name, float[] values);
     void SetInt(string name, int value);
+    void SetTexture(string name, IWgpuTexture texture);
+}
+public interface IWgpuTexture : IDisposable {
+    IWgpuDevice Owner { get; }
+    WgpuTextureDescriptor Descriptor { get; }
+    bool Disposed { get; }
 }
 public interface IWgpuRenderTarget : IDisposable {
     int Width { get; }
     int Height { get; }
+    IWgpuTexture GetTexture();
     void Clear(Vector4 color);
     void Draw(IWgpuShader shader, float[] vertices);
     byte[] ReadPixels();

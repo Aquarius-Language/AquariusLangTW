@@ -95,9 +95,9 @@ internal sealed partial class GraphicsRuntime {
         PAction(processing,"frameRate",1,1,a=> { double fps=Number(a[0]); if(fps<=0||fps>1000)throw new ArgumentException("Frame rate must be 0..1000 (exclusive zero).");targetFps=fps; });
         PBind(processing,"millis",0,0,_=>new DoubleObj(sketchClock.Elapsed.TotalMilliseconds));
         PBind(processing,"keyDown",1,1,a=>{RequireSketch();int code=Int(a[0]);if(!ValidKey(code))throw new ArgumentException("Invalid GLFW key code.");return new BooleanObj(Native.aqua_key(sketchWindow!.Handle,code)==1);});
-        PBind(processing,"createGraphics",2,3,a=> {
-            RequireSketch(); int w=Dimension(a[0]),h=Dimension(a[1]); bool threeD=a.Length==3&&Renderer(a[2]);
-            var canvas=new ProcessingCanvas(this,w,h,threeD); canvas.Module=new ModuleObj(AquaEnvironment.NewEnvironment());
+        PBind(processing,"createGraphics",2,4,a=> {
+            RequireSketch(); int w=Dimension(a[0]),h=Dimension(a[1]); bool threeD=a.Length>=3&&Renderer(a[2]);
+            var canvas=new ProcessingCanvas(this,w,h,threeD);if(a.Length==4)canvas.ColorFormat=WgpuTarget.Format(Text(a[3]));canvas.Module=new ModuleObj(AquaEnvironment.NewEnvironment());
             canvas.Initialize(processingDevice!,true); canvases.Add(canvas); RegisterCanvas(canvas.Module._Environment,canvas);
             images[canvas.Module]=canvas.Surface!;
             UpdateCanvasResolution(canvas);

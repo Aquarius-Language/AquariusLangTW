@@ -141,6 +141,12 @@ public final class NativeBridge implements AutoCloseable {
   }
 
   @V8Function
+  public byte[] readAssetBytes(String name) {
+    // Javet returns an owned typed array, avoiding two large base64 strings.
+    return assetBytes(name, 256 * 1024 * 1024);
+  }
+
+  @V8Function
   public String utf8(String bytes) {
     return new String(unbase64(bytes), StandardCharsets.UTF_8);
   }

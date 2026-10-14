@@ -32,3 +32,11 @@ test('compute and polling observe earlier drawing',async()=>{const {calls,device
 test('frame deadline accounts for work already performed',()=>{assert.ok(Math.abs(frameDelay(60,100,110)-6.666666666666668)<1e-9);assert.equal(frameDelay(60,100,120),0);assert.equal(frameDelay(30,100,100),1000/30);});
 test('immutable meshes upload once and retain separate transform snapshots',async()=>{const {calls,device,shader,target}=await runtime();let built=0;const create=()=>{built++;return vertices;};const mesh=device.cachedMesh('sphere',create);assert.equal(device.cachedMesh('sphere',create),mesh);target.drawMesh(shader,mesh,new Float32Array(280));target.drawMesh(shader,mesh,new Float32Array(280).fill(1));device.flush();assert.equal(built,1);assert.deepEqual(calls.map(c=>c.operation),['mesh','batch']);const r=records(calls[1].bytes);assert.deepEqual(r.map(r=>r.operation),[3,3]);assert.equal(r[0].bytes.length,2216);assert.notEqual(r[0].bytes[66],r[1].bytes[66]);device.dispose();});
 test('custom vertex-index shaders retain separate draw calls',async()=>{const {calls,device,target}=await runtime(),shader=await device.createShader('@vertex fn vs_main(@builtin(vertex_index) index:u32) {}','');calls.length=0;target.draw(shader,vertices);target.draw(shader,vertices);device.flush();assert.equal(records(calls[0].bytes).length,2);device.dispose();});
+test('HDR targets expose typed textures and reject render feedback',async()=>{
+  const {calls,device,target}=await runtime(),hdr=device.createTarget(32,32,'rgba16float');
+  const shader=await device.createShader('','@group(2) @binding(0) var source:texture_2d<f32>;@group(2) @binding(8) var s:sampler;');
+  const texture=hdr.getTexture();assert.equal(texture.descriptor.format,'rgba16float');
+  shader.setTexture('source',texture);assert.ok(calls.some(c=>c.operation==='setTexture'&&c.args.texture===hdr.id));
+  assert.throws(()=>hdr.draw(shader,vertices),/own color attachment/);
+  target.draw(shader,vertices);device.flush();texture.dispose();assert.throws(()=>target.draw(shader,vertices),/Disposed shader texture/);device.dispose();
+});

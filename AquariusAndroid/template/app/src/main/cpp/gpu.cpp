@@ -5,6 +5,8 @@
 #include <webgpu/webgpu.h>
 #include <webgpu/wgpu.h>
 
+#include "gpu_batch.h"
+#include <array>
 #include <chrono>
 #include <cstring>
 #include <memory>
@@ -14,8 +16,6 @@
 #include <thread>
 #include <unordered_map>
 #include <vector>
-#include <array>
-#include "gpu_batch.h"
 
 using Json = nlohmann::json;
 namespace {
@@ -27,9 +27,17 @@ WGPUStringView text(const char* s) { return {s, std::strlen(s)}; }
 struct Texture {
   WGPUTexture handle{};
   WGPUTextureView view{};
-  uint32_t width{}, height{};
+  uint32_t width{}, height{}, levels = 1, layers = 1, pixelBytes = 4;
+  bool cube = false;
   WGPUTextureView sampledView() {
-    if (!view) view = wgpuTextureCreateView(handle, nullptr);
+    if (!view) {
+      auto desc = WGPU_TEXTURE_VIEW_DESCRIPTOR_INIT;
+      desc.dimension =
+          cube ? WGPUTextureViewDimension_Cube : WGPUTextureViewDimension_2D;
+      desc.mipLevelCount = levels;
+      desc.arrayLayerCount = layers;
+      view = wgpuTextureCreateView(handle, &desc);
+    }
     return view;
   }
   ~Texture() {
@@ -38,6 +46,7 @@ struct Texture {
   }
 };
 struct Target : Texture {
+  WGPUTextureFormat format = WGPUTextureFormat_RGBA8Unorm;
   WGPUTexture depth{};
   WGPUTextureView depthView{};
   bool initialized = false, depthInitialized = false;
@@ -56,11 +65,25 @@ struct Buffer {
 };
 struct Shader {
   WGPUShaderModule vertex{}, fragment{};
+  WGPUBindGroupLayout textureLayout{};
+  WGPUPipelineLayout pipelineLayout{};
+  WGPUBindGroup textureGroup{};
+  std::unordered_map<uint32_t, bool> dimensions;
+  std::unordered_map<uint32_t, uint64_t> textures;
   std::unordered_map<int, WGPURenderPipeline> pipelines;
   ~Shader() {
-    for (auto& p : pipelines) wgpuRenderPipelineRelease(p.second);
-    if (vertex) wgpuShaderModuleRelease(vertex);
-    if (fragment) wgpuShaderModuleRelease(fragment);
+    for (auto &p : pipelines)
+      wgpuRenderPipelineRelease(p.second);
+    if (textureGroup)
+      wgpuBindGroupRelease(textureGroup);
+    if (pipelineLayout)
+      wgpuPipelineLayoutRelease(pipelineLayout);
+    if (textureLayout)
+      wgpuBindGroupLayoutRelease(textureLayout);
+    if (vertex)
+      wgpuShaderModuleRelease(vertex);
+    if (fragment)
+      wgpuShaderModuleRelease(fragment);
   }
 };
 struct FrameStorage {
@@ -138,7 +161,11 @@ T& get(std::unordered_map<uint64_t, std::unique_ptr<T>>& table, uint64_t id) {
     throw std::runtime_error("Disposed or foreign GPU resource");
   return *it->second;
 }
-void submit(Device& d, WGPUCommandEncoder encoder) {
+Texture &sampledTexture(Device &d, uint64_t id) {
+  return d.textures.count(id) ? get(d.textures, id)
+                              : static_cast<Texture &>(get(d.targets, id));
+}
+void submit(Device &d, WGPUCommandEncoder encoder) {
   auto desc = WGPU_COMMAND_BUFFER_DESCRIPTOR_INIT;
   auto command = wgpuCommandEncoderFinish(encoder, &desc);
   wgpuQueueSubmit(d.queue, 1, &command);
@@ -286,14 +313,17 @@ std::unique_ptr<Device> createDevice() {
   auto sampler = WGPU_SAMPLER_DESCRIPTOR_INIT;
   sampler.magFilter = WGPUFilterMode_Linear;
   sampler.minFilter = WGPUFilterMode_Linear;
+  sampler.mipmapFilter = WGPUMipmapFilterMode_Linear;
+  sampler.lodMaxClamp = 32;
   d->sampler = wgpuDeviceCreateSampler(d->handle, &sampler);
   d->check();
   return d;
 }
-WGPURenderPipeline pipeline(Device& d, Shader& s, bool depth, int blend,
-                            int mode) {
-  int key = (depth ? 100 : 0) + blend * 10 + mode;
-  if (s.pipelines.count(key)) return s.pipelines[key];
+WGPURenderPipeline pipeline(Device &d, Shader &s, bool depth, int blend,
+                            int mode, WGPUTextureFormat format) {
+  int key = int(format) * 1000 + (depth ? 100 : 0) + blend * 10 + mode;
+  if (s.pipelines.count(key))
+    return s.pipelines[key];
   WGPUVertexAttribute attributes[4] = {
       WGPU_VERTEX_ATTRIBUTE_INIT, WGPU_VERTEX_ATTRIBUTE_INIT,
       WGPU_VERTEX_ATTRIBUTE_INIT, WGPU_VERTEX_ATTRIBUTE_INIT};
@@ -311,7 +341,7 @@ WGPURenderPipeline pipeline(Device& d, Shader& s, bool depth, int blend,
   vertex.attributeCount = 4;
   vertex.attributes = attributes;
   auto color = WGPU_COLOR_TARGET_STATE_INIT;
-  color.format = WGPUTextureFormat_RGBA8Unorm;
+  color.format = format;
   auto blending = WGPU_BLEND_STATE_INIT;
   blending.color.srcFactor = blend == 2   ? WGPUBlendFactor_Dst
                              : blend >= 3 ? WGPUBlendFactor_One
@@ -337,7 +367,7 @@ WGPURenderPipeline pipeline(Device& d, Shader& s, bool depth, int blend,
   depthState.depthCompare =
       depth ? WGPUCompareFunction_LessEqual : WGPUCompareFunction_Always;
   auto descriptor = WGPU_RENDER_PIPELINE_DESCRIPTOR_INIT;
-  descriptor.layout = d.pipelineLayout;
+  descriptor.layout = s.pipelineLayout;
   descriptor.vertex.module = s.vertex;
   descriptor.vertex.entryPoint = text("vs_main");
   descriptor.vertex.bufferCount = 1;
@@ -550,7 +580,7 @@ void drawBatch(Device& d, ByteSpan bytes) {
     if (c.clip[0] > target.width || c.clip[1] > target.height ||
         c.clip[2] > target.width - c.clip[0] || c.clip[3] > target.height - c.clip[1])
       throw std::runtime_error("Invalid GPU scissor rectangle");
-    pipeline(d, s, c.depth, c.blend, c.mode);
+    pipeline(d, s, c.depth, c.blend, c.mode, target.format);
     if (c.operation == 3 && !get(d.buffers, c.mesh).mesh)
       throw std::runtime_error("Expected immutable GPU mesh");
     vertexSize += c.vertexBytes; draws++;
@@ -603,13 +633,52 @@ void drawBatch(Device& d, ByteSpan bytes) {
         active = pass(d, target, encoder, &color); targetId = c.target;
         continue;
       }
-      if (!active || targetId != c.target) { endPass(); active = pass(d, target, encoder); targetId = c.target; }
-      auto& s = get(d.shaders, c.shader);
-      uint32_t uniformOffset = index * d.uniformStride, userOffset = index * d.userStride;
-      wgpuRenderPassEncoderSetPipeline(active, pipeline(d, s, c.depth, c.blend, c.mode));
-      wgpuRenderPassEncoderSetBindGroup(active, 0, frameGroup(d, *storage, c.texture), 1, &uniformOffset);
-      wgpuRenderPassEncoderSetBindGroup(active, 1, storage->userGroup, 1, &userOffset);
-      auto* mesh = c.operation == 3 ? &get(d.buffers, c.mesh) : nullptr;
+      if (!active || targetId != c.target) {
+        endPass();
+        active = pass(d, target, encoder);
+        targetId = c.target;
+      }
+      auto &s = get(d.shaders, c.shader);
+      uint32_t uniformOffset = index * d.uniformStride,
+               userOffset = index * d.userStride;
+      wgpuRenderPassEncoderSetPipeline(
+          active, pipeline(d, s, c.depth, c.blend, c.mode, target.format));
+      wgpuRenderPassEncoderSetBindGroup(
+          active, 0, frameGroup(d, *storage, c.texture), 1, &uniformOffset);
+      wgpuRenderPassEncoderSetBindGroup(active, 1, storage->userGroup, 1,
+                                        &userOffset);
+      // Texture setters flush earlier commands; each submitted batch observes
+      // its bindings.
+      if (!s.textureGroup) {
+        std::vector<WGPUBindGroupEntry> entries;
+        for (auto &f : s.dimensions) {
+          if (!s.textures.count(f.first))
+            throw std::runtime_error("Missing shader texture");
+          auto &texture = sampledTexture(d, s.textures.at(f.first));
+          auto entry = WGPU_BIND_GROUP_ENTRY_INIT;
+          entry.binding = f.first;
+          entry.textureView = texture.sampledView();
+          entries.push_back(entry);
+        }
+        auto sampler = WGPU_BIND_GROUP_ENTRY_INIT;
+        sampler.binding = 8;
+        sampler.sampler = d.sampler;
+        entries.push_back(sampler);
+        auto desc = WGPU_BIND_GROUP_DESCRIPTOR_INIT;
+        desc.layout = s.textureLayout;
+        desc.entryCount = entries.size();
+        desc.entries = entries.data();
+        s.textureGroup = wgpuDeviceCreateBindGroup(d.handle, &desc);
+      }
+      // Recheck released resources even when a bind group retains native
+      // references.
+      for (auto &f : s.textures) {
+        if (f.second == c.target)
+          throw std::runtime_error("Render target feedback is not supported");
+        sampledTexture(d, f.second);
+      }
+      wgpuRenderPassEncoderSetBindGroup(active, 2, s.textureGroup, 0, nullptr);
+      auto *mesh = c.operation == 3 ? &get(d.buffers, c.mesh) : nullptr;
       auto vertexBuffer = mesh ? mesh->handle : storage->vertex;
       size_t vertexBytes = mesh ? mesh->size : c.vertexBytes;
       wgpuRenderPassEncoderSetVertexBuffer(active, 0, vertexBuffer, c.operation == 3 ? 0 : vertexOffset, vertexBytes);
@@ -669,8 +738,13 @@ Json command(const std::string& op, const Json& a,
       auto t = std::make_unique<Target>();
       t->width = w;
       t->height = h;
+      std::string format = a.value("format", "rgba8unorm");
+      if (format != "rgba8unorm" && format != "rgba16float")
+        throw std::runtime_error("Invalid render target format");
+      t->format = format == "rgba16float" ? WGPUTextureFormat_RGBA16Float
+                                          : WGPUTextureFormat_RGBA8Unorm;
       t->handle = texture(
-          d, w, h, WGPUTextureFormat_RGBA8Unorm,
+          d, w, h, t->format,
           WGPUTextureUsage_RenderAttachment | WGPUTextureUsage_TextureBinding |
               WGPUTextureUsage_CopySrc | WGPUTextureUsage_CopyDst);
       t->depth = texture(d, w, h, WGPUTextureFormat_Depth24Plus,
@@ -680,20 +754,57 @@ Json command(const std::string& op, const Json& a,
       auto t = std::make_unique<Texture>();
       t->width = w;
       t->height = h;
-      t->handle =
-          texture(d, w, h, WGPUTextureFormat_RGBA8Unorm,
-                  WGPUTextureUsage_TextureBinding | WGPUTextureUsage_CopyDst);
+      std::string format = a.value("format", "rgba8unorm"),
+                  dimension = a.value("dimension", "2d");
+      t->levels = a.value("mipLevels", 1u);
+      t->cube = dimension == "cube";
+      t->layers = t->cube ? 6 : 1;
+      t->pixelBytes = format == "rgba16float" ? 8 : format == "r8unorm" ? 1 : 4;
+      uint32_t maxLevels = 1;
+      for (uint32_t size = std::max(w, h); size > 1; size >>= 1)
+        maxLevels++;
+      if ((dimension != "2d" && dimension != "cube") || (t->cube && w != h) ||
+          !t->levels || t->levels > maxLevels ||
+          (format != "r8unorm" && format != "rgba16float" &&
+           format != "rgba8unorm" && format != "rgba8unorm-srgb"))
+        throw std::runtime_error("Invalid texture descriptor");
+      size_t expected = 0;
+      for (uint32_t mip = 0; mip < t->levels; mip++)
+        expected += size_t(std::max(1u, w >> mip)) * std::max(1u, h >> mip) *
+                    t->layers * t->pixelBytes;
+      if (expected > 128 * 1024 * 1024 ||
+          (!bytes.empty() && bytes.size() != expected))
+        throw std::runtime_error("Texture size mismatch");
+      if (format == "rgba16float")
+        for (size_t i = 1; i < bytes.size(); i += 2)
+          if ((bytes.data()[i] & 0x7c) == 0x7c)
+            throw std::runtime_error("Nonfinite half float");
+      auto desc = WGPU_TEXTURE_DESCRIPTOR_INIT;
+      desc.size = {w, h, t->layers};
+      desc.mipLevelCount = t->levels;
+      desc.format = format == "r8unorm"       ? WGPUTextureFormat_R8Unorm
+                    : format == "rgba16float" ? WGPUTextureFormat_RGBA16Float
+                    : format == "rgba8unorm-srgb"
+                        ? WGPUTextureFormat_RGBA8UnormSrgb
+                        : WGPUTextureFormat_RGBA8Unorm;
+      desc.usage = WGPUTextureUsage_TextureBinding | WGPUTextureUsage_CopyDst;
+      t->handle = wgpuDeviceCreateTexture(d.handle, &desc);
       if (!bytes.empty()) {
-        if (bytes.size() != size_t(w) * h * 4)
-          throw std::runtime_error("Texture size mismatch");
-        auto dest = WGPU_TEXEL_COPY_TEXTURE_INFO_INIT;
-        dest.texture = t->handle;
-        auto layout = WGPU_TEXEL_COPY_BUFFER_LAYOUT_INIT;
-        layout.bytesPerRow = w * 4;
-        layout.rowsPerImage = h;
-        WGPUExtent3D extent = {w, h, 1};
-        wgpuQueueWriteTexture(d.queue, &dest, bytes.data(), bytes.size(),
-                              &layout, &extent);
+        size_t offset = 0;
+        for (uint32_t mip = 0; mip < t->levels; mip++) {
+          uint32_t mw = std::max(1u, w >> mip), mh = std::max(1u, h >> mip);
+          size_t size = size_t(mw) * mh * t->layers * t->pixelBytes;
+          auto dest = WGPU_TEXEL_COPY_TEXTURE_INFO_INIT;
+          dest.texture = t->handle;
+          dest.mipLevel = mip;
+          auto layout = WGPU_TEXEL_COPY_BUFFER_LAYOUT_INIT;
+          layout.bytesPerRow = mw * t->pixelBytes;
+          layout.rowsPerImage = mh;
+          WGPUExtent3D extent = {mw, mh, t->layers};
+          wgpuQueueWriteTexture(d.queue, &dest, bytes.data() + offset, size,
+                                &layout, &extent);
+          offset += size;
+        }
       }
       d.textures[id] = std::move(t);
     }
@@ -722,11 +833,56 @@ Json command(const std::string& op, const Json& a,
   }
   if (op == "shader") {
     auto s = std::make_unique<Shader>();
+    std::vector<WGPUBindGroupLayoutEntry> entries;
+    for (auto &f : a.value("textures", Json::array())) {
+      uint32_t binding = f.at("binding");
+      std::string dimension = f.at("dimension");
+      if (binding > 7 || s->dimensions.count(binding) ||
+          (dimension != "2d" && dimension != "cube"))
+        throw std::runtime_error("Invalid shader texture binding");
+      s->dimensions[binding] = dimension == "cube";
+      auto entry = WGPU_BIND_GROUP_LAYOUT_ENTRY_INIT;
+      entry.binding = binding;
+      entry.visibility = WGPUShaderStage_Vertex | WGPUShaderStage_Fragment;
+      entry.texture.sampleType = WGPUTextureSampleType_Float;
+      entry.texture.viewDimension = dimension == "cube"
+                                        ? WGPUTextureViewDimension_Cube
+                                        : WGPUTextureViewDimension_2D;
+      entries.push_back(entry);
+    }
+    auto entry = WGPU_BIND_GROUP_LAYOUT_ENTRY_INIT;
+    entry.binding = 8;
+    entry.visibility = WGPUShaderStage_Vertex | WGPUShaderStage_Fragment;
+    entry.sampler.type = WGPUSamplerBindingType_Filtering;
+    entries.push_back(entry);
+    auto layout = WGPU_BIND_GROUP_LAYOUT_DESCRIPTOR_INIT;
+    layout.entryCount = entries.size();
+    layout.entries = entries.data();
+    s->textureLayout = wgpuDeviceCreateBindGroupLayout(d.handle, &layout);
+    WGPUBindGroupLayout layouts[] = {d.layout, d.userLayout, s->textureLayout};
+    auto pipelineDesc = WGPU_PIPELINE_LAYOUT_DESCRIPTOR_INIT;
+    pipelineDesc.bindGroupLayoutCount = 3;
+    pipelineDesc.bindGroupLayouts = layouts;
+    s->pipelineLayout = wgpuDeviceCreatePipelineLayout(d.handle, &pipelineDesc);
     s->vertex = shader(d, a.at("vertex"));
     s->fragment = shader(d, a.at("fragment"));
     uint64_t id = nextId++;
     d.shaders[id] = std::move(s);
     return id;
+  }
+  if (op == "setTexture") {
+    auto &s = get(d.shaders, a.at("id"));
+    uint32_t binding = a.at("binding");
+    uint64_t id = a.at("texture");
+    auto &t = sampledTexture(d, id);
+    if (!s.dimensions.count(binding) || s.dimensions.at(binding) != t.cube)
+      throw std::runtime_error("Incompatible shader texture");
+    if (s.textureGroup) {
+      wgpuBindGroupRelease(s.textureGroup);
+      s.textureGroup = nullptr;
+    }
+    s.textures[binding] = id;
+    return nullptr;
   }
   if (op == "release") {
     uint64_t id = a.at("id");
@@ -863,14 +1019,17 @@ Java_org_aquariuslang_android_NativeGpu_command(JNIEnv* env, jclass, jstring op,
   std::lock_guard<std::mutex> lock(gate);
   try {
     jlong capacity = data ? env->GetDirectBufferCapacity(data) : -1;
-    const auto* pointer = data ? static_cast<const uint8_t*>(env->GetDirectBufferAddress(data)) : nullptr;
-    if (offset < 0 || length < 0 || length > 64 * 1024 * 1024 ||
-        capacity < 0 || int64_t(offset) + length > capacity || (length && !pointer))
+    const auto *pointer =
+        data ? static_cast<const uint8_t *>(env->GetDirectBufferAddress(data))
+             : nullptr;
+    const auto operation = javaString(env, op);
+    const int limit = (operation == "texture" ? 128 : 64) * 1024 * 1024;
+    if (offset < 0 || length < 0 || length > limit || capacity < 0 ||
+        int64_t(offset) + length > capacity || (length && !pointer))
       throw std::runtime_error("Invalid GPU typed-array view");
     ByteSpan bytes{length ? pointer + offset : nullptr, static_cast<size_t>(length)};
     auto result =
-        command(javaString(env, op), Json::parse(javaString(env, json)), bytes)
-            .dump();
+        command(operation, Json::parse(javaString(env, json)), bytes).dump();
     return javaText(env, result);
   } catch (const std::exception& e) {
     error(env, e);

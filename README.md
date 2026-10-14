@@ -11,6 +11,7 @@
 - **雙語函式庫**：腳本與桌面原生函式支援繁體中文／英文名稱，共用函式與閉包。
 - **圖學與物理**：核心保留跨平台 WebGPU 介面；桌面與瀏覽器共用 Jolt WebAssembly 引擎與物理實作。
 - **PBR 與模型匯入**：[核心 Models／PBR 函式庫](docs/pbr-models.md)在 Wasm 解析 OBJ／MTL，並以共用 WGSL 提供金屬度／粗糙度即時渲染。
+- **可攜紋理與 HDR**：[具名 shader 紋理、cube mip chains 與線性浮點 render targets](docs/wgpu-textures.md)共用 Windows、WebGPU 與 Android Vulkan 契約。
 - **跨平台音訊**：[音訊抽象與函式庫](AquariusCore/audio/README.md)共用 miniaudio WebAssembly 解碼與混音，支援音檔、音調、循環、聲像、音高及無硬體的離線樣本輸出。
 - **模型推論**：[ONNX Runtime 雙語介面](docs/onnx.md)提供可擴充的核心契約、桌面與網頁 WebGPU 配接器，以及 [繁體中文姿態範例](examples/mediapipe/README.md)。
 

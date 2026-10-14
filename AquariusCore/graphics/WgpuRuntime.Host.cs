@@ -10,20 +10,25 @@ namespace AquariusLang.Graphics;
 public sealed partial class WgpuRuntime {
     private readonly IWgpuBackend backend;
     private readonly Action<string, int, int, byte[]> saveImage;
+    private readonly Func<string, byte[]> readResource;
     private readonly Dictionary<string, ModuleObj> modules = new();
     private bool disposed;
-    public WgpuRuntime(IWgpuBackend backend, Action<string, int, int, byte[]> saveImage) {
+    public WgpuRuntime(IWgpuBackend backend, Action<string, int, int, byte[]> saveImage, Func<string, byte[]>? readResource = null) {
         this.backend = backend ?? throw new ArgumentNullException(nameof(backend));
         this.saveImage = saveImage ?? throw new ArgumentNullException(nameof(saveImage));
+        this.readResource = readResource ?? File.ReadAllBytes;
         RegisterWgpu();
     }
     public bool TryImport(string name, out ModuleObj module) => modules.TryGetValue(name, out module!);
     private AquaEnvironment Module(string name) { var env = AquaEnvironment.NewEnvironment(); modules[name] = new(env); return env; }
     private void Bind(AquaEnvironment env, string name, int count, Func<IObject[], IObject> action) {
+        Bind(env,name,count,count,action);
+    }
+    private void Bind(AquaEnvironment env, string name, int min, int max, Func<IObject[], IObject> action) {
         FunctionRegistration.Define(env, new BuiltinObj(args => {
             try {
                 if (disposed) throw new InvalidOperationException("Graphics runtime has been disposed.");
-                if (args.Length != count) throw new ArgumentException($"Expected {count} arguments, got {args.Length}.");
+                if (args.Length < min || args.Length > max) throw new ArgumentException($"Expected {min}..{max} arguments, got {args.Length}.");
                 return action(args);
             } catch (Exception e) when (e is ArgumentException or InvalidOperationException or IOException or OverflowException or DllNotFoundException or EntryPointNotFoundException or BadImageFormatException) { return new ErrorObj($"{name}: {e.Message}"); }
         }), LibraryCatalog.TraditionalChinese(name), name);

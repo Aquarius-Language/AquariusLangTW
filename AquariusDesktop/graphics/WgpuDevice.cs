@@ -225,13 +225,35 @@ internal unsafe sealed class WgpuTexture : IDisposable {
     internal Texture* Handle;
     internal TextureView* View;
     internal readonly int Width,Height;
+    internal WgpuTextureDescriptor? Descriptor;
+    internal WgpuTarget? SourceTarget;
+    internal bool Disposed=>Handle==null;
+    internal WgpuTexture(WgpuDevice device,WgpuTextureDescriptor descriptor,byte[] bytes) {
+        descriptor.Validate(bytes);Device=device;Width=descriptor.Width;Height=descriptor.Height;Descriptor=descriptor;device.RequireLive();
+        try {
+            var desc=new TextureDescriptor {Dimension=TextureDimension.Dimension2D,Size=new(){Width=(uint)Width,Height=(uint)Height,DepthOrArrayLayers=(uint)descriptor.Layers},
+                Format=descriptor.Format switch {"r8unorm"=>TextureFormat.R8Unorm,"rgba16float"=>TextureFormat.Rgba16float,"rgba8unorm-srgb"=>TextureFormat.Rgba8UnormSrgb,_=>TextureFormat.Rgba8Unorm},
+                MipLevelCount=(uint)descriptor.MipLevels,SampleCount=1,Usage=TextureUsage.TextureBinding|TextureUsage.CopyDst};
+            Handle=device.Api.DeviceCreateTexture(device.Handle,&desc);device.Check();
+            var view=new TextureViewDescriptor {Format=desc.Format,Dimension=descriptor.Dimension=="cube"?TextureViewDimension.DimensionCube:TextureViewDimension.Dimension2D,MipLevelCount=desc.MipLevelCount,ArrayLayerCount=(uint)descriptor.Layers,Aspect=TextureAspect.All};
+            View=device.Api.TextureCreateView(Handle,&view);device.Check();
+            int offset=0;
+            for(int mip=0;mip<descriptor.MipLevels;mip++) {
+                int w=Math.Max(1,Width>>mip),h=Math.Max(1,Height>>mip),size=w*h*descriptor.Layers*descriptor.BytesPerPixel;
+                var copy=new ImageCopyTexture {Texture=Handle,MipLevel=(uint)mip,Aspect=TextureAspect.All};var layout=new TextureDataLayout {BytesPerRow=(uint)(w*descriptor.BytesPerPixel),RowsPerImage=(uint)h};var extent=new Extent3D((uint)w,(uint)h,(uint)descriptor.Layers);
+                fixed(byte* data=bytes)device.Api.QueueWriteTexture(device.Queue,&copy,data+offset,(nuint)size,&layout,&extent);offset+=size;
+            }
+            device.Check();device.Resources.Add(this);
+        } catch {Dispose();throw;}
+    }
     internal WgpuTexture(WgpuDevice device,int width,int height,TextureFormat format=TextureFormat.Rgba8Unorm,uint samples=1) {
         Device=device;Width=width;Height=height;
+        if(format is TextureFormat.Rgba8Unorm or TextureFormat.Rgba16float)Descriptor=new(width,height,format==TextureFormat.Rgba16float?"rgba16float":"rgba8unorm","2d",1);
         if(width<=0||height<=0||width>8192||height>8192||(long)width*height>16*1024*1024)throw new ArgumentException("Texture dimensions must be 1..8192 with at most 16 million pixels.");
         device.RequireLive();
         var descriptor=new TextureDescriptor {Dimension=TextureDimension.Dimension2D,Size=new(){Width=(uint)width,Height=(uint)height,DepthOrArrayLayers=1},
             Format=format,MipLevelCount=1,SampleCount=samples,Usage=TextureUsage.RenderAttachment };
-        if(samples==1&&format==TextureFormat.Rgba8Unorm)descriptor.Usage|=TextureUsage.TextureBinding|TextureUsage.CopySrc|TextureUsage.CopyDst;
+        if(samples==1&&format is TextureFormat.Rgba8Unorm or TextureFormat.Rgba16float)descriptor.Usage|=TextureUsage.TextureBinding|TextureUsage.CopySrc|TextureUsage.CopyDst;
         Handle=device.Api.DeviceCreateTexture(device.Handle,&descriptor);device.Check();View=device.Api.TextureCreateView(Handle,(TextureViewDescriptor*)null);
         device.Resources.Add(this);
     }
@@ -250,16 +272,48 @@ internal unsafe sealed class WgpuShader : IDisposable {
     internal ShaderModule* Vertex;
     internal ShaderModule* Fragment;
     internal readonly WgpuUniformLayout Uniforms;
-    private readonly Dictionary<(int,int,bool,uint,int),nint> pipelines=new();
+    internal readonly WgpuTextureLayout TextureFields;
+    internal readonly Dictionary<string,WgpuTexture> Textures=new();
+    private BindGroupLayout* textureLayout;
+    private PipelineLayout* pipelineLayout;
+    private Sampler* textureSampler;
+    private readonly Dictionary<(int,int,bool,uint,int,TextureFormat),nint> pipelines=new();
     internal bool Disposed;
     internal WgpuShader(WgpuDevice device,string vertex,string fragment) {
-        Device=device;Uniforms=new(vertex+"\n"+fragment);device.RequireLive();
-        try {Vertex=device.Shader(WgpuShaders.Header+vertex);Fragment=device.Shader(WgpuShaders.Header+fragment);device.Resources.Add(this);}
+        Device=device;Uniforms=new(vertex+"\n"+fragment);TextureFields=new(vertex+"\n"+fragment);device.RequireLive();
+        try {CreateTextureLayout();Vertex=device.Shader(WgpuShaders.Header+vertex);Fragment=device.Shader(WgpuShaders.Header+fragment);device.Resources.Add(this);}
         catch {Dispose();throw;}
     }
-    internal RenderPipeline* Pipeline(int mode,int blend,bool depth,uint samples,int stencilMode=0) {
+    private void CreateTextureLayout() {
+        var entries=stackalloc BindGroupLayoutEntry[TextureFields.Fields.Count+1];int i=0;
+        foreach(var field in TextureFields.Fields.Values)entries[i++]=new(){Binding=(uint)field.Binding,Visibility=ShaderStage.Vertex|ShaderStage.Fragment,Texture=new(){SampleType=TextureSampleType.Float,ViewDimension=field.Dimension=="cube"?TextureViewDimension.DimensionCube:TextureViewDimension.Dimension2D}};
+        entries[i]=new(){Binding=8,Visibility=ShaderStage.Vertex|ShaderStage.Fragment,Sampler=new(){Type=SamplerBindingType.Filtering}};
+        var desc=new BindGroupLayoutDescriptor {EntryCount=(nuint)(i+1),Entries=entries};textureLayout=Device.Api.DeviceCreateBindGroupLayout(Device.Handle,&desc);
+        var layouts=stackalloc BindGroupLayout*[3]{Device.DrawingLayout,Device.UserLayout,textureLayout};var pipeline=new PipelineLayoutDescriptor {BindGroupLayoutCount=3,BindGroupLayouts=layouts};pipelineLayout=Device.Api.DeviceCreatePipelineLayout(Device.Handle,&pipeline);
+        var sampler=new SamplerDescriptor {AddressModeU=AddressMode.ClampToEdge,AddressModeV=AddressMode.ClampToEdge,AddressModeW=AddressMode.ClampToEdge,MagFilter=FilterMode.Linear,MinFilter=FilterMode.Linear,MipmapFilter=MipmapFilterMode.Linear,MaxAnisotropy=1,LodMaxClamp=32};textureSampler=Device.Api.DeviceCreateSampler(Device.Handle,&sampler);Device.Check();
+    }
+    internal void SetTexture(string name,WgpuTexture texture) {
+        Device.RequireLive();if(Disposed||texture.Disposed)throw new InvalidOperationException("Shader or texture is disposed.");
+        if(texture.Device!=Device||!TextureFields.Fields.TryGetValue(name,out var field)||texture.Descriptor?.Dimension!=field.Dimension)throw new ArgumentException("Unknown texture name, foreign device or incompatible texture dimension.");
+        Textures[name]=texture;
+    }
+    internal BindGroup* TextureGroup() {
+        var entries=stackalloc BindGroupEntry[TextureFields.Fields.Count+1];int i=0;
+        foreach(var pair in TextureFields.Fields) {
+            if(!Textures.TryGetValue(pair.Key,out var t)||t.Disposed)throw new InvalidOperationException("Missing or disposed shader texture: "+pair.Key);
+            entries[i++]=new(){Binding=(uint)pair.Value.Binding,TextureView=t.View};
+        }
+        entries[i]=new(){Binding=8,Sampler=textureSampler};var desc=new BindGroupDescriptor {Layout=textureLayout,EntryCount=(nuint)(i+1),Entries=entries};var group=Device.Api.DeviceCreateBindGroup(Device.Handle,&desc);Device.Check();return group;
+    }
+    internal void PrepareTextures(WgpuTarget destination) {
+        foreach(var texture in Textures.Values)if(texture.SourceTarget is WgpuTarget source) {
+            if(source==destination)throw new ArgumentException("A render target cannot sample its own color attachment.");
+            source.Flush();
+        }
+    }
+    internal RenderPipeline* Pipeline(int mode,int blend,bool depth,uint samples,int stencilMode=0,TextureFormat format=TextureFormat.Rgba8Unorm) {
         if(Disposed)throw new InvalidOperationException("wgpu shader has been disposed.");
-        if(pipelines.TryGetValue((mode,blend,depth,samples,stencilMode),out var stored))return (RenderPipeline*)stored;
+        if(pipelines.TryGetValue((mode,blend,depth,samples,stencilMode,format),out var stored))return (RenderPipeline*)stored;
         var api=Device.Api;
         var attributes=stackalloc VertexAttribute[4];
         attributes[0]=new(){ShaderLocation=0,Offset=0,Format=VertexFormat.Float32x3};attributes[1]=new(){ShaderLocation=1,Offset=12,Format=VertexFormat.Float32x3};
@@ -268,26 +322,28 @@ internal unsafe sealed class WgpuShader : IDisposable {
         var blending=new BlendState {Color=new(){Operation=BlendOperation.Add,SrcFactor=blend switch {2=>BlendFactor.Dst,3 or 4=>BlendFactor.One,_=>BlendFactor.SrcAlpha},
             DstFactor=blend switch {1=>BlendFactor.One,2 or 4=>BlendFactor.Zero,3=>BlendFactor.OneMinusSrc,_=>BlendFactor.OneMinusSrcAlpha}},
             Alpha=new(){Operation=BlendOperation.Add,SrcFactor=BlendFactor.One,DstFactor=blend switch{1=>BlendFactor.One,4=>BlendFactor.Zero,_=>BlendFactor.OneMinusSrcAlpha}} };
-        var color=new ColorTargetState {Format=TextureFormat.Rgba8Unorm,WriteMask=stencilMode is 1 or 2?ColorWriteMask.None:ColorWriteMask.All,Blend=&blending};
+        var color=new ColorTargetState {Format=format,WriteMask=stencilMode is 1 or 2?ColorWriteMask.None:ColorWriteMask.All,Blend=&blending};
         byte* vs=stackalloc byte[]{(byte)'v',(byte)'s',(byte)'_',(byte)'m',(byte)'a',(byte)'i',(byte)'n',0};byte* fs=stackalloc byte[]{(byte)'f',(byte)'s',(byte)'_',(byte)'m',(byte)'a',(byte)'i',(byte)'n',0};
         var fragment=new FragmentState {Module=Fragment,EntryPoint=fs,TargetCount=1,Targets=&color};
         var stencil=new StencilFaceState {Compare=stencilMode==3?CompareFunction.Equal:CompareFunction.Always,FailOp=StencilOperation.Keep,DepthFailOp=StencilOperation.Keep,PassOp=stencilMode is 1 or 2?StencilOperation.Replace:StencilOperation.Keep};
         var depthState=new DepthStencilState {Format=TextureFormat.Depth24PlusStencil8,DepthWriteEnabled=depth&&stencilMode is not (1 or 2),DepthCompare=depth&&stencilMode is not (1 or 2)?CompareFunction.LessEqual:CompareFunction.Always,
             StencilFront=stencil,StencilBack=stencil,StencilReadMask=255,StencilWriteMask=stencilMode is 1 or 2?255u:0u};
-        var descriptor=new RenderPipelineDescriptor {Layout=Device.DrawingPipelineLayout,Vertex=new(){Module=Vertex,EntryPoint=vs,BufferCount=1,Buffers=&buffer},Fragment=&fragment,
+        var descriptor=new RenderPipelineDescriptor {Layout=pipelineLayout,Vertex=new(){Module=Vertex,EntryPoint=vs,BufferCount=1,Buffers=&buffer},Fragment=&fragment,
             Primitive=new(){Topology=mode switch{0=>PrimitiveTopology.PointList,1=>PrimitiveTopology.LineList,5=>PrimitiveTopology.TriangleStrip,_=>PrimitiveTopology.TriangleList},FrontFace=FrontFace.Ccw,CullMode=CullMode.None},
             DepthStencil=&depthState,Multisample=new(){Count=samples,Mask=uint.MaxValue} };
         var pipeline=api.DeviceCreateRenderPipeline(Device.Handle,&descriptor);
         try {Device.Check();}catch {if(pipeline!=null)api.RenderPipelineRelease(pipeline);throw;}
         if(pipeline==null)throw new InvalidOperationException("wgpu render pipeline creation failed.");
-        pipelines[(mode,blend,depth,samples,stencilMode)]=(nint)pipeline;return pipeline;
+        pipelines[(mode,blend,depth,samples,stencilMode,format)]=(nint)pipeline;return pipeline;
     }
-    public void Dispose() {if(Disposed)return;Device.Flush();Disposed=true;foreach(var pipeline in pipelines.Values)Device.Api.RenderPipelineRelease((RenderPipeline*)pipeline);if(Vertex!=null)Device.Api.ShaderModuleRelease(Vertex);if(Fragment!=null)Device.Api.ShaderModuleRelease(Fragment);Device.Resources.Remove(this);}
+    public void Dispose() {if(Disposed)return;Device.Flush();Disposed=true;foreach(var pipeline in pipelines.Values)Device.Api.RenderPipelineRelease((RenderPipeline*)pipeline);if(Vertex!=null)Device.Api.ShaderModuleRelease(Vertex);if(Fragment!=null)Device.Api.ShaderModuleRelease(Fragment);if(pipelineLayout!=null)Device.Api.PipelineLayoutRelease(pipelineLayout);if(textureLayout!=null)Device.Api.BindGroupLayoutRelease(textureLayout);if(textureSampler!=null)Device.Api.SamplerRelease(textureSampler);Device.Resources.Remove(this);}
 }
 
 internal unsafe sealed class WgpuTarget : IDisposable {
     internal readonly WgpuDevice Device;
     internal WgpuTexture Color;
+    internal readonly TextureFormat ColorFormat;
+    internal static TextureFormat Format(string format)=>format switch {"rgba8unorm"=>TextureFormat.Rgba8Unorm,"rgba16float"=>TextureFormat.Rgba16float,_=>throw new ArgumentException("Render target format must be rgba8unorm or rgba16float.")};
     private WgpuTexture depth;
     private WgpuTexture? multisample;
     internal int Width=>Color.Width;
@@ -298,8 +354,8 @@ internal unsafe sealed class WgpuTarget : IDisposable {
     private readonly List<nint> pendingBuffers=new();
     private readonly List<nint> pendingGroups=new();
     internal bool Disposed;
-    internal WgpuTarget(WgpuDevice device,int width,int height) {
-        Device=device;Color=new(device,width,height);depth=new(device,width,height,TextureFormat.Depth24PlusStencil8);
+    internal WgpuTarget(WgpuDevice device,int width,int height,TextureFormat format=TextureFormat.Rgba8Unorm) {
+        Device=device;ColorFormat=format;Color=new(device,width,height,format){SourceTarget=this};depth=new(device,width,height,TextureFormat.Depth24PlusStencil8);
         device.Resources.Add(this);Clear(Vector4.Zero);
     }
     internal void Configure(int width,int height,bool smooth) {
@@ -307,11 +363,11 @@ internal unsafe sealed class WgpuTarget : IDisposable {
         Device.RequireLive();uint wanted=smooth?4u:1u;
         if(width!=Width||height!=Height) {
             Flush();Color.Dispose();depth.Dispose();multisample?.Dispose();multisample=null;samples=1;
-            Color=new(Device,width,height);depth=new(Device,width,height,TextureFormat.Depth24PlusStencil8);Clear(Vector4.Zero);
+            Color=new(Device,width,height,ColorFormat){SourceTarget=this};depth=new(Device,width,height,TextureFormat.Depth24PlusStencil8);Clear(Vector4.Zero);
         }
         if(samples==wanted)return;Flush();depth.Dispose();multisample?.Dispose();multisample=null;samples=wanted;
         depth=new(Device,width,height,TextureFormat.Depth24PlusStencil8,samples);
-        if(samples==4){multisample=new(Device,width,height,TextureFormat.Rgba8Unorm,4);Device.Blit(Color.View,multisample.View,null,TextureFormat.Rgba8Unorm,4);}
+        if(samples==4){multisample=new(Device,width,height,ColorFormat,4);Device.Blit(Color.View,multisample.View,null,ColorFormat,4);}
         Begin(null,true);
     }
     private void Begin(Vector4? clear=null,bool clearDepth=false,bool clearStencil=false) {
@@ -327,7 +383,7 @@ internal unsafe sealed class WgpuTarget : IDisposable {
     internal void Draw(WgpuShader shader,float[] vertices,float[] uniforms,int mode,int blend,bool threeD,Vector4? clip,WgpuTexture? texture=null,int stencilMode=0) {
         if(shader.Device!=Device||texture!=null&&texture.Device!=Device)throw new ArgumentException("wgpu resources must belong to the same device.");
         if(vertices.Length==0||vertices.Length%12!=0)throw new ArgumentException("Vertices need 12 floats each: position, normal, UV, RGBA.");
-        var pipeline=shader.Pipeline(mode,blend,threeD,samples,stencilMode);Begin();var api=Device.Api;
+        shader.PrepareTextures(this);var pipeline=shader.Pipeline(mode,blend,threeD,samples,stencilMode,ColorFormat);Begin();var api=Device.Api;
         var vertex=Device.Floats(vertices,BufferUsage.Vertex);pendingBuffers.Add((nint)vertex);
         var uniform=Device.Floats(uniforms,BufferUsage.Uniform);pendingBuffers.Add((nint)uniform);
         var user=Device.Buffer(1024,BufferUsage.Uniform,shader.Uniforms.Bytes);pendingBuffers.Add((nint)user);
@@ -335,6 +391,7 @@ internal unsafe sealed class WgpuTarget : IDisposable {
         var descriptor=new BindGroupDescriptor {Layout=Device.DrawingLayout,EntryCount=3,Entries=entries};var group=api.DeviceCreateBindGroup(Device.Handle,&descriptor);pendingGroups.Add((nint)group);
         var userEntry=new BindGroupEntry {Binding=0,Buffer=user,Size=1024};descriptor=new(){Layout=Device.UserLayout,EntryCount=1,Entries=&userEntry};var userGroup=api.DeviceCreateBindGroup(Device.Handle,&descriptor);pendingGroups.Add((nint)userGroup);
         api.RenderPassEncoderSetPipeline(pass,pipeline);api.RenderPassEncoderSetBindGroup(pass,0,group,0,null);api.RenderPassEncoderSetBindGroup(pass,1,userGroup,0,null);
+        var textureGroup=shader.TextureGroup();pendingGroups.Add((nint)textureGroup);api.RenderPassEncoderSetBindGroup(pass,2,textureGroup,0,null);
         api.RenderPassEncoderSetStencilReference(pass,stencilMode==2?0u:1u);
         api.RenderPassEncoderSetVertexBuffer(pass,0,vertex,0,(ulong)vertices.Length*4);
         var bounds=Scissor(Width,Height,clip);api.RenderPassEncoderSetScissorRect(pass,(uint)bounds.X,(uint)bounds.Y,(uint)bounds.Width,(uint)bounds.Height);
@@ -357,6 +414,7 @@ internal unsafe sealed class WgpuTarget : IDisposable {
         }
     }
     internal byte[] ReadPixels() {
+        if(ColorFormat!=TextureFormat.Rgba8Unorm)throw new InvalidOperationException("Tone-map HDR targets into rgba8unorm before reading pixels.");
         if(Disposed)throw new InvalidOperationException("wgpu render target has been disposed.");Device.Flush();
         int row=checked((Width*4+255)/256*256),size=checked(row*Height);
         var descriptor=new BufferDescriptor {Size=(ulong)size,Usage=BufferUsage.CopyDst|BufferUsage.MapRead};var buffer=Device.Api.DeviceCreateBuffer(Device.Handle,&descriptor);

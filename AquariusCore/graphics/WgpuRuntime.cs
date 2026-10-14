@@ -11,6 +11,7 @@ public sealed partial class WgpuRuntime : IDisposable {
     private readonly Dictionary<ModuleObj,IWgpuDevice> wgpuDevices=new();
     private readonly Dictionary<ModuleObj,IWgpuBuffer> wgpuBuffers=new();
     private readonly Dictionary<ModuleObj,IWgpuShader> wgpuShaders=new();
+    private readonly Dictionary<ModuleObj,IWgpuTexture> wgpuTextures=new();
     private void RegisterWgpu() {
         var env=Module("WGPU");modules["wgpu"]=modules["WGPU"];
         env.Create("Backend",new StringObj(backend.Name));
@@ -26,9 +27,16 @@ public sealed partial class WgpuRuntime : IDisposable {
     private ModuleObj CreateWgpuDevice() {
         var device=backend.CreateDevice();var env=AquaEnvironment.NewEnvironment();var module=new ModuleObj(env);wgpuDevices.Add(module,device);
         env.Create("Backend",new StringObj(device.Backend));
-        void Action(AquaEnvironment scope,string name,int count,Func<IObject[],IObject> fn)=>Bind(scope,name,count,a=>{device.RequireLive();return fn(a);});
+        void Action(AquaEnvironment scope,string name,int count,Func<IObject[],IObject> fn,int? max=null)=>Bind(scope,name,count,max??count,a=>{device.RequireLive();return fn(a);});
         Bind(env,"Dispose",0,_=>{device.Dispose();return Null();});
         Action(env,"Poll",0,_=>{device.Poll();return Null();});
+        Action(env,"LoadTexture",6,a=> {
+            var descriptor=new WgpuTextureDescriptor(Int(a[1]),Int(a[2]),Text(a[3]),Text(a[4]),Int(a[5]));
+            _=descriptor.ByteLength;
+            var bytes=descriptor.Decode(readResource(Text(a[0])));
+            var texture=device.CreateTexture(descriptor,bytes);var scope=AquaEnvironment.NewEnvironment();var module=new ModuleObj(scope);wgpuTextures.Add(module,texture);
+            Bind(scope,"Dispose",0,_=>{texture.Dispose();return Null();});return module;
+        });
         Action(env,"CreateBuffer",1,a=> {
             var buffer=device.CreateBuffer(WgpuFloats(a[0]));var bufferEnv=AquaEnvironment.NewEnvironment();var bufferModule=new ModuleObj(bufferEnv);wgpuBuffers.Add(bufferModule,buffer);
             bufferEnv.Create("Length",N(buffer.Length));
@@ -45,11 +53,20 @@ public sealed partial class WgpuRuntime : IDisposable {
             var shader=device.CreateShader(Text(a[0]),Text(a[1]));var shaderEnv=AquaEnvironment.NewEnvironment();var shaderModule=new ModuleObj(shaderEnv);wgpuShaders.Add(shaderModule,shader);
             Action(shaderEnv,"Set",2,x=>{if(shader.Disposed)throw new InvalidOperationException("wgpu shader has been disposed.");shader.Set(Text(x[0]),WgpuFloats(x[1]));return Null();});
             Action(shaderEnv,"SetInt",2,x=>{if(shader.Disposed)throw new InvalidOperationException("wgpu shader has been disposed.");shader.SetInt(Text(x[0]),Int(x[1]));return Null();});
+            Action(shaderEnv,"SetTexture",2,x=>{
+                if(x[1] is not ModuleObj m||!wgpuTextures.TryGetValue(m,out var texture)||texture.Owner!=device||texture.Disposed)throw new ArgumentException("Expected a live texture from this device.");
+                shader.SetTexture(Text(x[0]),texture);return Null();
+            });
             Bind(shaderEnv,"Dispose",0,_=>{shader.Dispose();return Null();});return shaderModule;
         });
         Action(env,"CreateRenderTarget",2,a=> {
-            var target=device.CreateRenderTarget(Dimension(a[0]),Dimension(a[1]));var targetEnv=AquaEnvironment.NewEnvironment();var targetModule=new ModuleObj(targetEnv);
+            string format=a.Length==3?Text(a[2]):"rgba8unorm";if(format is not ("rgba8unorm" or "rgba16float"))throw new ArgumentException("Render target format must be rgba8unorm or rgba16float.");
+            var target=device.CreateRenderTarget(Dimension(a[0]),Dimension(a[1]),format);var targetEnv=AquaEnvironment.NewEnvironment();var targetModule=new ModuleObj(targetEnv);
             targetEnv.Create("Width",N(target.Width));targetEnv.Create("Height",N(target.Height));
+            Action(targetEnv,"GetTexture",0,_=> {
+                var texture=target.GetTexture();var scope=AquaEnvironment.NewEnvironment();var module=new ModuleObj(scope);wgpuTextures.Add(module,texture);
+                Bind(scope,"Dispose",0,_=>{texture.Dispose();return Null();});return module;
+            });
             void Live(){device.RequireLive();}
             Action(targetEnv,"Clear",1,x=>{Live();target.Clear(WgpuColor(x[0]));return Null();});
             Action(targetEnv,"Draw",2,x=> {
@@ -60,7 +77,7 @@ public sealed partial class WgpuRuntime : IDisposable {
             Action(targetEnv,"ReadPixels",0,_=>{Live();return PixelArray(target.ReadPixels());});
             Action(targetEnv,"Save",1,x=>{Live();saveImage(Text(x[0]),target.Width,target.Height,target.ReadPixels());return Null();});
             Bind(targetEnv,"Dispose",0,_=>{target.Dispose();return Null();});return targetModule;
-        });
+        },3);
         return module;
     }
 }

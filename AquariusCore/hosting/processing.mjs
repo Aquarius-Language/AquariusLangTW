@@ -3,6 +3,7 @@ import earcut from './vendor-earcut.mjs';
 import {num,unwrap} from './values.mjs';
 import {defaultUniforms} from './wgpu-uniforms.mjs';
 import {resizeSurfaceSize} from './surface.mjs';
+import {textureDescriptor,decodeTextureData} from './wgpu-textures.mjs';
 export const pack = c => ((Math.round(c[3]*255)<<24)|(Math.round(c[0]*255)<<16)|(Math.round(c[1]*255)<<8)|Math.round(c[2]*255))>>>0;
 export const unpack = c => [(c>>>16&255)/255,(c>>>8&255)/255,(c&255)/255,(c>>>24)/255];
 export function pixelValues(bytes){const result=new Array(bytes.length/4);for(let i=0;i<result.length;i++){const p=i*4;result[i]=num(((bytes[p+3]<<24)|(bytes[p]<<16)|(bytes[p+1]<<8)|bytes[p+2])>>>0);}return result;}
@@ -26,7 +27,7 @@ export class Processing {
     b('beginFrame',()=>this.beginFrame());b('endFrame',()=>this.endFrame());
     b('noLoop',()=>this.looping=false);b('loop',()=>this.looping=true);b('redraw',()=>this.redraw=true);b('exit',()=>this.exiting=true);b('close',()=>this.exiting=true);
     b('frameRate',fps=>{if(fps<=0||fps>1000)throw new Error('Invalid frame rate');this.fps=fps;});b('millis',()=>performance.now()-this.clock);b('keyDown',code=>this.keys.has(code));
-    b('createGraphics',(w,hh,renderer='P2D')=>{if(!this.device)throw new Error('Call size() first');const c=new Canvas(this,w,hh,renderer==='P3D');c.resize(w,hh,w,hh);this.canvases.add(c);return c.module;});
+    b('createGraphics',(w,hh,renderer='P2D',format='rgba8unorm')=>{if(!this.device)throw new Error('Call size() first');const c=new Canvas(this,w,hh,renderer==='P3D',null,format);c.resize(w,hh,w,hh);this.canvases.add(c);return c.module;});
     b('createImage',(w,hh,format=2)=>this.image(w,hh,null,format).module);b('loadImage',async path=>{const data=await h.imageBytes(path);return this.image(data.width,data.height,data.bytes).module;});
     b('createFont',(name,size)=>{const font=h.newModule();h.set(font,'name',name);h.set(font,'size',size);return font;});
     b('createShape',()=>this.retained());
@@ -85,7 +86,7 @@ export class Processing {
   dispose(){this.exiting=true;this.abort.abort();this.textarea.remove();for(const c of this.canvases)c.dispose();for(const image of this.images)image.texture?.destroy();for(const t of this.textCache.values())t.texture.destroy();this.screen.dispose();this.presentation?.dispose();this.surface?.dispose();}
 }
 class Canvas {
-  constructor(owner,w,h,is3D,module=null){this.owner=owner;this.host=owner.host;this.module=module??this.host.newModule();this.host.objects.set(this.module,this);this.width=this.pixelWidth=w;this.height=this.pixelHeight=h;this.is3D=is3D;this.premultiplied=true;this.style=style();this.model=mat4.create();this.view=mat4.create();this.projection=mat4.create();this.matrices=[];this.styles=[];this.sphereU=24;this.sphereV=16;this.vertices=null;this.blend=0;this.drawing=module!==null;this.disposed=false;this.defaultCamera();this.bind();this.state();}
+  constructor(owner,w,h,is3D,module=null,format="rgba8unorm"){if(!["rgba8unorm","rgba16float"].includes(format))throw new Error("Invalid render target format");this.format=format;this.owner=owner;this.host=owner.host;this.module=module??this.host.newModule();this.host.objects.set(this.module,this);this.width=this.pixelWidth=w;this.height=this.pixelHeight=h;this.is3D=is3D;this.premultiplied=true;this.style=style();this.model=mat4.create();this.view=mat4.create();this.projection=mat4.create();this.matrices=[];this.styles=[];this.sphereU=24;this.sphereV=16;this.vertices=null;this.blend=0;this.drawing=module!==null;this.disposed=false;this.defaultCamera();this.bind();this.state();}
   state(){for(const n of ['width','height','pixelWidth','pixelHeight'])this.host.set(this.module,n,num(this[n],'int'));}
   live(){if(this.disposed)throw new Error('Canvas is disposed');if(!this.target||!this.drawing)throw new Error('Call size() or beginDraw() first');}
   resize(w,h,pw=w,ph=h){
@@ -95,7 +96,7 @@ class Canvas {
     const changed=logical||next.pixelWidth!==this.pixelWidth||next.pixelHeight!==this.pixelHeight;
     const drawable=next.pixelWidth>0&&next.pixelHeight>0;
     if(drawable&&(!this.target||this.target.width!==next.pixelWidth||this.target.height!==next.pixelHeight)){
-      const target=this.owner.device.createTarget(next.pixelWidth,next.pixelHeight);this.target?.dispose();this.target=target;
+      const target=this.owner.device.createTarget(next.pixelWidth,next.pixelHeight,this.format);this.target?.dispose();this.target=target;
     }
     Object.assign(this,next);if(logical)this.defaultCamera();
     if(changed)this.host.set(this.module,'pixels',null);
@@ -146,6 +147,7 @@ class Canvas {
     b('shape',(shape,x=0,y=0)=>{const obj=h.objects.get(shape),savedStyle=s.style,savedMatrix=s.model;const render=obj=>{s.model=mat4.multiply(mat4.create(),s.model,obj.matrix);s.style=obj.style;if(obj.kind===4){s.draw(obj.vertices.map((p,i)=>s.vertex(p,obj.style.fill,obj.attributes[i].uv,obj.attributes[i].normal)));}else{s.polygon(obj.vertices,obj.closed);} for(const child of obj.children)render(child);};s.model=mat4.translate(mat4.clone(s.model),s.model,[x,y,0]);render(obj);s.model=savedMatrix;s.style=savedStyle;});
     b('image',(image,x,y,w,hh)=>{const img=h.objects.get(image);if(!img)throw new Error('Expected image');w??=img.width;hh??=img.height;[x,y,w,hh]=bounds(x,y,w,hh,s.style.imageMode);s.draw([[x,y,0,0,0],[x+w,y,0,1,0],[x+w,y+hh,0,1,1],[x,y,0,0,0],[x+w,y+hh,0,1,1],[x,y+hh,0,0,1]].map(p=>s.vertex(p.slice(0,3),s.style.tint,p.slice(3))),img,false);});
     b('createShader',async(v,f)=>this.shaderModule(await s.owner.device.createShader(v,f)));
+    b('loadTexture',(path,w,height,format,dimension,levels)=>{s.live();const descriptor=textureDescriptor(w,height,format,dimension,levels),texture=s.owner.device.createTexture(descriptor,decodeTextureData(descriptor,h.asset(path))),m=h.newModule();h.objects.set(m,texture);h.bind(m,'WGPU.Texture','Dispose',()=>texture.dispose());return m;});
     b('loadShader',async(fragment,vertex)=>{const text=path=>new TextDecoder().decode(h.asset(path));return this.shaderModule(await s.owner.device.createShader(vertex===undefined?h.bundle.graphics.vertex:text(vertex),text(fragment)));});
     b('shader',m=>s.shader=h.objects.get(m));b('resetShader',()=>s.shader=null);
     b('textFont',(font,size)=>{s.style.font=typeof font==='string'?font:font.scope.get('name');s.style.textSize=size??(typeof font==='string'?s.style.textSize:unwrap(font.scope.get('size')));});b('textSize',n=>{s.style.textSize=n;s.style.leading=n*1.2;});b('textLeading',n=>s.style.leading=n);b('textAlign',(a,v=103)=>{s.style.align=a;s.style.vertical=v;});
@@ -157,7 +159,7 @@ class Canvas {
     b('get',async(x,y)=>{const bytes=await s.target.readPixels();if(x===undefined){let logical;if(s.width===s.pixelWidth&&s.height===s.pixelHeight)logical=bytes.slice();else{logical=new Uint8Array(s.width*s.height*4);for(let y=0;y<s.height;y++)for(let x=0;x<s.width;x++){const i=(Math.floor(y*s.pixelHeight/s.height)*s.pixelWidth+Math.floor(x*s.pixelWidth/s.width))*4,j=(y*s.width+x)*4;logical[j]=bytes[i];logical[j+1]=bytes[i+1];logical[j+2]=bytes[i+2];logical[j+3]=bytes[i+3];}}return s.owner.image(s.width,s.height,logical).module;}if(x<0||y<0||x>=s.width||y>=s.height)return 0;const i=(Math.floor(y*s.pixelHeight/s.height)*s.pixelWidth+Math.floor(x*s.pixelWidth/s.width))*4;return pack(Array.from(bytes.subarray(i,i+4),v=>v/255));});
     b('blendMode',n=>s.blend=n);b('clip',(...a)=>s.clip=a);b('noClip',()=>s.clip=null);b('smooth',()=>{});b('noSmooth',()=>{});
   }
-  shaderModule(shader){const h=this.host,m=h.newModule();h.objects.set(m,shader);h.bind(m,'PShader','set',(name,...v)=>shader.set(name,v.length===1&&Array.isArray(v[0])?v[0]:v));h.bind(m,'PShader','setInt',(name,v)=>shader.set(name,[v],true));return m;}
+  shaderModule(shader){const h=this.host,m=h.newModule();h.objects.set(m,shader);h.bind(m,'PShader','set',(name,...v)=>shader.set(name,v.length===1&&Array.isArray(v[0])?v[0]:v));h.bind(m,'PShader','setInt',(name,v)=>shader.set(name,[v],true));h.bind(m,'PShader','setTexture',(name,m)=>shader.setTexture(name,h.objects.get(m)));return m;}
   dispose(){if(this.disposed)return;this.target?.dispose();this.disposed=true;}
 }
 
