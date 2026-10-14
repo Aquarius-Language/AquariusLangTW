@@ -15,6 +15,8 @@ test('model-sized base64 assets validate without recursive regexp stack growth',
 for(const [name,damage]of [
   ['retired ABI',m=>m.abiVersion=1],['value ABI',m=>m.valueAbi=1],['memory base',m=>m.programAddress=0],
   ['heap overlap',m=>m.heapStart=16],['heap mismatch',m=>m.heapStart++],['missing entry',m=>m.entry='missing.aqua'],
+  ['invalid function layout',m=>m.functionLayout=28],['invalid numeric table',m=>m.functions[1].numericTable=-1],
+  ['invalid recursive name',m=>m.functions[1].numericRecursiveName=42],['legacy layout with numeric entry',m=>m.functionLayout=24],
   ['invalid frame',m=>m.functions[0].stackCapacity=0],['invalid binding cache',m=>m.functions[0].cacheBindings='yes'],['invalid reference',m=>m.functions[0].pool[0].function=999],
   ['invalid constant',m=>m.functions[0].pool[0].type='unknown'],['unsafe asset',m=>m.assets['../file']=''],
   ['bad encoding',m=>m.assets['safe.txt']='!'],['case collision',m=>m.modules['MAIN.aqua']=0]

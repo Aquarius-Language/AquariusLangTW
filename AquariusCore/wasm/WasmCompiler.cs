@@ -58,11 +58,28 @@ public sealed class WasmCompiler
             if (item is FunctionCode function) parameters[function.BodyCode] = function.Parameters.Select(p => p.Value).ToArray();
         var functions = bodies.Select(b => new WasmFunction(b.WrapReturn, b.Constants.Select(Constant).ToArray(),
             parameters.GetValueOrDefault(b, System.Array.Empty<string>()), WasmStackAnalysis.Capacity(b), b.Code.Any(op => op.Code == IrOperation.EnterLoop))).ToArray();
+        var numeric = new List<(int Body, WasmNumericFunction Plan)>();
+        if (optimize) for (int f = 0; f < bodies.Count; f++)
+            if (parameters.TryGetValue(bodies[f], out var args) && WasmNumericFunction.Analyze(bodies[f], args) is { } plan)
+                numeric.Add((f, plan));
+        for (int p = 0; p < numeric.Count; p++) {
+            functions[numeric[p].Body] = functions[numeric[p].Body] with {
+                NumericTable = bodies.Count + 1 + p, NumericRecursiveName = numeric[p].Plan.RecursiveName };
+        }
         var runtime = new WasmRuntimeImage();
+        var integers = numeric.Select(item => WasmIntegerFunction.Analyze(item.Plan)).ToArray();
+        var adapterIndices = new int[numeric.Count];
+        var integerTypes = new int[numeric.Count];
+        int extraFunctions = 0, extraTypes = 0;
+        for (int p = 0; p < numeric.Count; p++) {
+            adapterIndices[p] = runtime.FunctionCount + bodies.Count + extraFunctions;
+            extraFunctions += integers[p] == null ? 2 : 3;
+            if (integers[p] != null) integerTypes[p] = runtime.TypeCount + 2 + numeric.Count + extraTypes++;
+        }
         var data = new WasmRuntimeImage.Data(); data.Build(functions);
         var metadata = new WasmMetadata(WasmAbi.Version, entry, exports, functions,
             assets?.ToDictionary(p => p.Key, p => Convert.ToBase64String(p.Value)) ?? new(),
-            ProgramAddress: WasmRuntimeImage.ProgramAddress, HeapStart: data.End);
+            ProgramAddress: WasmRuntimeImage.ProgramAddress, HeapStart: data.End, FunctionLayout: 32);
         using var output = new MemoryStream();
         output.Write(new byte[] { 0, 97, 115, 109, 1, 0, 0, 0 });
         void Section(byte id, Action<BinaryWriter> write)
@@ -70,20 +87,43 @@ public sealed class WasmCompiler
             using var bytes = new MemoryStream(); using var writer = new BinaryWriter(bytes, Encoding.UTF8, true);
             write(writer); output.WriteByte(id); WriteUnsigned(output, (uint)bytes.Length); bytes.Position = 0; bytes.CopyTo(output);
         }
-        runtime.Sections[1] = WasmRuntimeImage.Extend(runtime.Sections[1], 1, w => w.Write(new byte[] { 0x60, 1, 0x7f, 1, 0x7f }));
+        runtime.Sections[1] = WasmRuntimeImage.Extend(runtime.Sections[1], 2 + numeric.Count + extraTypes, w => {
+            w.Write(new byte[] { 0x60, 1, 0x7f, 1, 0x7f });
+            w.Write(new byte[] { 0x60, 3, 0x7f, 0x7f, 0x7f, 1, 0x7f });
+            foreach (var item in numeric) item.Plan.WriteType(w);
+            foreach (var integer in integers) integer?.WriteType(w);
+        });
         using (var memory = new MemoryStream()) { using var w = new BinaryWriter(memory); U(w, 1); U(w, 1); U(w, Math.Max(256, checked((data.End + 65535) / 65536))); U(w, 8192); runtime.Sections[5] = memory.ToArray(); }
-        runtime.Sections[3] = WasmRuntimeImage.Extend(runtime.Sections[3], bodies.Count, w => { foreach (var _ in bodies) U(w, runtime.TypeCount); });
+        runtime.Sections[3] = WasmRuntimeImage.Extend(runtime.Sections[3], bodies.Count + extraFunctions, w => {
+            foreach (var _ in bodies) U(w, runtime.TypeCount);
+            for (int p = 0; p < numeric.Count; p++) {
+                U(w, runtime.TypeCount + 1); U(w, runtime.TypeCount + 2 + p);
+                if (integers[p] != null) U(w, integerTypes[p]);
+            }
+        });
         // Runtime function pointers dispatch compiled Aquarius functions directly.
-        using (var table = new MemoryStream()) { using var w = new BinaryWriter(table); U(w, 1); w.Write((byte)0x70); U(w, 0); U(w, bodies.Count + 1); runtime.Sections[4] = table.ToArray(); }
+        using (var table = new MemoryStream()) { using var w = new BinaryWriter(table); U(w, 1); w.Write((byte)0x70); U(w, 0); U(w, bodies.Count + 1 + numeric.Count); runtime.Sections[4] = table.ToArray(); }
         runtime.Sections[7] = WasmRuntimeImage.Extend(runtime.Sections[7], bodies.Count, w =>
             { for (int i = 0; i < bodies.Count; i++) { Text(w, $"aqua_f{i}"); w.Write((byte)0); U(w, runtime.FunctionCount + i); } });
-        using (var elements = new MemoryStream()) { using var w = new BinaryWriter(elements); U(w, 1); U(w, 0); w.Write((byte)0x41); Signed(w, 1); w.Write((byte)0x0b); U(w, bodies.Count); for (int i = 0; i < bodies.Count; i++) U(w, runtime.FunctionCount + i); runtime.Sections[9] = elements.ToArray(); }
-        runtime.Sections[10] = WasmRuntimeImage.Extend(runtime.Sections[10], bodies.Count, w =>
+        using (var elements = new MemoryStream()) { using var w = new BinaryWriter(elements); U(w, 1); U(w, 0); w.Write((byte)0x41); Signed(w, 1); w.Write((byte)0x0b); U(w, bodies.Count + numeric.Count); for (int i = 0; i < bodies.Count; i++) U(w, runtime.FunctionCount + i); foreach (int adapter in adapterIndices) U(w, adapter); runtime.Sections[9] = elements.ToArray(); }
+        runtime.Sections[10] = WasmRuntimeImage.Extend(runtime.Sections[10], bodies.Count + extraFunctions, w =>
         {
             for (int f = 0; f < bodies.Count; f++)
             {
                 using var bytes = new MemoryStream(); using var code = new BinaryWriter(bytes, Encoding.UTF8, true);
                 EmitBody(code, bodies[f], runtime.Functions, data.Pools[f], functions[f].Parameters!, optimize); U(w, (int)bytes.Length); w.Write(bytes.ToArray());
+            }
+            for (int p = 0; p < numeric.Count; p++) {
+                int implementation = adapterIndices[p] + 1;
+                int? integerImplementation = integers[p] == null ? null : implementation + 1;
+                using var adapter = new MemoryStream(); using (var code = new BinaryWriter(adapter, Encoding.UTF8, true)) numeric[p].Plan.EmitAdapter(code, implementation, integerImplementation);
+                U(w, (int)adapter.Length); w.Write(adapter.ToArray());
+                using var typed = new MemoryStream(); using (var code = new BinaryWriter(typed, Encoding.UTF8, true)) numeric[p].Plan.EmitImplementation(code, implementation);
+                U(w, (int)typed.Length); w.Write(typed.ToArray());
+                if (integers[p] != null) {
+                    using var integer = new MemoryStream(); using (var code = new BinaryWriter(integer, Encoding.UTF8, true)) integers[p]!.EmitImplementation(code, integerImplementation!.Value);
+                    U(w, (int)integer.Length); w.Write(integer.ToArray());
+                }
             }
         });
         runtime.Sections[11] = WasmRuntimeImage.Extend(runtime.Sections[11], 1, w =>
@@ -134,32 +174,57 @@ public sealed class WasmCompiler
         void CopyValue(int target, int source) {
             for (int offset = 0; offset <= 8; offset += 8) { Get(target); Get(source); Memory(0x29, 3, offset); Memory(0x37, 3, offset); }
         }
-        void Binding(int constant, int candidate) {
-            if (candidate < 0) { Call("binding", constant); Set(7); Checked(); return; }
+        void CandidatePointer(int constant, WasmBindingSlots.Candidate candidate) {
             Get(0); Memory(0x28, 2, 16); Set(3); // current scope, never a cached guest pointer
-            Get(3); Memory(0x28, 2, 8); I(candidate); w.Write(new byte[] { 0x4b, 0x04, 0x7f });
-            Get(3); Memory(0x28, 2, 4); I(checked(candidate * 24)); w.Write((byte)0x6a); Set(2);
+            // Resolution proves an intervening scope does not declare this name.
+            // Until captured, it cannot have been edited by a host or closure.
+            for (int depth = 0; depth < candidate.Depth; depth++) {
+                Get(3); Memory(0x28, 2, 16); w.Write(new byte[] { 0x45, 0x04, 0x7f });
+                Get(3); Memory(0x28, 2); Set(3);
+            }
+            Get(3); Memory(0x28, 2, 8); I(candidate.Slot); w.Write(new byte[] { 0x4b, 0x04, 0x7f });
+            Get(3); Memory(0x28, 2, 4); I(checked(candidate.Slot * 24)); w.Write((byte)0x6a); Set(2);
             Get(2); Memory(0x28, 2); I(checked(pool + constant * 16)); Memory(0x28, 2, 4); w.Write(new byte[] { 0x46, 0x04, 0x7f });
-            Get(2); I(8); w.Write((byte)0x6a); w.Write((byte)0x05); Call("binding", constant); w.Write((byte)0x0b);
-            w.Write((byte)0x05); Call("binding", constant); w.Write((byte)0x0b); Set(7); Checked();
+            Get(2); I(8); w.Write((byte)0x6a); w.Write((byte)0x05); I(0); w.Write((byte)0x0b);
+            w.Write((byte)0x05); I(0); w.Write((byte)0x0b);
+            for (int depth = 0; depth < candidate.Depth; depth++) { w.Write((byte)0x05); I(0); w.Write((byte)0x0b); }
         }
-        void LoadBinding(int constant, int candidate) {
-            if (candidate < 0) { Call("load", constant); w.Write((byte)0x1a); Checked(); return; }
-            Get(0); Memory(0x28, 2, 16); Set(3);
-            Get(3); Memory(0x28, 2, 8); I(candidate); w.Write(new byte[] { 0x4b, 0x04, 0x40 });
-            Get(3); Memory(0x28, 2, 4); I(checked(candidate * 24)); w.Write((byte)0x6a); Set(7);
-            Get(7); Memory(0x28, 2); I(checked(pool + constant * 16)); Memory(0x28, 2, 4); w.Write(new byte[] { 0x46, 0x04, 0x40 });
-            Get(7); I(8); w.Write((byte)0x6a); Set(7); StackAddress(56); CopyValue(2, 7); StackChange(1);
+        void Binding(int constant, WasmBindingSlots.Candidate? candidate) {
+            if (candidate == null) { Call("binding", constant); Set(7); Checked(); return; }
+            if (candidate.Depth == 0) {
+                Get(0); Memory(0x28, 2, 16); Set(3);
+                Get(3); Memory(0x28, 2, 8); I(candidate.Slot); w.Write(new byte[] { 0x4b, 0x04, 0x7f });
+                Get(3); Memory(0x28, 2, 4); I(checked(candidate.Slot * 24)); w.Write((byte)0x6a); Set(2);
+                Get(2); Memory(0x28, 2); I(checked(pool + constant * 16)); Memory(0x28, 2, 4); w.Write(new byte[] { 0x46, 0x04, 0x7f });
+                Get(2); I(8); w.Write((byte)0x6a); w.Write((byte)0x05); Call("binding", constant); w.Write((byte)0x0b);
+                w.Write((byte)0x05); Call("binding", constant); w.Write((byte)0x0b); Set(7); Checked(); return;
+            }
+            CandidatePointer(constant, candidate); Set(7);
+            Get(7); w.Write(new byte[] { 0x04, 0x7f }); Get(7); w.Write((byte)0x05); Call("binding", constant); w.Write((byte)0x0b); Set(7); Checked();
+        }
+        void LoadBinding(int constant, WasmBindingSlots.Candidate? candidate) {
+            if (candidate == null) { Call("load", constant); w.Write((byte)0x1a); Checked(); return; }
+            if (candidate.Depth == 0) {
+                Get(0); Memory(0x28, 2, 16); Set(3);
+                Get(3); Memory(0x28, 2, 8); I(candidate.Slot); w.Write(new byte[] { 0x4b, 0x04, 0x40 });
+                Get(3); Memory(0x28, 2, 4); I(checked(candidate.Slot * 24)); w.Write((byte)0x6a); Set(7);
+                Get(7); Memory(0x28, 2); I(checked(pool + constant * 16)); Memory(0x28, 2, 4); w.Write(new byte[] { 0x46, 0x04, 0x40 });
+                Get(7); I(8); w.Write((byte)0x6a); Set(7); StackAddress(56); CopyValue(2, 7); StackChange(1);
+                w.Write((byte)0x05); Call("load", constant); w.Write(new byte[] { 0x1a, 0x0b });
+                w.Write((byte)0x05); Call("load", constant); w.Write(new byte[] { 0x1a, 0x0b }); Checked(); return;
+            }
+            CandidatePointer(constant, candidate); Set(7); Get(7); w.Write(new byte[] { 0x04, 0x40 });
+            StackAddress(56); CopyValue(2, 7); StackChange(1);
             w.Write((byte)0x05); Call("load", constant); w.Write(new byte[] { 0x1a, 0x0b });
-            w.Write((byte)0x05); Call("load", constant); w.Write(new byte[] { 0x1a, 0x0b }); Checked();
+            Checked();
         }
         void VoidAssignment() {
             StackChange(-1); StackAddress(40);
             for (int offset = 0; offset <= 8; offset += 8) { Get(2); w.Write(new byte[] { 0x42, 0 }); Memory(0x37, 3, offset); }
         }
         void StoreNumber() { Get(7); I(0); Memory(0x36, 2, 4); Get(7); Get(6); Memory(0x39, 3, 8); }
-        void AssignBinding(int constant, int candidate) { Binding(constant, candidate); StackAddress(40); CopyValue(7, 2); VoidAssignment(); }
-        void CompoundBinding(int constant, int candidate) {
+        void AssignBinding(int constant, WasmBindingSlots.Candidate? candidate) { Binding(constant, candidate); StackAddress(40); CopyValue(7, 2); VoidAssignment(); }
+        void CompoundBinding(int constant, WasmBindingSlots.Candidate? candidate) {
             Binding(constant, candidate); StackAddress(40);
             Get(7); Memory(0x28, 2); Set(4); Get(2); Memory(0x28, 2); Set(5);
             NumericTag(4); NumericTag(5); w.Write(new byte[] { 0x71, 0x04, 0x40 });
@@ -171,7 +236,7 @@ public sealed class WasmCompiler
             Set(6); NormalizeNumber(); StoreNumber(); VoidAssignment();
             w.Write((byte)0x05); Call("compoundAssign", constant); w.Write(new byte[] { 0x1a, 0x0b }); Checked();
         }
-        void IncrementBinding(int constant, int candidate, bool prefix) {
+        void IncrementBinding(int constant, WasmBindingSlots.Candidate? candidate, bool prefix) {
             Binding(constant, candidate); Get(7); Memory(0x28, 2); Set(4);
             NumericTag(4); w.Write(new byte[] { 0x04, 0x40 });
             Get(7); Memory(0x2b, 3, 8); F(1); w.Write((byte)0xa0); Set(6); NormalizeNumber();

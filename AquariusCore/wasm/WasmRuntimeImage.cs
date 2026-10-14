@@ -77,19 +77,23 @@ internal sealed class WasmRuntimeImage
             long end = bytes.Length; bytes.Position = address + 4 - ProgramAddress; writer.Write(Encoding.Unicode.GetBytes(text)); bytes.Position = end;
             strings.Add(text, address); return address;
         }
-        internal int Build(WasmFunction[] functions)
+        internal int Build(WasmFunction[] functions, int functionLayout = 32)
         {
             Pools = new int[functions.Length];
-            int program = Reserve(8), definitions = Reserve(functions.Length * 24, 4);
+            int program = Reserve(8), definitions = Reserve(functions.Length * functionLayout, 4);
             if (program != ProgramAddress) throw new InvalidOperationException("Invalid program data layout.");
             Int(program, functions.Length); Int(program + 4, definitions);
             for (int f = 0; f < functions.Length; f++)
             {
                 var function = functions[f]; string[] parameters = function.Parameters ?? Array.Empty<string>();
-                int definition = definitions + f * 24, names = Reserve(parameters.Length * 4, 4), constants = Reserve(function.Pool.Length * 16);
+                int definition = definitions + f * functionLayout, names = Reserve(parameters.Length * 4, 4), constants = Reserve(function.Pool.Length * 16);
                 Pools[f] = constants;
                 Int(definition, f + 1); Int(definition + 4, parameters.Length); Int(definition + 8, function.StackCapacity);
                 Int(definition + 12, checked((function.CacheBindings ? function.Pool.Length * 2 : 0) + (function.WrapReturn ? 1 : 0))); Int(definition + 16, names); Int(definition + 20, constants);
+                if (functionLayout == 32) {
+                    Int(definition + 24, function.NumericTable);
+                    Int(definition + 28, function.NumericRecursiveName is string recursive ? Text(recursive) : 0);
+                }
                 for (int p = 0; p < parameters.Length; p++) Int(names + p * 4, Text(parameters[p]));
                 for (int c = 0; c < function.Pool.Length; c++)
                 {

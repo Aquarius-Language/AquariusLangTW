@@ -14,7 +14,7 @@ typedef struct { u32 references,capacity,used,padding; Value values[]; } ArraySt
 typedef struct Array { u32 count, capacity; Value *values; struct Array *dirty_next; u32 dirty, exposed; ArrayStorage *storage; } Array;
 typedef struct { Value key, value; } Pair;
 typedef struct Hash { u32 count,capacity; Pair *pairs; struct Hash *dirty_next; u32 dirty,exposed; } Hash;
-typedef struct { u32 table, arity, capacity, wrap_return; Text **parameters; Value *constants; } Function;
+typedef struct { u32 table, arity, capacity, wrap_return; Text **parameters; Value *constants; u32 numeric_table; Text *recursive_name; } Function;
 typedef struct { u32 count; Function *functions; } Program;
 typedef struct { Program *program; u32 function; Scope *scope; u32 context; } Closure;
 typedef struct Loop { struct Loop *previous; Scope *outer; u32 base; Text *binding; } Loop;
@@ -23,7 +23,7 @@ typedef struct Frame {
     struct Frame *parent; Execution *execution; Program *program; Function *function;
     Scope *scope; Loop *loops; u32 pc, sp, returned, context, capacity, pending_base, pending_count; u32 *binding_cache; Value values[];
 } Frame;
-struct Execution { Execution *next; Frame *current; Value result; u32 budget, status; };
+struct Execution { Execution *next; Frame *current; Value result; u32 budget, status; Function *numeric_depth_disabled; };
 _Static_assert(offsetof(Frame, values)==56, "Compiler frame ABI mismatch");
 _Static_assert(offsetof(Execution, status)==28, "Compiler execution ABI mismatch");
 _Static_assert(sizeof(Value)==16 && sizeof(Binding)==24 && offsetof(Binding,value)==8, "Host value/binding ABI mismatch");
@@ -45,6 +45,10 @@ static unsigned char native_live[65536];
 static u32 marked_native_ids[65536], marked_native_count, collection_generation;
 static u32 bytes_since_collection;
 static u32 scope_epoch=1;
+static u32 numeric_fast_calls, numeric_fallback_calls, numeric_depth_fallbacks;
+u32 aqua_numeric_fast_calls(void) { return numeric_fast_calls; }
+u32 aqua_numeric_fallback_calls(void) { return numeric_fallback_calls; }
+u32 aqua_numeric_depth_fallbacks(void) { return numeric_depth_fallbacks; }
 u32 aqua_collect(void);
 
 // Bulk-memory intrinsics avoid byte-by-byte copies and preserve overlapping moves.
@@ -239,7 +243,19 @@ int rt_call(Frame*f,int n) {
             else if(callee.ref==3){if(!x->count)out=value(NULL_VALUE,0,0);else{Array*y=array(x->count-1);memcpy(y->values,x->values+1,y->count*sizeof(Value));out=value(ARRAY,address(y),0);}}
             else{Array*y=append_array(x,args[1]);out=value(ARRAY,address(y),0);}}
         f->sp=base;push(f,out);}
-    else if(callee.tag==CLOSURE){Closure*c=pointer(callee.ref);Function*fn=c->program->functions+c->function;if(fn->arity!=(u32)n){Text*t=concat(ascii("Function expects "),decimal(fn->arity));t=concat(t,ascii(" arguments, got "));t=concat(t,decimal(n));fail(f,concat(t,ascii(".")));return 0;}Scope*s=scope(c->scope);for(int i=0;i<n;i++)declare(s,fn->parameters[i],args[i]);f->sp=base;f->execution->current=frame(f->execution,f,c->program,c->function,s,c->context);}
+    else if(callee.tag==CLOSURE){Closure*c=pointer(callee.ref);Function*fn=c->program->functions+c->function;if(fn->arity!=(u32)n){Text*t=concat(ascii("Function expects "),decimal(fn->arity));t=concat(t,ascii(" arguments, got "));t=concat(t,decimal(n));fail(f,concat(t,ascii(".")));return 0;}
+        // Closed scalar functions have no heap/capability/captured-write effects.
+        // A failed fast attempt can therefore restart on the resumable path.
+        if(fn->numeric_table&&f->execution->numeric_depth_disabled!=fn){Binding*self=fn->recursive_name?find(c->scope,fn->recursive_name):0;
+            if(!fn->recursive_name||(self&&self->value.tag==CLOSURE&&self->value.ref==callee.ref)){
+                u32 saved_budget=f->execution->budget;Value out=empty;int status=((int(*)(Value*,Value*,Execution*))(uintptr_t)fn->numeric_table)(args,&out,f->execution);
+                if(status==1){numeric_fast_calls++;f->sp=base;push(f,out);return 0;}numeric_fallback_calls++;if(status==3){numeric_depth_fallbacks++;f->execution->numeric_depth_disabled=fn;}
+                // Discarded speculation must not cause an observable yield before
+                // the generic body reconstructs its actual execution state.
+                f->execution->budget=saved_budget;
+            }
+        }
+        Scope*s=scope(c->scope);for(int i=0;i<n;i++)declare(s,fn->parameters[i],args[i]);f->sp=base;f->execution->current=frame(f->execution,f,c->program,c->function,s,c->context);}
     else if(callee.tag==NATIVE){Value out=empty;int pending=host_service(1,f->context,callee.ref,0,address(args),n,address(&out));f->sp=base;if(pending==1){f->pending_base=base;f->pending_count=n+1;f->execution->status=2;}else push(f,out);}
     else named_failure(f,"Not a function: ",ascii(type_name(callee.tag)));return 0;
 }

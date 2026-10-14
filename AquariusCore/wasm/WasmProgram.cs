@@ -9,9 +9,10 @@ namespace AquariusLang.Wasm;
 
 public sealed record WasmConstant(string Type, double Number = 0, string? Text = null, bool Boolean = false,
     int Function = -1, string[]? Parameters = null, string? Operation = null, string? Display = null);
-public sealed record WasmFunction(bool WrapReturn, WasmConstant[] Pool, string[]? Parameters = null, int StackCapacity = 0, bool CacheBindings = false);
+public sealed record WasmFunction(bool WrapReturn, WasmConstant[] Pool, string[]? Parameters = null, int StackCapacity = 0, bool CacheBindings = false,
+    int NumericTable = 0, string? NumericRecursiveName = null);
 public sealed record WasmMetadata(int AbiVersion, string Entry, Dictionary<string, int> Modules,
-    WasmFunction[] Functions, Dictionary<string, string> Assets, int ValueAbi = 2, int ProgramAddress = 0, int HeapStart = 0);
+    WasmFunction[] Functions, Dictionary<string, string> Assets, int ValueAbi = 2, int ProgramAddress = 0, int HeapStart = 0, int FunctionLayout = 24);
 
 /// <summary>A standard WebAssembly module with bounded, versioned application metadata in a custom section.</summary>
 public sealed class WasmProgram
@@ -111,6 +112,10 @@ public sealed class WasmProgram
             if (f?.Pool == null) throw new InvalidDataException("Missing function constants.");
             if (f.Parameters == null || f.Parameters.Length > 10000 || f.Parameters.Any(p => string.IsNullOrWhiteSpace(p)) || f.StackCapacity < 16 || f.StackCapacity > 1000000)
                 throw new InvalidDataException("Invalid function frame layout.");
+            if (metadata.FunctionLayout is not (24 or 32) || f.NumericTable < 0 || f.NumericTable > metadata.Functions.Length * 2 ||
+                f.NumericRecursiveName != null && (string.IsNullOrWhiteSpace(f.NumericRecursiveName) || f.NumericTable == 0) ||
+                metadata.FunctionLayout == 24 && (f.NumericTable != 0 || f.NumericRecursiveName != null))
+                throw new InvalidDataException("Invalid numeric function layout.");
             foreach (var c in f.Pool)
             {
                 if (c == null || !new[] { "name", "int", "float", "double", "string", "bool", "null", "break", "assignment", "function", "program" }.Contains(c.Type)) throw new InvalidDataException("Invalid constant type.");
@@ -121,7 +126,7 @@ public sealed class WasmProgram
                 if (c.Type == "int" && (c.Number < int.MinValue || c.Number > int.MaxValue || c.Number != Math.Truncate(c.Number))) throw new InvalidDataException("Invalid integer constant.");
             }
         }
-        var data = new WasmRuntimeImage.Data(); data.Build(metadata.Functions);
+        var data = new WasmRuntimeImage.Data(); data.Build(metadata.Functions, metadata.FunctionLayout);
         if (metadata.HeapStart != data.End) throw new InvalidDataException("Application metadata does not match its memory layout.");
         return new WasmProgram((byte[])bytes.Clone(), metadata);
     }

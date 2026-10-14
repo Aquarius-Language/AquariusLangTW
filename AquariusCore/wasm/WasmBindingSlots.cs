@@ -5,13 +5,14 @@ using AquariusLang.Compiler;
 
 namespace AquariusLang.Wasm;
 
-/// <summary>Candidate owned-scope slots. The emitter guards count and name at each
-/// access; conditional declarations, loop resets and host edits use normal lookup.</summary>
+/// <summary>Lexical candidates. Ancestor accesses guard uncaptured intervening
+/// scopes; count/name guards retain dynamic declarations and host edits.</summary>
 internal static class WasmBindingSlots
 {
-    internal static int[] Resolve(LoweredProgram body, string[] parameters)
+    internal sealed record Candidate(int Slot, int Depth);
+    internal static Candidate?[] Resolve(LoweredProgram body, string[] parameters)
     {
-        var slots = Enumerable.Repeat(-1, body.Code.Length).ToArray();
+        var slots = new Candidate?[body.Code.Length];
         var scopes = new Stack<Dictionary<string, int>>();
         scopes.Push(new(StringComparer.Ordinal));
         void Declare(string name) { var scope = scopes.Peek(); if (!scope.ContainsKey(name)) scope.Add(name, scope.Count); }
@@ -28,7 +29,13 @@ internal static class WasmBindingSlots
             };
             if (name == null) continue;
             if (op.Code == IrOperation.Declare) Declare(name);
-            else if (scopes.Peek().TryGetValue(name, out int slot)) slots[i] = slot;
+            else {
+                int depth = 0;
+                foreach (var scope in scopes) {
+                    if (scope.TryGetValue(name, out int slot)) { slots[i] = new(slot, depth); break; }
+                    depth++;
+                }
+            }
         }
         return slots;
     }

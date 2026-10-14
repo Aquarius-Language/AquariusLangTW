@@ -43,10 +43,15 @@ execute in the linked freestanding Wasm runtime. The `aquarius_v2.service` impor
 transports capability lookup, calls and native module access. Hosts project values
 only at capability and embedding boundaries. Portable builtins execute in Wasm.
 
+Eligible closed scalar functions also use a private typed Wasm calling convention
+with register values and guarded direct recursion. Failed speculation returns to
+the resumable implementation before yielding. Lexical ancestor slots are guarded
+by capture ownership. See [portable numeric compilation](docs/portable-numeric-architecture.md).
+
 Each compiled function exports `aqua_fN(i32 frame) -> i32`. The frame and its
 continuation live in Wasm memory. Compiled basic blocks use structured Wasm branches
 and `br_table`, calling guest runtime helpers directly. A nonnegative result is a
-continuation; -1 completes the function. Calls and member resolution suspend at
+continuation; -1 completes the function. Generic calls and member resolution suspend at
 compiler-generated boundaries. The guest scheduler runs compiled function frames without
 using the C# or JavaScript call stack for Aquarius recursion. Browser host calls
 can await GPU mapping, external-library initialization and animation frames.

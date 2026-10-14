@@ -24,6 +24,12 @@ environments. Treat a cached AST as immutable. `CompiledRuntime` accepts Wasm or
 compiler IR for tool integration; IR always goes through Wasm emission before execution.
 See [the architecture](../ARCHITECTURE.md) and [ABI](../AquariusPackaging/README.md).
 
+Closed scalar functions can additionally use register values and direct typed Wasm
+calls, with guarded fallback for types, effects, fuel and recursion depth. Lexical
+ancestor slots avoid name lookup while intervening scopes remain uncaptured. These
+optimizations preserve the language behavior below; see
+[portable numeric compilation](../docs/portable-numeric-architecture.md).
+
 ## Language behavior
 
 - Keywords include `變數`, `函式`, `如果`, `否則如果`, `否則`, `回傳`, `迴圈`, `中斷`, `真` and `假`.
