@@ -28,6 +28,8 @@ internal sealed class SilkWgpuBackend : IWgpuBackend {
         public int Length => Native.Length;
         public void Write(float[] values) => Native.Write(values);
         public float[] Read() => Native.Read();
+        public void WriteRange(int offset, float[] values) => Native.WriteRange(offset,values);
+        public float[] ReadRange(int offset, int count) => Native.ReadRange(offset,count);
         public void Dispose() => Native.Dispose();
     }
     private sealed class ShaderAdapter : IWgpuShader {

@@ -14,6 +14,7 @@
 - **可攜紋理與 HDR**：[具名 shader 紋理、cube mip chains 與線性浮點 render targets](docs/wgpu-textures.md)共用 Windows、WebGPU 與 Android Vulkan 契約。
 - **跨平台音訊**：[音訊抽象與函式庫](AquariusCore/audio/README.md)共用 miniaudio WebAssembly 解碼與混音，支援音檔、音調、循環、聲像、音高及無硬體的離線樣本輸出。
 - **模型推論**：[ONNX Runtime 雙語介面](docs/onnx.md)提供可擴充的核心契約、桌面與網頁 WebGPU 配接器，以及 [繁體中文姿態範例](examples/mediapipe/README.md)。
+- **GPU 數學**：[核心 GPUMath／GPU數學 雙語函式庫](docs/gpu-math.md)接受自訂 WGSL 運算式、計算函式及完整著色器，共用桌面、瀏覽器與 Android WebGPU，支援保留緩衝區、範圍傳輸及管線快取。
 
 ## 目錄
 

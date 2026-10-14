@@ -12,7 +12,8 @@ namespace AquariusLang.Graphics;
 public static class PortableGraphicsLibraries {
     public static IReadOnlyDictionary<string, string> Modules { get; } = new Dictionary<string, string>(StringComparer.Ordinal) {
         ["Models"] = ".aquarius/Models.aqua", ["模型"] = ".aquarius/Models.aqua",
-        ["PBR"] = ".aquarius/PBR.aqua"
+        ["PBR"] = ".aquarius/PBR.aqua",
+        ["GPUMath"] = ".aquarius/GPUMath.aqua", ["GPU數學"] = ".aquarius/GPUMath.aqua"
     };
     public static string ReadSource(string path) {
         using var stream = typeof(PortableGraphicsLibraries).Assembly.GetManifestResourceStream("AquariusLang.Graphics." + Path.GetFileName(path))
@@ -34,6 +35,17 @@ public static class PortableGraphicsLibraries {
         return result;
     }
     public static IReadOnlyList<LibraryFunction> Functions { get; } = new LibraryFunction[] {
+        new("GPUMath", "CreateDevice", "建立裝置", 0, 0, "WGPU.Device"),
+        new("GPUMath", "CreateKernel", "建立核心", 3, 3),
+        new("GPUMath", "Expression", "運算式", 3, 3),
+        new("GPUMath", "CreateBuffer", "建立緩衝區", 3, 3, "WGPU.Buffer"),
+        new("GPUMath", "Dispatch", "派送", 3, 3),
+        new("GPUMath", "ReadResult", "讀取結果", 2, 2),
+        new("GPUMath", "WriteInput", "寫入輸入", 4, 4),
+        new("GPUMath", "Calculate", "計算", 3, 3),
+        new("GPUMath", "DispatchWGSL", "派送WGSL", 4, 4),
+        new("WGPU.Buffer", "WriteRange", "寫入範圍", 2, 2),
+        new("WGPU.Buffer", "ReadRange", "讀取範圍", 2, 2),
         new("Models", "ParseOBJ", "解析OBJ", 1, 1), new("Models", "ParseMTL", "解析MTL", 1, 1),
         new("Models", "LoadOBJ", "載入OBJ", 1, 1), new("Models", "LoadMTL", "載入MTL", 1, 1),
         new("Models", "LoadAssetOBJ", "載入資產OBJ", 1, 1), new("Models", "LoadAssetMTL", "載入資產MTL", 1, 1),

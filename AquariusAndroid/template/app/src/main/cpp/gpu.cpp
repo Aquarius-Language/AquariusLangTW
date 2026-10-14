@@ -127,9 +127,11 @@ struct Device {
   std::unordered_map<uint64_t, std::unique_ptr<Texture>> textures;
   std::unordered_map<uint64_t, std::unique_ptr<Target>> targets;
   std::unordered_map<uint64_t, std::unique_ptr<Shader>> shaders;
+  std::unordered_map<std::string, WGPUComputePipeline> computePipelines;
   std::array<std::unique_ptr<FrameStorage>, 3> frames;
   size_t frameIndex = 0;
   ~Device() {
+    for (auto& item : computePipelines) wgpuComputePipelineRelease(item.second);
     for (auto& frame : frames) frame.reset();
     buffers.clear();
     textures.clear();
@@ -724,9 +726,11 @@ Json command(const std::string& op, const Json& a,
   }
   if (op == "writeBuffer") {
     auto& b = get(d.buffers, a.at("id"));
-    if (bytes.size() != b.size)
+    size_t offset = a.value("offset", size_t(0));
+    if (offset > b.size || bytes.size() > b.size-offset || offset%4 || bytes.size()%4 ||
+        (!a.contains("offset") && bytes.size()!=b.size))
       throw std::runtime_error("Buffer size mismatch");
-    wgpuQueueWriteBuffer(d.queue, b.handle, 0, bytes.data(), bytes.size());
+    wgpuQueueWriteBuffer(d.queue, b.handle, offset, bytes.data(), bytes.size());
     return nullptr;
   }
   if (op == "texture" || op == "target") {
@@ -908,11 +912,18 @@ Json command(const std::string& op, const Json& a,
   }
   if (op == "dispatch") {
     auto& b = get(d.buffers, a.at("id"));
-    auto module = shader(d, a.at("source"));
-    auto pd = WGPU_COMPUTE_PIPELINE_DESCRIPTOR_INIT;
-    pd.compute.module = module;
-    pd.compute.entryPoint = text("cs_main");
-    auto pipeline = wgpuDeviceCreateComputePipeline(d.handle, &pd);
+    std::string source=a.at("source");
+    WGPUComputePipeline pipeline;
+    auto found=d.computePipelines.find(source);
+    if(found!=d.computePipelines.end())pipeline=found->second;
+    else {
+      auto module=shader(d,source);auto pd=WGPU_COMPUTE_PIPELINE_DESCRIPTOR_INIT;
+      pd.compute.module=module;pd.compute.entryPoint=text("cs_main");
+      pipeline=wgpuDeviceCreateComputePipeline(d.handle,&pd);wgpuShaderModuleRelease(module);
+      try {d.check();}catch(...){if(pipeline)wgpuComputePipelineRelease(pipeline);throw;}
+      if(d.computePipelines.size()>=32){auto old=d.computePipelines.begin();wgpuComputePipelineRelease(old->second);d.computePipelines.erase(old);}
+      d.computePipelines.emplace(source,pipeline);
+    }
     auto layout = wgpuComputePipelineGetBindGroupLayout(pipeline, 0);
     auto entry = WGPU_BIND_GROUP_ENTRY_INIT;
     entry.binding = 0;
@@ -933,8 +944,6 @@ Json command(const std::string& op, const Json& a,
     submit(d, encoder);
     wgpuBindGroupRelease(group);
     wgpuBindGroupLayoutRelease(layout);
-    wgpuComputePipelineRelease(pipeline);
-    wgpuShaderModuleRelease(module);
     return nullptr;
   }
   throw std::runtime_error("Unknown WebGPU operation");
@@ -1044,12 +1053,13 @@ Java_org_aquariuslang_android_NativeGpu_surface(JNIEnv* env, jclass,
   window = surface ? ANativeWindow_fromSurface(env, surface) : nullptr;
   surfaceGeneration++;
 }
-extern "C" JNIEXPORT jbyteArray JNICALL
-Java_org_aquariuslang_android_NativeGpu_read(JNIEnv* env, jclass, jlong did,
-                                             jlong id, jboolean isTexture) {
+static jbyteArray readGpu(JNIEnv* env, jlong did, jlong id, jboolean isTexture,
+                         jlong offset=0, jlong count=0) {
   std::lock_guard<std::mutex> lock(gate);
   try {
     auto& d = get(devices, did);
+    if (offset<0 || count<0 || offset%4 || count%4)
+      throw std::runtime_error("Invalid buffer range");
     size_t size;
     uint32_t pitch = 0, width = 0, height = 0;
     auto encoder = wgpuDeviceCreateCommandEncoder(d.handle, nullptr);
@@ -1071,9 +1081,13 @@ Java_org_aquariuslang_android_NativeGpu_read(JNIEnv* env, jclass, jlong did,
       wgpuCommandEncoderCopyTextureToBuffer(encoder, &from, &to, &extent);
     } else {
       auto& b = get(d.buffers, id);
-      size = b.size;
+      size = count ? static_cast<size_t>(count) : b.size;
+      if (static_cast<uint64_t>(offset)>b.size || size>b.size-static_cast<size_t>(offset)) {
+        wgpuCommandEncoderRelease(encoder);
+        throw std::runtime_error("Invalid buffer range");
+      }
       staging = buffer(d, nullptr, size, WGPUBufferUsage_MapRead);
-      wgpuCommandEncoderCopyBufferToBuffer(encoder, b.handle, 0, staging, 0,
+      wgpuCommandEncoderCopyBufferToBuffer(encoder, b.handle, static_cast<uint64_t>(offset), staging, 0,
                                            size);
     }
     submit(d, encoder);
@@ -1111,4 +1125,16 @@ Java_org_aquariuslang_android_NativeGpu_read(JNIEnv* env, jclass, jlong did,
     error(env, e);
     return nullptr;
   }
+}
+
+extern "C" JNIEXPORT jbyteArray JNICALL
+Java_org_aquariuslang_android_NativeGpu_read(JNIEnv* env, jclass, jlong did,
+                                           jlong id, jboolean isTexture) {
+  return readGpu(env,did,id,isTexture);
+}
+extern "C" JNIEXPORT jbyteArray JNICALL
+Java_org_aquariuslang_android_NativeGpu_readRange(JNIEnv* env, jclass, jlong did,
+                                                jlong id, jlong offset, jlong size) {
+  if(size<=0) {error(env,std::runtime_error("Invalid buffer range"));return nullptr;}
+  return readGpu(env,did,id,false,offset,size);
 }

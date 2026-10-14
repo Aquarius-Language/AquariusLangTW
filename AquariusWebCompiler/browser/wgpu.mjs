@@ -37,9 +37,9 @@ export class BrowserWgpuDevice {
   createSurface(canvas){return new BrowserWgpuSurface(this,canvas);}
   flush(){this.live();for(const r of this.resources)if(r instanceof BrowserTarget)r.flush();}
   async poll(){this.flush();await this.gpu.queue.onSubmittedWorkDone();this.live();}
-  async readBuffer(source,size){this.flush();const b=this.gpu.createBuffer({size,usage:GPUBufferUsage.COPY_DST|GPUBufferUsage.MAP_READ});try{const encoder=this.gpu.createCommandEncoder();encoder.copyBufferToBuffer(source,0,b,0,size);this.gpu.queue.submit([encoder.finish()]);await b.mapAsync(GPUMapMode.READ);return new Uint8Array(b.getMappedRange()).slice();}finally{b.destroy();}}
-  async dispatch(source,buffer,groups){this.live();buffer.live();if(buffer.owner!==this)throw new Error('Buffer belongs to another wgpu device');this.flush();const shader=await this.compile(source);const p=this.gpu.createComputePipeline({layout:'auto',compute:{module:shader,entryPoint:'cs_main'}});const group=this.gpu.createBindGroup({layout:p.getBindGroupLayout(0),entries:[{binding:0,resource:{buffer:buffer.handle}}]});const e=this.gpu.createCommandEncoder(),pass=e.beginComputePass();pass.setPipeline(p);pass.setBindGroup(0,group);pass.dispatchWorkgroups(groups);pass.end();this.gpu.queue.submit([e.finish()]);}
-  dispose(){if(this.disposed)return;this.failure=null;this.flush();for(const r of [...this.resources])r.dispose?r.dispose():r.destroy();this.resources.clear();this.disposed=true;this.gpu.destroy();}
+  async readBuffer(source,size,offset=0){this.flush();const b=this.gpu.createBuffer({size,usage:GPUBufferUsage.COPY_DST|GPUBufferUsage.MAP_READ});try{const encoder=this.gpu.createCommandEncoder();encoder.copyBufferToBuffer(source,offset,b,0,size);this.gpu.queue.submit([encoder.finish()]);await b.mapAsync(GPUMapMode.READ);return new Uint8Array(b.getMappedRange()).slice();}finally{b.destroy();}}
+  async dispatch(source,buffer,groups){this.live();buffer.live();if(buffer.owner!==this||!Number.isInteger(groups)||groups<1||groups>65535)throw new Error('Invalid compute dispatch');this.flush();this.computePipelines??=new Map();let p=this.computePipelines.get(source);if(!p){const shader=await this.compile(source);p=await this.gpu.createComputePipelineAsync({layout:'auto',compute:{module:shader,entryPoint:'cs_main'}});if(this.computePipelines.size>=32)this.computePipelines.delete(this.computePipelines.keys().next().value);this.computePipelines.set(source,p);}const group=this.gpu.createBindGroup({layout:p.getBindGroupLayout(0),entries:[{binding:0,resource:{buffer:buffer.handle}}]});const e=this.gpu.createCommandEncoder(),pass=e.beginComputePass();pass.setPipeline(p);pass.setBindGroup(0,group);pass.dispatchWorkgroups(groups);pass.end();this.gpu.queue.submit([e.finish()]);}
+  dispose(){if(this.disposed)return;this.failure=null;this.flush();for(const r of [...this.resources])r.dispose?r.dispose():r.destroy();this.resources.clear();this.computePipelines?.clear();this.disposed=true;this.gpu.destroy();}
 }
 // Presentation belongs to the GPU backend. Processing passes a render target;
 // it does not configure GPUCanvasContext or expose it to the language runtime.
@@ -66,6 +66,9 @@ class BrowserBuffer {
   live(){this.owner.live();if(!this.handle)throw new Error('wgpu buffer has been disposed');}
   write(v){this.live();if(v.length!==this.length)throw new Error(`Buffer Write needs ${this.length} floats`);this.owner.flush();this.owner.gpu.queue.writeBuffer(this.handle,0,new Float32Array(v));}
   async read(){this.live();const b=await this.owner.readBuffer(this.handle,this.length*4);return Array.from(new Float32Array(b.buffer));}
+  range(offset,count){this.live();if(!Number.isInteger(offset)||!Number.isInteger(count)||offset<0||count<1||offset>this.length-count)throw new Error('Invalid buffer range / 緩衝區範圍無效');}
+  writeRange(offset,values){this.range(offset,values.length);if(values.some(v=>typeof v!=='number'||!Number.isFinite(v)||!Number.isFinite(Math.fround(v))))throw new Error('Expected finite floats');this.owner.flush();this.owner.gpu.queue.writeBuffer(this.handle,offset*4,new Float32Array(values));}
+  async readRange(offset,count){this.range(offset,count);const b=await this.owner.readBuffer(this.handle,count*4,offset*4);return Array.from(new Float32Array(b.buffer));}
   dispose(){if(!this.handle)return;this.owner.flush();this.handle.destroy();this.handle=null;this.owner.resources.delete(this);}
 }
 class BrowserShader {

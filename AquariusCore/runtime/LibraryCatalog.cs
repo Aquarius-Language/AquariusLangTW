@@ -38,7 +38,7 @@ public static partial class LibraryCatalog {
     });
     public static string? TraditionalChinese(string englishName) => chineseNames.TryGetValue(englishName, out var name) ? name : null;
     public static string CanonicalLibrary(string name) => name switch {
-        "陣列" => "Array", "wgpu" => "WGPU", "JoltPhysics" => "Jolt", "音訊" => "Audio", "模型" => "Models", "推論引擎" or "ONNXRuntime" => "ONNX", "姿態追蹤" => "MediaPipe", "相機" => "Camera", "Android輸入" => "AndroidInput", "Webcam" or "網路攝影機" => "攝影機", _ => name
+        "GPU數學" => "GPUMath", "陣列" => "Array", "wgpu" => "WGPU", "JoltPhysics" => "Jolt", "音訊" => "Audio", "模型" => "Models", "推論引擎" or "ONNXRuntime" => "ONNX", "姿態追蹤" => "MediaPipe", "相機" => "Camera", "Android輸入" => "AndroidInput", "Webcam" or "網路攝影機" => "攝影機", _ => name
     };
     public static IEnumerable<LibraryFunction> Members(string library) => Functions.Where(f => f.Library == CanonicalLibrary(library));
     public static LibraryFunction? Find(string library, string name) => Members(library).FirstOrDefault(f => f.HasName(name));

@@ -13,5 +13,7 @@ final class NativeGpu {
 
   static native byte[] read(long device, long resource, boolean texture);
 
+  static native byte[] readRange(long device, long resource, long offset, long size);
+
   static native void surface(Surface surface);
 }

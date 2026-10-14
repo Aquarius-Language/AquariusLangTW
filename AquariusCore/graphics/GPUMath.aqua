@@ -1,0 +1,88 @@
+# Portable GPU mathematics: rules and buffer assembly execute in core Wasm.
+# 可攜 GPU 數學：規則與緩衝區組裝由核心 WebAssembly 執行。
+變數 Version=1;
+變數 版本=Version;
+變數 _array=匯入("陣列");
+變數 _error=函式(message){回傳 {"ok":假,"成功":假,"error":message,"錯誤":message};};
+變數 _int=函式(n){變數 value=0;value+=n;回傳 value;};
+變數 _integer=函式(n,maximum){回傳 n>=1 && n<=maximum && n==_int(n);};
+變數 _text=函式(n){
+    變數 digits="0123456789";變數 result="";變數 value=_int(n);
+    如果(value==0){回傳 "0";}
+    迴圈(變數 step=0;value>0;step++){變數 next=_int(value/10);result=digits[value-next*10]+result;value=next;}
+    回傳 result;
+};
+變數 CreateDevice=函式(){變數 gpu=匯入("WGPU");回傳 gpu.建立裝置();};
+變數 CreateKernel=函式(rule,lengths,count){
+    如果(長度(rule)<1 || 長度(rule)>262144 || !_integer(count,4194240) || 長度(lengths)>32){
+        回傳 _error("Invalid rule or dimensions / 規則或尺寸無效");
+    }
+    變數 offsets=[];變數 total=0;
+    變數 source="@group(0) @binding(0) var<storage,read_write> data:array<f32>;
+";
+    迴圈(變數 k=0;k<長度(lengths);k++){
+        如果(!_integer(lengths[k],16777216)){回傳 _error("Invalid input length / 輸入長度無效");}
+        _array.追加(offsets,total);
+        source+="const input"+_text(k)+"Length:u32="+_text(lengths[k])+"u;
+fn input"+_text(k)+"(index:u32)->f32{return data["+_text(total)+"u+index];}
+";
+        total+=lengths[k];
+    }
+    如果(total+count>16777216){回傳 _error("Arena exceeds 64 MiB / 緩衝區超過 64 MiB");}
+    source+="const outputOffset:u32="+_text(total)+"u;
+const itemCount:u32="+_text(count)+"u;
+"+rule;
+    source+="
+@compute @workgroup_size(64) fn cs_main(@builtin(global_invocation_id) id:vec3<u32>){if(id.x<itemCount){data[outputOffset+id.x]=rule(id.x);}}";
+    變數 groups=_int((count+63.0d)/64.0d);
+    回傳 {"ok":真,"成功":真,"source":source,"原始碼":source,"lengths":lengths,"offsets":offsets,"outputOffset":total,"count":count,"total":total+count,"groups":groups};
+};
+# Expressions use WGSL syntax: input0(index)*2.0 + sin(input1(index)).
+# 運算式使用 WGSL 語法，也可由 CreateKernel 傳入完整函式、迴圈與輔助函式。
+變數 Expression=函式(expression,lengths,count){
+    回傳 CreateKernel("fn rule(index:u32)->f32{return "+expression+";}",lengths,count);
+};
+變數 CreateBuffer=函式(device,kernel,inputs){
+    如果(!kernel["ok"]){回傳 kernel;}
+    如果(長度(inputs)!=長度(kernel["lengths"])){回傳 _error("Input count mismatch / 輸入數量不符");}
+    變數 values=_array.建立(kernel["total"],0.0d);
+    迴圈(變數 k=0;k<長度(inputs);k++){
+        如果(長度(inputs[k])!=kernel["lengths"][k]){回傳 _error("Input length mismatch / 輸入長度不符");}
+        迴圈(變數 i=0;i<長度(inputs[k]);i++){values[kernel["offsets"][k]+i]=inputs[k][i];}
+    }
+    回傳 device.建立緩衝區(values);
+};
+變數 Dispatch=函式(device,kernel,buffer){
+    如果(!kernel["ok"]){回傳 kernel;}
+    如果(buffer.Length!=kernel["total"]){回傳 _error("Buffer length mismatch / 緩衝區長度不符");}
+    回傳 device.派送(kernel["source"],buffer,kernel["groups"]);
+};
+變數 ReadResult=函式(kernel,buffer){回傳 buffer.讀取範圍(kernel["outputOffset"],kernel["count"]);};
+變數 WriteInput=函式(kernel,buffer,index,values){
+    如果(!kernel["ok"]){回傳 kernel;}
+    如果(index<0 || index>=長度(kernel["lengths"]) || index!=_int(index)){
+        回傳 _error("Input index or length mismatch / 輸入索引或長度不符");
+    }
+    如果(長度(values)!=kernel["lengths"][index]){回傳 _error("Input length mismatch / 輸入長度不符");}
+    回傳 buffer.寫入範圍(kernel["offsets"][index],values);
+};
+變數 Calculate=函式(device,kernel,inputs){
+    如果(!kernel["ok"]){回傳 kernel;}
+    如果(長度(inputs)!=長度(kernel["lengths"])){回傳 _error("Input count mismatch / 輸入數量不符");}
+    迴圈(變數 k=0;k<長度(inputs);k++){如果(長度(inputs[k])!=kernel["lengths"][k]){回傳 _error("Input length mismatch / 輸入長度不符");}}
+    變數 buffer=CreateBuffer(device,kernel,inputs);
+    Dispatch(device,kernel,buffer);變數 result=ReadResult(kernel,buffer);buffer.釋放();回傳 result;
+};
+變數 DispatchWGSL=函式(device,source,buffer,groups){
+    如果(長度(source)<1 || 長度(source)>262144 || !_integer(groups,65535)){回傳 _error("Invalid WGSL dispatch / WGSL 派送參數無效");}
+    回傳 device.派送(source,buffer,_int(groups));
+};
+變數 建立裝置=CreateDevice;
+變數 建立核心=CreateKernel;
+變數 運算式=Expression;
+變數 建立緩衝區=CreateBuffer;
+變數 派送=Dispatch;
+變數 讀取結果=ReadResult;
+變數 寫入輸入=WriteInput;
+變數 計算=Calculate;
+變數 派送WGSL=DispatchWGSL;

@@ -144,13 +144,13 @@ internal unsafe sealed partial class WgpuDevice : IDisposable {
         Api.CommandBufferRelease(commands);Api.CommandEncoderRelease(encoder);Check();
     }
     internal void Flush() {RequireLive();foreach(var target in Resources.OfType<WgpuTarget>().ToArray())target.Flush();}
-    internal byte[] ReadBuffer(GpuBuffer* source,int size) {
+    internal byte[] ReadBuffer(GpuBuffer* source,int size,ulong offset=0) {
         Flush();
         // MAP_READ is only valid with COPY_DST; it cannot share storage/vertex usage.
         var descriptor=new BufferDescriptor {Size=(ulong)size,Usage=BufferUsage.CopyDst|BufferUsage.MapRead};
         var staging=Api.DeviceCreateBuffer(Handle,&descriptor);
         try {
-            var encoder=Encoder();Api.CommandEncoderCopyBufferToBuffer(encoder,source,0,staging,0,(ulong)size);Submit(encoder);
+            var encoder=Encoder();Api.CommandEncoderCopyBufferToBuffer(encoder,source,offset,staging,0,(ulong)size);Submit(encoder);
             return Map(staging,size);
         } finally {Api.BufferRelease(staging);}
     }

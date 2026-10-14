@@ -32,6 +32,9 @@ class Buffer {
   live(){this.owner.live();if(!this.id)throw new Error('Buffer disposed');}
   write(values){this.live();if(values.length!==this.length||values.some(v=>!Number.isFinite(v)||!Number.isFinite(Math.fround(v))))throw new Error('Invalid buffer write');this.owner.flush();this.owner.call('writeBuffer',{id:this.id},bytes(new Float32Array(values)));}
   async read(){this.live();this.owner.flush();const data=bytes(native.gpuRead(this.owner.id,this.id,false));return Array.from(new Float32Array(data.buffer,data.byteOffset,data.byteLength/4));}
+  range(offset,count){this.live();if(!Number.isInteger(offset)||!Number.isInteger(count)||offset<0||count<1||offset>this.length-count)throw new Error('Invalid buffer range / 緩衝區範圍無效');}
+  writeRange(offset,values){this.range(offset,values.length);if(values.some(v=>typeof v!=='number'||!Number.isFinite(v)||!Number.isFinite(Math.fround(v))))throw new Error('Expected finite floats');this.owner.flush();this.owner.call('writeBuffer',{id:this.id,offset:offset*4},bytes(new Float32Array(values)));}
+  async readRange(offset,count){this.range(offset,count);this.owner.flush();const data=bytes(native.gpuReadRange(this.owner.id,this.id,offset*4,count*4));return Array.from(new Float32Array(data.buffer,data.byteOffset,data.byteLength/4));}
   dispose(){if(!this.id)return;this.owner.flush();this.owner.call('release',{id:this.id});this.id=0;this.owner.resources.delete(this);}
 }
 class Shader {

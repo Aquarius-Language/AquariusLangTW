@@ -42,6 +42,8 @@ public sealed partial class WgpuRuntime : IDisposable {
             bufferEnv.Create("Length",N(buffer.Length));
             Action(bufferEnv,"Write",1,x=>{buffer.Write(WgpuFloats(x[0]));return Null();});
             Action(bufferEnv,"Read",0,_=>Numbers(buffer.Read().Select(x=>(double)x).ToArray()));
+            Action(bufferEnv,"WriteRange",2,x=>{buffer.WriteRange(Int(x[0]),WgpuFloats(x[1]));return Null();});
+            Action(bufferEnv,"ReadRange",2,x=>Numbers(buffer.ReadRange(Int(x[0]),Int(x[1])).Select(v=>(double)v).ToArray()));
             Bind(bufferEnv,"Dispose",0,_=>{buffer.Dispose();return Null();});return bufferModule;
         });
         Action(env,"Dispatch",3,a=> {

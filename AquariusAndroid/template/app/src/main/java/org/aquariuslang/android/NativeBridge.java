@@ -265,6 +265,19 @@ public final class NativeBridge implements AutoCloseable {
   }
 
   @V8Function
+  public byte[] gpuReadRange(double device, double resource, double offset, double size) {
+    if (!Double.isFinite(offset)
+        || !Double.isFinite(size)
+        || offset != Math.floor(offset)
+        || size != Math.floor(size)
+        || offset < 0
+        || size < 1
+        || offset > 64 * 1024 * 1024
+        || size > 64 * 1024 * 1024) throw new IllegalArgumentException("Invalid GPU buffer range");
+    return NativeGpu.readRange((long) device, (long) resource, (long) offset, (long) size);
+  }
+
+  @V8Function
   public String viewport() {
     float density = activity.getResources().getDisplayMetrics().density;
     return object(
