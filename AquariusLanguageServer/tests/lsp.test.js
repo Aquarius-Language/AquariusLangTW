@@ -11,6 +11,19 @@ const os = require('node:os');
 const server = process.env.AQUARIUS_SERVER || path.resolve(__dirname, '../bin/Release/net8.0/AquariusLanguageServer.dll');
 const uri = 'file:///test/example.aqua';
 
+test('built-in array modules offer both languages and respect lexical shadowing', async t => {
+  const s = new Session(t); await s.initialize();
+  await s.open('陣列.建立(2,0);\nArray.');
+  const items = await s.feature('completion', 1, 6);
+  for (const name of ['Make','建立','AppendArray','追加陣列','Copy','複製'])
+    assert.ok(items.some(item => item.label === name), name);
+  assert.match((await s.feature('hover', 0, 4)).contents.value, /Make/);
+  await s.open('變數 陣列=99;\n陣列.');
+  assert.deepEqual(await s.feature('completion', 1, 3), []);
+  await s.open('變數 arrays=匯入("陣列");\narrays.');
+  assert.ok((await s.feature('completion', 1, 7)).some(item => item.label === 'Make'));
+});
+
 class Session {
   constructor(t) {
     this.process = spawn(process.env.AQUARIUS_DOTNET || 'dotnet', [server], { windowsHide: true });

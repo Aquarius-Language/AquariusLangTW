@@ -1,4 +1,5 @@
 import {textureDescriptor,decodeTextureData} from './wgpu-textures.mjs';
+import {registerArrayLibrary} from './array-library.mjs';
 import {Scope,module,num,numeric,wrap,unwrap,inspect,nativeCall,nativeOwner,isPromiseLike,portableBuiltin} from './values.mjs';
 import {WasmRuntime} from './wasm-host.mjs';
 import {Processing,pack} from './processing.mjs';
@@ -23,7 +24,7 @@ export class CapabilityHost {
     b('floodFill',()=>{throw new Error('floodFill requires compiled Wasm execution');},true);this.builtins=new Map(globals.scope.store);
     for(const [name,id]of [['len',1],['last',2],['rest',3],['push',4],['floodFill',5]])this.builtins.get(name)[portableBuiltin]=id;
   }
-  register(){this.registerGlobals();
+  register(){this.registerGlobals();registerArrayLibrary(this);
     this.processing=new Processing(this);this.modules.set('Processing',this.processing.module);this.registerGpu();this.registerPhysics();this.registerMath();this.registerText();this.adapters.registerLegacy?.(this);
     this.adapters.register(this);
     for(const [library,alias]of [['Camera','相機'],['AndroidInput','Android輸入']])if(!this.modules.has(library)){

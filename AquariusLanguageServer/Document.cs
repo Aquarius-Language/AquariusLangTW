@@ -216,6 +216,7 @@ internal sealed class Document
         if (expression is Identifier identifier)
         {
             var declaration = Lookup(identifier.Value, scope, offset);
+            if (declaration == null && ArrayLibrary.IsName(identifier.Value)) return new ModuleInfo(Library: "Array");
             return declaration == null ? null : ResolveModule(declaration.Value, declaration.Scope, declaration.Token.Start, depth + 1);
         }
         if (expression is CallExpression call && call.Function is Identifier importer &&

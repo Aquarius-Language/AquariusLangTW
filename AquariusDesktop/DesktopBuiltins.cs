@@ -14,6 +14,7 @@ namespace AquariusLang.Desktop;
 
 public class DesktopBuiltins : Builtins, IDisposable {
     private readonly Lazy<GraphicsRuntime> graphics;
+    private readonly Lazy<ModuleObj> arrayLibrary = new(ArrayLibrary.CreateModule);
     private readonly bool ownsGraphics;
     internal Func<string, IObject>? ScriptImport { get; set; }
     internal Func<string, string> ResourceArgument { get; set; } = path => path;
@@ -103,6 +104,7 @@ public class DesktopBuiltins : Builtins, IDisposable {
                     if (argsCountMatch != null) return argsCountMatch;
                     
                     if (args[0] is StringObj stringObj) {
+                        if (ArrayLibrary.IsName(stringObj.Value)) return arrayLibrary.Value;
                         var services = graphics.Value;
                         services.InvokeAqua = (callback, values) => {
                             if (callback is BuiltinObj builtin) return builtin.Fn(values);

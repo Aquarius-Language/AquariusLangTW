@@ -35,11 +35,13 @@ internal static class LanguageFacts
         };
         foreach (var function in AquariusLang.runtime.LibraryCatalog.GlobalFunctions)
         {
-            string detail = result[function.TraditionalChineseName] + $" Alias: {function.EnglishName}.";
+            string detail = (result.TryGetValue(function.TraditionalChineseName, out var description)
+                ? description : function.Detail) + $" Alias: {function.EnglishName}.";
             result[function.TraditionalChineseName] = detail;
             result[function.EnglishName] = detail;
         }
         result["currWorkingDir"] = result["目前工作目錄"];
+        result["陣列"] = result["Array"] = "陣列 / Array — Built-in portable array module: Make, Grow, Append, Copy, Clone, Slice, Fill, Delete, Reverse, Index and Contains.";
         return result;
     }
 }

@@ -52,6 +52,9 @@ See [the architecture](../ARCHITECTURE.md) and [ABI](../AquariusPackaging/README
   Hash keys use `IHashable` and `HashKey` values.
   Out-of-range array reads and missing hash entries return `NullObj`; invalid
   array writes return a language error.
+- The built-in `陣列` / `Array` module provides capacity-aware creation and in-place
+  array manipulation. `加入` / `push` still preserves the input; mutating library
+  operations preserve Aquarius reference aliases. See [array semantics](../docs/arrays.md).
 - Imported script modules expose their environment through `ModuleObj`.
   Module member calls evaluate arguments in the caller's environment and execute
   function bodies in their captured environment.

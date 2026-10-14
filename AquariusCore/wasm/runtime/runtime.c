@@ -132,7 +132,7 @@ static Value binary(Frame*f,int op,Value a,Value b,int compound) {
 static ArrayStorage *array_storage(u32 n) { ArrayStorage*s=allocate(sizeof(ArrayStorage)+n*sizeof(Value),VALUES);s->references=1;s->capacity=(((Block*)s-1)->size-sizeof(ArrayStorage))/sizeof(Value);s->used=n;return s; }
 static void attach_storage(Array*a,ArrayStorage*s) { a->storage=s;a->capacity=s->capacity;a->values=s->values; }
 static Array *array(u32 n) { Array*a=allocate(sizeof(Array),ARRAYS);a->count=n;attach_storage(a,array_storage(n));return a; }
-static void writable_array(Array*a,u32 count) { if(a->storage->references==1&&count<=a->capacity)return;ArrayStorage*old=a->storage,*next=array_storage(count>a->count?count:a->count);memcpy(next->values,a->values,a->count*sizeof(Value));if(!--old->references)release(old);attach_storage(a,next); }
+static void writable_array(Array*a,u32 count) { if(a->storage->references==1&&count<=a->capacity)return;u32 capacity=count>a->count?count:a->count;if(capacity<a->capacity)capacity=a->capacity;ArrayStorage*old=a->storage,*next=array_storage(capacity);memcpy(next->values,a->values,a->count*sizeof(Value));next->used=a->count;if(!--old->references)release(old);attach_storage(a,next); }
 static Array *append_array(Array*a,Value v) { Array*b=allocate(sizeof(Array),ARRAYS);b->count=a->count+1;if(a->count==a->storage->used&&b->count<=a->capacity){a->storage->references++;attach_storage(b,a->storage);}else{attach_storage(b,array_storage(b->count));memcpy(b->values,a->values,a->count*sizeof(Value));}b->values[a->count]=v;b->storage->used=b->count;return b; }
 u32 aqua_array(u32 n) { return address(array(n)); }
 u32 aqua_array_values(u32 p) { Array*a=pointer(p);writable_array(a,a->count);return address(a->values); }
@@ -147,6 +147,7 @@ u32 aqua_hash_resize(u32 p,u32 n) { Hash*h=pointer(p);if(n>h->capacity){Pair*nex
 u32 aqua_hash_write_support(void) { return 1; }
 u32 aqua_hash_expose(u32 p) { ((Hash*)pointer(p))->exposed=1;return 0; }
 u32 aqua_take_dirty_hash(void) { Hash*h=dirty_hashes;if(!h)return 0;dirty_hashes=h->dirty_next;h->dirty_next=0;h->dirty=0;return address(h); }
+#include "arrays.h"
 static Frame *frame(Execution*e,Frame*parent,Program*p,u32 id,Scope*s,u32 context) {
     if(id>=p->count)__builtin_trap();Function*fn=p->functions+id;
     Frame*f=allocate(sizeof(Frame)+fn->capacity*sizeof(Value),FRAMES);f->parent=parent;f->execution=e;f->program=p;f->function=fn;f->scope=s;f->context=context;f->capacity=fn->capacity;u32 cached=fn->wrap_return>>1;if(cached)f->binding_cache=allocate(cached*8,RAW);return f;
@@ -188,7 +189,11 @@ int rt_void(Frame*f,int n) { push(f,empty);return 0; }
 int rt_null(Frame*f,int n) { push(f,value(NULL_VALUE,0,0));return 0; }
 int rt_pop(Frame*f,int n) { pop(f);return 0; }
 int rt_duplicate(Frame*f,int n) { push(f,peek(f,1));return 0; }
-int rt_load(Frame*f,int n) { Binding*b=cached_binding(f,n);if(!b&&f->context<65536&&builtin_scopes[f->context])b=find_owned(builtin_scopes[f->context],name(f,n));if(b)push(f,b->value);else {Value v=empty;int status=host_service(0,f->context,0,address(name(f,n)),0,0,address(&v));if(status)named_failure(f,"Identifier not found: ",name(f,n));else {if(f->context<65536){if(!builtin_scopes[f->context]){builtin_scopes[f->context]=scope(0);builtin_contexts[builtin_context_count++]=f->context;}declare(builtin_scopes[f->context],name(f,n),v);}push(f,v);}}return 0; }
+int rt_load(Frame*f,int n) { Binding*b=cached_binding(f,n);if(!b&&f->context<65536&&builtin_scopes[f->context])b=find_owned(builtin_scopes[f->context],name(f,n));if(b)push(f,b->value);else {Value v=empty;Text*t=name(f,n);int status;
+    if(text_is(t,u"Array")||text_is(t,u"陣列")){v=value(MODULE,address(array_library()),0);status=0;}else status=host_service(0,f->context,0,address(t),0,0,address(&v));
+    if(status)named_failure(f,"Identifier not found: ",t);else {if(f->context<65536){if(!builtin_scopes[f->context]){builtin_scopes[f->context]=scope(0);builtin_contexts[builtin_context_count++]=f->context;}declare(builtin_scopes[f->context],t,v);
+        if(text_is(t,u"Array"))declare(builtin_scopes[f->context],utf16(u"陣列"),v);else if(text_is(t,u"陣列"))declare(builtin_scopes[f->context],utf16(u"Array"),v);
+    }push(f,v);}}return 0; }
 int rt_declare(Frame*f,int n) { declare(f->scope,name(f,n),pop(f));push(f,empty);return 0; }
 int rt_assign(Frame*f,int n) { Value v=pop(f);pop(f);Binding*b=cached_binding(f,n);if(!b)named_failure(f,"Identifier not found: ",name(f,n));else b->value=v;push(f,empty);return 0; }
 int rt_compoundAssign(Frame*f,int n) { Value c=constant(f,n),r=pop(f);pop(f);Binding*b=cached_binding(f,n);if(!b)named_failure(f,"Identifier not found: ",pointer(c.ref));else b->value=binary(f,(int)c.number,b->value,r,1);push(f,empty);return 0; }
@@ -226,7 +231,8 @@ static Value flood_fill(Frame*f,Value*args) {
 }
 int rt_call(Frame*f,int n) {
     if(n<0||(u32)n>=f->sp){failure(f,"Invalid compiled call.");return 0;}u32 base=f->sp-n-1;Value callee=f->values[base];Value*args=f->values+base+1;
-    if(callee.tag==BUILTIN){Value out=empty;if(callee.ref<1||callee.ref>5||n!=(callee.ref==5?6:callee.ref==4?2:1)){failure(f,"Incorrect builtin argument count.");return 0;}Value a=args[0];
+    if(callee.tag==BUILTIN&&callee.ref>=6){Value out=array_call(f,callee.ref,args,n);f->sp=base;push(f,out);}
+    else if(callee.tag==BUILTIN){Value out=empty;if(callee.ref<1||callee.ref>5||n!=(callee.ref==5?6:callee.ref==4?2:1)){failure(f,"Incorrect builtin argument count.");return 0;}Value a=args[0];
         if(callee.ref==5)out=flood_fill(f,args);
         else if(callee.ref==1){if(a.tag==STRING)out=number(((Text*)pointer(a.ref))->length,INT);else if(a.tag==ARRAY)out=number(((Array*)pointer(a.ref))->count,INT);else failure(f,"Length requires string or array.");}
         else if(a.tag!=ARRAY)failure(f,"Builtin requires an array.");else{Array*x=pointer(a.ref);if(callee.ref==2)out=x->count?x->values[x->count-1]:value(NULL_VALUE,0,0);
@@ -267,13 +273,18 @@ u32 aqua_collect(void){
     while(mark_pending){void*p=pointer(mark_pending);Block*b=(Block*)p-1;mark_pending=b->marked&~1u;b->marked=1;switch(b->kind){
         case ENV:{Scope*s=p;mark_ref(s->outer);mark_ref(s->bindings);mark_ref(s->index);for(u32 i=0;i<s->count;i++){mark_ref(s->bindings[i].name);mark_value(s->bindings[i].value);}break;}
         case CLOSURES:{Closure*c=p;mark_ref(c->scope);break;}
-        case ARRAYS:{Array*a=p;mark_ref(a->storage);for(u32 i=0;i<a->count;i++)mark_value(a->values[i]);break;}
+        case ARRAYS:{Array*a=p;Block*storage=(Block*)a->storage-1;
+            // Recompute ownership and the append frontier from live headers only.
+            // Dead longer push snapshots must not force a surviving prefix to copy.
+            if(!storage->marked){a->storage->references=0;a->storage->used=0;}
+            a->storage->references++;if(a->count>a->storage->used)a->storage->used=a->count;
+            mark_ref(a->storage);for(u32 i=0;i<a->count;i++)mark_value(a->values[i]);break;}
         case HASHES:{Hash*h=p;mark_ref(h->pairs);for(u32 i=0;i<h->count;i++){mark_value(h->pairs[i].key);mark_value(h->pairs[i].value);}break;}
         case FRAMES:{Frame*f=p;mark_ref(f->parent);mark_ref(f->scope);mark_ref(f->loops);mark_ref(f->binding_cache);for(u32 i=0;i<f->sp;i++)mark_value(f->values[i]);for(u32 i=0;i<f->pending_count;i++)mark_value(f->values[f->pending_base+i]);break;}
         case LOOPS:{Loop*l=p;mark_ref(l->previous);mark_ref(l->outer);break;}
         case EXECUTIONS:{Execution*e=p;mark_ref(e->current);mark_value(e->result);break;}
         case PINS:mark_value(((Pin*)p)->value);break;
-    }}u32 reclaimed=0;for(Block*b=pointer(blocks);b;b=pointer(b->next))if(b->kind==ARRAYS&&!b->marked){Array*a=(void*)(b+1);a->storage->references--;}
+    }}u32 reclaimed=0;
     for(Block*b=pointer(blocks);b;b=pointer(b->next))if(b->kind!=FREE&&!b->marked){reclaimed+=b->size;b->kind=FREE;}
     // Segregated free lists prevent tiny scopes from consuming reusable frames.
     memset(free_heads,0,sizeof(free_heads));

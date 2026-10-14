@@ -35,6 +35,9 @@ Emscripten assets. Run `npm ci --prefix AquariusWebCompiler` and
 `npm run --prefix AquariusWebCompiler prepare:browser` before building to prepare
 those generated assets from the lockfile.
 
+The built-in `陣列` / `Array` module provides capacity-aware creation and in-place
+array operations directly in core Wasm. See [the bilingual API and semantics](../docs/arrays.md).
+
 See [architecture](../ARCHITECTURE.md), [language behavior](LANGUAGE.md),
 [Wasm format](../AquariusPackaging/README.md) and
 [external libraries](../docs/external-libraries.md).

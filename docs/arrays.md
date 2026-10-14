@@ -1,0 +1,99 @@
+# 陣列函式庫 / Array library
+
+`陣列` and `Array` are built-in modules in Aquarius core. No dependency or import is
+needed. `匯入("陣列")` / `import("Array")` also work on desktop, web and Android hosts.
+All algorithms, allocation, validation and collection execute in the same core
+Wasm binary. C# and JavaScript only transport callable tokens and values.
+Both global names share one module; both imported names share one module per host.
+
+`陣列` 與 `Array` 是核心內建模組，不需安裝或匯入。桌面、網頁與 Android 亦可透過
+`匯入("陣列")` 使用。所有運算都在共用 Wasm 核心執行。
+
+```aquarius
+變數 資料 = 陣列.建立(0, 0, 1000);
+陣列.追加(資料, 7);
+陣列.追加陣列(資料, [8, 9]);
+變數 備份 = 陣列.克隆(資料);
+陣列.刪除(資料, 1, 3);
+印出(資料, 備份); # [7] [7, 8, 9]
+```
+
+```aquarius
+變數 values = Array.Make(0, 0, 1000);
+Array.Append(values, 7);
+Array.AppendArray(values, [8, 9]);
+變數 backup = Array.Clone(values);
+Array.Delete(values, 1, 3);
+print(values, backup);
+```
+
+| 繁體中文 | English | Parameters / 參數 | Result / 行為 |
+| --- | --- | --- | --- |
+| 建立 | Make | length, value, optional capacity | New array filled with value; capacity >= length / 建立填好初值的陣列 |
+| 長度 | Len | array | Element count / 元素數 |
+| 容量 | Cap | array | Allocated element capacity / 已配置容量 |
+| 擴充 | Grow | array, additional | Reserve length + additional, keep length / 預留額外空間 |
+| 追加 | Append | array, value | Append one value in place, return array / 原地追加一個值 |
+| 追加陣列 | AppendArray | array, source | Append all source values, including self / 批次追加，支援自身 |
+| 複製 | Copy | destination, source, optional destinationStart, sourceStart, count | Copy the smaller available range, return count / 複製可容納的範圍，回傳數量 |
+| 克隆 | Clone | array | Independent shallow copy / 獨立淺拷貝 |
+| 切片 | Slice | array, start, end | Independent shallow copy of [start, end) / 半開區間的獨立淺拷貝 |
+| 填入 | Fill | array, value | Fill in place, return array / 原地填入 |
+| 刪除 | Delete | array, start, end | Remove [start, end), return array / 原地刪除半開區間 |
+| 反轉 | Reverse | array | Reverse in place, return array / 原地反轉 |
+| 尋找 | Index | array, value | First matching index or -1 / 第一個相符索引，找不到為 -1 |
+| 包含 | Contains | array, value | Boolean membership / 是否包含 |
+
+The design takes inspiration from Go's [slices package](https://pkg.go.dev/slices)
+and [length/capacity model](https://go.dev/blog/slices-intro). Length and capacity
+are separate; capacity grows geometrically and may exceed the requested amount.
+`Grow(a,n)` guarantees capacity >= `Len(a)+n`. `Copy` handles overlapping ranges
+like `memmove`, never changes length, and defaults both offsets to zero. Omitted
+count means all available elements; an explicit count is an upper bound.
+
+設計參考 Go 的長度、容量與半開區間概念。容量可能大於要求值；`擴充(a,n)` 保證
+容量至少為 `長度(a)+n`。`複製` 支援重疊範圍，兩個起點預設為零，不改變長度；
+省略數量時複製所有可容納元素，指定數量則作為上限。
+
+Aquarius arrays have reference identity: mutating operations also update aliases,
+including host-retained arrays. This differs from Go slice headers: `Append` and
+`Delete` update the same Aquarius array object, so assigning the returned array is
+optional. `Slice` copies instead of returning a shared Go-style view. Clone, Slice
+and Make's repeated fill value are shallow: nested arrays, hashes and functions
+remain shared. Search uses Aquarius `==` (mixed numeric types compare by value,
+NaN does not equal itself, objects compare by identity).
+
+Aquarius 陣列保有物件身分；原地操作也會更新所有別名及主機保留的陣列。
+`追加` 與 `刪除` 不需重新指派回傳值。`切片` 會複製，不會產生 Go 的共享視圖。
+淺拷貝仍共享巢狀物件；`建立` 使用物件初值時，每個元素都參照同一物件。
+搜尋使用語言的 `==` 規則。
+
+Existing `加入` / `push` still returns a new array and keeps the input unchanged.
+The runtime detaches shared storage before mutation and preserves reserved capacity.
+Collection now recomputes storage owners and the append frontier from live arrays,
+allowing a surviving prefix to reuse space after longer snapshots die.
+
+既有 `加入` / `push` 仍產生新陣列，不改變來源。核心在寫入前分離共享儲存，保留
+預配置容量。垃圾回收會重算存活擁有者與追加位置，移除已失效快照造成的額外複製。
+
+Sizes, capacity, offsets and range endpoints require nonnegative Aquarius integers.
+Reversed or out-of-bounds ranges, invalid types/arity and arithmetic overflow return
+language errors before mutation. The Wasm storage limit is 33,554,431 elements per
+array; available memory can impose a smaller allocation limit. No platform APIs
+or additional native dependencies are used.
+
+尺寸、容量與索引必須為非負整數。範圍、型別、參數數量與溢位錯誤會在修改前回報。
+Wasm 單一陣列上限為 33,554,431 個元素，實際可配置大小亦受可用記憶體限制。
+
+Make/Fill/Clone/Slice/Copy/AppendArray are O(n), Reverse/Delete/Index/Contains are
+O(n), Len/Cap are O(1), and Append is amortized O(1) when storage is unshared.
+Detaching a live push snapshot costs O(length). Grow copies only when needed.
+For fixed sizes, prefer Make plus indexed writes. For unknown sizes, Make with a
+capacity or Grow plus Append avoids a new array header for every element.
+
+固定長度資料優先使用 `建立` 後直接寫入索引；長度未知時使用預留容量加上 `追加`。
+`追加` 在無共享儲存時具有均攤 O(1) 成本，可避免逐次建立新的陣列物件。
+
+Examples: [繁體中文](../examples/arrays/traditional_chinese.aqua),
+[English](../examples/arrays/english.aqua). Shared correctness corpus:
+`tests/array-library.json`, executed by both Wasmtime and JavaScript WebAssembly tests.
