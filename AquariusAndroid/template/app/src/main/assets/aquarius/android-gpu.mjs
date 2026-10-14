@@ -29,7 +29,7 @@ class Buffer {
   constructor(owner,values){this.owner=owner;this.length=values.length;this.id=owner.call('buffer',{},bytes(new Float32Array(values)));}
   live(){this.owner.live();if(!this.id)throw new Error('Buffer disposed');}
   write(values){this.live();if(values.length!==this.length||values.some(v=>!Number.isFinite(v)||!Number.isFinite(Math.fround(v))))throw new Error('Invalid buffer write');this.owner.flush();this.owner.call('writeBuffer',{id:this.id},bytes(new Float32Array(values)));}
-  async read(){this.live();this.owner.flush();const data=decode64(native.gpuRead(this.owner.id,this.id,false));return Array.from(new Float32Array(data.buffer));}
+  async read(){this.live();this.owner.flush();const data=bytes(native.gpuRead(this.owner.id,this.id,false));return Array.from(new Float32Array(data.buffer,data.byteOffset,data.byteLength/4));}
   dispose(){if(!this.id)return;this.owner.flush();this.owner.call('release',{id:this.id});this.id=0;this.owner.resources.delete(this);}
 }
 class Shader {
@@ -44,6 +44,6 @@ class Target {
   draw(shader,vertices,uniforms,depth=false,texture=null,blend=0,mode=4,clip=null){this.live();if(shader.owner!==this.owner||shader.disposed||texture&&texture.owner!==this.owner)throw new Error('Foreign GPU resource');const vertex=bytes(new Float32Array(vertices)),uniform=bytes(uniforms??defaultUniforms(this.owner.abi));const bound=(v,max)=>Math.trunc(Math.max(0,Math.min(max,v))),x=clip?bound(clip[0],this.width):0,y=clip?bound(clip[1],this.height):0,right=clip?bound(clip[0]+clip[2],this.width):this.width,bottom=clip?bound(clip[1]+clip[3],this.height):this.height;this.owner.reserve(2208+vertex.length);if(shader.preserveDrawBoundaries)this.owner.commands.last=null;this.owner.commands.draw(this.id,shader.id,(texture??this.owner.white).id,depth,blend,mode,[x,y,Math.max(0,right-x),Math.max(0,bottom-y)],vertex,uniform,shader.bytes);}
   drawMesh(shader,mesh,uniforms,depth=false,blend=0,clip=null){this.live();if(shader.owner!==this.owner||shader.disposed||mesh.owner!==this.owner)throw new Error('Foreign GPU mesh');const bound=(v,max)=>Math.trunc(Math.max(0,Math.min(max,v))),x=clip?bound(clip[0],this.width):0,y=clip?bound(clip[1],this.height):0,right=clip?bound(clip[0]+clip[2],this.width):this.width,bottom=clip?bound(clip[1]+clip[3],this.height):this.height;this.owner.reserve(2216);this.owner.commands.mesh(this.id,shader.id,this.owner.white.id,depth,blend,[x,y,Math.max(0,right-x),Math.max(0,bottom-y)],mesh.id,bytes(uniforms),shader.bytes);}
   flush(){this.live();this.owner.flush();}
-  async readPixels(){this.live();this.owner.flush();return decode64(native.gpuRead(this.owner.id,this.id,true));}
+  async readPixels(){this.live();this.owner.flush();return bytes(native.gpuRead(this.owner.id,this.id,true));}
   dispose(){if(this.disposed)return;this.owner.flush();this.owner.call('release',{id:this.id});this.disposed=true;this.owner.resources.delete(this);}
 }

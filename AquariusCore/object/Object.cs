@@ -367,7 +367,7 @@ namespace AquariusLang.Object {
     public class BuiltinObj : IObject {
         public int PortableId { get; private set; }
         public static BuiltinObj FromPortable(int id, BuiltinFunction function) {
-            if (id is < 1 or > 4) throw new System.ArgumentOutOfRangeException(nameof(id));
+            if (id is < 1 or > 5) throw new System.ArgumentOutOfRangeException(nameof(id));
             return new BuiltinObj(function) { PortableId = id };
         }
         /// <summary>Language scope retained by a native method extracted from a resource.</summary>

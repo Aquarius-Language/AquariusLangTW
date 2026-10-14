@@ -28,6 +28,7 @@ public static partial class LibraryCatalog {
     public static IReadOnlyList<LibraryFunction> GlobalFunctions { get; } = Array.AsReadOnly(new[] {
         new LibraryFunction("", "len", "長度", 1, 1), new("", "last", "最後一個", 1, 1),
         new("", "rest", "其餘", 1, 1), new("", "push", "加入", 2, 2),
+        new("", "floodFill", "區域填色", 6, 6),
         new("", "print", "印出", 0, int.MaxValue), new("", "import", "匯入", 1, 1),
         new("", "currentTime", "目前時間", 0, 0),
         new("", "currentDate", "目前日期", 0, 0),

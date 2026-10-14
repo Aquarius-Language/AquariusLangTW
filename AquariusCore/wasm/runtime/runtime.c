@@ -201,10 +201,34 @@ int rt_incrementPrefix(Frame*f,int n){return increment(f,n,1);}int rt_incrementP
 int rt_truth(Frame*f,int n) { Value v=pop(f);return v.tag==BOOL?v.number!=0:v.tag!=NULL_VALUE; }
 int rt_isBreak(Frame*f,int n) { return peek(f,1).tag==BREAK_VALUE; }
 int rt_closure(Frame*f,int n) { Value c=constant(f,n);Closure*x=allocate(sizeof(Closure),CLOSURES);x->program=f->program;x->function=(u32)c.number;x->scope=f->scope;x->context=f->context;retain_scope(f->scope);push(f,value(CLOSURE,address(x),0));return 0; }
+typedef struct { u32 y,left,right; } FillSpan;
+/* Portable four-connected scanline fill. Paint discovered spans before queuing
+   them, so holes and branching boundaries cannot enqueue the same run twice. */
+static Value flood_fill(Frame*f,Value*args) {
+    if(args[0].tag!=ARRAY||args[1].tag!=INT||args[2].tag!=INT||args[3].tag!=INT||args[4].tag!=INT||!numeric(args[5])){failure(f,"floodFill requires a numeric array, integer dimensions/coordinates and a numeric replacement.");return empty;}
+    Array*a=pointer(args[0].ref);double wd=args[1].number,hd=args[2].number,xd=args[3].number,yd=args[4].number;
+    if(wd<1||hd<1||wd>8192||hd>8192||wd*hd>16u*1024*1024||wd*hd!=a->count||xd<0||yd<0||xd>=wd||yd>=hd){failure(f,"Invalid floodFill dimensions or seed.");return empty;}
+    for(u32 i=0;i<a->count;i++)if(!numeric(a->values[i])){failure(f,"floodFill requires a numeric array.");return empty;}
+    u32 width=(u32)wd,height=(u32)hd,x=(u32)xd,y=(u32)yd;Value original=a->values[y*width+x],replacement=args[5];
+    if(equal(original,replacement,0)||!equal(original,original,0))return number(0,INT);
+    writable_array(a,a->count);u32 capacity=64,count=0,changed=0;FillSpan*stack=allocate(capacity*sizeof(FillSpan),RAW);
+    u32 left=x,right=x;while(left&&equal(a->values[y*width+left-1],original,0))left--;while(right+1<width&&equal(a->values[y*width+right+1],original,0))right++;
+    for(u32 i=left;i<=right;i++){a->values[y*width+i]=replacement;changed++;}stack[count++]=(FillSpan){y,left,right};
+    while(count){FillSpan span=stack[--count];for(u32 side=0;side<2;side++){
+        if((side==0&&span.y==0)||(side==1&&span.y+1==height))continue;u32 row=side?span.y+1:span.y-1;
+        for(u32 column=span.left;column<=span.right;){
+            if(!equal(a->values[row*width+column],original,0)){column++;continue;}
+            left=right=column;while(left&&equal(a->values[row*width+left-1],original,0))left--;while(right+1<width&&equal(a->values[row*width+right+1],original,0))right++;
+            if(count==capacity){capacity*=2;FillSpan*next=allocate(capacity*sizeof(FillSpan),RAW);memcpy(next,stack,count*sizeof(FillSpan));release(stack);stack=next;}
+            for(u32 i=left;i<=right;i++){a->values[row*width+i]=replacement;changed++;}stack[count++]=(FillSpan){row,left,right};column=right+1;
+        }
+    }}release(stack);if(a->exposed&&!a->dirty){a->dirty=1;a->dirty_next=dirty_arrays;dirty_arrays=a;}return number(changed,INT);
+}
 int rt_call(Frame*f,int n) {
     if(n<0||(u32)n>=f->sp){failure(f,"Invalid compiled call.");return 0;}u32 base=f->sp-n-1;Value callee=f->values[base];Value*args=f->values+base+1;
-    if(callee.tag==BUILTIN){Value out=empty;if(n!=(callee.ref==4?2:1)){failure(f,"Incorrect builtin argument count.");return 0;}Value a=args[0];
-        if(callee.ref==1){if(a.tag==STRING)out=number(((Text*)pointer(a.ref))->length,INT);else if(a.tag==ARRAY)out=number(((Array*)pointer(a.ref))->count,INT);else failure(f,"Length requires string or array.");}
+    if(callee.tag==BUILTIN){Value out=empty;if(callee.ref<1||callee.ref>5||n!=(callee.ref==5?6:callee.ref==4?2:1)){failure(f,"Incorrect builtin argument count.");return 0;}Value a=args[0];
+        if(callee.ref==5)out=flood_fill(f,args);
+        else if(callee.ref==1){if(a.tag==STRING)out=number(((Text*)pointer(a.ref))->length,INT);else if(a.tag==ARRAY)out=number(((Array*)pointer(a.ref))->count,INT);else failure(f,"Length requires string or array.");}
         else if(a.tag!=ARRAY)failure(f,"Builtin requires an array.");else{Array*x=pointer(a.ref);if(callee.ref==2)out=x->count?x->values[x->count-1]:value(NULL_VALUE,0,0);
             else if(callee.ref==3){if(!x->count)out=value(NULL_VALUE,0,0);else{Array*y=array(x->count-1);memcpy(y->values,x->values+1,y->count*sizeof(Value));out=value(ARRAY,address(y),0);}}
             else{Array*y=append_array(x,args[1]);out=value(ARRAY,address(y),0);}}

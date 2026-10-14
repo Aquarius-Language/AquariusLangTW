@@ -31,6 +31,7 @@ namespace AquariusLang.runtime {
                 traditionalChineseName: "目前日期", englishName: "currentDate");
             DefineFunction(BuiltinObj.FromBorrowed(args => args.Length == 0 ? new BooleanObj(false) : newError("isOSAndroid expects 0 arguments.")), "是Android", "isOSAndroid");
             DefineFunction(BuiltinObj.FromBorrowed(args => args.Length == 0 ? new BooleanObj(false) : newError("isWeb expects 0 arguments.")), "是網頁", "isWeb");
+            DefineFunction(BuiltinObj.FromPortable(5, _ => newError("floodFill requires compiled Wasm execution.")), "區域填色", "floodFill");
         }
 
         public Builtins() : this(new Dictionary<string, BuiltinObj>()) { }

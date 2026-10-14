@@ -252,8 +252,10 @@ public final class NativeBridge implements AutoCloseable {
   }
 
   @V8Function
-  public String gpuRead(double device, double resource, boolean texture) {
-    return base64(NativeGpu.read((long) device, (long) resource, texture));
+  public byte[] gpuRead(double device, double resource, boolean texture) {
+    // Javet converts byte[] to an owned Int8Array. The JS adapter views its
+    // buffer as unsigned bytes; readback needs no base64 text or decoding loop.
+    return NativeGpu.read((long) device, (long) resource, texture);
   }
 
   @V8Function

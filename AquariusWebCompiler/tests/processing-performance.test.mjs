@@ -1,0 +1,35 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {Processing,pixelValues,pixelBytes} from '../browser/processing.mjs';
+import {Scope,module,wrap,unwrap} from '../browser/values.mjs';
+
+test('direct pixel conversion preserves every byte including transparency and unsigned colors',()=>{
+  const bytes=Uint8Array.from({length:4096},(_,i)=>(i*73+19)%256);
+  assert.deepEqual(pixelBytes(pixelValues(bytes)),bytes);
+  assert.equal(pixelValues(new Uint8Array([255,255,255,255]))[0].value,4294967295);
+  assert.deepEqual(pixelBytes([{type:'double',value:0x80123456}]),new Uint8Array([0x12,0x34,0x56,0x80]));
+});
+
+test('offscreen endDraw retains batches until a texture consumer flushes them',()=>{
+  const operations=[];
+  const host={objects:new Map(),bundle:{graphics:{uniformBytes:1120}},newModule:()=>module(new Scope()),set:(m,n,v)=>m.scope.create(n,wrap(v)),
+    bind(m,library,name,fn,raw=false){m.scope.create(name,(...args)=>fn(...(raw?args:args.map(unwrap))));},installProcessingInput(){}};
+  const p=new Processing(host);
+  p.device={createTarget:()=>({color:{},clear(){},draw(){operations.push('draw');},flush(){operations.push('flush');},dispose(){}})};
+  p.screen.resize(32,32);p.shader={};
+  const canvas=p.module.scope.get('createGraphics')(32,32),call=(name,...args)=>canvas.scope.get(name)(...args);
+  call('beginDraw');call('line',1,1,10,10);call('endDraw');
+  call('beginDraw');call('line',10,10,20,20);call('endDraw');
+  assert.deepEqual(operations,['draw','draw']);
+  p.screen.module.scope.get('image')(canvas,0,0);
+  assert.deepEqual(operations,['draw','draw','flush','draw']);
+});
+
+test('backlog processing preserves all touch points and release ordering',async()=>{
+  const names=[];
+  const host={objects:new Map(),newModule:()=>module(new Scope()),set:(m,n,v)=>m.scope.create(n,wrap(v)),bind(m,l,n,f){m.scope.create(n,f);},installProcessingInput(){},runtime:{invoke:async fn=>fn()}};
+  const p=new Processing(host);p.events.set('mouseDragged',()=>names.push('move'));p.events.set('mouseReleased',()=>names.push('up'));
+  for(let i=0;i<60;i++)p.eventQueue.push({name:'mouseDragged',fields:{mouseX:i}});
+  p.eventQueue.push({name:'mouseReleased',fields:{isMousePressed:false}});
+  while(p.eventQueue.length)await p.beginFrame();assert.deepEqual(names,[...Array(60).fill('move'),'up']);
+});
