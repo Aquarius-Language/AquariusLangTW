@@ -22,6 +22,7 @@ import android.view.WindowInsets;
 import android.view.inputmethod.InputMethodManager;
 import android.widget.EditText;
 import com.caoccao.javet.annotations.V8Function;
+import com.caoccao.javet.values.reference.V8ValueTypedArray;
 import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.nio.charset.StandardCharsets;
@@ -38,6 +39,7 @@ import org.json.JSONObject;
 public final class NativeBridge implements AutoCloseable {
   final Activity activity;
   private final EditText editor;
+  private final FrameClock frameClock;
   private final CameraBackend cameras;
   private final OnnxBackend onnx = new OnnxBackend(this);
   private final AudioBackend audio = new AudioBackend();
@@ -58,6 +60,7 @@ public final class NativeBridge implements AutoCloseable {
   public NativeBridge(Activity activity, EditText editor) {
     this.activity = activity;
     this.editor = editor;
+    this.frameClock = new FrameClock(activity);
     this.cameras = new CameraBackend(this);
   }
 
@@ -230,12 +233,22 @@ public final class NativeBridge implements AutoCloseable {
   }
 
   @V8Function
-  public String gpu(String operation, String data, String bytes) {
-    String result =
-        NativeGpu.command(operation, data, bytes.isEmpty() ? new byte[0] : unbase64(bytes));
-    if (operation.equals("device")) gpuDevices.add(Long.parseLong(result));
-    if (operation.equals("disposeDevice")) gpuDevices.remove(json(data).optLong("device"));
-    return result;
+  public String gpu(String operation, String data, V8ValueTypedArray bytes)
+      throws com.caoccao.javet.exceptions.JavetException {
+    // Javet exposes the ArrayBuffer as a direct view. JNI consumes it only
+    // during this synchronous call; no V8 pointer escapes into pending GPU work.
+    try (var buffer = bytes.getBuffer()) {
+      String result =
+          NativeGpu.command(
+              operation,
+              data,
+              buffer.getByteBuffer(),
+              bytes.getByteOffset(),
+              bytes.getByteLength());
+      if (operation.equals("device")) gpuDevices.add(Long.parseLong(result));
+      if (operation.equals("disposeDevice")) gpuDevices.remove(json(data).optLong("device"));
+      return result;
+    }
   }
 
   @V8Function
@@ -272,6 +285,20 @@ public final class NativeBridge implements AutoCloseable {
         throw new IllegalStateException("Cancelled", e);
       }
     }
+  }
+
+  @V8Function
+  public void awaitFrame(double deadline) {
+    synchronized (lifecycle) {
+      try {
+        while (paused && !closed) lifecycle.wait(100);
+        if (closed) throw new IllegalStateException("Runtime closed");
+      } catch (InterruptedException e) {
+        Thread.currentThread().interrupt();
+        throw new IllegalStateException("Cancelled", e);
+      }
+    }
+    frameClock.await(deadline);
   }
 
   @V8Function
@@ -959,7 +986,12 @@ public final class NativeBridge implements AutoCloseable {
     cameras.close();
     for (long device : gpuDevices)
       try {
-        NativeGpu.command("disposeDevice", object("device", device).toString(), new byte[0]);
+        NativeGpu.command(
+            "disposeDevice",
+            object("device", device).toString(),
+            java.nio.ByteBuffer.allocateDirect(0),
+            0,
+            0);
       } catch (IllegalStateException ignored) {
       }
     gpuDevices.clear();
@@ -968,6 +1000,7 @@ public final class NativeBridge implements AutoCloseable {
   }
 
   public void close() {
+    frameClock.close();
     closed = true;
     if (permission != null) permission.countDown();
     if (pickerReady != null) pickerReady.countDown();

@@ -21,6 +21,7 @@ $cases = @(
     @{ name='capabilities'; root=(Join-Path $repository 'examples/android_smoke'); entry='main.aqua' },
     @{ name='processing'; root=(Join-Path $repository 'examples/processing_showcase'); entry='main.aqua' },
     @{ name='processing-wgpu'; root=(Join-Path $repository 'examples/processing_wgpu'); entry='main.aqua' },
+    @{ name='graphics'; root=(Join-Path $repository 'examples/android_smoke'); entry='graphics.aqua' },
     @{ name='colors'; root=(Join-Path $repository 'examples/color_mapping'); entry='main.aqua' },
     @{ name='text-input'; root=(Join-Path $repository 'examples/multilingual_input'); entry='main.aqua' },
     @{ name='application'; root=(Join-Path $repository 'examples/application_libraries'); entry='main.aqua' },
@@ -71,7 +72,7 @@ foreach ($case in $cases) {
             if($case.name -eq 'camera') { & $Adb shell pm grant $id android.permission.CAMERA }
             & $Adb logcat -c
             & $Adb shell am force-stop $id
-            $frames=if($case.name -eq 'processing'){3}elseif($case.name -eq 'input'){0}else{1}
+            $frames=if($case.name -in @('processing','graphics')){3}elseif($case.name -eq 'input'){0}else{1}
             & $Adb shell am start -n "$id/org.aquariuslang.android.AquariusActivity" --ei frames $frames
             $deadline = [DateTime]::UtcNow.AddSeconds(60)
             $injected=$false

@@ -35,6 +35,10 @@ public class AndroidBuildTest
         string asset = json.RootElement.GetProperty("assets").GetProperty("assets/字.txt").GetString()!;
         Assert.Equal("測試", File.ReadAllText(Path.Combine(output, "app/src/main/assets/aquarius", asset)));
         Assert.True(File.Exists(Path.Combine(output, "app/src/main/assets/aquarius/capability-host.mjs")));
+        foreach (string name in new[] { "gpu-commands.mjs", "frame-timing.mjs" })
+            Assert.True(File.Exists(Path.Combine(output, "app/src/main/assets/aquarius", name)));
+        Assert.True(File.Exists(Path.Combine(output, "app/src/main/cpp/gpu_batch.h")));
+        Assert.True(File.Exists(Path.Combine(output, "app/src/main/java/org/aquariuslang/android/FrameClock.java")));
         Assert.False(File.Exists(Path.Combine(output, "index.html")));
         Assert.False(File.Exists(Path.Combine(output, "app/src/main/assets/aquarius/ort.webgpu.min.mjs")));
     }

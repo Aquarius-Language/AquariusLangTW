@@ -3,6 +3,9 @@
 `AquariusAndroid` 是獨立的建置後端，透過既有 `IWasmBuildTarget` 註冊於 CLI。
 Android 的 Java Activity、Camera2、AudioTrack、文件選擇器及 JNI WebGPU 主機直接使用 Android API。
 程式仍在 V8 的 WebAssembly 引擎執行，圖學使用 wgpu-native 的 Vulkan 後端；沒有 WebView。
+圖學呼叫先記錄為保留順序的二進位批次，再透過 Javet typed array 與 JNI 送往原生 GPU 主機。
+主機重用頂點與 uniform 儲存、快取球面網格，並在尺寸或 surface 改變時才重新設定呈現；畫面更新使用 Choreographer 與實際影格期限。
+效能測量與驗證方式見[Android 圖學改善紀錄](android-graphics-improvements.md)。既有產生專案需重新產生，才能取得更新的主機程式。
 Android 部署會保留相同的 Wasm 執行區段，將封裝資源外置為 APK assets，避免大型 ONNX 模型在 JSON / base64 間重複佔用 Java 堆積。
 
 ## 編譯與輸出

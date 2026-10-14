@@ -12,10 +12,21 @@
 變數 比例 = 1.0d;
 變數 左邊 = 0.0d;
 變數 上邊 = 0.0d;
+變數 行動版 = 假;
+變數 展示項 = 0;
+變數 卡片橫 = [28,382,736,28,382,736];
+變數 卡片縱 = [146,146,146,450,450,450];
+變數 展示名稱 = ["Shapes + transforms","Curves + noise","Pixels + typography","Motion + touch","3D + lighting","WGSL shader"];
 變數 更新版面 = 函式() {
+    行動版 = 畫.width<760 || (畫.height<550 && 畫.width<1200);
     比例 = 畫.max(0.01d, 畫.min(畫.width / 1100.0d, 畫.height / 820.0d));
     左邊 = (畫.width - 1100 * 比例) / 2;
     上邊 = (畫.height - 820 * 比例) / 2;
+    如果(行動版){
+        比例=畫.max(0.01d,畫.min((畫.width-32)/336.0d,(畫.height-230)/292.0d));
+        左邊=(畫.width-336*比例)/2-卡片橫[展示項]*比例;
+        上邊=120-卡片縱[展示項]*比例;
+    }
     # Keep logical 3D coordinates, but render enough pixels for its on-screen size.
     立體.resize(326, 204, 畫.max(1, 畫.ceil(326 * 比例 * 畫.pixelWidth / 畫.width)), 畫.max(1, 畫.ceil(204 * 比例 * 畫.pixelHeight / 畫.height)));
 };
@@ -40,6 +51,13 @@
     畫.on("keyPressed", 函式() {
         如果 (畫.keyCode == 畫.SPACE) { 暫停 = !暫停; }
         如果 (畫.keyCode == 83) { 儲存 = 真; }
+    });
+    畫.on("mousePressed",函式(){
+        如果(行動版 && 畫.mouseY>畫.height-78){
+            如果(畫.mouseX<畫.width/3.0d){展示項=展示項+5;如果(展示項>=6){展示項-=6;}}
+            否則如果(畫.mouseX>畫.width*2.0d/3){展示項++;如果(展示項>=6){展示項=0;}}
+            否則{暫停=!暫停;}
+        }
     });
     迴圈 (變數 i = 0; i < 28; i++) {
         粒子 = 加入(粒子, [畫.random(330), 畫.random(170), 畫.random(2, 5), 畫.random(畫.TWO_PI)]);
@@ -97,6 +115,7 @@
     如果 (!暫停) { 時間 += 0.016d; }
     更新版面();
     畫.background(10, 18, 31);
+    如果(行動版){畫.clip((畫.width-336*比例)/2,120,336*比例,292*比例);}
     畫.pushMatrix(); 畫.translate(左邊, 上邊); 畫.scale(比例);
     畫.noStroke();
     畫.fill(62, 227, 205);
@@ -207,6 +226,14 @@
     畫.text("SPACE pause   /   MOUSE attract   /   S save   /   ESC exit", 36, 788);
     如果 (暫停) { 畫.fill(255, 185, 89); 畫.text("PAUSED", 995, 788); }
     畫.popMatrix();
+    如果(行動版){
+        畫.noClip();畫.noStroke();畫.fill(239,246,255);畫.textSize(26);畫.text("Aquarius · Creative coding",16,44);
+        畫.fill(143,164,189);畫.textSize(18);畫.text(展示名稱[展示項],16,82);
+        畫.fill(22,33,51);畫.rect(16,畫.height-76,畫.width-32,60,12);
+        畫.fill(229,240,249);畫.textSize(18);畫.text("←",32,畫.height-38);畫.text("→",畫.width-52,畫.height-38);
+        變數 提示="暫停";如果(暫停){提示="繼續";}畫.text(提示,畫.width/2.0d-18,畫.height-38);
+        畫.textSize(14);畫.text("觸碰左右箭頭，探索六個範例。",16,畫.height-96);
+    }
     如果 (儲存) { 畫.saveFrame(目前工作目錄 + "/showcase-####.png"); 儲存 = 假; }
 };
 

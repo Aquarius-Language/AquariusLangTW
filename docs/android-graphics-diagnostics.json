@@ -1,0 +1,908 @@
+{
+  "date": "2026-10-13",
+  "device": {
+    "model": "SM-A5360",
+    "android": "16",
+    "hardware": "s5e8825",
+    "physicalWidth": 1080,
+    "physicalHeight": 2400,
+    "density": 450,
+    "thermalStatusAfterRecordings": 1
+  },
+  "apkVerification": {
+    "method": "adb shell sha256sum of installed base.apk compared with local final APK SHA-256",
+    "snake": "54868cf5e2d751f99cbc7a1215dc1f58b0095cdeb16016033f74dae0fe51cdb3",
+    "painter": "24b84071fbc34c65fbfe9af0fee6a4596c1cdee6905df5417e639bda93d1014c"
+  },
+  "additionalSourceSha256": {
+    "AquariusAndroid/template/app/src/main/assets/aquarius/android-host.mjs": "594a02aa265e5734a0962a15214173fa4af065f17b1f0c8fd1b77c0090c2d236",
+    "AquariusAndroid/template/app/src/main/java/org/aquariuslang/android/NativeBridge.java": "7d9918bc763afe2ed1dedb160079d5642f8bc509d33006ff957a2d947ebdba1a",
+    "AquariusAndroid/template/app/src/main/java/org/aquariuslang/android/NativeRuntime.java": "84139297330f7a57e9d11a1d51a51a65018f21dd4cef5163e589770696f2a9ff",
+    "AquariusCore/hosting/wasm-host.mjs": "9880fed77ffcf1ed78af7aa5b525ab795e541d32057be54d36bc1f80fb57a76b"
+  },
+  "benchmark": {
+    "measuredAt": "2026-10-13T13:11:58.509Z",
+    "environment": {
+      "platform": "win32",
+      "arch": "x64",
+      "node": "v24.18.0",
+      "cpu": "13th Gen Intel(R) Core(TM) i9-13900H"
+    },
+    "method": {
+      "warmups": 3,
+      "samples": 9,
+      "statistic": "median",
+      "includes": "Production Processing geometry, JS buffer packing, JS base64 encoding, JSON transport and counting stub",
+      "excludes": "Aquarius/Wasm callbacks, Javet/Java/JNI, base64 decoding at the native boundary, wgpu, Vulkan, display and Android scheduling"
+    },
+    "sourceSha256": {
+      "AquariusAndroid/template/app/src/main/assets/aquarius/bootstrap.js": "6ff561e19248e92b58ce5a56a92929c680d0ee303b61c029696127e6204b208a",
+      "AquariusAndroid/template/app/src/main/assets/aquarius/android-gpu.mjs": "d780a4525f7c275dbe81c3f3f859b61fef6b847dc46a1dc0bb88c0f2821ce028",
+      "AquariusCore/hosting/processing.mjs": "a719887bda2e17fa68d108b14b536b9c9499b0694e0e9929e88173ccd0b4ea53",
+      "AquariusAndroid/template/app/src/main/cpp/gpu.cpp": "e31182398c209953be53b0b6cdd11643e38ded828d4ba0a30c11c10923a48581"
+    },
+    "transport": [
+      {
+        "byteLength": 2432,
+        "base64Characters": 3244,
+        "productionEncode": {
+          "medianMs": 0.051400000000001,
+          "minMs": 0.02179999999999893,
+          "maxMs": 1.6555000000000035
+        },
+        "productionDecode": {
+          "medianMs": 0.07569999999999766,
+          "minMs": 0.06749999999999545,
+          "maxMs": 0.4916999999999945
+        },
+        "nodeNativeEncodeReference": {
+          "medianMs": 0.0037999999999982492,
+          "minMs": 0.0011999999999972033,
+          "maxMs": 0.013199999999997658
+        }
+      },
+      {
+        "byteLength": 112736,
+        "base64Characters": 150316,
+        "productionEncode": {
+          "medianMs": 2.3175999999999988,
+          "minMs": 1.3579999999999899,
+          "maxMs": 2.6540999999999997
+        },
+        "productionDecode": {
+          "medianMs": 1.5548000000000002,
+          "minMs": 1.5104000000000042,
+          "maxMs": 1.6285000000000025
+        },
+        "nodeNativeEncodeReference": {
+          "medianMs": 0.052700000000015734,
+          "minMs": 0.047300000000007,
+          "maxMs": 2.015500000000003
+        }
+      },
+      {
+        "byteLength": 147296,
+        "base64Characters": 196396,
+        "productionEncode": {
+          "medianMs": 2.1743999999999915,
+          "minMs": 1.7090000000000032,
+          "maxMs": 4.082400000000007
+        },
+        "productionDecode": {
+          "medianMs": 1.923400000000015,
+          "minMs": 1.8556999999999846,
+          "maxMs": 2.177000000000021
+        },
+        "nodeNativeEncodeReference": {
+          "medianMs": 0.05930000000000746,
+          "minMs": 0.05860000000001264,
+          "maxMs": 0.061299999999988586
+        }
+      },
+      {
+        "byteLength": 1228800,
+        "base64Characters": 1638400,
+        "productionEncode": {
+          "medianMs": 18.47989999999993,
+          "minMs": 17.049900000000036,
+          "maxMs": 28.349099999999908
+        },
+        "productionDecode": {
+          "medianMs": 15.131099999999947,
+          "minMs": 14.853400000000079,
+          "maxMs": 16.328399999999988
+        },
+        "nodeNativeEncodeReference": {
+          "medianMs": 0.3755999999999631,
+          "minMs": 0.30709999999999127,
+          "maxMs": 0.40370000000007167
+        }
+      }
+    ],
+    "scenes": [
+      {
+        "name": "100 filled rectangles",
+        "medianMs": 2.961999999999989,
+        "minMs": 2.6608999999999696,
+        "maxMs": 3.3145999999999276,
+        "commands": {
+          "clear": 1,
+          "draw": 100
+        },
+        "binaryBytes": 243200,
+        "base64Characters": 324400,
+        "vertexBytes": 28800,
+        "nativeOperationsDerivedFromSource": {
+          "bufferCreations": 300,
+          "bindGroupCreations": 200,
+          "renderPassesBeforePresent": 101,
+          "submissionsBeforePresent": 101
+        }
+      },
+      {
+        "name": "100 outlined rectangles",
+        "medianMs": 14.447900000000004,
+        "minMs": 13.632600000000139,
+        "maxMs": 14.854100000000017,
+        "commands": {
+          "clear": 1,
+          "draw": 500
+        },
+        "binaryBytes": 1216000,
+        "base64Characters": 1622000,
+        "vertexBytes": 144000,
+        "nativeOperationsDerivedFromSource": {
+          "bufferCreations": 1500,
+          "bindGroupCreations": 1000,
+          "renderPassesBeforePresent": 501,
+          "submissionsBeforePresent": 501
+        }
+      },
+      {
+        "name": "20 outlined rounded rectangles",
+        "medianMs": 23.12220000000002,
+        "minMs": 22.901799999999866,
+        "maxMs": 24.589500000000044,
+        "commands": {
+          "clear": 1,
+          "draw": 740
+        },
+        "binaryBytes": 1891840,
+        "base64Characters": 2523440,
+        "vertexBytes": 305280,
+        "nativeOperationsDerivedFromSource": {
+          "bufferCreations": 2220,
+          "bindGroupCreations": 1480,
+          "renderPassesBeforePresent": 741,
+          "submissionsBeforePresent": 741
+        }
+      },
+      {
+        "name": "20 outlined ellipses",
+        "medianMs": 38.960599999999886,
+        "minMs": 37.14300000000003,
+        "maxMs": 52.33759999999984,
+        "commands": {
+          "clear": 1,
+          "draw": 1300
+        },
+        "binaryBytes": 3334400,
+        "base64Characters": 4447600,
+        "vertexBytes": 547200,
+        "nativeOperationsDerivedFromSource": {
+          "bufferCreations": 3900,
+          "bindGroupCreations": 2600,
+          "renderPassesBeforePresent": 1301,
+          "submissionsBeforePresent": 1301
+        }
+      },
+      {
+        "name": "12 filled spheres, detail 28x18",
+        "medianMs": 48.58100000000013,
+        "minMs": 40.32160000000022,
+        "maxMs": 64.83999999999969,
+        "commands": {
+          "clear": 1,
+          "draw": 12
+        },
+        "binaryBytes": 1767552,
+        "base64Characters": 2356752,
+        "vertexBytes": 1741824,
+        "nativeOperationsDerivedFromSource": {
+          "bufferCreations": 36,
+          "bindGroupCreations": 24,
+          "renderPassesBeforePresent": 13,
+          "submissionsBeforePresent": 13
+        }
+      }
+    ]
+  },
+  "deviceTraces": [
+    {
+      "name": "snake",
+      "traceDurationMs": 9855.751647,
+      "method": "Perfetto sched and gfx slices; median and nearest-rank p95 over consecutive QueuePresentKHR start timestamps. Per-operation durations can nest and must not be added.",
+      "packages": [
+        {
+          "package": "org.aquariuslang.app.p92e2f25f2d1870c6",
+          "pid": 8734,
+          "presents": 14,
+          "intervalStats": {
+            "samples": 13,
+            "meanMs": 714.8877686923079,
+            "minMs": 647.451076,
+            "medianMs": 737.886807,
+            "p95Ms": 763.911115,
+            "maxMs": 763.911115
+          },
+          "presentationFps": 1.3988209671417755,
+          "operations": [
+            {
+              "operation": "CreateSwapchainKHR",
+              "count": 14,
+              "totalMs": 224.792808,
+              "meanMs": 16.056629
+            },
+            {
+              "operation": "GetPhysicalDeviceSurfaceFormatsKHR",
+              "count": 56,
+              "totalMs": 38.132155,
+              "meanMs": 0.680931
+            },
+            {
+              "operation": "QueuePresentKHR",
+              "count": 14,
+              "totalMs": 17.029426,
+              "meanMs": 1.216388
+            },
+            {
+              "operation": "QueueSubmit",
+              "count": 6814,
+              "totalMs": 710.709802,
+              "meanMs": 0.104301
+            },
+            {
+              "operation": "dequeueBuffer",
+              "count": 70,
+              "totalMs": 167.434581,
+              "meanMs": 2.391923
+            }
+          ],
+          "threadCpu": [
+            {
+              "thread": "Aquarius-Wasm",
+              "tid": 10164,
+              "cpuMs": 6991.275588,
+              "percentOfOneCore": 70.93599593825076
+            },
+            {
+              "thread": "mali-cmar-backe",
+              "tid": 10239,
+              "cpuMs": 2849.410021,
+              "percentOfOneCore": 28.911138622971844
+            },
+            {
+              "thread": "mali-mem-purge",
+              "tid": 10234,
+              "cpuMs": 69.447495,
+              "percentOfOneCore": 0.7046392552022066
+            },
+            {
+              "thread": "HeapTaskDaemon",
+              "tid": 8739,
+              "cpuMs": 67.48031,
+              "percentOfOneCore": 0.6846794888600951
+            },
+            {
+              "thread": "V8 DefaultWorke",
+              "tid": 10211,
+              "cpuMs": 39.438885,
+              "percentOfOneCore": 0.40016110807748323
+            },
+            {
+              "thread": "V8 DefaultWorke",
+              "tid": 10214,
+              "cpuMs": 26.760927,
+              "percentOfOneCore": 0.27152598765154334
+            },
+            {
+              "thread": "binder:8734_3",
+              "tid": 8746,
+              "cpuMs": 24.526072,
+              "percentOfOneCore": 0.24885034524450006
+            },
+            {
+              "thread": "V8 DefaultWorke",
+              "tid": 10210,
+              "cpuMs": 20.148495,
+              "percentOfOneCore": 0.20443387497627355
+            },
+            {
+              "thread": "V8 DefaultWorke",
+              "tid": 10209,
+              "cpuMs": 17.548543,
+              "percentOfOneCore": 0.17805382713089787
+            },
+            {
+              "thread": "V8 DefaultWorke",
+              "tid": 10213,
+              "cpuMs": 16.489152,
+              "percentOfOneCore": 0.16730486512430687
+            },
+            {
+              "thread": "V8 DefaultWorke",
+              "tid": 10212,
+              "cpuMs": 11.357233,
+              "percentOfOneCore": 0.1152345696886248
+            },
+            {
+              "thread": "ReferenceQueueD",
+              "tid": 8740,
+              "cpuMs": 7.156308,
+              "percentOfOneCore": 0.07261047413038574
+            },
+            {
+              "thread": "V8 DefaultWorke",
+              "tid": 10208,
+              "cpuMs": 5.517652,
+              "percentOfOneCore": 0.05598408115001075
+            },
+            {
+              "thread": "Thread-4",
+              "tid": 10216,
+              "cpuMs": 2.460192,
+              "percentOfOneCore": 0.02496199263248339
+            },
+            {
+              "thread": "FinalizerDaemon",
+              "tid": 8741,
+              "cpuMs": 2.067269,
+              "percentOfOneCore": 0.020975254592877836
+            },
+            {
+              "thread": "GPU completion",
+              "tid": 12705,
+              "cpuMs": 1.749578,
+              "percentOfOneCore": 0.01775184747611366
+            },
+            {
+              "thread": "binder:8734_4",
+              "tid": 10133,
+              "cpuMs": 0.128538,
+              "percentOfOneCore": 0.0013041927658467916
+            },
+            {
+              "thread": "Aquarius-Wasm",
+              "tid": 12704,
+              "cpuMs": 0.074423,
+              "percentOfOneCore": 0.0007551225179527904
+            }
+          ],
+          "runtimeThreadStates": [
+            {
+              "state": "R",
+              "durationMs": 34.768627
+            },
+            {
+              "state": "R+",
+              "durationMs": 136.894463
+            },
+            {
+              "state": "Running",
+              "durationMs": 6991.350011
+            },
+            {
+              "state": "S",
+              "durationMs": 2680.919277
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "painter",
+      "traceDurationMs": 9844.653663,
+      "method": "Perfetto sched and gfx slices; median and nearest-rank p95 over consecutive QueuePresentKHR start timestamps. Per-operation durations can nest and must not be added.",
+      "packages": [
+        {
+          "package": "org.aquariuslang.app.p92e2f25f2d1870c6",
+          "pid": 8734,
+          "presents": 1,
+          "intervalStats": null,
+          "presentationFps": null,
+          "operations": [
+            {
+              "operation": "CreateSwapchainKHR",
+              "count": 1,
+              "totalMs": 46.186346,
+              "meanMs": 46.186346
+            },
+            {
+              "operation": "QueuePresentKHR",
+              "count": 1,
+              "totalMs": 0.940731,
+              "meanMs": 0.940731
+            },
+            {
+              "operation": "QueueSubmit",
+              "count": 1,
+              "totalMs": 0.089538,
+              "meanMs": 0.089538
+            },
+            {
+              "operation": "dequeueBuffer",
+              "count": 5,
+              "totalMs": 27.076078,
+              "meanMs": 5.415216
+            }
+          ],
+          "threadCpu": [
+            {
+              "thread": "Jit thread pool",
+              "tid": 8738,
+              "cpuMs": 102.119809,
+              "percentOfOneCore": 1.0373123575063445
+            },
+            {
+              "thread": "mali-cmar-backe",
+              "tid": 10239,
+              "cpuMs": 66.273378,
+              "percentOfOneCore": 0.6731915643622983
+            },
+            {
+              "thread": "Aquarius-Wasm",
+              "tid": 10164,
+              "cpuMs": 43.468845,
+              "percentOfOneCore": 0.4415477322820677
+            },
+            {
+              "thread": "mali-mem-purge",
+              "tid": 10234,
+              "cpuMs": 42.359425,
+              "percentOfOneCore": 0.4302784683955215
+            },
+            {
+              "thread": "2e2f25f2d1870c6",
+              "tid": 8734,
+              "cpuMs": 40.102731,
+              "percentOfOneCore": 0.40735542734958274
+            },
+            {
+              "thread": "binder:8734_3",
+              "tid": 8746,
+              "cpuMs": 7.383348,
+              "percentOfOneCore": 0.07499855508121597
+            },
+            {
+              "thread": "mali-mem-purge",
+              "tid": 8758,
+              "cpuMs": 6.372229,
+              "percentOfOneCore": 0.06472781286302931
+            },
+            {
+              "thread": "RenderThread",
+              "tid": 8755,
+              "cpuMs": 4.862192,
+              "percentOfOneCore": 0.04938916254894767
+            },
+            {
+              "thread": "Thread-4",
+              "tid": 10216,
+              "cpuMs": 2.003193,
+              "percentOfOneCore": 0.020348029179825502
+            },
+            {
+              "thread": "binder:8734_2",
+              "tid": 8745,
+              "cpuMs": 1.33023,
+              "percentOfOneCore": 0.013512207189162143
+            },
+            {
+              "thread": "binder:8734_4",
+              "tid": 10133,
+              "cpuMs": 0.435154,
+              "percentOfOneCore": 0.0044202062855240535
+            },
+            {
+              "thread": "mali-cmar-backe",
+              "tid": 8763,
+              "cpuMs": 0.315962,
+              "percentOfOneCore": 0.003209478066125444
+            },
+            {
+              "thread": "Profile Saver",
+              "tid": 8753,
+              "cpuMs": 0.2705,
+              "percentOfOneCore": 0.0027476842686365213
+            },
+            {
+              "thread": "GPU completion",
+              "tid": 12705,
+              "cpuMs": 0.160731,
+              "percentOfOneCore": 0.0016326729766440544
+            }
+          ],
+          "runtimeThreadStates": [
+            {
+              "state": "R",
+              "durationMs": 3.182424
+            },
+            {
+              "state": "R+",
+              "durationMs": 9.404075
+            },
+            {
+              "state": "Running",
+              "durationMs": 43.468845
+            },
+            {
+              "state": "S",
+              "durationMs": 9461.048726
+            }
+          ]
+        },
+        {
+          "package": "org.aquariuslang.app.p5e6433b5a5fbb326",
+          "pid": 14913,
+          "presents": 1,
+          "intervalStats": null,
+          "presentationFps": null,
+          "operations": [
+            {
+              "operation": "CreateSwapchainKHR",
+              "count": 1,
+              "totalMs": 10.134577,
+              "meanMs": 10.134577
+            },
+            {
+              "operation": "GetPhysicalDeviceSurfaceFormatsKHR",
+              "count": 4,
+              "totalMs": 2.521155,
+              "meanMs": 0.630289
+            },
+            {
+              "operation": "QueuePresentKHR",
+              "count": 1,
+              "totalMs": 2.295692,
+              "meanMs": 2.295692
+            },
+            {
+              "operation": "QueueSubmit",
+              "count": 1169,
+              "totalMs": 80.421569,
+              "meanMs": 0.068795
+            },
+            {
+              "operation": "dequeueBuffer",
+              "count": 5,
+              "totalMs": 8.358344,
+              "meanMs": 1.671669
+            }
+          ],
+          "threadCpu": [
+            {
+              "thread": "Aquarius-Wasm",
+              "tid": 14976,
+              "cpuMs": 5060.004129,
+              "percentOfOneCore": 51.3984981311983
+            },
+            {
+              "thread": "Jit thread pool",
+              "tid": 14926,
+              "cpuMs": 2467.080955,
+              "percentOfOneCore": 25.060109166381757
+            },
+            {
+              "thread": "e6433b5a5fbb326",
+              "tid": 14913,
+              "cpuMs": 518.080019,
+              "percentOfOneCore": 5.262552007767874
+            },
+            {
+              "thread": "mali-cmar-backe",
+              "tid": 15062,
+              "cpuMs": 238.475154,
+              "percentOfOneCore": 2.422382362685662
+            },
+            {
+              "thread": "RenderThread",
+              "tid": 14940,
+              "cpuMs": 145.555929,
+              "percentOfOneCore": 1.4785276758597943
+            },
+            {
+              "thread": "V8 DefaultWorke",
+              "tid": 15004,
+              "cpuMs": 77.414464,
+              "percentOfOneCore": 0.7863604617291249
+            },
+            {
+              "thread": "V8 DefaultWorke",
+              "tid": 14997,
+              "cpuMs": 71.373853,
+              "percentOfOneCore": 0.725001157412479
+            },
+            {
+              "thread": "HeapTaskDaemon",
+              "tid": 14927,
+              "cpuMs": 63.505229,
+              "percentOfOneCore": 0.6450732669111268
+            },
+            {
+              "thread": "V8 DefaultWorke",
+              "tid": 14995,
+              "cpuMs": 59.038124,
+              "percentOfOneCore": 0.599697318168622
+            },
+            {
+              "thread": "V8 DefaultWorke",
+              "tid": 14994,
+              "cpuMs": 50.842842,
+              "percentOfOneCore": 0.5164513017973094
+            },
+            {
+              "thread": "Aquarius-Wasm",
+              "tid": 15063,
+              "cpuMs": 49.931081,
+              "percentOfOneCore": 0.5071898180396152
+            },
+            {
+              "thread": "InsetsAnimation",
+              "tid": 15130,
+              "cpuMs": 46.531155,
+              "percentOfOneCore": 0.4726540576524495
+            },
+            {
+              "thread": "mali-cmar-backe",
+              "tid": 14950,
+              "cpuMs": 45.645458,
+              "percentOfOneCore": 0.46365732673312027
+            },
+            {
+              "thread": "V8 DefaultWorke",
+              "tid": 14996,
+              "cpuMs": 45.46988,
+              "percentOfOneCore": 0.46187384093453004
+            },
+            {
+              "thread": "mali-mem-purge",
+              "tid": 14945,
+              "cpuMs": 30.172957,
+              "percentOfOneCore": 0.3064907921890802
+            },
+            {
+              "thread": "binder:14913_3",
+              "tid": 14935,
+              "cpuMs": 26.121579,
+              "percentOfOneCore": 0.26533771419684327
+            },
+            {
+              "thread": "V8 DefaultWorke",
+              "tid": 15003,
+              "cpuMs": 24.717501,
+              "percentOfOneCore": 0.25107537396564683
+            },
+            {
+              "thread": "binder:14913_1",
+              "tid": 14933,
+              "cpuMs": 23.900303,
+              "percentOfOneCore": 0.24277444202863677
+            },
+            {
+              "thread": "ReferenceQueueD",
+              "tid": 14928,
+              "cpuMs": 15.059885,
+              "percentOfOneCore": 0.15297526470231096
+            },
+            {
+              "thread": "Profile Saver",
+              "tid": 14939,
+              "cpuMs": 12.634663,
+              "percentOfOneCore": 0.12834035033132685
+            },
+            {
+              "thread": "mali-mem-purge",
+              "tid": 15057,
+              "cpuMs": 12.012653,
+              "percentOfOneCore": 0.12202209860513608
+            },
+            {
+              "thread": "hwuiTask1",
+              "tid": 14964,
+              "cpuMs": 8.388423,
+              "percentOfOneCore": 0.08520790357030969
+            },
+            {
+              "thread": "AsyncTask #1",
+              "tid": 14969,
+              "cpuMs": 7.221307,
+              "percentOfOneCore": 0.07335257538962954
+            },
+            {
+              "thread": "SharedPreferenc",
+              "tid": 14967,
+              "cpuMs": 4.977537,
+              "percentOfOneCore": 0.050560813720725406
+            },
+            {
+              "thread": "queued-work-loo",
+              "tid": 14968,
+              "cpuMs": 4.095193,
+              "percentOfOneCore": 0.04159814189697006
+            },
+            {
+              "thread": "FinalizerDaemon",
+              "tid": 14929,
+              "cpuMs": 3.680308,
+              "percentOfOneCore": 0.037383824012336926
+            },
+            {
+              "thread": "TracingMuxer",
+              "tid": 14962,
+              "cpuMs": 2.650575,
+              "percentOfOneCore": 0.026924004548396475
+            },
+            {
+              "thread": "hwuiTask0",
+              "tid": 14963,
+              "cpuMs": 1.916231,
+              "percentOfOneCore": 0.01946468677920011
+            },
+            {
+              "thread": "AsyncTask #2",
+              "tid": 14975,
+              "cpuMs": 1.779386,
+              "percentOfOneCore": 0.018074642957604675
+            },
+            {
+              "thread": "binder:14913_3",
+              "tid": 14980,
+              "cpuMs": 1.368191,
+              "percentOfOneCore": 0.013897807346358853
+            },
+            {
+              "thread": "e6433b5a5fbb326",
+              "tid": 14942,
+              "cpuMs": 1.334654,
+              "percentOfOneCore": 0.013557145286036257
+            },
+            {
+              "thread": "Thread-4",
+              "tid": 15016,
+              "cpuMs": 1.198154,
+              "percentOfOneCore": 0.01217060590463557
+            },
+            {
+              "thread": "InteractionJank",
+              "tid": 15132,
+              "cpuMs": 1.16877,
+              "percentOfOneCore": 0.011872129178019619
+            },
+            {
+              "thread": "ADB-JDWP Connec",
+              "tid": 14925,
+              "cpuMs": 0.843116,
+              "percentOfOneCore": 0.008564201736915893
+            },
+            {
+              "thread": "Aquarius-Wasm",
+              "tid": 15014,
+              "cpuMs": 0.830346,
+              "percentOfOneCore": 0.008434486660721852
+            },
+            {
+              "thread": "V8 DefaultWorke",
+              "tid": 14999,
+              "cpuMs": 0.594653,
+              "percentOfOneCore": 0.006040364855443672
+            },
+            {
+              "thread": "SurfaceSyncGrou",
+              "tid": 14977,
+              "cpuMs": 0.529269,
+              "percentOfOneCore": 0.005376207412853911
+            },
+            {
+              "thread": "GPU completion",
+              "tid": 14979,
+              "cpuMs": 0.494268,
+              "percentOfOneCore": 0.005020674336748377
+            },
+            {
+              "thread": "FinalizerWatchd",
+              "tid": 14930,
+              "cpuMs": 0.300077,
+              "percentOfOneCore": 0.003048121450202001
+            },
+            {
+              "thread": "RenderThread",
+              "tid": 14946,
+              "cpuMs": 0.210423,
+              "percentOfOneCore": 0.002137434258259899
+            },
+            {
+              "thread": "Aquarius-Wasm",
+              "tid": 15060,
+              "cpuMs": 0.1765,
+              "percentOfOneCore": 0.0017928512880382474
+            },
+            {
+              "thread": "Aquarius-Wasm",
+              "tid": 15059,
+              "cpuMs": 0.174038,
+              "percentOfOneCore": 0.0017678427901847056
+            },
+            {
+              "thread": "Aquarius-Wasm",
+              "tid": 15058,
+              "cpuMs": 0.168923,
+              "percentOfOneCore": 0.001715885655123427
+            },
+            {
+              "thread": "Aquarius-Wasm",
+              "tid": 15061,
+              "cpuMs": 0.119385,
+              "percentOfOneCore": 0.0012126886743481372
+            },
+            {
+              "thread": "RenderThread",
+              "tid": 14947,
+              "cpuMs": 0.111231,
+              "percentOfOneCore": 0.0011298619921800697
+            },
+            {
+              "thread": "RenderThread",
+              "tid": 14949,
+              "cpuMs": 0.100038,
+              "percentOfOneCore": 0.0010161657629052135
+            },
+            {
+              "thread": "RenderThread",
+              "tid": 14948,
+              "cpuMs": 0.095154,
+              "percentOfOneCore": 0.0009665550791047672
+            },
+            {
+              "thread": "HWC release",
+              "tid": 14978,
+              "cpuMs": 0.07573,
+              "percentOfOneCore": 0.0007692500172415665
+            },
+            {
+              "thread": "binder:14913_2",
+              "tid": 14934,
+              "cpuMs": 0.066077,
+              "percentOfOneCore": 0.0006711967963722565
+            }
+          ],
+          "runtimeThreadStates": [
+            {
+              "state": "D",
+              "durationMs": 488.325982
+            },
+            {
+              "state": "R",
+              "durationMs": 299.137846
+            },
+            {
+              "state": "R+",
+              "durationMs": 92.733654
+            },
+            {
+              "state": "Running",
+              "durationMs": 5111.404402
+            },
+            {
+              "state": "S",
+              "durationMs": 5723.870685
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "traceProcessor": {
+    "version": "58.2",
+    "sha256": "adfa6bad3d72be3ba9b83fa2b17b69fa13b3ab1cad0f42e52b86188bd5f0f997"
+  }
+}

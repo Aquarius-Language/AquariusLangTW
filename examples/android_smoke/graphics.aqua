@@ -1,0 +1,49 @@
+# Batched rendering must preserve offscreen dependencies, clipping, updates,
+# depth rendering and GPU readback. This runs on the common Processing API.
+變數 畫=匯入("Processing");
+變數 離屏=0;
+變數 球面=0;
+變數 設定=函式(){
+    畫.size(320,240,畫.P2D,"Android graphics regression");
+    離屏=畫.createGraphics(16,16,畫.P2D);
+    球面=畫.createGraphics(64,64,畫.P3D);
+    球面.loadPixels(); 變數 球面像素=球面.pixels; 變數 球面底色=畫.color(255,255,0);
+    迴圈(變數 索引=0;索引<4096;索引++){球面像素[索引]=球面底色;}
+    球面.updatePixels();
+};
+變數 繪製=函式(){
+    畫.background(0); 畫.noStroke();
+    離屏.beginDraw(); 離屏.background(0); 離屏.noStroke();
+    離屏.fill(255,0,0); 離屏.rect(0,0,8,16);
+    離屏.fill(0,0,255); 離屏.rect(8,0,8,16); 離屏.endDraw();
+    離屏.loadPixels();
+    變數 像素=離屏.pixels;
+    如果(像素[68]!=畫.color(255,0,0)){離屏紅色失敗;}
+    如果(像素[76]!=畫.color(0,0,255)){離屏藍色失敗;}
+    畫.image(離屏,0,0);
+    # This clear follows a pending sample of the old texture contents.
+    離屏.beginDraw(); 離屏.background(0,255,0); 離屏.endDraw();
+    畫.image(離屏,20,0);
+    如果(畫.get(4,4)!=畫.color(255,0,0)){繪圖順序失敗;}
+    如果(畫.get(24,4)!=畫.color(0,255,0)){離屏相依失敗;}
+    離屏.loadPixels(); 變數 更新像素=離屏.pixels; 更新像素[68]=畫.color(255,255,0); 離屏.updatePixels();
+    如果(離屏.get(4,4)!=畫.color(255,255,0)){紋理更新失敗;}
+    離屏.beginDraw(); 離屏.background(0); 離屏.clip(2,2,4,4);
+    離屏.fill(255,0,0); 離屏.rect(0,0,16,16); 離屏.noClip(); 離屏.endDraw();
+    如果(離屏.get(1,1)!=畫.color(0)){裁切外側失敗;}
+    如果(離屏.get(3,3)!=畫.color(255,0,0)){裁切內側失敗;}
+    # Uploaded pixels on a fresh target must survive its first render pass.
+    變數 新畫布=畫.createGraphics(8,8,畫.P2D); 新畫布.loadPixels(); 變數 初始像素=新畫布.pixels;
+    迴圈(變數 索引=0;索引<64;索引++){初始像素[索引]=畫.color(255,255,0);}
+    新畫布.updatePixels(); 新畫布.beginDraw(); 新畫布.noStroke(); 新畫布.fill(0,0,255); 新畫布.rect(4,4,2,2); 新畫布.endDraw();
+    如果(新畫布.get(1,1)!=畫.color(255,255,0)){初始像素保存失敗;}
+    如果(新畫布.get(5,5)!=畫.color(0,0,255)){初始像素繪圖失敗;}
+    新畫布.dispose();
+    球面.beginDraw(); 球面.noStroke();
+    球面.translate(32,32,0); 球面.fill(255,0,0); 球面.sphereDetail(12,8); 球面.sphere(15); 球面.endDraw();
+    如果(球面.get(32,32)!=畫.color(255,0,0)){快取球面失敗;}
+    畫.image(球面,40,0);
+    印出("ANDROID_GRAPHICS_FRAME_OK",畫.frameCount);
+};
+畫.run(設定,繪製);
+真;
