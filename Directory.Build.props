@@ -1,0 +1,9 @@
+<Project>
+  <!-- WSL and Windows can build the same checkout without sharing NuGet assets,
+       generated assembly attributes or native apphosts. -->
+  <PropertyGroup Condition="$([MSBuild]::IsOSPlatform('Linux'))">
+    <BaseIntermediateOutputPath>obj/linux/</BaseIntermediateOutputPath>
+    <BaseOutputPath>bin/linux/</BaseOutputPath>
+    <DefaultItemExcludes>$(DefaultItemExcludes);bin/**;obj/**</DefaultItemExcludes>
+  </PropertyGroup>
+</Project>

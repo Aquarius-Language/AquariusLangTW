@@ -4,21 +4,23 @@ using AquariusLang.Desktop.runtime;
 
 namespace AquariusTests.Packaging;
 
-public sealed class WindowsExecutableFactAttribute : FactAttribute {
-    public WindowsExecutableFactAttribute() {
-        if (!OperatingSystem.IsWindows()) Skip = "Windows executable tests require Windows.";
-        else if (!File.Exists(Path.Combine(AppContext.BaseDirectory, "build-targets", "win-x64", "host.exe")))
-            Skip = "Run scripts/publish-apphost.ps1, then rebuild the tests to install the runtime pack.";
+public sealed class DesktopExecutableFactAttribute : FactAttribute {
+    public DesktopExecutableFactAttribute() {
+        if (!OperatingSystem.IsWindows() && !OperatingSystem.IsLinux()) Skip = "Executable tests require Windows or Linux x64.";
+        else if (!File.Exists(Path.Combine(AppContext.BaseDirectory, "build-targets", OperatingSystem.IsWindows() ? "win-x64" : "linux-x64", OperatingSystem.IsWindows() ? "host.exe" : "host")))
+            Skip = "Run scripts/publish-apphost.ps1 (Windows) or scripts/publish-apphost.sh (Linux), then rebuild the tests to install the runtime pack.";
     }
 }
 
-// Each build hashes and copies the full self-contained runtime. Keep this disk
+// Both platforms hash and copy the full self-contained runtime. Keep this disk
 // workload separate from the other process and timing-sensitive tests.
-[CollectionDefinition("Windows executables", DisableParallelization = true)]
-public sealed class WindowsExecutableCollection { }
+[CollectionDefinition("Desktop executables", DisableParallelization = true)]
+public sealed class DesktopExecutableCollection { }
 
-[Collection("Windows executables")]
-public class WindowsExecutableTest {
+[Collection("Desktop executables")]
+public class DesktopExecutableTest {
+    private static string Target => OperatingSystem.IsWindows() ? "windows" : "linux";
+    private static string Extension => OperatingSystem.IsWindows() ? ".exe" : "";
     private static (int Code, string Output, string Error) Run(string executable, string directory, params string[] args) {
         var start = new ProcessStartInfo(executable) {
             WorkingDirectory = directory, UseShellExecute = false, CreateNoWindow = true,
@@ -37,7 +39,7 @@ public class WindowsExecutableTest {
         return (process.ExitCode, output.GetAwaiter().GetResult().Replace("\r\n", "\n"), error.GetAwaiter().GetResult());
     }
 
-    [WindowsExecutableFact] public void RelocatedSingleExeImportsAssetsAndSelectedEntryWithoutSourcesWasmOrDotnet() {
+    [DesktopExecutableFact] public void RelocatedSingleExeImportsAssetsAndSelectedEntryWithoutSourcesWasmOrDotnet() {
         using var t = new ApplicationTestDirectory();
         t.Write("source/main.aqua", "不存在;");
         t.Write("source/lib/工具.aqua", "變數 值=42;");
@@ -45,17 +47,17 @@ public class WindowsExecutableTest {
         t.Write("source/assets/文字.txt", "封裝成功");
         var compile = UnifiedCliSmokeTest.Run(t.Path, "build", "source/main.aqua", "source/lib/工具.aqua", "source/other.aqua", "--root", "source", "--assets", "source/assets", "-o", "app.wasm");
         Assert.True(compile.Code == 0, compile.Error);
-        var build = UnifiedCliSmokeTest.Run(t.Path, "build", "app.wasm", "--target", "windows", "-o", "app.exe", "--entry", "OTHER.AQUA");
+        var build = UnifiedCliSmokeTest.Run(t.Path, "build", "app.wasm", "--target", Target, "-o", "app" + Extension, "--entry", "OTHER.AQUA");
         Assert.True(build.Code == 0, build.Output + build.Error); Assert.DoesNotContain("封裝成功", build.Output);
         Directory.Delete(t.FilePath("source"), true); File.Delete(t.FilePath("app.wasm"));
         Directory.CreateDirectory(t.FilePath("搬移 folder"));
-        string executable = t.FilePath("搬移 folder/星泉 app.exe"); File.Move(t.FilePath("app.exe"), executable);
+        string executable = t.FilePath("搬移 folder/星泉 app" + Extension); File.Move(t.FilePath("app" + Extension), executable);
         var run = Run(executable, t.Path);
         Assert.True(run.Code == 0, run.Output + run.Error); Assert.Equal("[42, 封裝成功]\n", run.Output); Assert.Empty(run.Error);
         Assert.Single(Directory.GetFiles(t.FilePath("搬移 folder"))); Assert.Empty(Directory.GetDirectories(t.FilePath("搬移 folder")));
     }
 
-    [WindowsExecutableFact] public void SingleExeLoadsNativeGraphicsPhysicsAndImageCodecsAndAcceptsLaunchFiles() {
+    [DesktopExecutableFact] public void SingleExeLoadsNativeGraphicsPhysicsAndImageCodecsAndAcceptsLaunchFiles() {
         using var t = new ApplicationTestDirectory();
         t.Write("main.aqua", """
             變數 glfw=匯入("GLFW"); glfw.Init(); glfw.Terminate();
@@ -68,24 +70,24 @@ public class WindowsExecutableTest {
             """);
         var compile = UnifiedCliSmokeTest.Run(t.Path, "build", "main.aqua", "-o", "app.wasm");
         Assert.True(compile.Code == 0, compile.Output + compile.Error);
-        var build = UnifiedCliSmokeTest.Run(t.Path, "build", "app.wasm", "--target", "windows", "-o", "app.exe");
+        var build = UnifiedCliSmokeTest.Run(t.Path, "build", "app.wasm", "--target", Target, "-o", "app" + Extension);
         Assert.True(build.Code == 0, build.Output + build.Error);
         File.Delete(t.FilePath("main.aqua")); File.Delete(t.FilePath("app.wasm"));
         string launch = t.Write("啟動 file.txt", "input");
-        var run = Run(t.FilePath("app.exe"), t.Path, launch);
+        var run = Run(t.FilePath("app" + Extension), t.Path, launch);
         Assert.True(run.Code == 0, run.Output + run.Error); Assert.Empty(run.Error); Assert.Equal("[1, 啟動 file.txt]\n", run.Output);
     }
 
-    [WindowsExecutableFact] public void RuntimeErrorsAndDamagedPayloadsReturnOneWithoutStackTraces() {
+    [DesktopExecutableFact] public void RuntimeErrorsAndDamagedPayloadsReturnOneWithoutStackTraces() {
         using var t = new ApplicationTestDirectory(); t.Write("main.aqua", "不存在;");
         Assert.Equal(0, UnifiedCliSmokeTest.Run(t.Path, "build", "main.aqua").Code);
-        Assert.Equal(0, UnifiedCliSmokeTest.Run(t.Path, "build", "main.wasm", "--target", "windows", "-o", "app.exe").Code);
-        var run = Run(t.FilePath("app.exe"), t.Path); Assert.Equal(1, run.Code); Assert.Contains("Identifier not found", run.Output);
+        Assert.Equal(0, UnifiedCliSmokeTest.Run(t.Path, "build", "main.wasm", "--target", Target, "-o", "app" + Extension).Code);
+        var run = Run(t.FilePath("app" + Extension), t.Path); Assert.Equal(1, run.Code); Assert.Contains("Identifier not found", run.Output);
         // Corrupt a copy: Windows scanners may briefly retain a handle to the executable just run.
-        File.Copy(t.FilePath("app.exe"), t.FilePath("damaged.exe"));
-        using (var file = new FileStream(t.FilePath("damaged.exe"), FileMode.Open, FileAccess.ReadWrite)) {
+        File.Copy(t.FilePath("app" + Extension), t.FilePath("damaged" + Extension));
+        using (var file = new FileStream(t.FilePath("damaged" + Extension), FileMode.Open, FileAccess.ReadWrite)) {
             file.Position = file.Length - 64; file.WriteByte(99);
         }
-        run = Run(t.FilePath("damaged.exe"), t.Path); Assert.Equal(1, run.Code); Assert.Contains("Unsupported Aquarius executable", run.Error); Assert.DoesNotContain("Unhandled exception", run.Error);
+        run = Run(t.FilePath("damaged" + Extension), t.Path); Assert.Equal(1, run.Code); Assert.Contains("Unsupported Aquarius executable", run.Error); Assert.DoesNotContain("Unhandled exception", run.Error);
     }
 }

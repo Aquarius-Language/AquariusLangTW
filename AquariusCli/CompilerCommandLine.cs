@@ -10,6 +10,7 @@ public static class CompilerCommandLine {
     public const string Usage = "aqua build main.aqua [more.aqua ...] [--root directory] [--assets path ...] [-o app.wasm]\n" +
         "aqua build app.wasm --target web -o output-directory [--entry main.aqua]\n" +
         "aqua build app.wasm --target windows -o app.exe [--entry main.aqua]\n" +
+        "aqua build app.wasm --target linux -o app [--entry main.aqua]\n" +
         "aqua build main.aqua --target android -o android-project [--root directory] [--assets path]\n" +
         "aqua build app.wasm --target android -o app.apk [--entry main.aqua]\n" +
         "Android options: [--application-id org.example.app] [--app-name DisplayName]\n" +

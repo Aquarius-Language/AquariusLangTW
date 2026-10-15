@@ -8,6 +8,7 @@ namespace AquariusTests.Application;
 public sealed class NativeApplicationFact : FactAttribute {
     public NativeApplicationFact() { if (!OperatingSystem.IsWindows() || System.Environment.GetEnvironmentVariable("AQUARIUS_APPLICATION_NATIVE_TESTS") != "1") Skip = "Set AQUARIUS_APPLICATION_NATIVE_TESTS=1 on Windows with the built native bridge."; }
 }
+[Collection("Starship console output")]
 public class DesktopIntegrationTest {
     [NativeApplicationFact] public void AttachedWindowsKeepIndependentCallbacksCursorsAndAccessibility() {
         Assert.NotEqual(0,Native.aqua_init());IntPtr first=IntPtr.Zero,second=IntPtr.Zero;

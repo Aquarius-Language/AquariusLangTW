@@ -1,5 +1,9 @@
 # Aquarius desktop graphics
 
+On Linux x86_64, build with `bash native/build.sh`. It enables X11 and Wayland
+and installs both native bridges into `AquariusDesktop/runtimes/linux-x64/native`.
+See [Linux setup and testing](../docs/linux.md) for dependencies and WSLg behavior.
+
 Windows builds link the bridge and GLFW against the static MSVC C runtime.
 Standalone application publishing bundles wgpu-native's release VC runtime
 DLLs separately, so recipients do not need a Visual C++ redistributable installer.

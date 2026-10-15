@@ -1,5 +1,9 @@
 # Compiler and runtime verification
 
+For Ubuntu/WSL2, `bash scripts/test-linux.sh` builds the native bridges and runtime
+pack before running the full desktop/GPU/packaging and browser suite. See
+[the Linux guide](../docs/linux.md) for prerequisites and sibling-project checks.
+
 Prepare the pinned core/browser assets, build with the .NET 8 SDK, then run:
 
 ```powershell

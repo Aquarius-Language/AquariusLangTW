@@ -88,8 +88,34 @@ public class ExecutableBundleTest {
 
     [Fact] public void TargetRegistryReportsSupportedTargetsAndRejectsDuplicateRegistration() {
         Assert.Equal("windows", CompilerBuildTargets.Default.Resolve("windows").Name);
+        Assert.Equal("linux", CompilerBuildTargets.Default.Resolve("linux").Name);
         var web = CompilerBuildTargets.Default.Resolve("web"); Assert.Equal("web", web.Name);
         Assert.Contains("windows", Assert.Throws<ArgumentException>(() => CompilerBuildTargets.Default.Resolve("unknown")).Message);
         Assert.Throws<ArgumentException>(() => new BuildTargets(new[] { web, web }));
+    }
+
+    [Fact] public void LinuxOverlayPreservesElfTemplateAndIsExecutableWithoutAnExtension() {
+        using var t = new ApplicationTestDirectory(); string wasm = Wasm(t);
+        string template = t.FilePath("packs/linux-x64/host");
+        Directory.CreateDirectory(Path.GetDirectoryName(template)!);
+        byte[] elf = "\u007fELF synthetic Linux runtime"u8.ToArray();
+        File.WriteAllBytes(template, elf);
+        t.Write("packs/linux-x64/runtime.json", JsonSerializer.Serialize(new {
+            format = "aquarius-runtime-pack", version = 1, runtimeIdentifier = "linux-x64",
+            bundleVersion = ExecutableBundle.FormatVersion, wasmAbiVersion = AquariusLang.Wasm.WasmAbi.Version,
+            templateSha256 = Convert.ToHexString(SHA256.HashData(elf))
+        }));
+        var target = new SelfContainedExecutableTarget("linux", "linux-x64", "", t.FilePath("packs"));
+        string output = t.Write("dist/星泉 app", "previous output");
+        target.Build(new WasmBuildRequest(wasm, output, "LIB/工具.AQUA"));
+        using var stream = File.OpenRead(output);
+        byte[] header = new byte[elf.Length]; stream.ReadExactly(header); Assert.Equal(elf, header);
+        Assert.Equal("lib/工具.aqua", ExecutableBundle.Load(stream).EntryPoint);
+        if (!OperatingSystem.IsWindows()) {
+            var mode = File.GetUnixFileMode(output);
+            Assert.True(mode.HasFlag(UnixFileMode.UserExecute));
+            Assert.True(mode.HasFlag(UnixFileMode.GroupExecute));
+            Assert.True(mode.HasFlag(UnixFileMode.OtherExecute));
+        }
     }
 }

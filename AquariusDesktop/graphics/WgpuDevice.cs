@@ -42,7 +42,14 @@ internal unsafe sealed partial class WgpuDevice : IDisposable {
     internal WgpuDevice(IntPtr window=default) {
         errorCallback=(type,message,_)=>error=$"{type}: {Marshal.PtrToStringUTF8((nint)message)}";
         try {
-            instance=Api.CreateInstance((InstanceDescriptor*)null);
+            // Linux's accelerated GLES adapter can outrank a Vulkan CPU adapter
+            // while lacking compute/storage features required by WebGPU.
+            var extras = new InstanceExtras {
+                Chain = new ChainedStruct { SType = (SType)NativeSType.STypeInstanceExtras },
+                Backends = InstanceBackend.Vulkan
+            };
+            var instanceDescriptor = new InstanceDescriptor { NextInChain = &extras.Chain };
+            instance=Api.CreateInstance(OperatingSystem.IsLinux() ? &instanceDescriptor : null);
             if(instance==null)throw new InvalidOperationException("wgpu instance creation failed.");
             if(window!=IntPtr.Zero)CreateSurface(window);
             RequestAdapterCallback adapterCallback=(status,value,message,_)=> {

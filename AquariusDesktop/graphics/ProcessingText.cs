@@ -55,17 +55,19 @@ internal sealed partial class GraphicsRuntime {
     }
 }
 
-// Use the OS font collection on Windows (including CJK fallback). Other hosts
+// Use OS fonts on Windows and Linux (including CJK fallback). Other hosts
 // have a dependency-free small bitmap font rather than a platform font dependency.
 internal static class TextRaster {
     internal static (int w,int h) Measure(string text,string font,float size) {
         if(text.Length>4096)throw new ArgumentException("Text is limited to 4096 characters per call.");
+        if(OperatingSystem.IsLinux())return LinuxTextRaster.Measure(text,font,size);
         if(!OperatingSystem.IsWindows())return (Math.Max(1,(int)Math.Ceiling(text.Length*size*6/8)),Math.Max(1,(int)Math.Ceiling(size)));
         IntPtr dc=CreateCompatibleDC(IntPtr.Zero),f=Font(font,size),old=SelectObject(dc,f);
         try {if(!GetTextExtentPoint32W(dc,text,text.Length,out var s))throw new InvalidOperationException("Font measurement failed.");return (Math.Max(1,s.X+2),Math.Max(1,s.Y));}
         finally{SelectObject(dc,old);DeleteObject(f);DeleteDC(dc);}
     }
     internal static (int w,int h,byte[] bytes) Rasterize(string text,string font,float size) {
+        if(OperatingSystem.IsLinux())return LinuxTextRaster.Rasterize(text,font,size);
         var (w,h)=Measure(text,font,size);if(w>8192||h>8192)throw new ArgumentException("Rendered text is too large.");var bytes=new byte[w*h*4];
         if(!OperatingSystem.IsWindows()) {
             float scale=size/8;for(int i=0;i<text.Length;i++){char key=char.ToUpperInvariant(text[i]);string pattern=Glyphs.TryGetValue(key,out var value)?value:"11111100011010110001101011000111111";

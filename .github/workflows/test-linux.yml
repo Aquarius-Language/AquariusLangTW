@@ -1,0 +1,32 @@
+name: Linux desktop and standalone applications
+on: [push, pull_request]
+jobs:
+  linux:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: AquariusWebCompiler/package-lock.json
+      - name: Install native build, display and font dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential cmake pkg-config libx11-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev libwayland-dev libxkbcommon-dev wayland-protocols libgl1-mesa-dev mesa-vulkan-drivers libpangocairo-1.0-0 fonts-noto-cjk python-is-python3 zenity ffmpeg xvfb
+      - name: Build and test with software OpenGL and Vulkan
+        env:
+          LIBGL_ALWAYS_SOFTWARE: '1'
+          XDG_RUNTIME_DIR: /tmp/aquarius-runtime
+        run: |
+          mkdir -p "$XDG_RUNTIME_DIR"
+          chmod 700 "$XDG_RUNTIME_DIR"
+          xvfb-run -a bash scripts/test-linux.sh
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: linux-test-results
+          path: AquariusTests/TestResults/*.trx

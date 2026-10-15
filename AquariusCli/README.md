@@ -9,6 +9,7 @@ aqua build main.aqua lib/tools.aqua --root . --assets assets --target web -o web
 aqua build main.aqua lib/tools.aqua --root . --assets assets --target windows -o app.exe
 aqua build app.wasm --target web -o web
 aqua build app.wasm --target windows -o app.exe --entry lib/tools.aqua
+aqua build app.wasm --target linux -o app
 aqua repl
 ```
 

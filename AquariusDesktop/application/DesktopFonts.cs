@@ -6,6 +6,7 @@ namespace AquariusLang.Desktop.Application;
 
 public sealed class DesktopFonts : IFontService {
     public ValueTask<IReadOnlyList<FontInfo>> Enumerate(CancellationToken cancellation = default) {
+        if (OperatingSystem.IsLinux()) { cancellation.ThrowIfCancellationRequested(); return ValueTask.FromResult(LinuxTextRaster.Fonts(cancellation)); }
         cancellation.ThrowIfCancellationRequested(); if (!OperatingSystem.IsWindows()) throw new ApplicationFailure(FailureKind.Unsupported, "System font enumeration adapter unavailable; existing bitmap fallback remains usable.");
         var result = new HashSet<FontInfo>(); IntPtr dc = CreateCompatibleDC(IntPtr.Zero);
         try { var filter = new LogFont { CharSet = 1, FaceName = "" }; FontCallback callback = (font, metrics, type, data) => { if (cancellation.IsCancellationRequested) return 0; var f = Marshal.PtrToStructure<LogFont>(font); result.Add(new(f.FaceName, (f.Weight >= 700 ? "Bold" : "Regular") + (f.Italic != 0 ? " Italic" : ""))); return result.Count < 4096 ? 1 : 0; };

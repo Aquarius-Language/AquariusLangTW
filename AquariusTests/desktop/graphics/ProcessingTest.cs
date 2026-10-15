@@ -9,6 +9,7 @@ using AquaEnvironment=AquariusLang.Object.Environment;
 
 namespace AquariusLang.Desktop.Graphics;
 
+[Collection("Starship console output")]
 public class ProcessingTest {
     [WgpuFact] public void EventErrorHandlerRecoversAnOffscreenDrawAndContinuesRendering() {
         var evaluated=Evaluate("""

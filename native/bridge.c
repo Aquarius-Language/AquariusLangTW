@@ -1,4 +1,10 @@
+#if defined(__linux__) && !defined(_GNU_SOURCE)
+#define _GNU_SOURCE
+#endif
 #include <glad/gl.h>
+#ifdef __linux__
+#include <dlfcn.h>
+#endif
 #define GLFW_INCLUDE_NONE
 #include <GLFW/glfw3.h>
 #ifdef _WIN32
@@ -28,7 +34,35 @@
 #endif
 
 /* Cdecl bridge exports; OpenGL pointers retain GLAD_API_PTR (Winapi). */
-AQUA int aqua_init(void) { return glfwInit(); }
+AQUA int aqua_init(void) {
+#ifdef __linux__
+    /* WSLg's D3D12 driver registers pthread TLS destructors. GLFW can unload
+       GLX/EGL before the calling CLR thread exits; retain the driver code and
+       state until process exit so those destructors remain callable. */
+    static void* wsl_driver;
+    static void* wsl_driver_core;
+    if (getenv("WSL_DISTRO_NAME")) {
+        if (!wsl_driver) wsl_driver = dlopen("/usr/lib/wsl/lib/libd3d12.so", RTLD_NOW | RTLD_NODELETE);
+        if (!wsl_driver_core) wsl_driver_core = dlopen("/usr/lib/wsl/lib/libd3d12core.so", RTLD_NOW | RTLD_NODELETE);
+    }
+#endif
+#if defined(AQUA_GLFW_X11) || defined(AQUA_GLFW_WAYLAND)
+    glfwInitHint(GLFW_PLATFORM, GLFW_ANY_PLATFORM);
+#endif
+#ifdef AQUA_GLFW_X11
+    /* WSLg's Mesa D3D12 Wayland/EGL path can return an empty GL framebuffer.
+       Its X11/GLX path renders correctly and also supports Vulkan surfaces. */
+    const char* platform = getenv("AQUARIUS_GLFW_PLATFORM");
+    if ((platform && strcmp(platform, "x11") == 0) ||
+        (!platform && getenv("WSL_DISTRO_NAME") && getenv("DISPLAY")))
+        glfwInitHint(GLFW_PLATFORM, GLFW_PLATFORM_X11);
+#endif
+#ifdef AQUA_GLFW_WAYLAND
+    if (getenv("AQUARIUS_GLFW_PLATFORM") && strcmp(getenv("AQUARIUS_GLFW_PLATFORM"), "wayland") == 0)
+        glfwInitHint(GLFW_PLATFORM, GLFW_PLATFORM_WAYLAND);
+#endif
+    return glfwInit();
+}
 static void clear_application_windows(void);
 AQUA void aqua_terminate(void) { clear_application_windows(); glfwTerminate(); }
 AQUA const char* aqua_error(void) { const char* text = NULL; glfwGetError(&text); return text ? text : "Unknown GLFW error"; }

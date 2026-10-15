@@ -11,10 +11,15 @@ try {
     string path = System.Environment.ProcessPath ?? throw new IOException("Cannot locate the application executable.");
     using var stream = File.OpenRead(path);
     if (args is ["--runtime-info"] && !ExecutableBundle.HasProgram(stream)) {
-        string[] required = {
+        string rid = RuntimeInformation.RuntimeIdentifier;
+        string[] required = OperatingSystem.IsLinux() ? new[] {
+            "libwgpu_native.so", "libwasmtime.so", $"ClearScriptV8.{rid}.so", "Magick.Native-Q8-x64.dll.so",
+            "libonnxruntime.so", "libonnxruntime_providers_webgpu.so",
+            $"runtimes/{rid}/native/libaquarius_graphics.so", $"runtimes/{rid}/native/libaquarius_audio.so"
+        } : new[] {
             "wgpu_native.dll", "wasmtime.dll", "ClearScriptV8.win-x64.dll", "Magick.Native-Q8-x64.dll", "vcruntime140.dll",
             "onnxruntime.dll", "onnxruntime_providers_webgpu.dll",
-            "runtimes/win-x64/native/aquarius_graphics.dll"
+            "runtimes/win-x64/native/aquarius_graphics.dll", "runtimes/win-x64/native/aquarius_audio.dll"
         };
         string[] missing = required.Where(file => !File.Exists(Path.Combine(AppContext.BaseDirectory, file))).ToArray();
         if (missing.Length != 0) throw new IOException("Application runtime dependencies are missing: " + string.Join(", ", missing));

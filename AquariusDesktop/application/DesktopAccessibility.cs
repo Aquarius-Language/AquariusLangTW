@@ -4,19 +4,21 @@ using AquariusLang.Desktop.Graphics;
 
 namespace AquariusLang.Desktop.Application;
 
-/// <summary>Read-only MSAA mirror; rendering and application interactions stay with the application.</summary>
+/// <summary>Read-only tree mirror with MSAA publication on Windows.</summary>
 [ComVisible(true), ClassInterface(ClassInterfaceType.None)]
 public sealed class DesktopAccessibility : IAccessibleTree {
     private AccessibilityNode[] nodes = Array.Empty<AccessibilityNode>();
-    private readonly Native.AccessibilityCallback callback;
+    private readonly Native.AccessibilityCallback? callback;
     private readonly IntPtr hwnd;
     internal DesktopAccessibility(IntPtr window) {
-        if (!OperatingSystem.IsWindows()) throw new ApplicationFailure(FailureKind.Unsupported, "MSAA adapter requires Windows.");
+        // Applications can submit the same semantic tree on every platform.
+        // Native assistive-technology publication is advertised separately.
+        if (!OperatingSystem.IsWindows()) return;
         Native.aqua_wgpu_handles(window, out _, out hwnd); callback = GetObject; Native.aqua_accessibility_subscribe(window, callback);
     }
     public void Update(IReadOnlyList<AccessibilityNode> values) {
         if (values.Count > 4096 || values.Any(n => string.IsNullOrEmpty(n.Id) || n.Role == null || n.Label == null) || values.Select(n => n.Id).Distinct().Count() != values.Count) throw new ArgumentException("Invalid accessibility node list.");
-        nodes = values.ToArray(); NotifyWinEvent(0x8004, hwnd, -4, 0);
+        nodes = values.ToArray(); if (OperatingSystem.IsWindows()) NotifyWinEvent(0x8004, hwnd, -4, 0);
     }
     private IntPtr GetObject(nuint parameter, nint objectId) {
         if ((int)objectId != -4) return IntPtr.Zero;
@@ -38,7 +40,10 @@ public sealed class DesktopAccessibility : IAccessibleTree {
     public object? get_accSelection() => null;
     public string? get_accDefaultAction(object child) => null;
     public void accSelect(int flags, object child) => throw new COMException("Read-only accessibility mirror.", unchecked((int)0x80004001));
-    public void accLocation(out int x, out int y, out int width, out int height, object child) { GetWindowRect(hwnd, out var rect); x = rect.Left; y = rect.Top; width = rect.Right - x; height = rect.Bottom - y; }
+    public void accLocation(out int x, out int y, out int width, out int height, object child) {
+        if (!OperatingSystem.IsWindows()) { x = y = width = height = 0; return; }
+        GetWindowRect(hwnd, out var rect); x = rect.Left; y = rect.Top; width = rect.Right - x; height = rect.Bottom - y;
+    }
     public object? accNavigate(int direction, object child) { int n = child is int index ? index : 0; return direction switch { 7 when nodes.Length > 0 => 1, 8 when nodes.Length > 0 => nodes.Length, 5 when n < nodes.Length => n + 1, 6 when n > 1 => n - 1, _ => null }; }
     public object? accHitTest(int x, int y) => 0;
     public void accDoDefaultAction(object child) => throw new COMException("No default action.", unchecked((int)0x80004001));

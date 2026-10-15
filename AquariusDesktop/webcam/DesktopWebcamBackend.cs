@@ -54,7 +54,10 @@ public sealed class DesktopWebcamBackend : IWebcamBackend {
         var args = new List<string> { "-hide_banner", "-loglevel", "error", "-nostdin", "-f", format };
         if (format == "lavfi") args.Add("-re");
         if (format != "lavfi") args.AddRange(new[] { "-framerate", options.FramesPerSecond.ToString(System.Globalization.CultureInfo.InvariantCulture) });
-        args.AddRange(new[] { "-i", input, "-an", "-sn", "-dn", "-threads", "1", "-vf", $"scale={options.Width}:{options.Height}:force_original_aspect_ratio=decrease,pad={options.Width}:{options.Height}:(ow-iw)/2:(oh-ih)/2", "-pix_fmt", "rgba", "-fps_mode", "passthrough", "-flush_packets", "1", "-f", "rawvideo", "pipe:1" });
+        // Ubuntu 22.04 ships FFmpeg 4.4, before -fps_mode was introduced.
+        string syncOption = OperatingSystem.IsLinux() ? "-vsync" : "-fps_mode";
+        string syncValue = OperatingSystem.IsLinux() ? "0" : "passthrough";
+        args.AddRange(new[] { "-i", input, "-an", "-sn", "-dn", "-threads", "1", "-vf", $"scale={options.Width}:{options.Height}:force_original_aspect_ratio=decrease,pad={options.Width}:{options.Height}:(ow-iw)/2:(oh-ih)/2", "-pix_fmt", "rgba", syncOption, syncValue, "-flush_packets", "1", "-f", "rawvideo", "pipe:1" });
         var session = new DesktopWebcamSession(Start(CreateStartInfo(executable!, args)), options);
         try { await session.Prime(cancellation); return session; }
         catch { session.Dispose(); throw; }

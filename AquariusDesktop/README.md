@@ -2,6 +2,8 @@
 
 Desktop host for compiled Aquarius applications, using Wasmtime for all Aquarius
 execution. It implements core WebGPU, application and external-library contracts.
+Linux x86_64 builds, standalone executables and WSL2 validation are documented in
+[the Linux guide](../docs/linux.md).
 Jolt uses the same core Emscripten Wasm and world implementation as browsers,
 with ClearScript/V8 supplying its glue environment.
 

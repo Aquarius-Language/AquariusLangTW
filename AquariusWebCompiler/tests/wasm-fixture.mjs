@@ -5,7 +5,7 @@ import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {WasmRuntime} from '../browser/wasm.mjs';
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'../..');
-const compiler=process.env.AQUARIUS_COMPILER_DLL??path.join(root,'AquariusCli/bin/Debug/net8.0/aqua.dll');
+const compiler=process.env.AQUARIUS_COMPILER_DLL??path.join(root,`AquariusCli/bin/${process.platform==='linux'?'linux/':''}Debug/net8.0/aqua.dll`);
 const local=path.join(homedir(),'.dotnet',process.platform==='win32'?'dotnet.exe':'dotnet');
 const dotnet=process.env.DOTNET_HOST_PATH??(existsSync(local)?local:'dotnet');
 const cache=new Map();

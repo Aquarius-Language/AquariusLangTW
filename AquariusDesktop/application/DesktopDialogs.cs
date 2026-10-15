@@ -1,10 +1,16 @@
 using System.Runtime.InteropServices;
+using System.Diagnostics;
 using AquariusLang.Application;
 
 namespace AquariusLang.Desktop.Application;
 
 internal static class DesktopDialogs {
+    private static string? LinuxPicker => OperatingSystem.IsLinux() ?
+        (System.Environment.GetEnvironmentVariable("PATH") ?? "").Split(Path.PathSeparator)
+            .Where(p => p.Length > 0).Select(p => Path.Combine(p, "zenity")).FirstOrDefault(File.Exists) : null;
+    internal static bool PickersAvailable => OperatingSystem.IsWindows() || LinuxPicker != null;
     internal static IReadOnlyList<string> FileDialog(PickerOptions options, bool save, CancellationToken cancellation) {
+        if (OperatingSystem.IsLinux()) return LinuxDialog(LinuxFileArguments(options, save), cancellation);
         if (!OperatingSystem.IsWindows()) throw new ApplicationFailure(FailureKind.Unsupported, "Native file picker adapter unavailable on this OS.");
         cancellation.ThrowIfCancellationRequested(); if (options.SuggestedName.IndexOf('\0') >= 0) throw new ArgumentException("Filename contains NUL.");
         string filter = string.Join("\0", (options.Filters ?? new[] { new FileFilter("All files", new[] { "*" }) }).SelectMany(f => new[] { f.Name, string.Join(";", f.Extensions.Select(e => e == "*" ? "*.*" : "*." + ValidateExtension(e))) })) + "\0\0";
@@ -24,11 +30,35 @@ internal static class DesktopDialogs {
         value = value.TrimStart('.'); if (value.Length == 0 || value.Any(c => !char.IsAsciiLetterOrDigit(c))) throw new ArgumentException("Filters require simple filename extensions."); return value;
     }
     internal static string? DirectoryDialog(CancellationToken cancellation) {
+        if (OperatingSystem.IsLinux()) return LinuxDialog(new[] { "--file-selection", "--directory" }, cancellation).FirstOrDefault();
         if (!OperatingSystem.IsWindows()) throw new ApplicationFailure(FailureKind.Unsupported, "Native directory picker unavailable on this OS.");
         cancellation.ThrowIfCancellationRequested(); var request = new BrowseInfo { Title = "Select directory", Flags = 0x1 | 0x40 };
         IntPtr item = SHBrowseForFolderW(ref request); if (item == IntPtr.Zero) return null;
         try { var path = new System.Text.StringBuilder(32768); if (!SHGetPathFromIDListW(item, path)) throw new ApplicationFailure(FailureKind.Unsupported, "Selection has no filesystem path."); cancellation.ThrowIfCancellationRequested(); return path.ToString(); }
         finally { Marshal.FreeCoTaskMem(item); }
+    }
+    internal static IReadOnlyList<string> LinuxFileArguments(PickerOptions options, bool save) {
+        if (options.SuggestedName.Contains('\0')) throw new ArgumentException("Filename contains NUL.");
+        var args = new List<string> { "--file-selection", "--title=" + options.Title };
+        if (save) args.AddRange(new[] { "--save", "--confirm-overwrite" });
+        else if (options.Multiple) args.AddRange(new[] { "--multiple", "--separator=\n" });
+        if (options.SuggestedName.Length > 0) args.Add("--filename=" + options.SuggestedName);
+        foreach (var filter in options.Filters ?? Array.Empty<FileFilter>())
+            args.Add("--file-filter=" + filter.Name + " | " + string.Join(" ", filter.Extensions.Select(e => e == "*" ? "*" : "*." + ValidateExtension(e))));
+        return args;
+    }
+    private static IReadOnlyList<string> LinuxDialog(IReadOnlyList<string> arguments, CancellationToken cancellation) {
+        cancellation.ThrowIfCancellationRequested();
+        string executable = LinuxPicker ?? throw new ApplicationFailure(FailureKind.Unsupported, "Install zenity to use Linux file and directory pickers.");
+        var start = new ProcessStartInfo(executable) { UseShellExecute = false, RedirectStandardOutput = true, RedirectStandardError = true };
+        foreach (string arg in arguments) start.ArgumentList.Add(arg);
+        using var process = Process.Start(start)!;
+        var output = process.StandardOutput.ReadToEndAsync(); var error = process.StandardError.ReadToEndAsync();
+        try { process.WaitForExitAsync(cancellation).GetAwaiter().GetResult(); }
+        catch (OperationCanceledException) { if (!process.HasExited) process.Kill(true); throw; }
+        if (process.ExitCode == 1) return Array.Empty<string>();
+        if (process.ExitCode != 0) throw new ApplicationFailure(FailureKind.Unavailable, "File dialog failed: " + error.GetAwaiter().GetResult());
+        return output.GetAwaiter().GetResult().TrimEnd('\r', '\n').Split('\n', StringSplitOptions.RemoveEmptyEntries);
     }
     [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)] private struct OpenFileName {
         public int Size; public IntPtr Owner, Instance, Filter, CustomFilter; public int MaxCustomFilter, FilterIndex; public IntPtr File; public int MaxFile;

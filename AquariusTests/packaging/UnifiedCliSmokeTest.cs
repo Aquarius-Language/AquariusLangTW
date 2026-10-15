@@ -31,7 +31,7 @@ public class UnifiedCliSmokeTest {
         var output = process.StandardOutput.ReadToEndAsync(); var error = process.StandardError.ReadToEndAsync();
         // Windows packaging hashes, copies and flushes the entire runtime pack;
         // its disk/scanner latency is much higher than a normal CLI invocation.
-        int timeoutMilliseconds = args.Zip(args.Skip(1)).Any(pair => pair.First == "--target" && pair.Second == "windows") ? 120000 : 30000;
+        int timeoutMilliseconds = args.Zip(args.Skip(1)).Any(pair => pair.First == "--target" && pair.Second is "windows" or "linux") ? 120000 : 30000;
         if (!process.WaitForExit(timeoutMilliseconds)) {
             process.Kill(true);
             throw new TimeoutException($"aqua {string.Join(' ', args)} did not finish within {timeoutMilliseconds / 1000} seconds.");

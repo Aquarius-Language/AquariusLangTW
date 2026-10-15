@@ -3,7 +3,7 @@
 `AquariusBuild` owns deployment targets. `AquariusPackaging` owns portable
 WebAssembly applications, and `AquariusAppHost` executes a contained desktop program.
 The CLI compiles sources to Wasm or dispatches a `WasmBuildRequest` through
-`BuildTargets`. Web and Windows share the same dispatch path.
+`BuildTargets`. Web, Windows and Linux share the same dispatch path.
 
 To add a platform, implement `IWasmBuildTarget` and register it in
 the CLI's `CompilerBuildTargets.Default` composition root. Its backend owns output layout and platform validation;
@@ -20,6 +20,10 @@ specified output file after completion. It does not compile source, execute
 application code, invoke an SDK, or download dependencies.
 
 ## Runtime packs
+
+Linux x86_64 uses `--target linux -o app`, `scripts/publish-apphost.sh` and
+`build-targets/linux-x64/{host,runtime.json}`. ELF exports receive Unix execute
+permissions before atomic replacement. See [Linux builds and tests](../docs/linux.md).
 
 `scripts/publish-apphost.ps1` publishes the host with .NET self-contained
 single-file deployment, all content/native libraries included, and trimming

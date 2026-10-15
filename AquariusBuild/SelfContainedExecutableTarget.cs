@@ -16,7 +16,7 @@ public sealed class SelfContainedExecutableTarget(string name, string runtimeIde
     public void Build(WasmBuildRequest request) {
         string input = Path.GetFullPath(request.Input), output = Path.GetFullPath(request.Output);
         if (!input.EndsWith(".wasm", StringComparison.OrdinalIgnoreCase)) throw new ArgumentException("Executable builds require one .wasm input.");
-        if (!output.EndsWith(extension, StringComparison.OrdinalIgnoreCase)) throw new ArgumentException($"{Name} output must name an {extension} file.");
+        if (extension.Length != 0 && !output.EndsWith(extension, StringComparison.OrdinalIgnoreCase)) throw new ArgumentException($"{Name} output must name an {extension} file.");
         if (input.Equals(output, StringComparison.OrdinalIgnoreCase)) throw new ArgumentException("Output must differ from the input wasm.");
         if (Directory.Exists(output) || (File.Exists(output) && (File.GetAttributes(output) & FileAttributes.ReparsePoint) != 0))
             throw new ArgumentException("Executable output must be a regular file, not a directory or link.");
@@ -28,7 +28,7 @@ public sealed class SelfContainedExecutableTarget(string name, string runtimeIde
         string pack = Path.Combine(root, runtimeIdentifier);
         string manifestPath = Path.Combine(pack, "runtime.json"), templatePath = Path.Combine(pack, "host" + extension);
         if (!File.Exists(manifestPath) || !File.Exists(templatePath))
-            throw new IOException($"Runtime pack {runtimeIdentifier} is missing from {Path.GetFullPath(pack)}. Install the complete aqua distribution, or run scripts/publish-apphost.ps1 when building from source.");
+            throw new IOException($"Runtime pack {runtimeIdentifier} is missing from {Path.GetFullPath(pack)}. Install the complete aqua distribution, or run scripts/publish-apphost.{(runtimeIdentifier.StartsWith("linux-") ? "sh" : "ps1")} when building from source.");
         RuntimeManifest? manifest;
         if (new FileInfo(manifestPath).Length > 64 * 1024) throw new InvalidDataException("Executable runtime manifest exceeds the size limit.");
         try { manifest = JsonSerializer.Deserialize<RuntimeManifest>(File.ReadAllText(manifestPath), new JsonSerializerOptions(JsonSerializerDefaults.Web)); }
@@ -51,6 +51,11 @@ public sealed class SelfContainedExecutableTarget(string name, string runtimeIde
                 ExecutableBundle.Write(template, wasm, stream, request.EntryPoint);
                 stream.Flush(flushToDisk: true);
             }
+            // A newly created overlay otherwise has no execute bits on Unix.
+            // Set them before the atomic replacement so a failed chmod preserves output.
+            if (!OperatingSystem.IsWindows() && runtimeIdentifier.StartsWith("linux-"))
+                File.SetUnixFileMode(stage, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute |
+                    UnixFileMode.GroupRead | UnixFileMode.GroupExecute | UnixFileMode.OtherRead | UnixFileMode.OtherExecute);
             File.Move(stage, output, overwrite: true);
         } finally { if (File.Exists(stage)) File.Delete(stage); }
     }

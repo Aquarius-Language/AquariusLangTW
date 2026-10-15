@@ -90,6 +90,28 @@ public sealed class OpenGlTheoryAttribute : TheoryAttribute {
 
 [Collection("Starship console output")]
 public class OpenGlIntegrationTest {
+    [OpenGlFact]
+    public void LinuxWorkerCanExitAfterClosingItsNativeContext() {
+        if (!OperatingSystem.IsLinux()) return;
+        Exception? failure = null;
+        var worker = new Thread(() => {
+            IntPtr window = IntPtr.Zero;
+            try {
+                Assert.NotEqual(0, Native.aqua_init());
+                Native.aqua_hint(0x20004, 0);
+                Native.aqua_hint(0x22002, 3); Native.aqua_hint(0x22003, 3);
+                window = Native.aqua_window(32, 32, "Linux worker lifetime");
+                Assert.NotEqual(IntPtr.Zero, window);
+                Native.aqua_current(window); Assert.True(Native.aqua_load() >= 30003);
+            } catch (Exception error) { failure = error; }
+            finally {
+                if (window != IntPtr.Zero) Native.aqua_destroy(window);
+                Native.aqua_terminate();
+            }
+        }) { IsBackground = true };
+        worker.Start(); Assert.True(worker.Join(TimeSpan.FromSeconds(15)), "Native context worker did not exit.");
+        Assert.Null(failure);
+    }
     [OpenGlTheory, InlineData(false), InlineData(true)]
     public void ShaderFailuresAreLanguageErrorsAndReleaseTheirContext(bool chinese) {
         using (var builtins = new DesktopBuiltins()) {
