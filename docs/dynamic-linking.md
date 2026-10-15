@@ -6,9 +6,10 @@ validation, ownership, bilingual registration and editor metadata. Import
 
 | Target | Platform key | Formats | Loader |
 | --- | --- | --- | --- |
-| Windows x64 | `windows` | `.dll`, `.wasm` | .NET NativeLibrary / Wasmtime |
-| Linux x64 | `linux` | `.so`, `.wasm` | .NET NativeLibrary / Wasmtime |
-| Android arm64-v8a, x86_64 | `android` | `.so`, `.wasm` | JNI dlopen/dlsym/dlclose / V8 WebAssembly |
+| Windows x64 | `windows` | `.dll`, `.mjs`, `.js`, `.wasm` | NativeLibrary / ClearScript V8 / Wasmtime |
+| Linux x64 | `linux` | `.so`, `.mjs`, `.js`, `.wasm` | NativeLibrary / ClearScript V8 / Wasmtime |
+| macOS desktop host | `macos` | `.dylib`, `.mjs`, `.js`, `.wasm` | NativeLibrary / ClearScript V8 / Wasmtime |
+| Android arm64-v8a, x86_64 | `android` | `.so`, `.mjs`, `.js`, `.wasm` | JNI dlopen / Javet ES modules and WebAssembly |
 | Frontend web | `web` | `.js`, `.mjs`, `.wasm` | ES module import / browser WebAssembly |
 
 ```text
@@ -73,6 +74,14 @@ nonoverlapping valid allocations; the host frees output then input even on error
 Each load creates an independent Wasm instance. The host copies the result after
 the call so memory growth is supported. These are explicit ABI modules, not
 Emscripten `dylink.0` binaries, WASI components or arbitrary relocatable objects.
+
+Desktop and Android also load self-contained ES modules through the same factory
+ABI. Desktop creates an independent V8 context per handle on a dedicated worker
+thread; the shared V8 runtime lives until process exit. Android imports only
+hashed module assets emitted by its exporter. Bundle module dependencies and
+embedded Wasm before packaging; these hosts do not provide the Node.js API.
+Factories may return byte results asynchronously. Third-party Jolt uses this
+loader instead of a compiler-specific physics adapter.
 
 A standalone ES module exports `aqua_library_abi()` returning 1 and
 `aqua_create_library()` returning a fresh object with own callable export names.

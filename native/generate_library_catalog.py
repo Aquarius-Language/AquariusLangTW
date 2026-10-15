@@ -402,12 +402,6 @@ for file in sorted((ROOT / 'AquariusDesktop/graphics').glob('*.cs')):
         if module == 'Processing' and stem in ('ProcessingDrawing','ProcessingText','ProcessingPixels','ProcessingShaders','ProcessingShapes'):
             add('Processing.Canvas',name,int(minimum),int(maximum) if maximum else None,returns)
 
-physics = (ROOT / 'AquariusCore/physics/PhysicsRuntime.cs').read_text(encoding='utf-8-sig')
-for match in pattern.finditer(physics):
-    _, _, name, minimum, maximum = match.groups()
-    module = 'Jolt' if match.start() < physics.index('private ModuleObj CreateWorld') else 'Jolt.World'
-    add(module,name,int(minimum),returns='Jolt.World' if name == 'CreateWorld' else None)
-
 gl = (ROOT / 'AquariusDesktop/graphics/GlBindings.Generated.cs').read_text()
 for name, args in re.findall(r'BindGl\("(gl\w+)".*?new string\[\] \{(.*?)\}', gl):
     add('GL',name,len(re.findall(r'"[^"]+"',args)))

@@ -1,5 +1,5 @@
 # Headless Jolt smoke test: impulse, gravity and a sphere resting on a floor.
-變數 物理 = 匯入("Jolt");
+變數 物理 = 匯入("/bottles/Aqua_JoltPhysics/main.aqua");
 變數 世界 = 物理.CreateWorld([0, 0, 0]);
 變數 球 = 世界.CreateSphere(0.5d, [0, 10, 0], 2);
 世界.AddImpulse(球, [4, 0, 0]);

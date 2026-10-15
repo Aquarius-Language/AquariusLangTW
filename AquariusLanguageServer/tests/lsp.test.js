@@ -273,7 +273,8 @@ test('all native library catalog functions offer both member names without loadi
     if (!groups.has(library)) groups.set(library, []);
     groups.get(library).push([english, chinese]);
   }
-  assert.equal(groups.size, 9);
+  assert.equal(groups.size, 8);
+  assert.equal(groups.has('Jolt'), false);
   for (const [library, names] of groups) {
     const text = `變數 lib=import("${library}");\nlib.${names[0][0]};`;
     assert.deepEqual(await s.open(text), [], library);
@@ -304,7 +305,7 @@ test('Chinese prefixes and incomplete member calls complete native aliases and r
 test('native returned objects and chained calls infer bilingual method names', async t => {
   const s = new Session(t); await s.initialize();
   for (const [setup, english, chinese] of [
-    ['變數 j=匯入("JoltPhysics");變數 obj=j.建立世界([0,0,0]);', 'Step', '步進'],
+    ['變數 j=匯入("DynamicLibrary");變數 obj=j.載入("plugin.mjs");', 'Call', '呼叫'],
     ['變數 g=匯入("wgpu");變數 obj=g.建立裝置();', 'CreateBuffer', '建立緩衝區'],
     ['變數 g=匯入("WGPU");變數 obj=g.建立裝置().建立緩衝區([1]);', 'Read', '讀取'],
     ['變數 g=匯入("WGPU");變數 d=g.CreateDevice();變數 obj=d.CreateShader("","");', 'SetInt', '設定整數'],

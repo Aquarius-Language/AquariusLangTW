@@ -128,7 +128,13 @@ For simple declarations, `assets = ["assets", "models/model.onnx"]` may appear
 **before** `[project]` instead of `[[assets]]` tables. Glob syntax is not supported;
 declare a directory or individual files. All platforms' declared assets are
 cached; `platforms` on an asset filters deployment. Such assets require a concrete
-build target because a generic `.wasm` cannot choose an OS-specific binary.
+build platform because a generic `.wasm` cannot choose an OS-specific binary.
+Use `aqua build . --platform windows -o app.wasm` to select Windows assets and
+compatibility metadata without exporting an EXE, or use `--target windows` to
+export one. `--platform` applies only to TOML Wasm builds; it cannot override an
+export target. Different platform alternatives may use the same destination
+provided only one alternative applies to the selected platform. All alternatives
+are still cached, so later locked/offline builds can select another platform.
 Duplicate destinations, case-only collisions, source/asset overlap, traversal,
 unsafe portable filenames, missing files and package size/count overflows fail
 the build. Assets cannot be `.aqua` source files.

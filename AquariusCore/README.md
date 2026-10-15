@@ -30,8 +30,11 @@ parameters, environments and Wasm function identities, without retaining AST bod
 before execution. IR is never serialized or interpreted.
 
 Core owns WebGPU and application contracts, shared shaders and validation. It also
-owns external library descriptors, the shared Jolt world implementation and pinned
-Emscripten assets. Run `npm ci --prefix AquariusWebCompiler` and
+owns external library descriptors and portable capability contracts. Jolt is an
+independent `Aqua_JoltPhysics` Bottle package; core embeds no physics engine.
+`Terminal` / `終端機` provides the default process-launch contract with desktop
+and Android implementations and an explicit unsupported browser capability. See
+[terminal scripts](../docs/terminal.md). Run `npm ci --prefix AquariusWebCompiler` and
 `npm run --prefix AquariusWebCompiler prepare:browser` before building to prepare
 those generated assets from the lockfile.
 

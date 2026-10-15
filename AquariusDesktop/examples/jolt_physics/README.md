@@ -1,12 +1,12 @@
-# Jolt Physics smoke example
+# Jolt Physics Bottle example
 
-Runs native Jolt without a window or GPU and checks an impulse against `J/m`,
-free fall against semi-implicit Euler integration, and sphere/floor contact.
-Prints `JOLT_SMOKE_OK` and `真` on success; failed checks return exit code 1.
+Jolt is distributed as the independent `Aqua_JoltPhysics` TOML library.
 
 ```powershell
-dotnet run --project AquariusDesktop -- AquariusDesktop/examples/jolt_physics/main.aqua
-dotnet test AquariusTests -c Release --filter FullyQualifiedName~Jolt
+aqua bottle install C:/OfficialProjects/Aqua_JoltPhysics --global
+aqua build . -o main.wasm
+aqua run main.wasm
+aqua build . --target web -o web
 ```
 
-NuGet restores the native engine. See the [Jolt API guide](../../physics/Jolt.md).
+The numerical smoke test checks impulse, gravity and settled contact with the actual Jolt Wasm engine and prints `JOLT_SMOKE_OK`. Import `/bottles/Aqua_JoltPhysics/main.aqua`; built-in `Jolt`/`JoltPhysics` imports are no longer registered. The former world methods and Traditional Chinese aliases remain in the package. Build through this manifest to include cached library assets.

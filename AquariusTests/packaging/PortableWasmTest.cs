@@ -134,7 +134,8 @@ public class PortableWasmTest {
         Assert.Equal("other.aqua", doc.RootElement.GetProperty("entry").GetString());
         Assert.Equal(2, doc.RootElement.GetProperty("modules").EnumerateObject().Count());
         string empty = doc.RootElement.GetProperty("assets").GetProperty("assets/empty.txt").GetString()!; Assert.Empty(File.ReadAllBytes(t.FilePath("web/" + empty)));
-        Assert.True(File.Exists(t.FilePath("web/vendor-jolt.wasm"))); Assert.True(File.Exists(t.FilePath("web/vendor-jolt.LICENSE.txt")));
+        Assert.False(File.Exists(t.FilePath("web/vendor-jolt.wasm"))); Assert.False(File.Exists(t.FilePath("web/vendor-jolt.LICENSE.txt")));
+        Assert.True(File.Exists(t.FilePath("web/terminal.mjs")));
     }
 
     [Fact] public void FailedWebRebuildKeepsPreviousWebsiteAndDoesNotRemoveUnrelatedFiles() {

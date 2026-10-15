@@ -58,6 +58,18 @@ public final class NativeRuntime implements AutoCloseable {
                                 r.getExecutor(bridge.source(path))
                                     .setResourceName(path)
                                     .compileV8Module()));
+                bridge.moduleImporter = name -> {
+                  var module = modules.resolve(name, path -> runtime.getExecutor(bridge.source(path)).setResourceName(path).compileV8Module());
+                  if (module.getStatus() == 0 && !module.instantiate())
+                    throw new IllegalStateException("Could not instantiate library: " + name);
+                  try (var evaluated = module.evaluate(true);
+                       var namespace = module.getNamespace();
+                       var result = runtime.createV8ValueObject()) {
+                    result.set("ready", evaluated);
+                    result.set("namespace", namespace);
+                    runtime.getGlobalObject().set("__aquaImportedLibrary", result);
+                  }
+                };
                 runtime.getExecutor(bridge.source("bootstrap.js")).executeVoid();
                 runtime.getGlobalObject().set("frameLimit", frames);
                 runtime
@@ -78,6 +90,7 @@ public final class NativeRuntime implements AutoCloseable {
                   failure.accept("應用程式無法執行。\n" + e.getMessage());
                 }
               } finally {
+                bridge.moduleImporter = null;
                 engine = null;
                 bridge.releaseRuntime();
               }

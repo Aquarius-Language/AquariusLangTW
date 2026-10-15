@@ -69,7 +69,6 @@ public static class WebsiteCompiler {
             graphics = new { header = WgpuShaderAbi.Header, vertex = WgpuShaderAbi.Vertex, fragment = WgpuShaderAbi.Fragment, uniformBytes = WgpuShaderAbi.UniformBytes },
             properties = LibraryCatalog.Properties.Select(p=>new { library=p.Library,english=p.EnglishName,chinese=p.TraditionalChineseName,type=p.Type,returns=p.ReturnLibrary }),
             libraryFeatures = new { network = AquariusLang.Network.NetworkCatalog.Features },
-            physics = new { maxBodies = 4096, backend = "Jolt Physics" },
             externalLibraries = ExternalLibraries.All.Select(l=>new { id=l.Id,version=l.Version,contractVersion=l.ContractVersion,profile=l.Profile.ToString(),assets=l.Assets.Select(n=>new {name=l.DeploymentName(n),sha256=ExternalLibraries.Sha256(l,n)}) }),
             legacyConstants = JsonSerializer.Deserialize<Dictionary<string, double>>(constants)
         });
@@ -79,6 +78,7 @@ public static class WebsiteCompiler {
         var owned = resources.Select(n => n[prefix.Length..]).Concat(externalAssets.Keys).Append("program.json").Append("program.wasm").Append(".aquarius-web-output").ToHashSet(StringComparer.OrdinalIgnoreCase);
         if(File.Exists(Path.Combine(output,".aquarius-web-output"))) {
             owned.Add("vm.mjs"); // Retired compiler-owned runtime during migration.
+            owned.UnionWith(new[] { "physics.mjs", "physics-core.mjs", "vendor-jolt.mjs", "vendor-jolt.wasm", "vendor-jolt.LICENSE.txt" });
             // Only retire flat binary names owned by this compiler, including removed assets.
             owned.UnionWith(Directory.EnumerateFiles(output).Select(Path.GetFileName).OfType<string>().Where(n => Regex.IsMatch(n, @"\Aasset-[0-9a-f]{64}\.(bin|mjs)\z")));
         }

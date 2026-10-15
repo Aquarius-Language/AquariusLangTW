@@ -33,9 +33,10 @@ public class BilingualLibraryTest {
 
     [Fact] public void CatalogCoversAllExportsAndProcessingObjectsWithoutNativeInitialization() {
         using var runtime = new GraphicsRuntime();
-        foreach (string name in new[] { "GL", "GLAD", "GLFW", "GLM", "STBImage", "TextInput", "Processing", "WGPU", "Jolt" }) {
+        foreach (string name in new[] { "GL", "GLAD", "GLFW", "GLM", "STBImage", "TextInput", "Processing", "WGPU", "Terminal" }) {
             Assert.True(runtime.TryImport(name, out var module)); AssertAliases(module, name);
         }
+        Assert.False(runtime.TryImport("Jolt", out _));Assert.False(runtime.TryImport("JoltPhysics",out _));
         using var builtins = new DesktopBuiltins(runtime);
         var objects = Assert.IsType<ArrayObj>(new CompiledRuntime(builtins).Execute(new LoweringCompiler().Compile("""
             變數 p=匯入("Processing");[p.建立向量(3,4),p.建立圖片(2,2),p.建立圖形()];

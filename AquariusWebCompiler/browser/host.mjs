@@ -1,5 +1,4 @@
 import {BrowserWgpuBackend} from './wgpu.mjs';
-import {BrowserJoltBackend} from './physics.mjs';
 import {registerLegacy} from './legacy.mjs';
 import {BrowserSurface} from './surface.mjs';
 import {BrowserApplication} from './application.mjs';
@@ -12,7 +11,7 @@ import {registerBrowserNetwork} from './network.mjs';
 import {CapabilityHost} from './capability-host.mjs';
 import {installProcessingInput} from './processing-input.mjs';
 export class BrowserHost extends CapabilityHost {
-  constructor(bundle,options={}) {super(bundle,{...options,adapters:{platform:'web',graphics:abi=>new BrowserWgpuBackend(abi),physics:()=>new BrowserJoltBackend(),registerLegacy,register:host=>{host.application=new BrowserApplication(host);registerAudio(host);registerWebcam(host);registerOnnx(host);registerMediaPipe(host);registerBrowserDynamicLibrary(host);registerBrowserNetwork(host);}}});}
+  constructor(bundle,options={}) {super(bundle,{...options,adapters:{platform:'web',graphics:abi=>new BrowserWgpuBackend(abi),registerLegacy,register:host=>{host.application=new BrowserApplication(host);registerAudio(host);registerWebcam(host);registerOnnx(host);registerMediaPipe(host);registerBrowserDynamicLibrary(host);registerBrowserNetwork(host);}}});}
   screenSize(){return {width:window.innerWidth,height:window.innerHeight};}
   installProcessingInput(p){installProcessingInput(p);}
   async yieldExecution(){

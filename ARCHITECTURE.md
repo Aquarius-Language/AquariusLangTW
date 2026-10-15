@@ -36,11 +36,11 @@ flowchart TD
     Exe --> Desktop
     Website --> Web
     Core[Core capability contracts and external library catalog] --> GPU[Desktop and browser WebGPU adapters]
-    Core --> Jolt[Shared Jolt WASM and physics implementation]
+    Application --> Bottle[Third-party TOML libraries]
     Core --> Audio[Shared miniaudio WASM decoder and mixer]
     Audio --> AudioDesktop[Wasmtime and miniaudio PCM sink]
     Audio --> AudioWeb[AudioWorklet and browser PCM sink]
-    Jolt --> Emscripten[Emscripten adapters: browser and desktop V8]
+    Bottle --> Dynamic[Native and ES-module/Wasm library loaders]
     Desktop --> GPU
     Web --> GPU
     Desktop --> Emscripten
@@ -118,12 +118,13 @@ material/mesh assembly execute in compiled Wasm; both adapters consume the same
 metallic/roughness WGSL and retained vertex attributes. Files' read-only asset calls
 reuse the package resource boundary. See [PBR and model import](docs/pbr-models.md).
 
-Core also owns external library descriptors, pinned versions, contracts and portable
-assets. JoltPhysics.js 0.24.0 is an Emscripten module requiring JavaScript glue.
-Both platforms execute the same binary and shared world code embedded by core;
-desktop supplies ClearScript/V8 for Emscripten while Aquarius itself uses Wasmtime.
-The C# Jolt binding and joltc binaries are removed. Both hosts use the same physics
-capacities and validate behavior with numerical tolerances. See
+Core owns external library descriptors and portable host contracts. Terminal
+launches explicit scripts through desktop/Android adapters and reports unsupported
+browser execution. Jolt is an independent TOML Bottle package, with its bindings,
+engine assets and numerical tests outside core. Generic ES-module factories run
+on ClearScript/V8 on desktop, browser JavaScript, and Javet on Android; Aquarius
+application execution remains in compiled Wasm. OpenCV packages use native C++
+matrix handles or portable OpenCV Wasm according to their platform assets. See
 [external libraries](docs/external-libraries.md) for extension rules and profiles.
 
 Application contracts and language registration remain in `AquariusCore/application`.
@@ -136,7 +137,7 @@ relocated application. Browsers use a virtual filesystem. See the
 
 Validation includes language semantics through Wasmtime, Wasm round trips and
 corruption, deep recursion, async browser calls/cancellation, callback reentry,
-desktop/browser execution of identical binaries, shared Jolt numerical tests,
+desktop/browser execution of identical binaries, generic script-library tests,
 source-free imports/assets, CLI and standalone EXE smoke tests, and opt-in desktop
 and browser WebGPU regressions. The example scripts and marble-run remain the
 compatibility target.

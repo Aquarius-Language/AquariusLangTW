@@ -15,7 +15,7 @@ public static class CompilerCommandLine {
         "aqua build main.aqua --target android -o android-project [--root directory] [--assets path]\n" +
         "aqua build app.wasm --target android -o app.apk [--entry main.aqua]\n" +
         "Android options: [--application-id org.example.app] [--app-name DisplayName]\n" +
-        "aqua build [aqua.toml|project-directory] [--target PLATFORM] [-o output] [--locked] [--offline]\n" +
+        "aqua build [aqua.toml|project-directory] [--target PLATFORM] [--platform PLATFORM] [-o output] [--locked] [--offline]\n" +
         "aqua run app.wasm [--entry main.aqua]\naqua repl\n" + BottleCommandLine.Usage + "\n" +
         "Exit codes: 0 success, 1 compilation/runtime/IO failure, 2 invalid command or options.";
     public static int Run(string[] args) {
@@ -35,7 +35,7 @@ public static class CompilerCommandLine {
                 if (!positional && arg == "--") { positional = true; continue; }
                 if (!positional && arg.StartsWith('-')) {
                     if (arg is "--locked" or "--offline") { if (!flags.Add(arg)) throw new ArgumentException($"Specify {arg} only once."); continue; }
-                    if (arg is not ("-o" or "--root" or "--assets" or "--entry" or "--target") && !CompilerBuildTargets.Default.OptionNames.Contains(arg)) throw new ArgumentException($"Unknown option: {arg}");
+                    if (arg is not ("-o" or "--root" or "--assets" or "--entry" or "--target" or "--platform") && !CompilerBuildTargets.Default.OptionNames.Contains(arg)) throw new ArgumentException($"Unknown option: {arg}");
                     if (++i == args.Length || args[i].StartsWith('-') || string.IsNullOrWhiteSpace(args[i])) throw new ArgumentException($"Missing value for {arg}.");
                     if (arg == "--assets") assets.Add(args[i]);
                     else if (!options.TryAdd(arg, args[i])) throw new ArgumentException($"Specify {arg} only once.");
@@ -65,9 +65,11 @@ public static class CompilerCommandLine {
                 if (Value("--root") != null || Value("--entry") != null || assets.Count > 0) throw new ArgumentException("TOML projects define their root, entry, sources and assets in the manifest.");
                 var project = ProjectManifest.Load(manifest);
                 if (target == "wasm") {
-                    if (options.Keys.Any(k => k is not ("-o" or "--target"))) throw new ArgumentException("Platform options require their platform target.");
+                    if (options.Keys.Any(k => k is not ("-o" or "--target" or "--platform"))) throw new ArgumentException("Platform options require their platform target.");
+                    string assetPlatform = Value("--platform") ?? target;
+                    if (assetPlatform != "wasm" && !ProjectManifest.KnownPlatforms.Contains(assetPlatform)) throw new ArgumentException("Unknown --platform: " + assetPlatform);
                     string destination = Value("-o") ?? Path.Combine(project.Root, "dist", project.Name + ".wasm");
-                    ProjectBuilder.Compile(manifest, destination, target, flags.Contains("--locked"), flags.Contains("--offline"));
+                    ProjectBuilder.Compile(manifest, destination, assetPlatform, flags.Contains("--locked"), flags.Contains("--offline"));
                     Console.WriteLine($"Built {project.Type} {project.Name}: {Path.GetFullPath(destination)}"); return 0;
                 }
                 var projectBackend = CompilerBuildTargets.Default.Resolve(target);

@@ -37,6 +37,14 @@ import org.json.JSONObject;
 
 /** Native services expose data, never Android objects, to the capability runtime. */
 public final class NativeBridge implements AutoCloseable {
+  interface ModuleImporter { void load(String name) throws Exception; }
+  ModuleImporter moduleImporter;
+  @V8Function public void importLibrary(String name) throws Exception {
+    if (!name.matches("asset-[a-f0-9]{64}\\.(mjs|js)") || moduleImporter == null)
+      throw new IllegalArgumentException("Expected a packaged JavaScript library");
+    moduleImporter.load(name);
+  }
+  @V8Function public String terminal(String request) throws Exception { return TerminalProcesses.run(request); }
   final Activity activity;
   private final EditText editor;
   private final FrameClock frameClock;

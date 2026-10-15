@@ -1,4 +1,4 @@
-變數 物理引擎 = 匯入("Jolt");
+變數 物理引擎 = 匯入("/bottles/Aqua_JoltPhysics/main.aqua");
 變數 繪圖模組 = 匯入("Processing");
 變數 設定模組 = 匯入(目前工作目錄 + "/config.aqua");
 變數 數學模組 = 匯入(目前工作目錄 + "/math3d.aqua");

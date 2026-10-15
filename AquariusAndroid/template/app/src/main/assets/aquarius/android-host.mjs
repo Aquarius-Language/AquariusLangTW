@@ -1,11 +1,10 @@
+import {registerTerminal} from './terminal.mjs';
 import {registerAndroidNetwork} from './android-network.mjs';
 import {registerAndroidDynamicLibrary} from './android-dynamic-library.mjs';
 import {registerAndroidInput} from './android-input.mjs';
 import {CapabilityHost} from './capability-host.mjs';
 import {AndroidWgpuBackend} from './android-gpu.mjs';
 import {frameDelay} from './frame-timing.mjs';
-import {JoltWorld,vector} from './physics-core.mjs';
-import initJolt from './vendor-jolt.mjs';
 import {num,inspect,unwrap} from './values.mjs';
 import {resizeSurfaceSize} from './surface-size.mjs';
 import {lookupPath} from './package-paths.mjs';
@@ -15,11 +14,6 @@ import {registerApplication} from './android-application.mjs';
 import {registerAudio} from './audio-registration.mjs';
 import {MiniaudioEngine} from './audio-core.mjs';
 
-class AndroidJoltBackend {
-  constructor(){this.name='Jolt Physics';this.worlds=new Set();}
-  async createWorld(gravity){vector(gravity);this.initialized??=initJolt({wasmBinary:decode64(native.readAsset('vendor-jolt.wasm'))});const world=new JoltWorld(await this.initialized,gravity);this.worlds.add(world);return world;}
-  dispose(){for(const w of this.worlds)w.dispose();this.worlds.clear();}
-}
 class AndroidOnnxBackend {
   constructor(){this.sessions=new Set();this.disposed=false;}
   isSupported(provider){return !this.disposed&&provider==='CPU';}
@@ -48,7 +42,7 @@ function registerCamera(host){const m=host.library('Camera');host.modules.set('�
   const webcam=host.library('攝影機');host.modules.set('Webcam',webcam);host.modules.set('網路攝影機',webcam);host.bind(webcam,'攝影機','是否支援',()=>false);host.bind(webcam,'攝影機','列出裝置',()=>[]);host.bind(webcam,'攝影機','開啟',()=>{throw new Error('Unsupported: Use 相機 on Android');});
 }
 export class AndroidHost extends CapabilityHost {
-  constructor(bundle,options){super(bundle,{...options,adapters:{platform:'android',graphics:abi=>new AndroidWgpuBackend(abi),physics:()=>new AndroidJoltBackend(),register:host=>{registerApplication(host);registerAudio(host,new AndroidAudioBackend(host));registerOnnx(host,new AndroidOnnxBackend());registerMediaPipe(host);registerAndroidDynamicLibrary(host,native);registerCamera(host);registerAndroidInput(host,native);registerAndroidNetwork(host,native);}}});this.input={events:[],insets:{},orientation:'portrait',keyboardVisible:false};}
+  constructor(bundle,options){super(bundle,{...options,adapters:{platform:'android',graphics:abi=>new AndroidWgpuBackend(abi),register:host=>{registerApplication(host);registerAudio(host,new AndroidAudioBackend(host));registerOnnx(host,new AndroidOnnxBackend());registerMediaPipe(host);registerAndroidDynamicLibrary(host,native);registerCamera(host);registerAndroidInput(host,native);registerAndroidNetwork(host,native);registerTerminal(host,{platform:"android",isSupported:true,run:request=>JSON.parse(native.terminal(JSON.stringify(request)))});}}});this.input={events:[],insets:{},orientation:'portrait',keyboardVisible:false};}
   record(fields){const r=this.newModule();for(const [name,value]of Object.entries(fields))this.set(r,name,value);return r;}
   modelAsset(path){return {asset:this.bundle.assets[lookupPath(this.bundle.assets,this.resolve(path))]};}
   async loadTexture(device,descriptor,path){this.signal.throwIfAborted();return device.loadTextureAsset(descriptor,this.modelAsset(path).asset);}

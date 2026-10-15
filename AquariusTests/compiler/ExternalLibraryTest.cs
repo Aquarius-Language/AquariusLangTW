@@ -1,5 +1,4 @@
 using AquariusLang.External;
-using AquariusLang.Physics;
 
 namespace AquariusTests.Compiler;
 
@@ -42,13 +41,10 @@ public class ExternalLibraryTest
         Assert.Throws<ArgumentException>(() => registry.Register<IExample>(descriptor, 1, () => new Adapter(new(), 2)));
     }
     [Fact]
-    public void CoreOwnsPinnedJoltAssetsWithoutEngineDependencies()
+    public void CoreDoesNotEmbedThirdPartyPhysics()
     {
-        Assert.Equal(ExternalLibraryProfile.Emscripten, ExternalLibraries.Jolt.Profile);
-        Assert.Equal(typeof(IPhysicsBackend), ExternalLibraries.Jolt.Contract);
-        Assert.Equal("0.24.0", ExternalLibraries.Jolt.Version);
-        foreach (var asset in ExternalLibraries.Jolt.Assets) { Assert.NotEmpty(ExternalLibraries.ReadAsset(ExternalLibraries.Jolt, asset)); Assert.Equal(64, ExternalLibraries.Sha256(ExternalLibraries.Jolt, asset).Length); }
-        Assert.Throws<ArgumentException>(() => ExternalLibraries.ReadAsset(ExternalLibraries.Jolt, "undeclared.wasm"));
+        Assert.DoesNotContain(ExternalLibraries.All, d => d.Id == "jolt");
+        Assert.DoesNotContain(typeof(ExternalLibraries).Assembly.GetManifestResourceNames(), n => n.Contains("jolt", StringComparison.OrdinalIgnoreCase));
         Assert.DoesNotContain(typeof(ExternalLibraries).Assembly.GetReferencedAssemblies(), a => a.Name!.StartsWith("Wasmtime") || a.Name.StartsWith("ClearScript"));
     }
 }

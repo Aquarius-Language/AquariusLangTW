@@ -11,8 +11,7 @@
     "@imagemagick/magick-wasm": "0.0.44",
     "earcut": "3.0.2",
     "fflate": "0.8.3",
-    "gl-matrix": "3.4.4",
-    "jolt-physics": "0.24.0"
+    "gl-matrix": "3.4.4"
   },
   "devDependencies": {
     "esbuild": "0.25.12",

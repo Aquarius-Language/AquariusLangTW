@@ -57,25 +57,28 @@ public class DesktopExecutableTest {
         Assert.Single(Directory.GetFiles(t.FilePath("搬移 folder"))); Assert.Empty(Directory.GetDirectories(t.FilePath("搬移 folder")));
     }
 
-    [DesktopExecutableFact] public void SingleExeLoadsNativeGraphicsPhysicsAndImageCodecsAndAcceptsLaunchFiles() {
+    [DesktopExecutableFact] public void SingleExeLoadsNativeGraphicsImageCodecsAndThirdPartyModuleAndAcceptsLaunchFiles() {
         using var t = new ApplicationTestDirectory();
         t.Write("main.aqua", """
             變數 glfw=匯入("GLFW"); glfw.Init(); glfw.Terminate();
             變數 images=匯入("Images"); 變數 image=images.Create(1,1,[255,0,0,255]);
             變數 encoded=images.Encode(image,"Png",{}); 變數 decoded=images.Decode(encoded,0);
-            變數 j=匯入("Jolt"); 變數 w=j.CreateWorld([0,-10,0]); w.Dispose();
+            變數 dynamic=匯入("DynamicLibrary");
+            變數 library=dynamic.Load(目前工作目錄+"/plugin.mjs");
+            變數 message=library.Call("echo","封裝模組"); library.Dispose();
             變數 app=匯入("Application");
             變數 launchFiles=app.LaunchFiles(); 變數 launched=launchFiles[0];
-            [decoded.width,launched.name];
+            [decoded.width,message,launched.name];
             """);
-        var compile = UnifiedCliSmokeTest.Run(t.Path, "build", "main.aqua", "-o", "app.wasm");
+        t.Write("plugin.mjs", "export function aqua_library_abi(){return 1;}export function aqua_create_library(){return {echo:bytes=>bytes};}");
+        var compile = UnifiedCliSmokeTest.Run(t.Path, "build", "main.aqua", "--assets", "plugin.mjs", "-o", "app.wasm");
         Assert.True(compile.Code == 0, compile.Output + compile.Error);
         var build = UnifiedCliSmokeTest.Run(t.Path, "build", "app.wasm", "--target", Target, "-o", "app" + Extension);
         Assert.True(build.Code == 0, build.Output + build.Error);
-        File.Delete(t.FilePath("main.aqua")); File.Delete(t.FilePath("app.wasm"));
+        File.Delete(t.FilePath("main.aqua")); File.Delete(t.FilePath("app.wasm")); File.Delete(t.FilePath("plugin.mjs"));
         string launch = t.Write("啟動 file.txt", "input");
         var run = Run(t.FilePath("app" + Extension), t.Path, launch);
-        Assert.True(run.Code == 0, run.Output + run.Error); Assert.Empty(run.Error); Assert.Equal("[1, 啟動 file.txt]\n", run.Output);
+        Assert.True(run.Code == 0, run.Output + run.Error); Assert.Empty(run.Error); Assert.Equal("[1, 封裝模組, 啟動 file.txt]\n", run.Output);
     }
 
     [DesktopExecutableFact] public void RuntimeErrorsAndDamagedPayloadsReturnOneWithoutStackTraces() {

@@ -29,8 +29,10 @@ FullyQualifiedName~AquariusTests.Bottle`. Bottle's LSP behavior is covered in
 After exporting the Bottle showcase to a website, verify its transitive imports,
 cached text and dynamic Wasm in real Chromium with `node
 AquariusWebCompiler/tests/bottle-browser.mjs <web-output-directory>`.
-Jolt tests use the actual shared Emscripten Wasm build, including motion, forces,
-collisions, ownership, capacity and engine/world disposal.
+Third-party Jolt numerical tests live with `Aqua_JoltPhysics`. Core tests verify
+that Jolt is absent from the default catalog/assets, and exercise generic async
+ES-module factories, per-load state, disposal, Terminal argument boundaries,
+stdout/stderr, timeouts, platform assets and cached offline project builds.
 
 Compiler IR diagnostics remain tested where they belong to front-end correctness.
 Old RIUS serialization, bottle ZIP layout and interpreted-function AST expectations

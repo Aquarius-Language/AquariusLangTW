@@ -14,7 +14,7 @@ Linux x86_64／WSL2 的建置、測試與獨立執行檔輸出：見 [Linux 桌�
 - **可攜編譯成果**：將模組、圖片與著色器等資源一起封裝，執行與網頁輸出不需原始碼。
 - **動態連結**：[核心動態函式庫 / DynamicLibrary](docs/dynamic-linking.md)以雙語介面載入 Windows DLL、Linux／Android SO、網頁 JavaScript 與跨平台 Wasm。
 - **雙語函式庫**：腳本與桌面原生函式支援繁體中文／英文名稱，共用函式與閉包。
-- **圖學與物理**：核心保留跨平台 WebGPU 介面；桌面與瀏覽器共用 Jolt WebAssembly 引擎與物理實作。
+- **圖學與物理**：核心保留跨平台 WebGPU 介面；Jolt 已移至獨立的 `Aqua_JoltPhysics` TOML Bottle 函式庫。
 - **PBR 與模型匯入**：[核心 Models／PBR 函式庫](docs/pbr-models.md)在 Wasm 解析 OBJ／MTL，並以共用 WGSL 提供金屬度／粗糙度即時渲染。
 - **可攜紋理與 HDR**：[具名 shader 紋理、cube mip chains 與線性浮點 render targets](docs/wgpu-textures.md)共用 Windows、WebGPU 與 Android Vulkan 契約。
 - **跨平台音訊**：[音訊抽象與函式庫](AquariusCore/audio/README.md)共用 miniaudio WebAssembly 解碼與混音，支援音檔、音調、循環、聲像、音高及無硬體的離線樣本輸出。
@@ -108,7 +108,7 @@ Linux x86_64／WSL2 的建置、測試與獨立執行檔輸出：見 [Linux 桌�
 3. 建置並安裝 Windows x64 原生圖學橋接。
 4. 還原 NuGet，建置 Release 方案，執行 .NET 測試與WebAssembly 主機 單元測試。
 5. 發佈 `AquariusCli` 為自包含 `aqua.exe`，加入原生函式庫、範例與授權。
-6. 直接啟動正式 EXE，驗證編譯、移除測試原始碼後的執行與網頁輸出，以及共用 Jolt WASM。
+6. 直接啟動正式 EXE，驗證編譯、移除測試原始碼後的執行與網頁輸出，以及第三方函式庫載入。
 7. 建立完整資料夾的 ZIP 與 SHA-256 校驗檔。
 8. 將成功結果移至正式輸出目錄，顯示 EXE 與 ZIP 的完整路徑。
 
@@ -181,16 +181,16 @@ python -m http.server 8080 --directory dist\web
 不包含可供直譯的 Aquarius 指令流。編譯與平台輸出不執行程式，失敗時保留既有輸出。
 舊 `.bottle`／`.rius` 產物需從原始碼重新編譯。
 
-Windows 執行檔內含 Wasmtime、.NET 執行階段、圖學／影像主機、Jolt WASM 與資源，
+Windows 執行檔內含 Wasmtime、.NET 執行階段、圖學／影像主機與應用程式資源，
 使用者只需複製 `.exe`，不需另行安裝星泉或 .NET。首次執行時會將執行階段解開到使用者快取。
 正式版編譯器附帶 `build-targets/win-x64`；從原始碼開發時先執行
 `./native/build.ps1`、`./scripts/publish-apphost.ps1`，再重新建置 CLI。
 自行呼叫 Python 等外部程式時仍需提供該外部程式。平台擴充設計見 [部署後端](AquariusBuild/README.md)。
 
 網頁使用瀏覽器原生 WebAssembly 引擎與非同步主機服務，WebGPU 保持共用的 WGSL ABI。
-Jolt 的 Emscripten glue 與 Wasm 存放於核心；桌面以 ClearScript／V8 提供所需的 JavaScript 主機，
-瀏覽器直接載入相同版本。未來函式庫透過核心的 [外部函式庫框架](docs/external-libraries.md)
-宣告版本、契約與資源，再由各平台註冊適合的 adapter。
+Jolt 的 Emscripten glue、Wasm 與綁定由獨立 `Aqua_JoltPhysics` Bottle 函式庫持有；
+桌面以通用 ClearScript／V8 載入器執行，瀏覽器與 Android 使用各自的 JavaScript 主機。
+核心不再預設註冊 `Jolt`。新增的 [Terminal／終端機](docs/terminal.md) 可直接執行程式與腳本。
 
 請透過 localhost 或 HTTPS 提供網站；圖學需要瀏覽器可用的 WebGPU adapter。
 桌面外部程序與尚未實作的瀏覽器 API 呼叫時會回報錯誤。
@@ -250,11 +250,11 @@ Jolt 的 Emscripten glue 與 Wasm 存放於核心；桌面以 ClearScript／V8 �
 | WGPU／wgpu | [WGSL 繪圖、GPU 計算、緩衝區與像素讀回](AquariusDesktop/graphics/WGPU.md)；桌面使用 Silk.NET／wgpu-native。 | [計算](examples/wgpu_compute/README.md)、[離屏三角形](examples/wgpu_triangle/README.md) |
 | Processing | [wgpu 2D／3D 繪圖](AquariusDesktop/graphics/Processing.md)、圖片、文字、動畫與事件、離屏畫布、自訂著色器。 | [六面板展示](examples/processing_showcase/README.md)、[色彩映射介面](examples/color_mapping/README.md) |
 | OpenGL | [GLFW、GLAD、OpenGL 3.3 core、GLM 與 STBImage](native/README.md)；完整保留桌面 OpenGL 函式庫。 | [旋轉材質立方體](examples/opengl_cube/README.md) |
-| Jolt | [世界、剛體、重力、力與衝量](AquariusDesktop/physics/Jolt.md)；桌面與瀏覽器共用核心 Jolt WASM 與物理程式碼。 | [物理驗證](examples/jolt_physics/README.md) |
+| Aqua_JoltPhysics | 第三方 TOML 函式庫，提供世界、剛體、重力、力與衝量；使用 DynamicLibrary 載入同一份 Jolt Wasm。 | [物理驗證](examples/jolt_physics/README.md) |
 | 文字輸入 | [Unicode 字素編輯、輸入事件與 Windows IME](AquariusDesktop/graphics/TextInput.md)。 | [多語輸入](examples/multilingual_input/README.md) |
 | 語言與雙語函式 | 閉包、遞迴、控制流程與中文／英文函式名稱。 | [星艦遠征](examples/starship_expedition/README.md)、[雙語函式庫](examples/bilingual_library/README.md) |
 
-桌面視窗功能需先建置原生橋接；不開視窗的 WGPU 計算與 Jolt 由 NuGet 提供原生引擎。
+桌面視窗功能需先建置原生橋接。Jolt 請透過 Bottle 安裝；核心的 `Terminal`／`終端機` 提供跨平台腳本執行介面。
 瀏覽器支援範圍以目前範例與測試為準，各平台差異請見對應指南。
 
 ## 開發與測試
@@ -291,7 +291,7 @@ Wasm 函式使用編譯後的控制流程與可恢復呼叫框架，星泉遞迴
 # 執行原始碼與移除原始碼後的 wasm 範例（需要 Python、GPU 與桌面）
 .\scripts\test-examples.ps1 -SkipBuild
 
-# 瀏覽器 WebGPU、Jolt 與互動測試（預設使用已安裝的 Chrome）
+# 瀏覽器 WebGPU 與互動測試（預設使用已安裝的 Chrome）
 node AquariusWebCompiler/tests/browser-smoke.mjs
 ```
 

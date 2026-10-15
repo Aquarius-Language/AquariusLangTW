@@ -22,7 +22,7 @@ public static class ProjectBuilder {
             void AddProject(ProjectManifest manifest, string prefix) {
                 foreach (string source in manifest.SourceFiles()) Copy(source, prefix + Path.GetRelativePath(manifest.Root, source).Replace('\\', '/'), true);
                 foreach (var asset in manifest.Assets) {
-                    if (asset.Platforms.Count > 0 && target == "wasm") throw new InvalidDataException($"Platform-specific assets in {manifest.Name} require an explicit --target (web/windows/linux/android).");
+                    if (asset.Platforms.Count > 0 && target == "wasm") throw new InvalidDataException($"Platform-specific assets in {manifest.Name} require --platform for Wasm output or an explicit --target (web/windows/linux/android).");
                     if (asset.Platforms.Count > 0 && !asset.Platforms.Contains(target)) continue;
                     string input = SafeFiles.Under(manifest.Root, asset.Source);
                     bool directory = Directory.Exists(input);

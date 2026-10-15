@@ -38,8 +38,8 @@ Functions declared as `變數 加法, add = 函式(...) { ... };` expose both al
 completion, hover, definition and document symbols. Builtins and all desktop
 native libraries offer Chinese and English completion/hover from the portable
 `LibraryCatalog`; the server never initializes graphics or physics. Member
-completion is triggered by `.` and follows known return types such as Jolt
-worlds, WGPU devices/buffers/shaders/targets and Processing vectors/images/canvases.
+completion is triggered by `.` and follows known return types such as DynamicLibrary
+handles, WGPU devices/buffers/shaders/targets and Processing vectors/images/canvases.
 
 Script imports resolve relative to the importing file. String literals, local
 string constants, concatenation and `目前工作目錄` / `currWorkingDir` paths can be

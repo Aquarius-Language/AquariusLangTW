@@ -1,0 +1,9 @@
+manifest_version = 1
+[project]
+name = "JoltPhysicsExample"
+type = "executable"
+entry = "main.aqua"
+sources = ["main.aqua"]
+platforms = ["windows", "linux", "macos", "web", "android"]
+[dependencies]
+Aqua_JoltPhysics = "1.0.0"

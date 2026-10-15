@@ -1,9 +1,18 @@
-import {registerDynamicLibrary,createWasmLibrary} from './dynamic-library-core.mjs';
+import {registerDynamicLibrary,createWasmLibrary,createJavaScriptLibrary} from './dynamic-library-core.mjs';
 export function registerAndroidDynamicLibrary(host, bridge) {
+  const namespaces = new Map();
   const command = (operation, args) => JSON.parse(bridge.dynamicLibrary(operation, JSON.stringify(args)));
   registerDynamicLibrary(host, {
-    platform:'android', isSupported:kind => ['native','so','wasm'].includes(kind),
+    platform:'android', isSupported:kind => ['native','so','wasm','js','mjs'].includes(kind),
     async load(path) {
+      if (/\.(mjs|js)$/i.test(path)) {
+        const file=host.modelAsset(path).asset;
+        if(!/^asset-[a-f0-9]{64}\.(mjs|js)$/.test(file))throw Error('Invalid packaged module');
+        let loaded=namespaces.get(file);
+        if(!loaded){bridge.importLibrary(file);loaded=globalThis.__aquaImportedLibrary;delete globalThis.__aquaImportedLibrary;namespaces.set(file,loaded);}
+        await loaded.ready;
+        return createJavaScriptLibrary(loaded.namespace);
+      }
       if (/\.wasm$/i.test(path)) return createWasmLibrary(host.asset(path));
       const {id} = command('open', {path}); let closed = false;
       const live = () => { if (closed) throw new Error('Library is closed / 函式庫已關閉'); };

@@ -15,8 +15,10 @@ native integration that still needs it. A library without a compatible Wasm buil
 must be ported/rebuilt or deferred, rather than replaced with a managed/native
 algorithm provider or subprocess.
 
-The profiles and Jolt implementation below describe the current transitional
-architecture. They do not authorize new Emscripten/JS algorithm implementations.
+These requirements govern compiler-bundled computational libraries. Explicitly
+installed third-party Bottle packages may select native or Wasm implementations
+through DynamicLibrary, according to application requirements. They do not enter
+the bundled registry.
 See the [complete migration checklist](wasm-architecture-migration.md) for ABI,
 linking, packaging and existing-library migration work.
 
@@ -66,29 +68,23 @@ the same Wasm in an AudioWorklet. Neither host implements decoder or mixer
 algorithms. The library ABI is documented in [the audio guide](../AquariusCore/audio/README.md).
 
 Computational libraries cannot be registered as CLR factories with a `CoreWasm`
-label. New Emscripten adapters are rejected; the existing pinned Jolt descriptor
-is the transitional exception. This admission gate does not replace the pending
-library manifest, linker, feature validation and Wasm binding implementation.
+label. New computational Emscripten adapters are rejected by the bundled CLR registry.
+Applications can explicitly install a third-party DynamicLibrary package.
 
-Jolt uses the pinned `jolt-physics` 0.24.0 Emscripten build. `AquariusCore/external/jolt`
-contains the shared world implementation and generated vendor assets; the npm
-preparation script copies the pinned package's glue, binary and license there.
-Core embeds those assets. The web exporter enumerates every catalogued library, validates deployment-name collisions, reads its assets from core and emits asset
-SHA-256 hashes with the external-library declarations. Desktop reads the same
-embedded assets. There is no desktop JoltPhysicsSharp or joltc dependency.
+Jolt is distributed separately as `Aqua_JoltPhysics` 1.0.0, built from pinned
+JoltPhysics.js 0.24.0. Its TOML manifest owns Aquarius bindings, bundled Emscripten
+glue/Wasm and licenses. Desktop, browser and Android load it through the generic
+DynamicLibrary factory ABI. Core has no Jolt descriptor, physics contracts, assets,
+language catalog entries or default host registrations. World/body ownership and
+numerical tests belong to that package. The Marble project imports
+`/bottles/Aqua_JoltPhysics/main.aqua` and resolves it through Bottle.
 
-The browser adapter supplies the loader and animation environment. Desktop hosts
-the trusted Emscripten glue in ClearScript/V8, instantiates its Wasm synchronously,
-and adapts the shared world methods to `IPhysicsWorld`. Aquarius application code
-executes in Wasmtime. V8 is isolated to external libraries that need JavaScript
-glue; it is not an Aquarius execution engine. Desktop Jolt uses one lazily created,
-process-lifetime V8 runtime on its dedicated worker thread to avoid isolate teardown
-crashes during concurrent world lifecycles and CLR garbage collection. Each world
-owns a separate script context and Emscripten instance with independent Wasm memory.
-Disposal releases its physics objects and script handles; the shared V8 runtime
-remains available until process exit. Both platforms use 4,096 bodies, 8,192 body
-pairs and 4,096 contact constraints, including the same validation and ownership
-behavior.
+`Aqua_OpenCV` is another independent Bottle library. Its native C++ bridge retains
+matrix data behind handles; its portable backend uses real OpenCV Wasm. Backend
+capability lists and measured kernel times are exposed to callers. Platform asset
+filters select the implementation, and cache snapshots retain all declared
+alternatives. See [Bottle](../AquariusBottle/README.md) and
+[dynamic libraries](dynamic-linking.md).
 
 WebGPU retains `IWgpuBackend` and device/resource contracts in core, with shared
 WGSL shaders, layouts and the 1,120-byte Processing uniform ABI. Desktop implements

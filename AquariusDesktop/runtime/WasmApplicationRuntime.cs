@@ -72,7 +72,9 @@ internal sealed class WasmApplicationRuntime : IDisposable {
 
     private string ResolveAsset(string path) {
         if (resources == null) return path;
-        string relative = Path.IsPathRooted(path) ? Path.GetRelativePath(directory, Path.GetFullPath(path)) : path;
+        string normalized = path.Replace('\\', '/');
+        string relative = normalized.StartsWith("/bottles/", StringComparison.OrdinalIgnoreCase) ? normalized.TrimStart('/') :
+            Path.IsPathRooted(path) ? Path.GetRelativePath(directory, Path.GetFullPath(path)) : path;
         string name;
         try { name = WasmApplication.ResolvePath(relative); }
         catch (InvalidDataException) { return path; }
@@ -103,7 +105,11 @@ internal sealed class WasmApplicationRuntime : IDisposable {
             runtime.Dispose();
             if (resources != null && Directory.Exists(resources) &&
                 Path.GetFullPath(resources).StartsWith(Path.GetFullPath(Path.GetTempPath()), StringComparison.OrdinalIgnoreCase))
-                Directory.Delete(resources, true);
+                try { Directory.Delete(resources, true); }
+                // Windows can pin native dependency DLLs (notably the VC runtime) until process exit.
+                // A cleanup failure must not replace the application's result or original exception.
+                catch (IOException) { }
+                catch (UnauthorizedAccessException) { }
         }
     }
 }

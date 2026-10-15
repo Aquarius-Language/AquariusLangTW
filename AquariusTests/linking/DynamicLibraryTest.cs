@@ -9,6 +9,32 @@ using AquariusLang.runtime;
 namespace AquariusTests.Linking;
 
 public class DynamicLibraryTest {
+    [Fact] public void BottleAssetNamespaceMatchesImportsAndLockedNativeCleanupDoesNotMaskResults() {
+        using var t=new AquariusLang.Desktop.runtime.ApplicationTestDirectory();
+        string source=t.Write("src/main.aqua","變數 f=匯入(\"Files\");長度(f.ReadAssetBytes(\"/bottles/test/data.txt\"));");
+        string asset=t.Write("src/bottles/test/data.txt","hello");string output=t.FilePath("app.wasm");
+        AquariusLang.Packaging.WasmApplication.Compile([source],output,t.FilePath("src"),[asset]);
+        var package=AquariusLang.Packaging.WasmApplication.Load(output);
+        var runtime=new AquariusLang.Desktop.runtime.WasmApplicationRuntime(package,output);
+        string directory=runtime.ResourceDirectory!;
+        try {
+            using(var locked=File.Open(Path.Combine(directory,"bottles/test/data.txt"),FileMode.Open,FileAccess.Read,FileShare.None))runtime.Dispose();
+        } finally { if(Directory.Exists(directory))Directory.Delete(directory,true); }
+        Assert.Equal(5,Assert.IsType<IntegerObj>(AquariusLang.Desktop.runtime.ScriptRunner.RunWasm(output)).Value);
+    }
+    [Fact]
+    public void BundledEsModulesHaveIndependentFactoriesAsyncBytesAndOwnedDisposal() {
+        using var t = new AquariusLang.Desktop.runtime.ApplicationTestDirectory();
+        string path=t.Write("library.mjs", """
+            function version(){return 1;} function factory(){let n=0;return {async echo(b){await Promise.resolve();return b;},counter(){return Uint8Array.of(++n);},aqua_dispose(){n=0;}};}
+            export {version as aqua_library_abi,factory as aqua_create_library};
+            """);
+        var backend=new DesktopDynamicLibraryBackend();Assert.True(backend.IsSupported("mjs"));
+        using var first=backend.Load(path);using var second=backend.Load(path);
+        var input=Encoding.UTF8.GetBytes("繁體中文\0🌊");Assert.Equal(input,first.Invoke("echo",input));
+        Assert.Equal(new byte[]{1},first.Invoke("counter",[]));Assert.Equal(new byte[]{2},first.Invoke("counter",[]));Assert.Equal(new byte[]{1},second.Invoke("counter",[]));
+        Assert.ThrowsAny<Exception>(()=>first.Invoke("missing",[]));first.Dispose();first.Dispose();Assert.Throws<ObjectDisposedException>(()=>first.HasSymbol("echo"));
+    }
     private static IObject Call(ModuleObj module, string name, params IObject[] args) => ((BuiltinObj)module._Environment.Get(name, out _)).Fn(args);
     private sealed class Library : IDynamicLibrary {
         public int Releases;

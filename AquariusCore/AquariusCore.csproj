@@ -12,7 +12,6 @@
     <EmbeddedResource Include="mediapipe/pose.wasm" LogicalName="AquariusLang.External.mediapipe.pose.wasm" />
     <EmbeddedResource Include="graphics/*.aqua" LogicalName="AquariusLang.Graphics.%(Filename)%(Extension)" />
     <EmbeddedResource Include="wasm/runtime/runtime.wasm" LogicalName="AquariusLang.Wasm.runtime.wasm" />
-    <EmbeddedResource Include="external/jolt/*" LogicalName="AquariusLang.External.jolt.%(Filename)%(Extension)" />
     <EmbeddedResource Include="external/onnx/ort.webgpu.min.mjs;external/onnx/ort-wasm-simd-threaded.asyncify.mjs;external/onnx/ort-wasm-simd-threaded.asyncify.wasm;external/onnx/LICENSE.txt;external/onnx/ThirdPartyNotices.txt" LogicalName="AquariusLang.External.onnx.%(Filename)%(Extension)" />
     <EmbeddedResource Include="audio/audio.wasm;audio/audio-core.mjs;audio/AUDIO-THIRD-PARTY-NOTICES.txt" LogicalName="AquariusLang.External.audio.%(Filename)%(Extension)" />
     <EmbeddedResource Include="../native/vendor/miniaudio/LICENSE" LogicalName="AquariusLang.External.audio.MINIAUDIO-LICENSE.txt" />

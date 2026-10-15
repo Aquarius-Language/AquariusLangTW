@@ -1,7 +1,6 @@
 using System.Text.Json;
 using System.Diagnostics;
 using AquariusLang.Graphics;
-using AquariusLang.Physics;
 using AquariusLang.Object;
 using AquariusLang.runtime;
 using AquariusLang.Compiler;
@@ -18,7 +17,7 @@ public class WebArchitectureTest {
     public void CoreHasNoNativeGraphicsOrPhysicsDependencies() {
         var dependencies = typeof(IWgpuBackend).Assembly.GetReferencedAssemblies().Select(a => a.Name).ToArray();
         Assert.DoesNotContain(dependencies, n => n!.StartsWith("Silk.NET") || n.StartsWith("JoltPhysics"));
-        Assert.Same(typeof(IWgpuBackend).Assembly, typeof(PhysicsRuntime).Assembly);
+        Assert.DoesNotContain(typeof(IWgpuBackend).Assembly.GetManifestResourceNames(), n=>n.Contains("jolt",StringComparison.OrdinalIgnoreCase));
     }
     [Fact]
     public void BrowserAndCoreShareSurfaceResizeSemantics() {
@@ -52,30 +51,6 @@ public class WebArchitectureTest {
         } finally { File.Delete(file); }
     }
     [Fact]
-    public void ImportsAndInvalidArgumentsDoNotLoadNativeBackends() {
-        var backend = new UnavailablePhysics();
-        using var physics = new PhysicsRuntime(backend);
-        Assert.True(physics.TryImport("Jolt", out var a));
-        Assert.True(physics.TryImport("JoltPhysics", out var b));Assert.Same(a, b);
-        Assert.False(physics.TryImport("Unknown", out _));
-        var call = (BuiltinObj)a._Environment.Get("CreateWorld", out _);
-        Assert.IsType<ErrorObj>(call.Fn(System.Array.Empty<IObject>()));
-        Assert.IsType<ErrorObj>(call.Fn(new IObject[] { new IntegerObj(1) }));
-        Assert.Equal(0, backend.Calls);
-    }
-    [Theory]
-    [InlineData(double.NaN)][InlineData(double.PositiveInfinity)][InlineData(double.NegativeInfinity)][InlineData(1000001)][InlineData(-1000001)]
-    public void InvalidGravityNeverCrossesPhysicsBoundary(double value) {
-        var backend = new UnavailablePhysics();using var runtime = new PhysicsRuntime(backend);runtime.TryImport("Jolt", out var module);
-        var call = (BuiltinObj)module._Environment.Get("CreateWorld", out _);
-        var result = call.Fn(new IObject[] { new ArrayObj(new IObject[] { new DoubleObj(value), new IntegerObj(0), new IntegerObj(0) }) });
-        Assert.IsType<ErrorObj>(result);Assert.Equal(0, backend.Calls);
-    }
-    private sealed class UnavailablePhysics : IPhysicsBackend {
-        public int Calls;public string Name => "test";
-        public IPhysicsWorld CreateWorld(System.Numerics.Vector3 gravity) { Calls++;throw new InvalidOperationException("unavailable"); }
-    }
-    [Fact]
     public void SharedShaderLayoutAlignsAndPacksChineseUniforms() {
         var layout = new WgpuUniformLayout("struct UserUniforms { 視點: vec4<f32>, 模式: f32, 次數: u32, }");
         Assert.Equal(0, layout.Fields["視點"].Offset);Assert.Equal(16, layout.Fields["模式"].Offset);Assert.Equal(20, layout.Fields["次數"].Offset);
@@ -95,7 +70,7 @@ public class WebArchitectureTest {
             Assert.True(json.GetProperty("assets").TryGetProperty("pbr_models/assets/orbit.obj", out _));
             Assert.Equal(WgpuShaderAbi.Header, json.GetProperty("graphics").GetProperty("header").GetString());
             Assert.True(json.GetProperty("assets").TryGetProperty("opengl_cube/checker.ppm", out _));
-            Assert.True(File.Exists(Path.Combine(dir, "vendor-jolt.wasm")));
+            Assert.False(File.Exists(Path.Combine(dir, "vendor-jolt.wasm")));
             Assert.True(File.Exists(Path.Combine(dir, "host.mjs")));
         } finally { if (Directory.Exists(dir)) Directory.Delete(dir, true); }
     }

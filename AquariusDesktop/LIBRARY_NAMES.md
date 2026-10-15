@@ -1,6 +1,8 @@
 # Bilingual library function reference
 
 Both names call the same function. Module names, constants, properties and event strings retain their existing spelling.
+Jolt is provided separately by the `Aqua_JoltPhysics` Bottle package.
+
 OpenGL entry points retain the `gl` prefix and overload/type suffixes.
 
 ONNX Runtime additionally supplies bilingual module names, constants and metadata fields;
@@ -420,40 +422,6 @@ see the [ONNX interface table](../docs/onnx.md#language-api).
 | `TransformPoint` | `轉換點` | 2 |
 | `Translate` | `平移` | 1 |
 | `Transpose` | `轉置` | 1 |
-
-## Jolt
-
-| English | 繁體中文 | Arguments |
-| --- | --- | --- |
-| `CreateWorld` | `建立世界` | 1 |
-
-## Jolt.World
-
-| English | 繁體中文 | Arguments |
-| --- | --- | --- |
-| `AddAngularImpulse` | `加入角衝量` | 2 |
-| `AddForce` | `加入力` | 2 |
-| `AddImpulse` | `加入衝量` | 2 |
-| `CreateBox` | `建立方塊` | 3 |
-| `CreateSphere` | `建立球體` | 3 |
-| `Dispose` | `釋放` | 0 |
-| `GetAngularVelocity` | `取得角速度` | 1 |
-| `GetBodyCount` | `取得物體數量` | 0 |
-| `GetGravity` | `取得重力` | 0 |
-| `GetLinearVelocity` | `取得線速度` | 1 |
-| `GetPosition` | `取得位置` | 1 |
-| `GetRotation` | `取得旋轉` | 1 |
-| `IsActive` | `是否作用中` | 1 |
-| `OptimizeBroadPhase` | `最佳化廣域碰撞` | 0 |
-| `RemoveBody` | `移除物體` | 1 |
-| `SetAngularVelocity` | `設定角速度` | 2 |
-| `SetFriction` | `設定摩擦力` | 2 |
-| `SetGravity` | `設定重力` | 1 |
-| `SetLinearVelocity` | `設定線速度` | 2 |
-| `SetPosition` | `設定位置` | 2 |
-| `SetRestitution` | `設定恢復係數` | 2 |
-| `SetRotation` | `設定旋轉` | 2 |
-| `Step` | `步進` | 2 |
 
 ## Processing
 

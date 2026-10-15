@@ -7,7 +7,7 @@
 變數 聲音 = 匯入("Audio");
 變數 推論 = 匯入("ONNX");
 變數 影像 = 匯入("Images");
-變數 物理 = 匯入("Jolt");
+變數 終端 = 匯入("終端機");
 變數 裝置 = 圖形.建立裝置();
 變數 緩衝 = 裝置.建立緩衝區([1.0d, 2.0d, 3.0d, 4.0d]);
 裝置.派送("@group(0) @binding(0) var<storage,read_write> data:array<f32>; @compute @workgroup_size(1) fn cs_main(@builtin(global_invocation_id) id:vec3<u32>){data[id.x]=data[id.x]*2.0;}", 緩衝, 4);
@@ -42,7 +42,11 @@
 變數 貼圖像素=貼圖.像素();
 如果(貼圖像素[0]!=12){印出("ANDROID_CLIPBOARD_FAILED");}
 印出("ANDROID_CLIPBOARD_OK");
-變數 世界 = 物理.建立世界([0, -9.8d, 0]);
-變數 球 = 世界.建立球體(0.5d, [0, 2, 0], 1);
-世界.步進(0.02d, 1); 印出(世界.取得位置(球)); 世界.釋放();
+如果(終端.是否支援()){
+    變數 腳本="printf terminal-ok";
+    如果(終端.平台=="windows"){腳本="Write-Host -NoNewline terminal-ok";}
+    變數 執行結果=終端.執行腳本(腳本,{"TimeoutMs":5000});
+    如果(執行結果.結束代碼!=0 || 執行結果.標準輸出!="terminal-ok" || 執行結果.已逾時){終端驗證失敗;}
+    印出("ANDROID_TERMINAL_OK");
+}
 印出("ANDROID_CORE_OK");

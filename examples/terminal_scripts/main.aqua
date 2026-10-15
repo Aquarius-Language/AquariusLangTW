@@ -1,0 +1,7 @@
+變數 Terminal=匯入("Terminal");
+如果(Terminal.IsSupported()){
+    變數 result=Terminal.RunScript("echo AQUARIUS_TERMINAL_OK",{"TimeoutMs":5000});
+    如果(result.ExitCode!=0 || result.TimedOut){TerminalScriptFailed;}
+    印出(result.StandardOutput);
+}
+真;

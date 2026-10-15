@@ -1,4 +1,4 @@
-﻿#requires -Version 5.1
+#requires -Version 5.1
 # Keep this script UTF-8 with BOM so Windows PowerShell 5.1 reads Chinese literals correctly.
 param(
     [string]$Dotnet = 'dotnet',
@@ -128,7 +128,7 @@ try {
     Write-Host '[2/8] Restoring pinned browser dependencies and preparing embedded resources...'
     Invoke-Checked 'npm.cmd' @('ci', '--prefix', 'AquariusWebCompiler')
     Invoke-Checked 'npm.cmd' @('run', '--prefix', 'AquariusWebCompiler', 'prepare:browser')
-    Assert-File (Join-Path $repository 'AquariusWebCompiler/browser/vendor-jolt.wasm')
+    Assert-File (Join-Path $repository 'AquariusCore/hosting/terminal.mjs')
 
     Write-Host '[3/8] Building and installing the native graphics bridge...'
     $nativeOptions = @{ Runtime = 'win-x64' }
@@ -256,11 +256,17 @@ try {
         $wasmToRemove = Assert-InDirectory (Join-Path $smoke 'app.wasm') $smoke
         Remove-Item -LiteralPath $wasmToRemove
         Invoke-Published 'standalone windows execution' @() '[40, 42, 封裝成功' '' $standalone
-        foreach ($file in @('index.html', 'program.json', 'vendor-jolt.wasm', 'vendor-jolt.mjs', 'vendor-jolt.LICENSE.txt', 'vendor-earcut.LICENSE.txt', 'vendor-gl-matrix.LICENSE.txt')) { Assert-File (Join-Path $smoke "web/$file") }
+        foreach ($file in @('index.html', 'program.json', 'terminal.mjs', 'vendor-earcut.LICENSE.txt', 'vendor-gl-matrix.LICENSE.txt')) { Assert-File (Join-Path $smoke "web/$file") }
         $examples = Join-Path $package 'examples'
-        $exampleSources = @(Get-ChildItem -LiteralPath $examples -Filter '*.aqua' -Recurse | Sort-Object FullName)
+        $exampleSources = @(Get-ChildItem -LiteralPath $examples -Filter '*.aqua' -Recurse | Where-Object {
+            for ($directory=$_.Directory; $directory -and $directory.FullName.StartsWith($examples,[StringComparison]::OrdinalIgnoreCase); $directory=$directory.Parent) {
+                if (Test-Path -LiteralPath (Join-Path $directory.FullName 'aqua.toml')) { return $false }
+                if ($directory.FullName -eq $examples) { break }
+            }
+            return $true
+        } | Sort-Object FullName)
         Invoke-Published 'compile examples' (@('build') + @($exampleSources.FullName) + @('--root', $examples, '--assets', $examples, '--entry', 'increment.aqua', '-o', 'examples.wasm')) 'Compiled'
-        Invoke-Published 'native Jolt' @('run', 'examples.wasm', '--entry', 'jolt_physics/main.aqua') '真'
+        Invoke-Published 'terminal scripts' @('run', 'examples.wasm', '--entry', 'terminal_scripts/main.aqua') 'AQUARIUS_TERMINAL_OK'
         if ($VerifyGraphics) {
             Invoke-Published 'native compute' @('run', 'examples.wasm', '--entry', 'wgpu_compute/main.aqua') '真'
             Invoke-Published 'native image' @('run', 'examples.wasm', '--entry', 'wgpu_triangle/main.aqua') '真'

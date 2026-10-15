@@ -5,12 +5,13 @@ namespace AquariusLang.Desktop.Linking;
 
 /// <summary>Native loading is an explicit OS capability; Wasm modules execute independently.</summary>
 public sealed class DesktopDynamicLibraryBackend(Func<string, string>? resolvePath = null) : IDynamicLibraryBackend {
-    public string Platform => OperatingSystem.IsWindows() ? "windows" : "linux";
-    public bool IsSupported(string kind) => kind == "wasm" || kind == "native" || kind == (OperatingSystem.IsWindows() ? "dll" : "so");
+    public string Platform => OperatingSystem.IsWindows() ? "windows" : OperatingSystem.IsMacOS() ? "macos" : OperatingSystem.IsFreeBSD() ? "freebsd" : "linux";
+    public bool IsSupported(string kind) => kind is "wasm" or "js" or "mjs" or "native" || kind == (OperatingSystem.IsWindows() ? "dll" : OperatingSystem.IsMacOS() ? "dylib" : "so");
     public IDynamicLibrary Load(string path) {
         path = Path.GetFullPath((resolvePath ?? (p => p))(path));
+        if (Path.GetExtension(path).ToLowerInvariant() is ".js" or ".mjs") return new JavaScriptLibrary(path);
         if (Path.GetExtension(path).Equals(".wasm", StringComparison.OrdinalIgnoreCase)) return new WasmLibrary(path);
-        if (!Path.GetExtension(path).Equals(OperatingSystem.IsWindows() ? ".dll" : ".so", StringComparison.OrdinalIgnoreCase))
+        if (!Path.GetExtension(path).Equals(OperatingSystem.IsWindows() ? ".dll" : OperatingSystem.IsMacOS() ? ".dylib" : ".so", StringComparison.OrdinalIgnoreCase))
             throw new NotSupportedException("Unsupported library format / 不支援的函式庫格式。");
         return new NativeLibraryHandle(path);
     }

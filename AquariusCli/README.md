@@ -15,6 +15,7 @@ aqua new MyApp
 aqua new MyLibrary --type library
 aqua bottle install ../MyLibrary --project MyApp --version ">= 0.1, < 0.2"
 aqua build MyApp --locked --offline
+aqua build MyApp --platform windows -o dist/MyApp.wasm
 aqua bottle uninstall MyLibrary --project MyApp
 aqua repl
 ```
@@ -30,6 +31,10 @@ Project builds accept a directory, a `.toml` path, or no input inside an
 inside a project also use its manifest. Non-project source builds retain their
 existing behavior. `--locked` prevents lock changes; `--offline` disables network
 restore. Third-party libraries require explicit versions and supported platforms.
+`--platform` selects conditional assets and compatibility metadata for intermediate
+Wasm output. It requires a TOML project and cannot be combined with an export
+target such as `--target web`. See [Terminal](../docs/terminal.md) for the default
+process-launch API.
 
 Builds do not execute application code. Failed compilation or export preserves
 previous artifacts. Web output needs localhost/HTTPS, with WebGPU for graphics.

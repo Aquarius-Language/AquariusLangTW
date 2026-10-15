@@ -53,7 +53,8 @@ Core 不參考 Android、桌面或瀏覽器部署專案；Android 建置專案�
 | 函式庫 | Android 主機 |
 |---|---|
 | Processing、WGPU、GLM、PBR、Models | 原生 WebGPU / Vulkan、共用 WGSL / Wasm 邏輯 |
-| Jolt | 共用 Jolt Wasm |
+| Aqua_JoltPhysics（第三方 Bottle） | 共用 Jolt Wasm，透過動態函式庫介面載入 |
+| Terminal / 終端機 | 原生 ProcessBuilder，支援引數、輸出擷取及逾時 |
 | Audio | 共用 miniaudio Wasm，原生 AudioTrack 輸出 |
 | ONNX、MediaPipe | 原生 ONNX CPU 推論與共用 MediaPipe Wasm；以 `IsSupported` 查詢提供者 |
 | Files、Paths、Storage | 封裝資源、私有持久儲存、Android Storage Access Framework 文件與目錄 |

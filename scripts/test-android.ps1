@@ -47,12 +47,16 @@ foreach ($case in $cases) {
     if (-not $sources.Count) { throw "No sources: $($case.root)" }
     $entry = $case.entry
     if (-not $entry) {
-        $entry = @('main.aqua','貪吃蛇.aqua','星泉塗鴉室.aqua','啟動看板.aqua','星泉視覺實驗室.aqua','星泉聲音工坊.aqua') | Where-Object { Test-Path -LiteralPath (Join-Path $case.root $_) } | Select-Object -First 1
+        $entry = @('main.aqua','主程式.aqua','貪吃蛇.aqua','星泉塗鴉室.aqua','啟動看板.aqua','星泉視覺實驗室.aqua','星泉聲音工坊.aqua') | Where-Object { Test-Path -LiteralPath (Join-Path $case.root $_) } | Select-Object -First 1
     }
     if (-not $entry) { throw "Specify a known application entry in $($case.root)." }
     $wasm = Join-Path $output ($case.name + '.wasm')
-    $arguments = @('build') + @($sources.FullName) + @('--root',$case.root,'--entry',$entry,'-o',$wasm)
-    foreach ($name in @('assets','模型','音色')) { $assets=Join-Path $case.root $name; if(Test-Path -LiteralPath $assets) { $arguments+=@('--assets',$assets) } }
+    if (Test-Path -LiteralPath (Join-Path $case.root 'aqua.toml')) {
+        $arguments = @('build',$case.root,'--platform','android','-o',$wasm)
+    } else {
+        $arguments = @('build') + @($sources.FullName) + @('--root',$case.root,'--entry',$entry,'-o',$wasm)
+        foreach ($name in @('assets','模型','音色')) { $assets=Join-Path $case.root $name; if(Test-Path -LiteralPath $assets) { $arguments+=@('--assets',$assets) } }
+    }
     Invoke-Aqua $arguments
     $project = Join-Path $output ($case.name + '-' + [Guid]::NewGuid().ToString('N'))
     Invoke-Aqua @('build',$wasm,'--target','android','-o',$project)

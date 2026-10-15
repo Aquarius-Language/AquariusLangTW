@@ -145,6 +145,25 @@ public class BottleTest {
         Project(t, "app", "app", "executable", assets: "[[assets]]\nsource='one.txt'\ntarget='hidden.aqua'");
         Assert.Contains(".aqua", Assert.Throws<InvalidDataException>(() => ProjectBuilder.Compile(app, t.FilePath("bad.wasm"), cache: cache)).Message);
     }
+    [Fact] public void LibraryPlatformAlternativesShareOneDestinationAndKeepCompleteOfflineSnapshots() {
+        using var t = new ApplicationTestDirectory(); var cache = new BottleCache(t.FilePath("cache"));
+        string app=Project(t,"app","app","executable",dependencies:"lib={path='../lib',version='0.18.0'}");
+        Project(t,"lib","lib",assets:"[[assets]]\nsource='windows.txt'\ntarget='backend.txt'\nplatforms=['windows']\n[[assets]]\nsource='web.txt'\ntarget='backend.txt'\nplatforms=['web']");
+        t.Write("lib/windows.txt","native");t.Write("lib/web.txt","wasm");
+        new BottleManager(cache).Restore(ProjectManifest.Load(app),"windows");Directory.Delete(t.FilePath("lib"),true);
+        foreach(string target in new[]{"windows","web"}) {
+            string output=t.FilePath(target+".wasm");ProjectBuilder.Compile(app,output,target,locked:true,offline:true,cache:cache);
+            var package=WasmApplication.Load(output);Assert.Single(package.Assets);Assert.Equal(target=="windows"?"native":"wasm",System.Text.Encoding.UTF8.GetString(package.Assets["backend.txt"]));
+            Assert.Throws<InvalidDataException>(()=>package.CheckPlatform(target=="windows"?"web":"windows"));
+        }
+    }
+    [Fact] public void CliSelectsAssetPlatformForIntermediateWasmWithoutExportingAnExecutable() {
+        using var t=new ApplicationTestDirectory();
+        string app=Project(t,"app","app","executable",assets:"[[assets]]\nsource='windows.txt'\nplatforms=['windows']");t.Write("app/windows.txt","native asset");
+        var result=Run(t,"build",app,"--platform","windows","-o","app.wasm");AssertSuccess(result);
+        var package=WasmApplication.Load(t.FilePath("app.wasm"));Assert.Contains("windows.txt",package.Assets.Keys);Assert.Throws<InvalidDataException>(()=>package.CheckPlatform("web"));
+        Assert.Equal(2,Run(t,"build",app,"--platform","unknown","-o","bad.wasm").Code);
+    }
     [Fact] public void CliCreatesInstallsBuildsRunsAndUninstallsWithAnIsolatedGlobalCache() {
         using var t = new ApplicationTestDirectory();
         AssertSuccess(Run(t, "new", "demo", "-o", "app")); AssertSuccess(Run(t, "new", "mathlib", "--type", "library", "-o", "app/vendor/mathlib"));

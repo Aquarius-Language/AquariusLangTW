@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Security.Cryptography;
-using AquariusLang.Physics;
 
 namespace AquariusLang.External;
 
@@ -17,9 +16,6 @@ public sealed record ExternalLibraryDescriptor(string Id, string Version, int Co
 /// <summary>Core owns versions, contracts and portable assets. Hosts supply engines and capability adapters.</summary>
 public static class ExternalLibraries
 {
-    public static ExternalLibraryDescriptor Jolt { get; } = new("jolt", "0.24.0", 1, ExternalLibraryProfile.Emscripten, typeof(IPhysicsBackend),
-        new[] { "vendor-jolt.mjs", "vendor-jolt.wasm", "vendor-jolt.LICENSE.txt", "physics.mjs" },
-        new Dictionary<string,string> { ["vendor-jolt.mjs"]="vendor-jolt.mjs", ["vendor-jolt.wasm"]="vendor-jolt.wasm", ["vendor-jolt.LICENSE.txt"]="vendor-jolt.LICENSE.txt", ["physics.mjs"]="physics-core.mjs" });
     public static ExternalLibraryDescriptor WebGpu { get; } = new("webgpu", "1", 1, ExternalLibraryProfile.HostCapability, typeof(AquariusLang.Graphics.IWgpuBackend), System.Array.Empty<string>());
     public static ExternalLibraryDescriptor Audio { get; } = new("audio", "miniaudio-0.11.25", 1, ExternalLibraryProfile.CoreWasm, typeof(AquariusLang.Audio.IAudioBackend),
         new[] { "audio.wasm", "audio-core.mjs", "MINIAUDIO-LICENSE.txt", "AUDIO-THIRD-PARTY-NOTICES.txt" },
@@ -32,7 +28,7 @@ public static class ExternalLibraries
         new Dictionary<string,string> { ["ort.webgpu.min.mjs"]="ort.webgpu.min.mjs", ["ort-wasm-simd-threaded.asyncify.mjs"]="ort-wasm-simd-threaded.asyncify.mjs", ["ort-wasm-simd-threaded.asyncify.wasm"]="ort-wasm-simd-threaded.asyncify.wasm", ["LICENSE.txt"]="ONNX-LICENSE.txt", ["ThirdPartyNotices.txt"]="ONNX-THIRD-PARTY-NOTICES.txt" });
     public static ExternalLibraryDescriptor MediaPipe { get; } = new("mediapipe", "1", 1, ExternalLibraryProfile.CoreWasm, typeof(AquariusLang.MediaPipe.PoseTracker),
         new[] { "pose.wasm" }, new Dictionary<string,string> { ["pose.wasm"]="pose.wasm" });
-    public static IReadOnlyList<ExternalLibraryDescriptor> All { get; } = System.Array.AsReadOnly(new[] { Jolt, WebGpu, Audio, Webcam, Network, Onnx, MediaPipe });
+    public static IReadOnlyList<ExternalLibraryDescriptor> All { get; } = System.Array.AsReadOnly(new[] { WebGpu, Audio, Webcam, Network, Onnx, MediaPipe });
     public static byte[] ReadAsset(ExternalLibraryDescriptor library, string name)
     {
         if (!library.Assets.Contains(name, StringComparer.Ordinal)) throw new ArgumentException("Asset is not declared by this library.");
@@ -55,8 +51,8 @@ public sealed class ExternalLibraryRegistry : IDisposable
         ObjectDisposedException.ThrowIf(disposed, this);
         if (descriptor.Profile == ExternalLibraryProfile.CoreWasm)
             throw new ArgumentException("CoreWasm libraries require verified Wasm artifacts and a library ABI. A CLR factory cannot admit a computational library.");
-        if (descriptor.Profile == ExternalLibraryProfile.Emscripten && descriptor != ExternalLibraries.Jolt)
-            throw new ArgumentException("New computational libraries must use the Wasm library ABI. Only the existing Jolt adapter is transitional.");
+        if (descriptor.Profile == ExternalLibraryProfile.Emscripten)
+            throw new ArgumentException("New computational libraries must use the Wasm library ABI. Use a third-party DynamicLibrary package for Emscripten integrations.");
         if (descriptor.Contract != typeof(T) || descriptor.ContractVersion != contractVersion) throw new ArgumentException("Incompatible external library contract.");
         if (!factories.TryAdd(descriptor.Id, (descriptor, () => factory() ?? throw new InvalidOperationException("Adapter factory returned null.")))) throw new ArgumentException($"Duplicate external library adapter: {descriptor.Id}");
     }

@@ -3,7 +3,49 @@ import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {createWasmLibrary,createJavaScriptLibrary,validateSymbol,MAX_BYTES} from '../../AquariusCore/hosting/dynamic-library-core.mjs';
 import {CapabilityHost} from '../../AquariusCore/hosting/capability-host.mjs';
+// Deployment copies the shared core beside the Android adapter. Resolve that
+// same import explicitly when testing the source template before packaging.
+const androidAdapter = readFileSync(new URL('../../AquariusAndroid/template/app/src/main/assets/aquarius/android-dynamic-library.mjs',import.meta.url),'utf8')
+  .replace("'./dynamic-library-core.mjs'",JSON.stringify(new URL('../../AquariusCore/hosting/dynamic-library-core.mjs',import.meta.url).href));
+const {registerAndroidDynamicLibrary} = await import('data:text/javascript;base64,'+Buffer.from(androidAdapter).toString('base64'));
 const fixture = readFileSync(new URL('../../AquariusTests/linking/fixtures/showcase.wasm', import.meta.url));
+
+for (const extension of ['mjs','js']) test(`Android ${extension} modules await native evaluation and retain independent factory state`, async () => {
+  const module = {}, file = `asset-${'a'.repeat(64)}.${extension}`;
+  let imported = 0, created = 0, released = 0, ready;
+  const host = {
+    modules:new Map(), library:()=>module, newModule:()=>({}),
+    set:(target,name,value)=>{target[name]=value;},
+    bind:(target,group,name,fn)=>{target[name]=fn;}, modelAsset:()=>({asset:file})
+  };
+  const bridge = {importLibrary(name) {
+    assert.equal(name,file); imported++;
+    globalThis.__aquaImportedLibrary = {
+      ready:new Promise(resolve=>{ready=resolve;}),
+      namespace:{aqua_library_abi:()=>1,aqua_create_library:()=>{
+        created++; let calls=0;
+        return {counter:()=>new Uint8Array([++calls]),aqua_dispose(){released++;}};
+      }}
+    };
+  }};
+  registerAndroidDynamicLibrary(host,bridge);
+  const loading=module.Load('/bottles/example/library.'+extension);
+  await Promise.resolve(); assert.equal(created,0); assert.equal(imported,1);
+  assert.equal(Object.hasOwn(globalThis,'__aquaImportedLibrary'),false);
+  ready(); const first=await loading, second=await module.Load('/bottles/example/library.'+extension);
+  assert.equal(imported,1); assert.equal(created,2);
+  assert.equal((await first.Invoke('counter',[]))[0].value,1);
+  assert.equal((await first.Invoke('counter',[]))[0].value,2);
+  assert.equal((await second.Invoke('counter',[]))[0].value,1);
+  await first.Dispose(); assert.equal(released,1);
+  await host.dynamicLibraries.dispose(); assert.equal(released,2);
+});
+
+test('Android refuses unpackaged module paths before native import', async () => {
+  const module={},host={modules:new Map(),library:()=>module,newModule:()=>({}),set:(o,k,v)=>{o[k]=v;},bind:(o,g,k,v)=>{o[k]=v;},modelAsset:()=>({asset:'../library.mjs'})};
+  registerAndroidDynamicLibrary(host,{importLibrary(){assert.fail('unexpected native import');}});
+  await assert.rejects(module.Load('library.mjs'),/Invalid packaged module/);
+});
 
 test('real Wasm byte ABI, UTF-8, independent state, maximum buffers and release', async () => {
   const first = await createWasmLibrary(fixture), second = await createWasmLibrary(fixture);
@@ -40,7 +82,7 @@ test('JavaScript disposal waits for calls already in progress', async () => {
 });
 test('a failing plugin cleanup still releases application and platform resources', async () => {
   const released = [], host = {runtime:{},dynamicLibraries:{dispose(){throw new Error('plugin cleanup failed');}}};
-  for (const name of ['webcam','camera','pose','onnx','audio','application','processing','physics','graphics']) host[name] = {dispose(){released.push(name);}};
+  for (const name of ['webcam','camera','pose','onnx','audio','application','processing','graphics']) host[name] = {dispose(){released.push(name);}};
   await assert.rejects(CapabilityHost.prototype.dispose.call(host), /plugin cleanup failed/);
-  assert.equal(host.runtime.cancelled,true);assert.equal(released.length,9);
+  assert.equal(host.runtime.cancelled,true);assert.equal(released.length,8);
 });

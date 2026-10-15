@@ -10,13 +10,6 @@ const ortCore=path.join(root,'../AquariusCore/external/onnx');await mkdir(ortCor
 for(const name of ['ort.webgpu.min.mjs','ort-wasm-simd-threaded.asyncify.mjs','ort-wasm-simd-threaded.asyncify.wasm'])await copyFile(path.join(ortRoot,'dist',name),path.join(ortCore,name));
 for(const name of ['LICENSE.txt','ThirdPartyNotices.txt'])if(!existsSync(path.join(ortCore,name)))throw new Error(`Missing pinned ONNX notice: ${name}`);
 for(const name of ['gl-matrix','earcut'])await build({entryPoints:[name==='gl-matrix'?path.join(path.dirname(require.resolve('gl-matrix/package.json')),'esm/index.js'):require.resolve(name)],bundle:true,format:'esm',outfile:path.join(root,`browser/vendor-${name}.mjs`),minify:true});
-const jolt=path.dirname(require.resolve('jolt-physics/package.json'));
-const joltCore=path.join(root,'../AquariusCore/external/jolt');await mkdir(joltCore,{recursive:true});
-await copyFile(path.join(jolt,'dist/jolt-physics.wasm.js'),path.join(root,'browser/vendor-jolt.mjs'));
-await copyFile(path.join(jolt,'dist/jolt-physics.wasm.wasm'),path.join(root,'browser/vendor-jolt.wasm'));
-await copyFile(path.join(jolt,'LICENSE'),path.join(root,'browser/vendor-jolt.LICENSE.txt'));
-for(const name of ['vendor-jolt.mjs','vendor-jolt.wasm','vendor-jolt.LICENSE.txt'])await copyFile(path.join(root,'browser',name),path.join(joltCore,name));
-await copyFile(path.join(joltCore,'physics.mjs'),path.join(root,'browser/physics-core.mjs'));
 await copyFile(path.join(root,'../AquariusCore/audio/audio-core.mjs'),path.join(root,'browser/audio-core.mjs'));
 for(const name of ['earcut','gl-matrix']){
   let dir=path.dirname(require.resolve(name));

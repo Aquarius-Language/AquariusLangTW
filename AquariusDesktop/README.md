@@ -4,8 +4,10 @@ Desktop host for compiled Aquarius applications, using Wasmtime for all Aquarius
 execution. It implements core WebGPU, application and external-library contracts.
 Linux x86_64 builds, standalone executables and WSL2 validation are documented in
 [the Linux guide](../docs/linux.md).
-Jolt uses the same core Emscripten Wasm and world implementation as browsers,
-with ClearScript/V8 supplying its glue environment.
+Jolt is installed separately as `Aqua_JoltPhysics` through Bottle. The generic
+DynamicLibrary loader hosts bundled ES modules with ClearScript/V8, native DLL/SO/
+dylib wrappers, and import-free Wasm. See [terminal scripts](../docs/terminal.md)
+and [dynamic libraries](../docs/dynamic-linking.md).
 
 [Audio](../AquariusCore/audio/README.md) executes the shared miniaudio Wasm in
 Wasmtime. The separate `aquarius_audio` bridge only drains a PCM ring to a miniaudio

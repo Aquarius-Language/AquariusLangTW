@@ -4,11 +4,12 @@ import {Scope,module,num,numeric,wrap,unwrap,inspect,nativeCall,nativeOwner,isPr
 import {WasmRuntime} from './wasm-host.mjs';
 import {Processing,pack} from './processing.mjs';
 import {mat4,vec3} from './vendor-gl-matrix.mjs';
-import {vector} from './physics-core.mjs';
+import {registerTerminal} from './terminal.mjs';
+const vector=v=>{if(!Array.isArray(v)||v.length!==3||v.some(n=>!Number.isFinite(n)))throw Error('Expected a finite three-element vector');return v;};
 import {resolvePath,lookupPath} from './package-paths.mjs';
 export class CapabilityHost {
   constructor(bundle,{signal=new AbortController().signal,frameLimit=0,print=console.log,adapters}={}) {
-    if(bundle.version!==2)throw new Error('Unsupported application version');this.adapters=adapters;this.bundle=bundle;this.signal=signal;this.frameLimit=frameLimit;this.print=print;this.modules=new Map();this.objects=new Map();this.cache=new Map();this.importing=new Set();this.downloads=new Map();this.graphics=adapters.graphics(bundle.graphics);this.physics=adapters.physics();this.builtins=new Map();this.runtime=new WasmRuntime(this);this.register();
+    if(bundle.version!==2)throw new Error('Unsupported application version');this.adapters=adapters;this.bundle=bundle;this.signal=signal;this.frameLimit=frameLimit;this.print=print;this.modules=new Map();this.objects=new Map();this.cache=new Map();this.importing=new Set();this.downloads=new Map();this.graphics=adapters.graphics(bundle.graphics);this.builtins=new Map();this.runtime=new WasmRuntime(this);this.register();
   }
   newModule(){return module(new Scope());}
   set(m,n,v){m.scope.create(n,wrap(v));if(m===this.processing?.module && (n==="width"||n==="height"))m.scope.create(n==="width"?"寬度":"高度",wrap(v));}
@@ -25,7 +26,7 @@ export class CapabilityHost {
     for(const [name,id]of [['len',1],['last',2],['rest',3],['push',4],['floodFill',5]])this.builtins.get(name)[portableBuiltin]=id;
   }
   register(){this.registerGlobals();registerArrayLibrary(this);
-    this.processing=new Processing(this);this.modules.set('Processing',this.processing.module);this.registerGpu();this.registerPhysics();this.registerMath();this.registerText();this.adapters.registerLegacy?.(this);
+    this.processing=new Processing(this);this.modules.set('Processing',this.processing.module);this.registerGpu();registerTerminal(this);this.registerMath();this.registerText();this.adapters.registerLegacy?.(this);
     this.adapters.register(this);this.modules.set("繪圖",this.processing.module);if(this.modules.has("Serialization"))this.modules.set("序列化",this.modules.get("Serialization"));
     for(const [library,alias]of [['Camera','相機'],['AndroidInput','Android輸入']])if(!this.modules.has(library)){
       const m=this.library(library);this.modules.set(alias,m);this.bind(m,library,'IsSupported',()=>false);
@@ -40,7 +41,6 @@ export class CapabilityHost {
     b('CreateShader',async(v,f)=>{const shader=await d.createShader(v,f),sm=this.newModule();this.objects.set(sm,shader);this.bind(sm,'WGPU.Shader','Set',(n,v)=>shader.set(n,v));this.bind(sm,'WGPU.Shader','SetInt',(n,v)=>shader.set(n,[v],true));this.bind(sm,'WGPU.Shader','SetTexture',(n,m)=>shader.setTexture(n,this.objects.get(m)));this.bind(sm,'WGPU.Shader','Dispose',()=>shader.dispose());return sm;});
     b('CreateRenderTarget',(w,h,format='rgba8unorm')=>{const target=d.createTarget(w,h,format),tm=this.newModule();this.set(tm,'Width',num(w,'int'));this.set(tm,'Height',num(h,'int'));this.bind(tm,'WGPU.Target','GetTexture',()=>{const texture=target.getTexture(),m=this.newModule();this.objects.set(m,texture);this.bind(m,'WGPU.Texture','Dispose',()=>texture.dispose());return m;});this.bind(tm,'WGPU.Target','Clear',c=>{if(!Array.isArray(c)||c.length!==4||c.some(v=>!Number.isFinite(v)||v<0||v>1))throw new Error('Color needs four RGBA values in 0..1');target.clear(c);});this.bind(tm,'WGPU.Target','Draw',(shader,vertices)=>{if(!Array.isArray(vertices)||vertices.length===0||vertices.length%36||vertices.some(v=>!Number.isFinite(v)))throw new Error('Triangle vertices need a multiple of 36 finite floats');const obj=this.objects.get(shader);if(!obj)throw new Error('Expected a live shader');target.draw(obj,vertices);});this.bind(tm,'WGPU.Target','ReadPixels',async()=>{const bytes=await target.readPixels();return Array.from({length:bytes.length/4},(_,i)=>pack(Array.from(bytes.subarray(i*4,i*4+4),v=>v/255)));});this.bind(tm,'WGPU.Target','Save',async path=>this.saveImage(path,w,h,await target.readPixels()));this.bind(tm,'WGPU.Target','Dispose',()=>target.dispose());return tm;});return dm;
   });}
-  registerPhysics(){const m=this.library('Jolt');this.modules.set('JoltPhysics',m);this.set(m,'Backend',this.physics.name);this.set(m,'MaxBodies',num(this.bundle.physics.maxBodies,'int'));this.bind(m,'Jolt','CreateWorld',async gravity=>{const world=await this.physics.createWorld(gravity),wm=this.newModule(),b=(n,f)=>this.bind(wm,'Jolt.World',n,f);b('Dispose',()=>world.dispose());b('GetBodyCount',()=>{world.live();return num(world.bodies.size,'int');});b('GetGravity',()=>world.getGravity());b('SetGravity',v=>world.setGravity(v));b('CreateSphere',(r,p,m)=>world.create('sphere',r,p,m));b('CreateBox',(half,p,m)=>world.create('box',half,p,m));b('Step',(dt,steps)=>world.step(dt,steps));b('RemoveBody',body=>world.remove(body));b('OptimizeBroadPhase',()=>{world.live();world.system.OptimizeBroadPhase();});for(const n of ['GetPosition','GetRotation','GetLinearVelocity','GetAngularVelocity','IsActive'])b(n,body=>world.get(n,body));for(const n of ['SetPosition','SetRotation','SetLinearVelocity','SetAngularVelocity','AddForce','AddImpulse','AddAngularImpulse','SetFriction','SetRestitution'])b(n,(body,v)=>world.set(n,body,v));return wm;});}
   registerMath(){const m=this.library('GLM'),b=(n,f)=>this.bind(m,'GLM',n,f);this.set(m,'PI',Math.PI);b('Radians',n=>n*Math.PI/180);b('Sin',Math.sin);b('Cos',Math.cos);b('Sqrt',Math.sqrt);b('Dot',vec3.dot);b('Cross',(a,b)=>Array.from(vec3.cross(vec3.create(),a,b)));b('Normalize',a=>{vector(a);if(!Math.hypot(...a))throw new Error('Cannot normalize zero vector');return Array.from(vec3.normalize(vec3.create(),a));});b('Identity',()=>Array.from(mat4.create()));b('Translate',v=>Array.from(mat4.fromTranslation(mat4.create(),v)));b('Scale',v=>Array.from(mat4.fromScaling(mat4.create(),v)));b('Rotate',(angle,axis)=>Array.from(mat4.fromRotation(mat4.create(),angle,axis)));b('Multiply',(a,b)=>Array.from(mat4.multiply(mat4.create(),a,b)));b('LookAt',(e,t,u)=>Array.from(mat4.lookAt(mat4.create(),e,t,u)));b('Perspective',(f,a,n,z)=>Array.from(mat4.perspectiveNO(mat4.create(),f,a,n,z)));b('Transpose',a=>Array.from(mat4.transpose(mat4.create(),a)));b('Inverse',a=>{const out=mat4.invert(mat4.create(),a);if(!out)throw new Error('Matrix is singular');return Array.from(out);});b('TransformPoint',(m,v)=>Array.from(vec3.transformMat4(vec3.create(),v,m)));}
   registerText(){const m=this.library('TextInput');this.bind(m,'TextInput','Backspace',text=>{const segments=[...new Intl.Segmenter(undefined,{granularity:'grapheme'}).segment(text)];return segments.slice(0,-1).map(s=>s.segment).join('');});this.bind(m,'TextInput','Length',text=>num([...new Intl.Segmenter(undefined,{granularity:'grapheme'}).segment(text)].length,'int'));}
   asset(path){const name=lookupPath(this.bundle.assets,this.resolve(path));const value=this.bundle.assets[name];return value instanceof Uint8Array?value.slice():Uint8Array.from(atob(value),c=>c.charCodeAt(0));}
@@ -52,7 +52,7 @@ export class CapabilityHost {
     try{await this.dynamicLibraries?.dispose();}
     finally{
       try{this.webcam?.dispose();this.camera?.dispose();await this.pose?.dispose();await this.onnx?.dispose();await this.audio?.dispose();await this.application?.dispose();}
-      finally{this.processing.dispose();this.physics.dispose();this.graphics.dispose();this.legacyDispose?.();}
+      finally{this.processing.dispose();this.graphics.dispose();this.legacyDispose?.();}
     }
   }
 }

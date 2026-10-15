@@ -93,7 +93,8 @@ public sealed class AndroidBuildTarget : IWasmBuildTarget
                     File.WriteAllBytes(nativePath, asset.Value);
                     continue;
                 }
-                string name = "asset-" + Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(asset.Key))).ToLowerInvariant() + ".bin";
+                string extension = Path.GetExtension(asset.Key).ToLowerInvariant() is ".js" or ".mjs" ? ".mjs" : ".bin";
+                string name = "asset-" + Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(asset.Key))).ToLowerInvariant() + extension;
                 assetFiles.Add(asset.Key, name);
                 File.WriteAllBytes(Path.Combine(assets, name), asset.Value);
             }
@@ -107,7 +108,6 @@ public sealed class AndroidBuildTarget : IWasmBuildTarget
                 graphics = new { header = WgpuShaderAbi.Header, vertex = WgpuShaderAbi.Vertex, fragment = WgpuShaderAbi.Fragment, uniformBytes = WgpuShaderAbi.UniformBytes },
                 properties = LibraryCatalog.Properties.Select(p=>new { library=p.Library,english=p.EnglishName,chinese=p.TraditionalChineseName,type=p.Type,returns=p.ReturnLibrary }),
                 libraryFeatures = new { network = AquariusLang.Network.NetworkCatalog.Features },
-                physics = new { maxBodies = 4096 },
                 catalog = LibraryCatalog.Functions.Concat(LibraryCatalog.GlobalFunctions).Select(f => new { library = f.Library, english = f.EnglishName, chinese = f.TraditionalChineseName, min = f.MinimumArguments, max = f.MaximumArguments, feature = f.RequiredFeature })
             }), new UTF8Encoding(false));
             string gradle = Path.Combine(stage, "app/build.gradle");

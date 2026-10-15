@@ -26,14 +26,14 @@ public sealed record LibraryProperty(string Library,string EnglishName,string Tr
 }
 
 public static partial class LibraryCatalog {
-    public static IReadOnlyList<LibraryProperty> Properties => AquariusLang.Network.NetworkCatalog.Properties;
+    public static IReadOnlyList<LibraryProperty> Properties { get; } = AquariusLang.Network.NetworkCatalog.Properties.Concat(AquariusLang.Terminal.TerminalCatalog.Properties).ToArray();
     public static IEnumerable<LibraryProperty> PropertiesFor(string library)=>Properties.Where(f=>f.Library==CanonicalLibrary(library));
     public static LibraryProperty? FindProperty(string library,string name)=>PropertiesFor(library).FirstOrDefault(f=>f.HasName(name));
     public static bool IsKnownType(string library)=>Members(library).Any()||PropertiesFor(library).Any();
     public static IReadOnlyList<LibraryFunction> Functions { get; }
     private static readonly IReadOnlyDictionary<string, string> chineseNames;
     static LibraryCatalog() {
-        Functions = Array.AsReadOnly(definitions.Concat(meshFunctions).Concat(ArrayLibrary.Functions).Concat(AquariusLang.Network.NetworkCatalog.Functions).Concat(AquariusLang.Application.ApplicationCatalog.Functions).Concat(AquariusLang.Audio.AudioCatalog.Functions).Concat(AquariusLang.Webcam.WebcamCatalog.Functions).Concat(AquariusLang.Camera.CameraCatalog.Functions).Concat(AquariusLang.Input.AndroidInputCatalog.Functions).Concat(AquariusLang.Onnx.OnnxCatalog.Functions).Concat(AquariusLang.Linking.DynamicLibraryCatalog.Functions).Concat(AquariusLang.MediaPipe.PoseCatalog.Functions).Concat(AquariusLang.Graphics.PortableGraphicsLibraries.Functions).ToArray());
+        Functions = Array.AsReadOnly(definitions.Concat(meshFunctions).Concat(ArrayLibrary.Functions).Concat(AquariusLang.Network.NetworkCatalog.Functions).Concat(AquariusLang.Application.ApplicationCatalog.Functions).Concat(AquariusLang.Audio.AudioCatalog.Functions).Concat(AquariusLang.Webcam.WebcamCatalog.Functions).Concat(AquariusLang.Camera.CameraCatalog.Functions).Concat(AquariusLang.Input.AndroidInputCatalog.Functions).Concat(AquariusLang.Onnx.OnnxCatalog.Functions).Concat(AquariusLang.Terminal.TerminalCatalog.Functions).Concat(AquariusLang.Linking.DynamicLibraryCatalog.Functions).Concat(AquariusLang.MediaPipe.PoseCatalog.Functions).Concat(AquariusLang.Graphics.PortableGraphicsLibraries.Functions).ToArray());
         chineseNames = Functions.GroupBy(f => f.EnglishName)
             .ToDictionary(g => g.Key, g => g.First().TraditionalChineseName, StringComparer.Ordinal);
     }
@@ -50,7 +50,7 @@ public static partial class LibraryCatalog {
     });
     public static string? TraditionalChinese(string englishName) => chineseNames.TryGetValue(englishName, out var name) ? name : null;
     public static string CanonicalLibrary(string name) => name switch {
-        "網路" => "Network", "繪圖" => "Processing", "序列化" => "Serialization", "動態函式庫" => "DynamicLibrary", "GPU數學" => "GPUMath", "陣列" => "Array", "wgpu" => "WGPU", "JoltPhysics" => "Jolt", "音訊" => "Audio", "模型" => "Models", "推論引擎" or "ONNXRuntime" => "ONNX", "姿態追蹤" => "MediaPipe", "相機" => "Camera", "Android輸入" => "AndroidInput", "Webcam" or "網路攝影機" => "攝影機", _ => name
+        "網路" => "Network", "繪圖" => "Processing", "序列化" => "Serialization", "動態函式庫" => "DynamicLibrary", "GPU數學" => "GPUMath", "陣列" => "Array", "wgpu" => "WGPU", "終端機" => "Terminal", "音訊" => "Audio", "模型" => "Models", "推論引擎" or "ONNXRuntime" => "ONNX", "姿態追蹤" => "MediaPipe", "相機" => "Camera", "Android輸入" => "AndroidInput", "Webcam" or "網路攝影機" => "攝影機", _ => name
     };
     public static IEnumerable<LibraryFunction> Members(string library) => Functions.Where(f => f.Library == CanonicalLibrary(library));
     public static LibraryFunction? Find(string library, string name) => Members(library).FirstOrDefault(f => f.HasName(name));
