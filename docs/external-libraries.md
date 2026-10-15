@@ -37,11 +37,18 @@ argument validation, language registration, aliases and object ownership rules.
 Platform projects provide adapters and execution engines. Core has no Wasmtime,
 ClearScript, Silk.NET or native-library package dependencies.
 
+[DynamicLibrary / 動態函式庫](dynamic-linking.md) is an explicit OS/browser
+loading capability for application-supplied libraries. Its versioned buffer ABI
+supports native DLL/SO wrappers, standalone ES module factories and import-free
+Wasm modules through one bilingual API. It does not admit arbitrary computational
+libraries into the bundled catalog or replace the dependency/feature manifests
+required below. New bundled portable computations still follow the Wasm rule.
+
 `ExternalLibraryDescriptor` distinguishes three profiles:
 
 | Profile | Deployment and execution |
 | --- | --- |
-| `CoreWasm` | Memory-only libraries with an explicit Wasm ABI. Audio and MediaPipe pose implement ABI 1; the general library loader remains future work. The CLR factory registry rejects this profile. |
+| `CoreWasm` | Memory-only libraries with an explicit Wasm ABI. Audio and MediaPipe pose implement their ABI 1; application dynamic modules can use the separate DynamicLibrary buffer ABI 1. General dependency linking remains future work. The CLR factory registry rejects this profile. |
 | `Emscripten` | A Wasm module plus generated JavaScript glue; requires an Emscripten-capable host. |
 | `HostCapability` | A platform API such as WebGPU, windowing or user documents; represented by a core contract. |
 

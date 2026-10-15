@@ -10,11 +10,11 @@ export async function prepareBundle(bundle, fetcher=fetch) {
   const assets=(async()=>{
     if(bundle.assetEncoding===undefined)return;
     if(bundle.assetEncoding!=='files')throw new Error('Unsupported application asset encoding');
-    const entries=Object.entries(bundle.assets);let next=0;
+    const entries=Object.entries(bundle.assets);bundle.assetFiles=Object.fromEntries(entries);let next=0;
     await Promise.all(Array.from({length:Math.min(4,entries.length)},async()=>{
       while(next<entries.length){
         const [name,file]=entries[next++];
-        if(typeof file!=='string'||!/^asset-[0-9a-f]{64}\.bin$/.test(file))throw new Error('Invalid application asset filename');
+        if(typeof file!=='string'||!/^asset-[0-9a-f]{64}\.(bin|mjs)$/.test(file))throw new Error('Invalid application asset filename');
         bundle.assets[name]=new Uint8Array(await(await checked(file)).arrayBuffer());
       }
     }));

@@ -10,6 +10,7 @@ Linux x86_64／WSL2 的建置、測試與獨立執行檔輸出：見 [Linux 桌�
 
 - **統一入口**：`aqua` 提供編譯、桌面執行、網頁輸出與互動模式（REPL）。
 - **可攜編譯成果**：將模組、圖片與著色器等資源一起封裝，執行與網頁輸出不需原始碼。
+- **動態連結**：[核心動態函式庫 / DynamicLibrary](docs/dynamic-linking.md)以雙語介面載入 Windows DLL、Linux／Android SO、網頁 JavaScript 與跨平台 Wasm。
 - **雙語函式庫**：腳本與桌面原生函式支援繁體中文／英文名稱，共用函式與閉包。
 - **圖學與物理**：核心保留跨平台 WebGPU 介面；桌面與瀏覽器共用 Jolt WebAssembly 引擎與物理實作。
 - **PBR 與模型匯入**：[核心 Models／PBR 函式庫](docs/pbr-models.md)在 Wasm 解析 OBJ／MTL，並以共用 WGSL 提供金屬度／粗糙度即時渲染。
@@ -164,7 +165,7 @@ python -m http.server 8080 --directory dist\web
 | 選項 | 說明 |
 | --- | --- |
 | `--root` | 設定原始碼根目錄，模組與資源保留相對路徑。 |
-| `--assets` | 加入檔案或資料夾，可重複指定；原始碼與編譯產物不當作資源封裝。 |
+| `--assets` | 加入檔案或資料夾，可重複指定；原始碼及目前的輸出檔不當作資源封裝；動態 Wasm 函式庫可透過此選項加入。 |
 | `--entry` | 選擇編譯成果中的 `.aqua` 模組名稱，預設為第一個輸入檔。 |
 | `-o` | 指定 `.wasm`／`.exe` 檔名或網頁輸出資料夾。 |
 | `--target wasm` | 預設目標；產生包含程式、模組與資源的標準 WebAssembly。 |

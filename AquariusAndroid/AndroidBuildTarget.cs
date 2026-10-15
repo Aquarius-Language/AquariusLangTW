@@ -81,6 +81,17 @@ public sealed class AndroidBuildTarget : IWasmBuildTarget
             var assetFiles = new Dictionary<string, string>();
             foreach (var asset in package.Assets)
             {
+                // Native plugins must be installed by Android into its executable linker namespace.
+                // Convention: native/android/<ABI>/lib<name>.so. Never extract executable code into writable data.
+                if (asset.Key.StartsWith("native/android/", StringComparison.Ordinal)) {
+                    var match = System.Text.RegularExpressions.Regex.Match(asset.Key, @"\Anative/android/(arm64-v8a|x86_64)/(lib[A-Za-z0-9_][A-Za-z0-9_.-]*\.so)\z");
+                    if (!match.Success) throw new ArgumentException("Invalid Android dynamic library asset path: " + asset.Key);
+                    string nativePath = Path.Combine(stage, "app/src/main/jniLibs", match.Groups[1].Value, match.Groups[2].Value);
+                    if (File.Exists(nativePath)) throw new ArgumentException("Android dynamic library conflicts with runtime: " + asset.Key);
+                    Directory.CreateDirectory(Path.GetDirectoryName(nativePath)!);
+                    File.WriteAllBytes(nativePath, asset.Value);
+                    continue;
+                }
                 string name = "asset-" + Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(asset.Key))).ToLowerInvariant() + ".bin";
                 assetFiles.Add(asset.Key, name);
                 File.WriteAllBytes(Path.Combine(assets, name), asset.Value);

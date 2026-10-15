@@ -46,5 +46,12 @@ export class CapabilityHost {
   asset(path){const name=lookupPath(this.bundle.assets,this.resolve(path));const value=this.bundle.assets[name];return value instanceof Uint8Array?value.slice():Uint8Array.from(atob(value),c=>c.charCodeAt(0));}
   async loadTexture(device,descriptor,path){return device.createTexture(descriptor,await this.textureData(descriptor,path));}
   async textureData(descriptor,path){return decodeTextureDataAsync(descriptor,this.asset(path),this.signal);}
-  async dispose(){this.runtime.cancelled=true;try{this.webcam?.dispose();this.camera?.dispose();await this.pose?.dispose();await this.onnx?.dispose();await this.audio?.dispose();await this.application?.dispose();}finally{this.processing.dispose();this.physics.dispose();this.graphics.dispose();this.legacyDispose?.();}}
+  async dispose(){
+    this.runtime.cancelled=true;
+    try{await this.dynamicLibraries?.dispose();}
+    finally{
+      try{this.webcam?.dispose();this.camera?.dispose();await this.pose?.dispose();await this.onnx?.dispose();await this.audio?.dispose();await this.application?.dispose();}
+      finally{this.processing.dispose();this.physics.dispose();this.graphics.dispose();this.legacyDispose?.();}
+    }
+  }
 }

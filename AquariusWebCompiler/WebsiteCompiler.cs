@@ -25,7 +25,7 @@ public static class WebsiteCompiler {
         string Name(string p) => Path.GetRelativePath(root, p).Replace('\\', '/');
         entry ??= single ? Name(source) : sources.Any(p => Name(p) == "main.aqua") ? "main.aqua" : sources.Select(Name).FirstOrDefault();
         if (entry == null) throw new ArgumentException("Entry must name a bundled Aquarius script.");
-        var assets = files.Where(p => new[] { ".png", ".jpg", ".jpeg", ".ppm", ".txt", ".wgsl", ".py", ".wav", ".flac", ".mp3", ".obj", ".mtl", ".onnx" }.Contains(Path.GetExtension(p).ToLowerInvariant())).ToArray();
+        var assets = files.Where(p => new[] { ".png", ".jpg", ".jpeg", ".ppm", ".txt", ".wgsl", ".py", ".wav", ".flac", ".mp3", ".obj", ".mtl", ".onnx", ".dll", ".so", ".js", ".mjs", ".wasm" }.Contains(Path.GetExtension(p).ToLowerInvariant())).ToArray();
         string wasm = Path.Combine(Path.GetTempPath(), "aquarius-web-" + Guid.NewGuid().ToString("N") + ".wasm");
         try {
             WasmApplication.Compile(sources, wasm, root, assets, entry);
@@ -48,7 +48,7 @@ public static class WebsiteCompiler {
         string Name(string p) => sourceNames ? Path.ChangeExtension(p, ".aqua").Replace('\\', '/') : p;
         // Serialize before touching output: unsupported instructions preserve previous builds.
         var modules = package.Program.Metadata.Modules;
-        var assets = package.Assets.ToDictionary(p => p.Key, p => "asset-" + Convert.ToHexString(SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(p.Key))).ToLowerInvariant() + ".bin");
+        var assets = package.Assets.ToDictionary(p => p.Key, p => "asset-" + Convert.ToHexString(SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(p.Key))).ToLowerInvariant() + (Path.GetExtension(p.Key).ToLowerInvariant() is ".js" or ".mjs" ? ".mjs" : ".bin"));
         var assembly = typeof(WebsiteCompiler).Assembly;
         const string prefix = "AquariusWebCompiler.browser.";
         var resources = assembly.GetManifestResourceNames().Where(n => n.StartsWith(prefix, StringComparison.Ordinal)).ToArray();
@@ -77,7 +77,7 @@ public static class WebsiteCompiler {
         if(File.Exists(Path.Combine(output,".aquarius-web-output"))) {
             owned.Add("vm.mjs"); // Retired compiler-owned runtime during migration.
             // Only retire flat binary names owned by this compiler, including removed assets.
-            owned.UnionWith(Directory.EnumerateFiles(output).Select(Path.GetFileName).OfType<string>().Where(n => Regex.IsMatch(n, @"\Aasset-[0-9a-f]{64}\.bin\z")));
+            owned.UnionWith(Directory.EnumerateFiles(output).Select(Path.GetFileName).OfType<string>().Where(n => Regex.IsMatch(n, @"\Aasset-[0-9a-f]{64}\.(bin|mjs)\z")));
         }
         if(File.Exists(Path.Combine(output,".aquarius-web-output"))) owned.UnionWith(new[] { "ort-wasm-simd-threaded.jsep.mjs", "ort-wasm-simd-threaded.jsep.wasm" });
         if (Directory.Exists(output)) {

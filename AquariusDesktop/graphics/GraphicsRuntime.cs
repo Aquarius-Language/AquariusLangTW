@@ -22,6 +22,7 @@ internal sealed partial class GraphicsRuntime : IDisposable {
     private readonly AquariusLang.Camera.CameraRuntime camera;
     private readonly AquariusLang.Input.AndroidInputRuntime androidInput = new(new AquariusLang.Input.UnavailableAndroidInputBackend());
     private readonly AquariusLang.Onnx.OnnxRuntime onnx;
+    private readonly AquariusLang.Linking.DynamicLibraryRuntime dynamicLibraries;
     private readonly AquariusLang.MediaPipe.PoseRuntime pose;
     internal readonly Application.DesktopApplicationHost ApplicationHost;
     internal readonly AquariusLang.Application.ApplicationRuntime Application;
@@ -40,6 +41,7 @@ internal sealed partial class GraphicsRuntime : IDisposable {
             return File.ReadAllBytes(resolved);
         }
         onnx = new(inferenceBackend, ReadModel);
+        dynamicLibraries = new(new Linking.DesktopDynamicLibraryBackend(path => ResourcePath(path)));
         pose = new(new runtime.WasmtimeEngine(), inferenceBackend, ReadModel, Application.GetImage);
         modules["GL"] = new ModuleObj(GlEnvironment);
         RegisterGl();
@@ -53,7 +55,7 @@ internal sealed partial class GraphicsRuntime : IDisposable {
         RegisterApplicationGraphics();
     }
     internal bool TryImport(string name, out ModuleObj module) =>
-        Application.TryImport(name, out module) || pose.TryImport(name, out module) || onnx.TryImport(name, out module) || camera.TryImport(name, out module) || androidInput.TryImport(name, out module) || webcam.TryImport(name, out module) || audio.TryImport(name, out module) || physics.TryImport(name, out module) || sharedWgpu.TryImport(name, out module) || modules.TryGetValue(name, out module!);
+        dynamicLibraries.TryImport(name, out module) || Application.TryImport(name, out module) || pose.TryImport(name, out module) || onnx.TryImport(name, out module) || camera.TryImport(name, out module) || androidInput.TryImport(name, out module) || webcam.TryImport(name, out module) || audio.TryImport(name, out module) || physics.TryImport(name, out module) || sharedWgpu.TryImport(name, out module) || modules.TryGetValue(name, out module!);
     private AquaEnvironment Module(string name) {
         var env = AquaEnvironment.NewEnvironment(); modules[name] = new ModuleObj(env); return env;
     }
@@ -169,6 +171,7 @@ internal sealed partial class GraphicsRuntime : IDisposable {
     }
     public void Dispose() {
         if (disposed) return;
+        dynamicLibraries.Dispose();
         webcam.Dispose();
         camera.Dispose();
         onnx.Dispose();

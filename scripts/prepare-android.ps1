@@ -29,7 +29,7 @@ foreach ($spec in @(
     New-Item -ItemType Directory -Force -Path $libraries | Out-Null
     Copy-Item -LiteralPath (Join-Path $unpacked 'lib/libwgpu_native.so') -Destination $libraries
     Copy-Item -LiteralPath (Join-Path $llvm "sysroot/usr/lib/$($spec.triple)/libc++_shared.so") -Destination $libraries
-    & $compiler "--target=$($spec.triple)29" -O2 -g0 "--sysroot=$llvm/sysroot" -resource-dir "$llvm/lib/clang/19" -std=c++17 -shared -fPIC '-Wl,-z,max-page-size=16384' -I "$template/cpp/include" "$template/cpp/gpu.cpp" -L $libraries -lwgpu_native -landroid -llog -lc++_shared -o "$libraries/libaquarius_android.so"
+    & $compiler "--target=$($spec.triple)29" -O2 -g0 "--sysroot=$llvm/sysroot" -resource-dir "$llvm/lib/clang/19" -std=c++17 -shared -fPIC '-Wl,-z,max-page-size=16384' -I "$template/cpp/include" "$template/cpp/gpu.cpp" "$template/cpp/dynamic_library.cpp" -L $libraries -lwgpu_native -landroid -llog -ldl -lc++_shared -o "$libraries/libaquarius_android.so"
     if ($LASTEXITCODE -ne 0) { throw "Android JNI compilation failed: $($spec.abi)" }
 }
 foreach ($license in @('LICENSE.APACHE','LICENSE.MIT')) {

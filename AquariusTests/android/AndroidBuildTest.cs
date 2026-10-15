@@ -11,6 +11,22 @@ namespace AquariusTests.Android;
 public class AndroidBuildTest
 {
     [Fact]
+    public void DynamicNativeLibrariesAreInstalledIntoAbiFoldersAndCannotReplaceRuntime()
+    {
+        using var t = new ApplicationTestDirectory();
+        string source = t.Write("main.aqua", "1;"), wasm = t.FilePath("app.wasm");
+        foreach (string abi in new[] { "arm64-v8a", "x86_64" }) t.Write($"native/android/{abi}/libplugin.so", "fixture");
+        WasmApplication.Compile(new[] { source }, wasm, t.Path, new[] { t.FilePath("native") });
+        new AndroidBuildTarget().Build(new(wasm, t.FilePath("android")));
+        foreach (string abi in new[] { "arm64-v8a", "x86_64" })
+            Assert.Equal("fixture", File.ReadAllText(t.FilePath($"android/app/src/main/jniLibs/{abi}/libplugin.so")));
+        Assert.True(File.Exists(t.FilePath("android/app/src/main/assets/aquarius/dynamic-library-core.mjs")));
+        t.Write("native/android/arm64-v8a/libaquarius_android.so", "cannot replace runtime");
+        WasmApplication.Compile(new[] { source }, wasm, t.Path, new[] { t.FilePath("native") });
+        Assert.Throws<ArgumentException>(() => new AndroidBuildTarget().Build(new(wasm, t.FilePath("collision"))));
+        Assert.False(Directory.Exists(t.FilePath("collision")));
+    }
+    [Fact]
     public void MissingNativeRuntimeIsRejectedBeforeLaunchingGradle()
     {
         using var t = new ApplicationTestDirectory();

@@ -7,10 +7,11 @@ import {registerAudio} from './audio.mjs';
 import {registerWebcam} from './webcam.mjs';
 import {registerOnnx} from './onnx.mjs';
 import {registerMediaPipe} from './mediapipe.mjs';
+import {registerBrowserDynamicLibrary} from './dynamic-library.mjs';
 import {CapabilityHost} from './capability-host.mjs';
 import {installProcessingInput} from './processing-input.mjs';
 export class BrowserHost extends CapabilityHost {
-  constructor(bundle,options={}) {super(bundle,{...options,adapters:{platform:'web',graphics:abi=>new BrowserWgpuBackend(abi),physics:()=>new BrowserJoltBackend(),registerLegacy,register:host=>{host.application=new BrowserApplication(host);registerAudio(host);registerWebcam(host);registerOnnx(host);registerMediaPipe(host);}}});}
+  constructor(bundle,options={}) {super(bundle,{...options,adapters:{platform:'web',graphics:abi=>new BrowserWgpuBackend(abi),physics:()=>new BrowserJoltBackend(),registerLegacy,register:host=>{host.application=new BrowserApplication(host);registerAudio(host);registerWebcam(host);registerOnnx(host);registerMediaPipe(host);registerBrowserDynamicLibrary(host);}}});}
   screenSize(){return {width:window.innerWidth,height:window.innerHeight};}
   installProcessingInput(p){installProcessingInput(p);}
   async yieldExecution(){

@@ -43,7 +43,10 @@ public sealed class WasmApplication
             string path = Path.GetFullPath(input);
             foreach (string file in Directory.Exists(path) ? EnumerateFiles(path) : new[] { path })
             {
-                if (new[] { ".aqua", ".wasm", ".wasm", ".aqua" }.Contains(Path.GetExtension(file).ToLowerInvariant())) continue;
+                // Explicit assets may contain dynamic Wasm libraries. Exclude source and
+                // the output itself so rebuilding an assets directory never nests its application.
+                if (Path.GetExtension(file).Equals(".aqua", StringComparison.OrdinalIgnoreCase) ||
+                    Path.GetFullPath(file).Equals(output, StringComparison.OrdinalIgnoreCase)) continue;
                 string name = RelativeInput(root, file); long length = new FileInfo(file).Length; size = checked(size + length);
                 if (size > MaxPackageBytes) throw new InvalidDataException("Application assets exceed the size limit.");
                 if (modules.ContainsKey(name) || !assets.TryAdd(name, File.ReadAllBytes(file))) throw new ArgumentException($"Duplicate application path: {name}");

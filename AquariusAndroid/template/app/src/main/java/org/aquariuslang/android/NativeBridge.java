@@ -43,6 +43,12 @@ public final class NativeBridge implements AutoCloseable {
   private final CameraBackend cameras;
   private final OnnxBackend onnx = new OnnxBackend(this);
   private final AudioBackend audio = new AudioBackend();
+  private DynamicLibraries dynamicLibraries;
+  @V8Function
+  public String dynamicLibrary(String operation, String request) throws Exception {
+    if (dynamicLibraries == null) dynamicLibraries = new DynamicLibraries();
+    return dynamicLibraries.command(operation, request);
+  }
   private final NativeFonts fonts = new NativeFonts();
   private final SecureRandom random = new SecureRandom();
   private final java.util.Set<Long> gpuDevices = new java.util.HashSet<>();
@@ -1033,6 +1039,7 @@ public final class NativeBridge implements AutoCloseable {
       }
     gpuDevices.clear();
     onnx.close();
+    if (dynamicLibraries != null) dynamicLibraries.close();
     audio.close();
   }
 
