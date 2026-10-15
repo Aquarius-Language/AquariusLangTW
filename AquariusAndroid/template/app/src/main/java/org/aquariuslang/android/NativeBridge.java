@@ -43,6 +43,8 @@ public final class NativeBridge implements AutoCloseable {
   private final CameraBackend cameras;
   private final OnnxBackend onnx = new OnnxBackend(this);
   private final AudioBackend audio = new AudioBackend();
+  private final NetworkBackend networking = new NetworkBackend();
+  @V8Function public String network(String operation, String request) throws Exception { return networking.command(operation, request); }
   private DynamicLibraries dynamicLibraries;
   @V8Function
   public String dynamicLibrary(String operation, String request) throws Exception {
@@ -1026,6 +1028,7 @@ public final class NativeBridge implements AutoCloseable {
 
   void releaseRuntime() {
     runtimeFinished = true;
+    networking.close();
     cameras.close();
     for (long device : gpuDevices)
       try {
@@ -1044,6 +1047,7 @@ public final class NativeBridge implements AutoCloseable {
   }
 
   public void close() {
+    networking.close();
     frameClock.close();
     closed = true;
     if (permission != null) permission.countDown();

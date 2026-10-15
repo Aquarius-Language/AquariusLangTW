@@ -1,0 +1,10 @@
+manifest_version = 1
+
+[project]
+name = "星泉網路前端"
+type = "executable"
+version = "1.0.0"
+entry = "網路面板.aqua"
+sources = ["網路面板.aqua", "驗證.aqua", "協定驗證.aqua"]
+platforms = ["windows", "linux", "web", "android"]
+description = "同一份繁體中文 UI 在桌面、瀏覽器與 Android 顯示即時 HTTP 往返資料。"

@@ -16,6 +16,7 @@ internal sealed partial class GraphicsRuntime : IDisposable {
     private readonly HashSet<DataObject> buffers = new();
     private WindowObject? current;
     private bool loaded, disposed;
+    private readonly AquariusLang.Network.NetworkRuntime network;
     private readonly Physics.PhysicsRuntime physics = new();
     private readonly AquariusLang.Audio.AudioRuntime audio;
     private readonly AquariusLang.Webcam.WebcamRuntime webcam;
@@ -29,6 +30,7 @@ internal sealed partial class GraphicsRuntime : IDisposable {
     internal AquaEnvironment GlEnvironment = AquaEnvironment.NewEnvironment();
 
     internal GraphicsRuntime(Application.DesktopApplicationHost? applicationHost = null, AquariusLang.Webcam.IWebcamBackend? webcamBackend = null, AquariusLang.Onnx.IOnnxBackend? onnxBackend = null) {
+        network = new(new Network.DesktopNetworkBackend()) { Invoke = (fn, args) => InvokeAqua?.Invoke(fn, args) ?? new ErrorObj("Network callbacks unavailable"), ResourcePath = path => ResourcePath(path) };
         audio = new(new Audio.DesktopAudioBackend(), path => File.ReadAllBytes(ResourcePath(path)));
         ApplicationHost = applicationHost ?? new();
         Application = new(ApplicationHost, path => {string resolved=ResourcePath(path);new AquariusLang.Application.ApplicationLimits().Bytes(new FileInfo(resolved).Length);return File.ReadAllBytes(resolved);});
@@ -51,11 +53,12 @@ internal sealed partial class GraphicsRuntime : IDisposable {
         RegisterMath();
         RegisterImages();
         RegisterProcessing();
+        modules["繪圖"] = modules["Processing"];
         RegisterWgpu();
         RegisterApplicationGraphics();
     }
     internal bool TryImport(string name, out ModuleObj module) =>
-        dynamicLibraries.TryImport(name, out module) || Application.TryImport(name, out module) || pose.TryImport(name, out module) || onnx.TryImport(name, out module) || camera.TryImport(name, out module) || androidInput.TryImport(name, out module) || webcam.TryImport(name, out module) || audio.TryImport(name, out module) || physics.TryImport(name, out module) || sharedWgpu.TryImport(name, out module) || modules.TryGetValue(name, out module!);
+        network.TryImport(name, out module) || dynamicLibraries.TryImport(name, out module) || Application.TryImport(name, out module) || pose.TryImport(name, out module) || onnx.TryImport(name, out module) || camera.TryImport(name, out module) || androidInput.TryImport(name, out module) || webcam.TryImport(name, out module) || audio.TryImport(name, out module) || physics.TryImport(name, out module) || sharedWgpu.TryImport(name, out module) || modules.TryGetValue(name, out module!);
     private AquaEnvironment Module(string name) {
         var env = AquaEnvironment.NewEnvironment(); modules[name] = new ModuleObj(env); return env;
     }
@@ -171,6 +174,7 @@ internal sealed partial class GraphicsRuntime : IDisposable {
     }
     public void Dispose() {
         if (disposed) return;
+        network.Dispose();
         dynamicLibraries.Dispose();
         webcam.Dispose();
         camera.Dispose();

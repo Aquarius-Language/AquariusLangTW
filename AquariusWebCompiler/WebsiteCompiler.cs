@@ -64,9 +64,11 @@ public static class WebsiteCompiler {
             portableLibraries = PortableGraphicsLibraries.Modules,
             catalog = LibraryCatalog.Functions.Concat(LibraryCatalog.GlobalFunctions).Select(f => new {
                 library = f.Library, english = f.EnglishName, chinese = f.TraditionalChineseName,
-                min = f.MinimumArguments, max = f.MaximumArguments
+                min = f.MinimumArguments, max = f.MaximumArguments, feature = f.RequiredFeature
             }),
             graphics = new { header = WgpuShaderAbi.Header, vertex = WgpuShaderAbi.Vertex, fragment = WgpuShaderAbi.Fragment, uniformBytes = WgpuShaderAbi.UniformBytes },
+            properties = LibraryCatalog.Properties.Select(p=>new { library=p.Library,english=p.EnglishName,chinese=p.TraditionalChineseName,type=p.Type,returns=p.ReturnLibrary }),
+            libraryFeatures = new { network = AquariusLang.Network.NetworkCatalog.Features },
             physics = new { maxBodies = 4096, backend = "Jolt Physics" },
             externalLibraries = ExternalLibraries.All.Select(l=>new { id=l.Id,version=l.Version,contractVersion=l.ContractVersion,profile=l.Profile.ToString(),assets=l.Assets.Select(n=>new {name=l.DeploymentName(n),sha256=ExternalLibraries.Sha256(l,n)}) }),
             legacyConstants = JsonSerializer.Deserialize<Dictionary<string, double>>(constants)

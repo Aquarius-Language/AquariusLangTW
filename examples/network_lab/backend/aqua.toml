@@ -1,0 +1,10 @@
+manifest_version = 1
+
+[project]
+name = "星泉網路後端"
+type = "executable"
+version = "1.0.0"
+entry = "伺服器.aqua"
+sources = ["伺服器.aqua"]
+platforms = ["windows", "linux", "macos"]
+description = "以繁體中文星泉程式提供 HTTP API、Cookie、工作階段與公開前端。"

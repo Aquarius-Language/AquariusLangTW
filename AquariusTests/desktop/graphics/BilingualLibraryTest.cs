@@ -62,7 +62,7 @@ public class BilingualLibraryTest {
                 foreach (string name in descriptor.Names)
                     Assert.True(names.Add(name), $"Duplicate {group.Key}.{name}");
                 Assert.True(descriptor.MinimumArguments <= descriptor.MaximumArguments);
-                if (descriptor.ReturnLibrary != null) Assert.NotEmpty(LibraryCatalog.Members(descriptor.ReturnLibrary));
+                if (descriptor.ReturnLibrary != null) Assert.True(LibraryCatalog.IsKnownType(descriptor.ReturnLibrary), descriptor.ReturnLibrary);
             }
         }
     }

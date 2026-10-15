@@ -9,6 +9,7 @@
     <ApplicationManifest Condition="'$(OS)' == 'Windows_NT'">application.manifest</ApplicationManifest>
   </PropertyGroup>
   <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
     <PackageReference Include="Microsoft.ML.OnnxRuntime" Version="1.30.0" />
     <PackageReference Include="Microsoft.ML.OnnxRuntime.EP.WebGpu" Version="0.4.0" />
     <PackageReference Include="Magick.NET-Q8-AnyCPU" Version="14.17.2" />

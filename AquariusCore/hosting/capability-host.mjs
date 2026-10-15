@@ -11,7 +11,7 @@ export class CapabilityHost {
     if(bundle.version!==2)throw new Error('Unsupported application version');this.adapters=adapters;this.bundle=bundle;this.signal=signal;this.frameLimit=frameLimit;this.print=print;this.modules=new Map();this.objects=new Map();this.cache=new Map();this.importing=new Set();this.downloads=new Map();this.graphics=adapters.graphics(bundle.graphics);this.physics=adapters.physics();this.builtins=new Map();this.runtime=new WasmRuntime(this);this.register();
   }
   newModule(){return module(new Scope());}
-  set(m,n,v){m.scope.create(n,wrap(v));}
+  set(m,n,v){m.scope.create(n,wrap(v));if(m===this.processing?.module && (n==="width"||n==="height"))m.scope.create(n==="width"?"寬度":"高度",wrap(v));}
   bind(m,library,name,fn,raw=false){const aliases={PVector:'Processing.Vector',PImage:'Processing.Image',PShape:'Processing.Shape',PShader:'Processing.Shader'},lib=aliases[library]??library;const item=this.bundle.catalog.find(f=>f.library===lib&&f.english===name)??this.bundle.catalog.find(f=>f.english===name);const entry=(...a)=>{if(this.signal.aborted)throw new Error('Execution cancelled');if(item&&(a.length<item.min||a.length>item.max))throw new Error(library.startsWith("攝影機")?`攝影機.${name}：參數無效：需要 ${item.min} 個參數，實際收到 ${a.length} 個。`:`${library}.${name}: Expected ${item.min}..${item.max} arguments, got ${a.length}`);const result=fn(...(raw?a:a.map(unwrap)));return isPromiseLike(result)?Promise.resolve(result).then(value=>raw?value:wrap(value)):raw?result:wrap(result);};const callable=async(...a)=>entry(...a);callable[nativeCall]=entry;callable[nativeOwner]=m;m.scope.create(name,callable);if(item?.chinese)m.scope.create(item.chinese,callable);return callable;}
   library(name){const m=this.newModule();this.modules.set(name,m);return m;}
   builtinsFor(path){const map=new Map(this.builtins),cwd='/'+path.split('/').slice(0,-1).join('/');map.set('目前工作目錄',cwd);map.set('currWorkingDir',cwd);const fn=this.globalImport(path);map.set('import',fn);map.set('匯入',fn);return map;}
@@ -26,7 +26,7 @@ export class CapabilityHost {
   }
   register(){this.registerGlobals();registerArrayLibrary(this);
     this.processing=new Processing(this);this.modules.set('Processing',this.processing.module);this.registerGpu();this.registerPhysics();this.registerMath();this.registerText();this.adapters.registerLegacy?.(this);
-    this.adapters.register(this);
+    this.adapters.register(this);this.modules.set("繪圖",this.processing.module);if(this.modules.has("Serialization"))this.modules.set("序列化",this.modules.get("Serialization"));
     for(const [library,alias]of [['Camera','相機'],['AndroidInput','Android輸入']])if(!this.modules.has(library)){
       const m=this.library(library);this.modules.set(alias,m);this.bind(m,library,'IsSupported',()=>false);
       for(const name of library==='Camera'?['Enumerate','Open']:['Poll','ShowKeyboard','Vibrate','ResolveBack'])this.bind(m,library,name,()=>{if(name==='Enumerate')return [];throw new Error('Unsupported: '+library+' is unavailable on '+this.adapters.platform);});
@@ -47,6 +47,7 @@ export class CapabilityHost {
   async loadTexture(device,descriptor,path){return device.createTexture(descriptor,await this.textureData(descriptor,path));}
   async textureData(descriptor,path){return decodeTextureDataAsync(descriptor,this.asset(path),this.signal);}
   async dispose(){
+    this.network?.dispose();
     this.runtime.cancelled=true;
     try{await this.dynamicLibraries?.dispose();}
     finally{

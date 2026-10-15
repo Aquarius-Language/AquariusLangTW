@@ -252,7 +252,7 @@ internal sealed class Document
             string? path = ImportPath(pathExpression, scope, offset);
             if (path == null) return null;
             string library = LibraryCatalog.CanonicalLibrary(path);
-            if (LibraryCatalog.Members(library).Any()) return new ModuleInfo(Library: library);
+            if (LibraryCatalog.IsKnownType(library)) return new ModuleInfo(Library: library);
             if (resolveDocument == null || !System.Uri.TryCreate(Uri, UriKind.Absolute, out var uri) || !uri.IsFile) return null;
             try
             {
@@ -269,9 +269,10 @@ internal sealed class Document
         {
             var receiver = ResolveModule(member.Left, scope, offset, depth + 1);
             string? name = member.Right is Identifier id ? id.Value : (member.Right as CallExpression)?.Function is Identifier fn ? fn.Value : null;
-            if (receiver?.Library != null && name != null && member.Right is CallExpression)
+            if (receiver?.Library != null && name != null)
             {
-                string? returns = LibraryCatalog.Find(receiver.Library, name)?.ReturnLibrary;
+                string? returns = member.Right is CallExpression ? LibraryCatalog.Find(receiver.Library, name)?.ReturnLibrary
+                    : LibraryCatalog.FindProperty(receiver.Library, name)?.ReturnLibrary;
                 return returns == null ? null : new ModuleInfo(Library: returns);
             }
             if (receiver?.Script != null && name != null && member.Right is Identifier)
@@ -302,7 +303,8 @@ internal sealed class Document
     {
         if (module?.Library != null)
             return LibraryCatalog.Members(module.Library).SelectMany(f => f.Names
-                .Where(n => n.StartsWith(prefix, StringComparison.Ordinal)).Select(n => (object)new { label = n, kind = 3, detail = f.Detail }));
+                .Where(n => n.StartsWith(prefix, StringComparison.Ordinal)).Select(n => (object)new { label = n, kind = 3, detail = f.Detail }))
+                .Concat(LibraryCatalog.PropertiesFor(module.Library).SelectMany(f=>f.Names.Where(n=>n.StartsWith(prefix,StringComparison.Ordinal)).Select(n=>(object)new {label=n,kind=5,detail=f.Detail})));
         return module?.Script?.Exports().Where(d => d.Token.Literal.StartsWith(prefix, StringComparison.Ordinal))
             .Select(d => (object)new { label = d.Token.Literal, kind = d.Kind == 12 ? 3 : 6, detail = d.Detail }) ?? [];
     }
@@ -336,7 +338,7 @@ internal sealed class Document
         if (IsMember(token))
         {
             var module = MemberModule(token, offset);
-            string? memberDetail = module?.Library != null ? LibraryCatalog.Find(module.Library, token.Literal)?.Detail
+            string? memberDetail = module?.Library != null ? LibraryCatalog.Find(module.Library, token.Literal)?.Detail ?? LibraryCatalog.FindProperty(module.Library, token.Literal)?.Detail
                 : module?.Script?.Exports().LastOrDefault(d => d.Token.Literal == token.Literal)?.Detail;
             return memberDetail == null ? null : new { contents = new { kind = "plaintext", value = memberDetail }, range = Source.Range(token.Start, token.Length) };
         }

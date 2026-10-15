@@ -105,8 +105,10 @@ public sealed class AndroidBuildTarget : IWasmBuildTarget
                 assets = assetFiles,
                 portableLibraries = PortableGraphicsLibraries.Modules,
                 graphics = new { header = WgpuShaderAbi.Header, vertex = WgpuShaderAbi.Vertex, fragment = WgpuShaderAbi.Fragment, uniformBytes = WgpuShaderAbi.UniformBytes },
+                properties = LibraryCatalog.Properties.Select(p=>new { library=p.Library,english=p.EnglishName,chinese=p.TraditionalChineseName,type=p.Type,returns=p.ReturnLibrary }),
+                libraryFeatures = new { network = AquariusLang.Network.NetworkCatalog.Features },
                 physics = new { maxBodies = 4096 },
-                catalog = LibraryCatalog.Functions.Concat(LibraryCatalog.GlobalFunctions).Select(f => new { library = f.Library, english = f.EnglishName, chinese = f.TraditionalChineseName, min = f.MinimumArguments, max = f.MaximumArguments })
+                catalog = LibraryCatalog.Functions.Concat(LibraryCatalog.GlobalFunctions).Select(f => new { library = f.Library, english = f.EnglishName, chinese = f.TraditionalChineseName, min = f.MinimumArguments, max = f.MaximumArguments, feature = f.RequiredFeature })
             }), new UTF8Encoding(false));
             string gradle = Path.Combine(stage, "app/build.gradle");
             File.WriteAllText(gradle, File.ReadAllText(gradle).Replace("@APPLICATION_ID@", id), new UTF8Encoding(false));

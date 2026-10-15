@@ -221,6 +221,7 @@ internal sealed partial class GraphicsRuntime {
     private void EndFrame() { RequireSketch();if(screen.ShapeMode!=-1)throw new InvalidOperationException("Unfinished beginShape() at end of frame.");if(screen.PixelWidth<=0||screen.PixelHeight<=0)return;screen.Bind();processingDevice!.Present(screen.Target);CollectProcessingResources(); }
     private void UpdateState() {
         processing.Create("width",N(screen.Width));processing.Create("height",N(screen.Height));
+        processing.Create("寬度",N(screen.Width));processing.Create("高度",N(screen.Height));
         processing.Create("pixelWidth",N(screen.PixelWidth));processing.Create("pixelHeight",N(screen.PixelHeight)); processing.Create("frameCount",N(frameCount));
         foreach(string s in new[]{"mouseX","mouseY","pmouseX","pmouseY","keyCode","mouseButton","wheelCount"}) if(processing.Get(s,out _)==null)processing.Create(s,N(0));
         foreach(string s in new[]{"isMousePressed","isKeyPressed"})if(processing.Get(s,out _)==null)processing.Create(s,new BooleanObj(false));

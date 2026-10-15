@@ -24,7 +24,7 @@ public sealed partial class ApplicationRuntime : IDisposable {
     private CancellationToken cancellation;
     private bool disposed;
     public ApplicationRuntime(IApplicationHost host, Func<string, byte[]>? readAsset = null) { this.host = host; this.readAsset = readAsset; files = new(host.Files, limits); RegisterFiles(); RegisterData(); RegisterEditing(); RegisterHost(); }
-    public bool TryImport(string name, out ModuleObj module) => modules.TryGetValue(name, out module!);
+    public bool TryImport(string name, out ModuleObj module) => modules.TryGetValue(name == "序列化" ? "Serialization" : name, out module!);
     private ModuleObj Module(string name) { var m = new ModuleObj(AquaEnvironment.NewEnvironment()); modules.Add(name, m); return m; }
     private void Bind(ModuleObj module, string name, int min, int max, Func<IObject[], IObject> action) {
         var function = new BuiltinObj(args => {

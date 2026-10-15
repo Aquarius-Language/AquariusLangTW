@@ -11,6 +11,19 @@ const os = require('node:os');
 const server = process.env.AQUARIUS_SERVER || path.resolve(__dirname, '../bin/Release/net8.0/AquariusLanguageServer.dll');
 const uri = 'file:///test/example.aqua';
 
+test('network results expose bilingual fields, nested errors and optional platform capabilities', async t => {
+  const s = new Session(t); await s.initialize();
+  await s.open('變數 網路=匯入("網路");變數 回應=網路.取得("https://example.com");\n回應.');
+  let items=await s.feature('completion',1,3);
+  for(const name of ['Success','成功','Status','狀態碼','Error','錯誤','JSON','解析JSON'])assert.ok(items.some(x=>x.label===name),name);
+  await s.open('變數 網路=匯入("網路");變數 回應=網路.Get("https://example.com");\n回應.錯誤.');
+  items=await s.feature('completion',1,6);for(const name of ['Kind','種類','Message','訊息','Retryable','可重試'])assert.ok(items.some(x=>x.label===name),name);
+  await s.open('變數 網路=匯入("網路");變數 網址=網路.解析網址("https://example.com");\n網址.');
+  items=await s.feature('completion',1,3);for(const name of ['Host','主機','Port','連接埠'])assert.ok(items.some(x=>x.label===name),name);
+  await s.open('變數 網路=匯入("網路");\n網路.Listen("http://127.0.0.1:0");');
+  assert.match((await s.feature('hover',1,5)).contents.value,/http-server/);
+});
+
 test('built-in array modules offer both languages and respect lexical shadowing', async t => {
   const s = new Session(t); await s.initialize();
   await s.open('陣列.建立(2,0);\nArray.');
