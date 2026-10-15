@@ -21,7 +21,7 @@ public static partial class LibraryCatalog {
     public static IReadOnlyList<LibraryFunction> Functions { get; }
     private static readonly IReadOnlyDictionary<string, string> chineseNames;
     static LibraryCatalog() {
-        Functions = Array.AsReadOnly(definitions.Concat(ArrayLibrary.Functions).Concat(AquariusLang.Application.ApplicationCatalog.Functions).Concat(AquariusLang.Audio.AudioCatalog.Functions).Concat(AquariusLang.Webcam.WebcamCatalog.Functions).Concat(AquariusLang.Camera.CameraCatalog.Functions).Concat(AquariusLang.Input.AndroidInputCatalog.Functions).Concat(AquariusLang.Onnx.OnnxCatalog.Functions).Concat(AquariusLang.MediaPipe.PoseCatalog.Functions).Concat(AquariusLang.Graphics.PortableGraphicsLibraries.Functions).ToArray());
+        Functions = Array.AsReadOnly(definitions.Concat(meshFunctions).Concat(ArrayLibrary.Functions).Concat(AquariusLang.Application.ApplicationCatalog.Functions).Concat(AquariusLang.Audio.AudioCatalog.Functions).Concat(AquariusLang.Webcam.WebcamCatalog.Functions).Concat(AquariusLang.Camera.CameraCatalog.Functions).Concat(AquariusLang.Input.AndroidInputCatalog.Functions).Concat(AquariusLang.Onnx.OnnxCatalog.Functions).Concat(AquariusLang.MediaPipe.PoseCatalog.Functions).Concat(AquariusLang.Graphics.PortableGraphicsLibraries.Functions).ToArray());
         chineseNames = Functions.GroupBy(f => f.EnglishName)
             .ToDictionary(g => g.Key, g => g.First().TraditionalChineseName, StringComparer.Ordinal);
     }

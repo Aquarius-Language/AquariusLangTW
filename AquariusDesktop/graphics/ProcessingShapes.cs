@@ -12,8 +12,18 @@ internal sealed partial class GraphicsRuntime {
     private readonly Dictionary<ModuleObj,RetainedShape> retainedShapes=new();
     private RetainedShape ShapeObject(IObject value)=>value is ModuleObj module&&retainedShapes.TryGetValue(module,out var shape)?shape:throw new ArgumentException("Expected a PShape from this runtime.");
     private void RegisterRetainedShapes(AquaEnvironment env,ProcessingCanvas canvas) {
-        PBind(env,"createShape",0,0,_=> {
-            var shape=new RetainedShape();var e=AquaEnvironment.NewEnvironment();var module=new ModuleObj(e);retainedShapes.Add(module,shape);
+        PBind(env,"createShape",0,0,_=>CreateRetainedShape(new RetainedShape()));
+        PBind(env,"loadMesh",1,1,a=> {
+            RequireSketch();var data=AquariusLang.Graphics.MeshData.Decode(File.ReadAllBytes(ResourcePath(Text(a[0]))));
+            var shape=new RetainedShape {Kind=4};shape.Style.HasStroke=false;
+            for(int i=0;i<data.Length;i+=8)shape.Vertices.Add(new(new(data[i],data[i+1],data[i+2]),Vector3.Normalize(new(data[i+3],data[i+4],data[i+5])),new(data[i+6],data[i+7]),Vector4.One));
+            return CreateRetainedShape(shape);
+        });
+        PAction(env,"shape",1,3,a=> {RequireSketch();canvas.RequireDrawing();if(a.Length==2)throw new ArgumentException("shape() takes a shape[,x,y].");
+            var old=canvas.Model;try{if(a.Length==3)canvas.Model=Matrix4x4.CreateTranslation(F(a[1]),F(a[2]),0)*canvas.Model;RenderShape(canvas,ShapeObject(a[0]));}finally{canvas.Model=old;}});
+    }
+    private ModuleObj CreateRetainedShape(RetainedShape shape) {
+            var e=AquaEnvironment.NewEnvironment();var module=new ModuleObj(e);retainedShapes.Add(module,shape);
             PAction(e,"beginShape",0,1,a=> {if(shape.Building)throw new InvalidOperationException("Shape is already being built.");shape.Kind=a.Length==0?9:Choice(a[0],0,1,4,5,6,7,8,9);shape.Vertices.Clear();shape.Building=true;});
             PAction(e,"vertex",2,5,a=> {if(!shape.Building)throw new InvalidOperationException("Call beginShape() first.");if(a.Length==4)throw new ArgumentException("vertex requires xy, xyz or xyzuv.");shape.Vertices.Add(new(new(F(a[0]),F(a[1]),a.Length>=3?F(a[2]):0),Vector3.UnitZ,a.Length==5?new(F(a[3]),F(a[4])):Vector2.Zero,shape.Style.Fill));});
             PAction(e,"setNormal",4,4,a=> {int i=Int(a[0]);if(i<0||i>=shape.Vertices.Count)throw new ArgumentException("Vertex index out of range.");var normal=new Vector3(F(a[1]),F(a[2]),F(a[3]));if(normal.LengthSquared()<1e-20f)throw new ArgumentException("Normal must be nonzero.");shape.Vertices[i]=shape.Vertices[i] with{Normal=Vector3.Normalize(normal)};});
@@ -29,9 +39,6 @@ internal sealed partial class GraphicsRuntime {
             PAction(e,"resetMatrix",0,0,_=>shape.Matrix=Matrix4x4.Identity);
             PAction(e,"addChild",1,1,a=> {var child=ShapeObject(a[0]);bool Contains(RetainedShape s)=>s==shape||s.Children.Any(Contains);if(Contains(child))throw new ArgumentException("Shape groups cannot contain cycles.");shape.Children.Add(child);});
             return module;
-        });
-        PAction(env,"shape",1,3,a=> {RequireSketch();canvas.RequireDrawing();if(a.Length==2)throw new ArgumentException("shape() takes a shape[,x,y].");
-            var old=canvas.Model;try{if(a.Length==3)canvas.Model=Matrix4x4.CreateTranslation(F(a[1]),F(a[2]),0)*canvas.Model;RenderShape(canvas,ShapeObject(a[0]));}finally{canvas.Model=old;}});
     }
     private static void RenderShape(ProcessingCanvas canvas,RetainedShape shape) {
         if(shape.Building)throw new InvalidOperationException("Finish the retained shape with endShape().");

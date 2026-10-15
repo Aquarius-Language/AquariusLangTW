@@ -16,11 +16,28 @@ export function decodeTextureData(descriptor,bytes) {
     const expectedCrc=new DataView(bytes.buffer,bytes.byteOffset,bytes.byteLength).getUint32(bytes.length-8,true);
     const output=new Uint8Array(descriptor.byteLength);let offset=0;
     const codec=new Gunzip(chunk=>{if(offset+chunk.length>output.length)throw new Error('Invalid compressed texture size');output.set(chunk,offset);offset+=chunk.length;});
-    for(let i=0;i<bytes.length;i+=4096)codec.push(bytes.subarray(i,i+4096),i+4096>=bytes.length);
+    for(let i=0;i<bytes.length;i+=65536)codec.push(bytes.subarray(i,i+65536),i+65536>=bytes.length);
     if(offset!==output.length)throw new Error('Invalid compressed texture size');bytes=output;
     if(crc32(bytes)!==expectedCrc)throw new Error('Invalid compressed texture checksum');
   }
   validateTextureBytes(descriptor,bytes);return bytes;
+}
+// Browsers validate gzip CRC/trailer in native code. Bound every output chunk
+// before copying, so a forged trailer cannot grow the decoded allocation.
+export async function decodeTextureDataAsync(descriptor,bytes,signal) {
+  signal?.throwIfAborted();
+  if(bytes[0]!==31||bytes[1]!==139||typeof DecompressionStream!=='function')return decodeTextureData(descriptor,bytes);
+  if(bytes.length<18||new DataView(bytes.buffer,bytes.byteOffset,bytes.byteLength).getUint32(bytes.length-4,true)!==descriptor.byteLength)throw new Error('Invalid compressed texture size');
+  const reader=new Blob([bytes]).stream().pipeThrough(new DecompressionStream('gzip')).getReader();
+  const output=new Uint8Array(descriptor.byteLength);let offset=0;
+  const abort=()=>{reader.cancel(signal.reason).catch(()=>{});};signal?.addEventListener('abort',abort,{once:true});
+  try {
+    for(;;){signal?.throwIfAborted();const {value,done}=await reader.read();if(done)break;
+      if(offset+value.length>output.length)throw new Error('Invalid compressed texture size');output.set(value,offset);offset+=value.length;
+    }
+    signal?.throwIfAborted();if(offset!==output.length)throw new Error('Invalid compressed texture size');
+    validateTextureBytes(descriptor,output);return output;
+  } finally {signal?.removeEventListener('abort',abort);await reader.cancel().catch(()=>{});reader.releaseLock();}
 }
 export function validateTextureBytes(descriptor,bytes) {
   if(!(bytes instanceof Uint8Array)||bytes.length!==descriptor.byteLength)throw new Error('Texture data length does not match its descriptor');

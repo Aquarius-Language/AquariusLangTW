@@ -22,6 +22,18 @@ public class PortableWasmTest {
             }
         }
     }
+    [Fact] public void WebAssetsAreBinaryAndDoNotDuplicateTheWasmMetadata() {
+        using var t=new ApplicationTestDirectory();string wasm=MakeWasm(t),web=t.FilePath("web");WebsiteCompiler.BuildWasm(wasm,web);
+        using var document=JsonDocument.Parse(File.ReadAllText(Path.Combine(web,"program.json")));
+        Assert.Equal("files",document.RootElement.GetProperty("assetEncoding").GetString());
+        string file=document.RootElement.GetProperty("assets").GetProperty("asset.txt").GetString()!;
+        Assert.Matches("^asset-[0-9a-f]{64}\\.bin$",file);Assert.Equal("asset",File.ReadAllText(Path.Combine(web,file)));
+        Assert.All(AquariusLang.Wasm.WasmProgram.Load(Path.Combine(web,"program.wasm")).Metadata.Assets.Values,v=>Assert.Equal("",v));
+        WebsiteCompiler.BuildWasm(wasm,web);Assert.Equal("asset",File.ReadAllText(Path.Combine(web,file)));
+        WasmApplication.Compile(new[]{t.FilePath("main.aqua")},wasm,t.Path);WebsiteCompiler.BuildWasm(wasm,web);
+        Assert.False(File.Exists(Path.Combine(web,file)));Assert.Empty(Directory.GetDirectories(t.Path,".aquarius-web-*"));
+    }
+
     [Fact] public void PackagingDependsOnlyOnCoreAndFramework() {
         var names = typeof(WasmApplication).Assembly.GetReferencedAssemblies().Select(a => a.Name).ToArray();
         Assert.DoesNotContain(names, n => n!.Contains("Desktop") || n.Contains("WebCompiler") || n.StartsWith("Silk") || n.StartsWith("Jolt"));
@@ -121,7 +133,7 @@ public class PortableWasmTest {
         using var doc = JsonDocument.Parse(File.ReadAllText(t.FilePath("web/program.json")));
         Assert.Equal("other.aqua", doc.RootElement.GetProperty("entry").GetString());
         Assert.Equal(2, doc.RootElement.GetProperty("modules").EnumerateObject().Count());
-        Assert.Equal("", doc.RootElement.GetProperty("assets").GetProperty("assets/empty.txt").GetString());
+        string empty = doc.RootElement.GetProperty("assets").GetProperty("assets/empty.txt").GetString()!; Assert.Empty(File.ReadAllBytes(t.FilePath("web/" + empty)));
         Assert.True(File.Exists(t.FilePath("web/vendor-jolt.wasm"))); Assert.True(File.Exists(t.FilePath("web/vendor-jolt.LICENSE.txt")));
     }
 

@@ -15,7 +15,9 @@ class Device {
   live(){if(this.disposed)throw new Error('WebGPU device disposed');}
   call(op,args={},data=null){this.live();return call(op,{...args,device:this.id},data);}
   texture(width,height,data){const id=this.call('texture',{width,height},data),texture={id,owner:this,destroy:()=>{this.flush();this.call('release',{id});this.resources.delete(texture);}};this.resources.add(texture);return texture;}
-  createTexture(descriptor,data){this.live();validateTextureBytes(descriptor,data);const id=this.call('texture',descriptor,data),texture={id,owner:this,descriptor,disposed:false,dispose:()=>{if(texture.disposed)return;this.flush();this.call('release',{id});texture.disposed=true;this.resources.delete(texture);}};this.resources.add(texture);return texture;}
+  createTexture(descriptor,data){this.live();validateTextureBytes(descriptor,data);return this.textureResource(descriptor,this.call('texture',descriptor,data));}
+  loadTextureAsset(descriptor,path){this.live();const id=JSON.parse(native.gpuTextureAsset(path,JSON.stringify({...descriptor,device:this.id}),descriptor.byteLength,descriptor.format==='rgba16float'));return this.textureResource(descriptor,id);}
+  textureResource(descriptor,id){const texture={id,owner:this,descriptor,disposed:false,dispose:()=>{if(texture.disposed)return;this.flush();this.call('release',{id});texture.disposed=true;this.resources.delete(texture);}};this.resources.add(texture);return texture;}
   async createShader(vertex,fragment){const s=new Shader(this,vertex,fragment);this.resources.add(s);return s;}
   createBuffer(values){const b=new Buffer(this,values);this.resources.add(b);return b;}
   createTarget(width,height,format="rgba8unorm"){const t=new Target(this,width,height,format);this.resources.add(t);return t;}

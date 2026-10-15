@@ -147,6 +147,22 @@ public final class NativeBridge implements AutoCloseable {
   }
 
   @V8Function
+  public String gpuTextureAsset(String name, String data, int expected, boolean halfFloat) {
+    if (!name.matches("[A-Za-z0-9_.-]+"))
+      throw new IllegalArgumentException("Invalid texture asset path");
+    if (!gpuDevices.contains(json(data).optLong("device")))
+      throw new IllegalArgumentException("Invalid texture device");
+    try {
+      // Decode straight into JNI storage. Large textures never pass through V8.
+      var buffer =
+          TextureAssets.decode(activity.getAssets().open("aquarius/" + name), expected, halfFloat);
+      return NativeGpu.command("texture", data, buffer, 0, expected);
+    } catch (java.io.IOException e) {
+      throw new IllegalArgumentException("Invalid texture asset: " + name, e);
+    }
+  }
+
+  @V8Function
   public String utf8(String bytes) {
     return new String(unbase64(bytes), StandardCharsets.UTF_8);
   }

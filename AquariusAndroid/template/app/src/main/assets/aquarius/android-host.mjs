@@ -49,6 +49,7 @@ export class AndroidHost extends CapabilityHost {
   constructor(bundle,options){super(bundle,{...options,adapters:{platform:'android',graphics:abi=>new AndroidWgpuBackend(abi),physics:()=>new AndroidJoltBackend(),register:host=>{registerApplication(host);registerAudio(host,new AndroidAudioBackend(host));registerOnnx(host,new AndroidOnnxBackend());registerMediaPipe(host);registerCamera(host);registerAndroidInput(host,native);}}});this.input={events:[],insets:{},orientation:'portrait',keyboardVisible:false};}
   record(fields){const r=this.newModule();for(const [name,value]of Object.entries(fields))this.set(r,name,value);return r;}
   modelAsset(path){return {asset:this.bundle.assets[lookupPath(this.bundle.assets,this.resolve(path))]};}
+  async loadTexture(device,descriptor,path){this.signal.throwIfAborted();return device.loadTextureAsset(descriptor,this.modelAsset(path).asset);}
   asset(path){const raw=native.readAssetBytes(this.modelAsset(path).asset);return new Uint8Array(raw.buffer,raw.byteOffset,raw.byteLength);}
   installProcessingInput(p){p.textarea={style:{},focus:()=>native.keyboard(true),blur:()=>native.keyboard(false),remove(){}};}
   screenSize(){return JSON.parse(native.viewport());}
@@ -65,4 +66,4 @@ export class AndroidHost extends CapabilityHost {
   async saveImage(path,width,height,pixels){const result=JSON.parse(native.image('encode',JSON.stringify({width,height,pixels:encode64(pixels),format:'Png'})));await this.download(path,new Blob([decode64(result.bytes)]));}
   async download(name,blob){const bytes=encode64(new Uint8Array(await blob.arrayBuffer()));if(this.frameLimit){native.storage('put','download/'+name,JSON.stringify({bytes}));return;}const files=JSON.parse(native.picker('save',JSON.stringify({suggestedName:name.split('/').at(-1)}))).files;if(files.length)native.document('write',JSON.stringify({uri:files[0].uri,bytes}));}
 }
-export async function run(frames=0){const bundle=JSON.parse(native.readJson());bundle.compiledModule=await WebAssembly.compile(decode64(native.readAsset('program.wasm')));const host=new AndroidHost(bundle,{frameLimit:frames,print:message=>native.log(message)});globalThis.aquarius=host;try{const result=await host.execute(bundle.entry);native.log(inspect(result));}finally{await host.dispose();}}
+export async function run(frames=0){const bundle=JSON.parse(native.readJson());bundle.compiledModule=await WebAssembly.compile(native.readAssetBytes('program.wasm'));const host=new AndroidHost(bundle,{frameLimit:frames,print:message=>native.log(message)});globalThis.aquarius=host;try{const result=await host.execute(bundle.entry);native.log(inspect(result));}finally{await host.dispose();}}

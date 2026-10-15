@@ -1,4 +1,6 @@
 using System.Text.Json;
+using System.Security.Cryptography;
+using System.Text.RegularExpressions;
 using AquariusLang.Graphics;
 using AquariusLang.Packaging;
 using AquariusLang.runtime;
@@ -46,7 +48,7 @@ public static class WebsiteCompiler {
         string Name(string p) => sourceNames ? Path.ChangeExtension(p, ".aqua").Replace('\\', '/') : p;
         // Serialize before touching output: unsupported instructions preserve previous builds.
         var modules = package.Program.Metadata.Modules;
-        var assets = package.Assets.ToDictionary(p => p.Key, p => Convert.ToBase64String(p.Value));
+        var assets = package.Assets.ToDictionary(p => p.Key, p => "asset-" + Convert.ToHexString(SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(p.Key))).ToLowerInvariant() + ".bin");
         var assembly = typeof(WebsiteCompiler).Assembly;
         const string prefix = "AquariusWebCompiler.browser.";
         var resources = assembly.GetManifestResourceNames().Where(n => n.StartsWith(prefix, StringComparison.Ordinal)).ToArray();
@@ -56,7 +58,7 @@ public static class WebsiteCompiler {
         string constants;
         using (var reader = new StreamReader(assembly.GetManifestResourceStream(prefix + "legacy-constants.json")!)) constants = reader.ReadToEnd();
         string json = JsonSerializer.Serialize(new {
-            version = WasmAbi.Version, abiVersion = WasmAbi.Version, wasm = "program.wasm", entry = Name(selected), modules, assets,
+            version = WasmAbi.Version, abiVersion = WasmAbi.Version, wasm = "program.wasm", entry = Name(selected), modules, assets, assetEncoding = "files",
             packageVersion = package.Version, pathComparison = "ordinalIgnoreCase",
             portableLibraries = PortableGraphicsLibraries.Modules,
             catalog = LibraryCatalog.Functions.Concat(LibraryCatalog.GlobalFunctions).Select(f => new {
@@ -72,7 +74,11 @@ public static class WebsiteCompiler {
         string parent = Path.GetDirectoryName(output) ?? throw new ArgumentException("Output must be a named directory.");
         // Rebuild only compiler-owned directories; never remove unrelated files or follow links.
         var owned = resources.Select(n => n[prefix.Length..]).Concat(externalAssets.Keys).Append("program.json").Append("program.wasm").Append(".aquarius-web-output").ToHashSet(StringComparer.OrdinalIgnoreCase);
-        if(File.Exists(Path.Combine(output,".aquarius-web-output"))) owned.Add("vm.mjs"); // Retired compiler-owned runtime during migration.
+        if(File.Exists(Path.Combine(output,".aquarius-web-output"))) {
+            owned.Add("vm.mjs"); // Retired compiler-owned runtime during migration.
+            // Only retire flat binary names owned by this compiler, including removed assets.
+            owned.UnionWith(Directory.EnumerateFiles(output).Select(Path.GetFileName).OfType<string>().Where(n => Regex.IsMatch(n, @"\Aasset-[0-9a-f]{64}\.bin\z")));
+        }
         if(File.Exists(Path.Combine(output,".aquarius-web-output"))) owned.UnionWith(new[] { "ort-wasm-simd-threaded.jsep.mjs", "ort-wasm-simd-threaded.jsep.wasm" });
         if (Directory.Exists(output)) {
             if ((File.GetAttributes(output) & FileAttributes.ReparsePoint) != 0 || Directory.EnumerateDirectories(output).Any() ||
@@ -90,7 +96,8 @@ public static class WebsiteCompiler {
                 using var target = File.Create(Path.Combine(stage, resource[prefix.Length..])); input.CopyTo(target);
             }
             File.WriteAllText(Path.Combine(stage, "program.json"), json);
-            File.WriteAllBytes(Path.Combine(stage, "program.wasm"), package.Program.Bytes.ToArray());
+            File.WriteAllBytes(Path.Combine(stage, "program.wasm"), package.Program.WithExternalAssets().Bytes.ToArray());
+            foreach (var asset in package.Assets) File.WriteAllBytes(Path.Combine(stage, assets[asset.Key]), asset.Value);
             foreach(var asset in externalAssets) File.WriteAllBytes(Path.Combine(stage,asset.Key),asset.Value);
             File.WriteAllText(Path.Combine(stage, ".aquarius-web-output"), "Aquarius static website\n");
             if (Directory.Exists(output)) MoveDirectory(output, backup);
