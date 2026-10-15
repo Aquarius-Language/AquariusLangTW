@@ -23,7 +23,8 @@ async function activate(context) {
     }
     const executable = { command: config.get('dotnetPath', 'dotnet'), args: [serverPath], transport: TransportKind.stdio };
     client = new LanguageClient('aquarius', 'Aquarius Language Server', executable, {
-      documentSelector: [{ scheme: 'file', language: 'aquarius' }, { scheme: 'untitled', language: 'aquarius' }],
+      documentSelector: [{ scheme: 'file', language: 'aquarius' }, { scheme: 'untitled', language: 'aquarius' }, { scheme: 'file', pattern: '**/aqua.toml' }],
+      synchronize: { fileEvents: [vscode.workspace.createFileSystemWatcher('**/aqua.toml'), vscode.workspace.createFileSystemWatcher('**/aqua.lock.json'), vscode.workspace.createFileSystemWatcher('**/*.aqua')] },
       outputChannel: output,
       traceOutputChannel: output
     });

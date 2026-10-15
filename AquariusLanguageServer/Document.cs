@@ -3,6 +3,7 @@ using AquariusLang.lexer;
 using AquariusLang.parser;
 using AquariusLang.token;
 using AquariusLang.runtime;
+using AquariusLang.Bottle;
 
 namespace AquariusLanguageServer;
 
@@ -28,16 +29,18 @@ internal sealed class Document
     private readonly List<Declaration> declarations = [];
     private readonly Dictionary<int, int> blockEnds = [];
     private int walkDepth;
+    public bool IsManifest => System.Uri.TryCreate(Uri, UriKind.Absolute, out var uri) && uri.AbsolutePath.EndsWith(".toml", StringComparison.OrdinalIgnoreCase);
     private readonly Func<string, Document?>? resolveDocument;
     private readonly Dictionary<int, (IExpression Receiver, Scope Scope)> memberReceivers = [];
     private sealed record ModuleInfo(string? Library = null, Document? Script = null);
 
-    public Document(string uri, int version, string text, Func<string, Document?>? resolveDocument = null)
+    public Document(string uri, int version, string text, Func<string, Document?>? resolveDocument = null, bool inspectProject = true)
     {
         Uri = uri;
         Version = version;
         Source = new SourceText(text);
         this.resolveDocument = resolveDocument;
+        if (IsManifest) { if (inspectProject) RefreshProjectDiagnostics(); return; }
         var lexer = Lexer.NewInstance(text);
         var braces = new Stack<Token>();
         Token token;
@@ -68,7 +71,31 @@ internal sealed class Document
             if (Diagnostics.Count == 0)
                 Diagnostics.Add(new Diagnostic(Source.Range(0, 0), $"Unable to parse this incomplete expression: {error.Message}"));
         }
+        if (inspectProject) RefreshProjectDiagnostics();
     }
+
+    public void RefreshProjectDiagnostics() {
+        Diagnostics.RemoveAll(d => d.source == "aquarius-bottle");
+        if (!System.Uri.TryCreate(Uri, UriKind.Absolute, out var uri) || !uri.IsFile) return;
+        string? file = IsManifest ? uri.LocalPath : ProjectManifest.Find(uri.LocalPath);
+        if (file == null) return;
+        try {
+            string text = IsManifest ? Source.Text : ManifestText(file);
+            var manifest = ProjectManifest.Parse(file, text);
+            _ = manifest.SourceFiles();
+            _ = ProjectInspector.Libraries(manifest);
+            foreach (var asset in manifest.Assets) {
+                string path = Path.GetFullPath(Path.Combine(manifest.Root, asset.Source));
+                if (!File.Exists(path) && !Directory.Exists(path)) throw new InvalidDataException($"Asset does not exist: {asset.Source}");
+            }
+        } catch (ManifestException e) {
+            foreach (var issue in e.Issues) Diagnostics.Add(new Diagnostic(Source.Range(IsManifest ? issue.Offset : 0, IsManifest ? issue.Length : 1), IsManifest ? issue.Message : $"{file}: {issue.Message}", source: "aquarius-bottle"));
+        } catch (Exception e) when (e is IOException or InvalidDataException or UnauthorizedAccessException or ArgumentException or InvalidOperationException) {
+            Diagnostics.Add(new Diagnostic(Source.Range(0, 1), e.Message, source: "aquarius-bottle"));
+        }
+    }
+
+    private string ManifestText(string file) => resolveDocument?.Invoke(new System.Uri(file).AbsoluteUri)?.Source.Text ?? File.ReadAllText(file);
 
     private void AddError(string message, Token token)
     {
@@ -229,11 +256,14 @@ internal sealed class Document
             if (resolveDocument == null || !System.Uri.TryCreate(Uri, UriKind.Absolute, out var uri) || !uri.IsFile) return null;
             try
             {
-                string file = Path.GetFullPath(Path.Combine(Path.GetDirectoryName(uri.LocalPath)!, path));
+                string? file = path.Replace('\\', '/').StartsWith("/bottles/", StringComparison.OrdinalIgnoreCase)
+                    ? ProjectInspector.ResolveImport(uri.LocalPath, path, ManifestText)
+                    : Path.GetFullPath(Path.Combine(Path.GetDirectoryName(uri.LocalPath)!, path));
+                if (file == null) return null;
                 var imported = resolveDocument(new System.Uri(file).AbsoluteUri);
                 return imported == null ? null : new ModuleInfo(Script: imported);
             }
-            catch (Exception e) when (e is ArgumentException or IOException or UnauthorizedAccessException or NotSupportedException) { return null; }
+            catch (Exception e) when (e is ArgumentException or IOException or InvalidDataException or UnauthorizedAccessException or NotSupportedException) { return null; }
         }
         if (expression is InfixExpression { Operator: "." } member)
         {
@@ -279,6 +309,8 @@ internal sealed class Document
 
     public object Completion(Position position)
     {
+        if (IsManifest) return new[] { "manifest_version", "project", "name", "type", "version", "entry", "sources", "platforms", "dependencies", "path", "git", "rev", "subdirectory", "assets", "source", "target" }
+            .Select(label => new { label, kind = 10, detail = "Aquarius project manifest" }).ToArray();
         int offset = Source.Offset(position);
         if (!Source.IsCode(offset)) return Array.Empty<object>();
         var token = tokens.LastOrDefault(t => t.Start < offset && offset <= t.Start + t.Length);

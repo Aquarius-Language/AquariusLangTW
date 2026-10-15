@@ -21,6 +21,7 @@ public sealed class AndroidBuildTarget : IWasmBuildTarget
     public void Build(WasmBuildRequest request)
     {
         var package = WasmApplication.Load(request.Input);
+        package.CheckPlatform(Name);
         string entry = package.ResolveScript(request.EntryPoint ?? package.EntryPoint);
         string output = Path.GetFullPath(request.Output);
         string id = request.Options?.GetValueOrDefault("--application-id") ?? "org.aquariuslang.app.p" + Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(output + "\n" + entry)))[..16].ToLowerInvariant();

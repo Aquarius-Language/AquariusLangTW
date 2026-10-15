@@ -1,6 +1,7 @@
 # Unified compiler CLI
 
 `aqua` compiles Aquarius to WebAssembly and runs compiled applications with Wasmtime.
+It also supports optional `aqua.toml` projects and the [Bottle library manager](../AquariusBottle/README.md).
 
 ```powershell
 aqua build main.aqua lib/tools.aqua --root . --assets assets -o app.wasm
@@ -10,6 +11,11 @@ aqua build main.aqua lib/tools.aqua --root . --assets assets --target windows -o
 aqua build app.wasm --target web -o web
 aqua build app.wasm --target windows -o app.exe --entry lib/tools.aqua
 aqua build app.wasm --target linux -o app
+aqua new MyApp
+aqua new MyLibrary --type library
+aqua bottle install ../MyLibrary --project MyApp --version ">= 0.1, < 0.2"
+aqua build MyApp --locked --offline
+aqua bottle uninstall MyLibrary --project MyApp
 aqua repl
 ```
 
@@ -17,7 +23,13 @@ The default target is `wasm`. `--root` and repeatable `--assets` apply to source
 builds; compiled inputs already contain their modules and resources. `--entry`
 selects a relative `.aqua` module identity. List every source module, including
 dynamic imports. Use `--` before filenames beginning with a dash. Platform targets
-require `-o`; `.bottle` is no longer part of the pipeline.
+require `-o`; the retired `.bottle` archive format is unrelated to `aqua bottle`.
+
+Project builds accept a directory, a `.toml` path, or no input inside an
+`aqua.toml` project. Their entry/sources/assets come from TOML; source-file inputs
+inside a project also use its manifest. Non-project source builds retain their
+existing behavior. `--locked` prevents lock changes; `--offline` disables network
+restore. Third-party libraries require explicit versions and supported platforms.
 
 Builds do not execute application code. Failed compilation or export preserves
 previous artifacts. Web output needs localhost/HTTPS, with WebGPU for graphics.

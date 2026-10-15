@@ -12,7 +12,8 @@ public sealed record WasmConstant(string Type, double Number = 0, string? Text =
 public sealed record WasmFunction(bool WrapReturn, WasmConstant[] Pool, string[]? Parameters = null, int StackCapacity = 0, bool CacheBindings = false,
     int NumericTable = 0, string? NumericRecursiveName = null);
 public sealed record WasmMetadata(int AbiVersion, string Entry, Dictionary<string, int> Modules,
-    WasmFunction[] Functions, Dictionary<string, string> Assets, int ValueAbi = 2, int ProgramAddress = 0, int HeapStart = 0, int FunctionLayout = 24);
+    WasmFunction[] Functions, Dictionary<string, string> Assets, int ValueAbi = 2, int ProgramAddress = 0, int HeapStart = 0, int FunctionLayout = 24,
+    string[]? SupportedPlatforms = null);
 
 /// <summary>A standard WebAssembly module with bounded, versioned application metadata in a custom section.</summary>
 public sealed class WasmProgram
@@ -107,6 +108,8 @@ public sealed class WasmProgram
             try { Convert.FromBase64String(a.Value); } catch (FormatException e) { throw new InvalidDataException("Invalid asset encoding.", e); }
         }
         if (metadata.Entry == null || !metadata.Modules.ContainsKey(metadata.Entry)) throw new InvalidDataException("Missing application entry.");
+        if (metadata.SupportedPlatforms != null && (metadata.SupportedPlatforms.Length == 0 || metadata.SupportedPlatforms.Length > 32 || metadata.SupportedPlatforms.Any(p => string.IsNullOrWhiteSpace(p) || p.Length > 32)))
+            throw new InvalidDataException("Invalid supported platform metadata.");
         foreach (var f in metadata.Functions)
         {
             if (f?.Pool == null) throw new InvalidDataException("Missing function constants.");

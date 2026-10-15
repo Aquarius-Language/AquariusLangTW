@@ -1,0 +1,1 @@
+Hello from a cached third-party asset! / 來自全域快取第三方套件的文字資產！

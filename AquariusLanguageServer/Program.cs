@@ -55,8 +55,10 @@ static async Task<int> RunAsync()
                                 serverInfo = new { name = "Aquarius Language Server", version = "0.1.0" }
                             };
                             break;
-                        case "initialized": case "$/cancelRequest": case "$/setTrace": case "textDocument/didSave":
+                        case "initialized": case "$/cancelRequest": case "$/setTrace":
                             break;
+                        case "workspace/didChangeWatchedFiles": case "textDocument/didSave":
+                            await RefreshProjectsAsync(); break;
                         case "shutdown": shutdown = true; break;
                         case "textDocument/didOpen":
                         {
@@ -64,6 +66,7 @@ static async Task<int> RunAsync()
                             var document = new Document(doc.GetProperty("uri").GetString()!, doc.GetProperty("version").GetInt32(), doc.GetProperty("text").GetString()!, ResolveDocument);
                             documents[document.Uri] = document;
                             await PublishAsync(document);
+                            if (document.IsManifest) await RefreshProjectsAsync(document.Uri);
                             break;
                         }
                         case "textDocument/didChange":
@@ -88,6 +91,7 @@ static async Task<int> RunAsync()
                             var updated = new Document(document.Uri, version, text, ResolveDocument);
                             documents[document.Uri] = updated;
                             await PublishAsync(updated);
+                            if (updated.IsManifest) await RefreshProjectsAsync(updated.Uri);
                             break;
                         }
                         case "textDocument/didClose":
@@ -95,6 +99,7 @@ static async Task<int> RunAsync()
                             string uri = parameters.GetProperty("textDocument").GetProperty("uri").GetString()!;
                             documents.Remove(uri);
                             await protocol.NotifyAsync("textDocument/publishDiagnostics", new { uri, diagnostics = Array.Empty<object>() });
+                            if (uri.EndsWith(".toml", StringComparison.OrdinalIgnoreCase)) await RefreshProjectsAsync();
                             break;
                         }
                         case "textDocument/completion": result = GetDocument(parameters).Completion(ReadPosition(parameters.GetProperty("position"))); break;
@@ -135,8 +140,14 @@ static async Task<int> RunAsync()
     {
         if (documents.TryGetValue(uri, out var open)) return open;
         if (!Uri.TryCreate(uri, UriKind.Absolute, out var file) || !file.IsFile) return null;
-        try { return new Document(uri, 0, File.ReadAllText(file.LocalPath), ResolveDocument); }
+        try { return new Document(uri, 0, File.ReadAllText(file.LocalPath), ResolveDocument, inspectProject: false); }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException) { return null; }
+    }
+
+    async Task RefreshProjectsAsync(string? except = null) {
+        foreach (var document in documents.Values.Where(d => d.Uri != except)) {
+            document.RefreshProjectDiagnostics(); await PublishAsync(document);
+        }
     }
 
     Task PublishAsync(Document document) => protocol.NotifyAsync("textDocument/publishDiagnostics",

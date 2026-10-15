@@ -1,7 +1,7 @@
 'use strict';
 const assert = require('node:assert/strict');
 const { test } = require('node:test');
-const { spawn } = require('node:child_process');
+const { spawn, spawnSync } = require('node:child_process');
 const { once } = require('node:events');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -25,8 +25,8 @@ test('built-in array modules offer both languages and respect lexical shadowing'
 });
 
 class Session {
-  constructor(t) {
-    this.process = spawn(process.env.AQUARIUS_DOTNET || 'dotnet', [server], { windowsHide: true });
+  constructor(t, environment = {}) {
+    this.process = spawn(process.env.AQUARIUS_DOTNET || 'dotnet', [server], { windowsHide: true, env: { ...process.env, ...environment } });
     this.buffer = Buffer.alloc(0);
     this.messages = [];
     this.nextId = 0;
@@ -350,4 +350,57 @@ test('script-library aliases resolve from disk and unsaved buffers without execu
   assert.deepEqual(await s.diagnostics(2, libraryUri), []);
   items = await s.feature('completion', 1, 4, mainUri);
   assert.ok(items.some(item => item.label === '更新') && !items.some(item => item.label === 'newFunction'));
+});
+
+function bottleFixture(t) {
+  const folder = fs.mkdtempSync(path.join(os.tmpdir(), 'aquarius-bottle-lsp-'));
+  t.after(() => fs.rmSync(folder, { recursive: true, force: true }));
+  const write = (name, text) => { const file = path.join(folder, name); fs.mkdirSync(path.dirname(file), { recursive: true }); fs.writeFileSync(file, text); return file; };
+  const manifest = '[project]\nname="demo"\ntype="executable"\nentry="main.aqua"\nsources=["main.aqua"]\nplatforms=["web"]\n[dependencies]\ngreeter={path="vendor/greeter",version=">= 1.0, < 2.0"}\n';
+  const file = write('aqua.toml', manifest);
+  write('vendor/greeter/aqua.toml', '[project]\nname="greeter"\ntype="library"\nversion="1.2.0"\nplatforms=["web"]\n');
+  const library = write('vendor/greeter/main.aqua', '變數 問候,greet=函式(){回傳 42;};');
+  const main = write('main.aqua', '變數 lib=import("/bottles/greeter/main.aqua");\nlib.greet();');
+  return { folder, write, manifest, manifestUri: pathToFileURL(file).href, mainUri: pathToFileURL(main).href, libraryUri: pathToFileURL(library).href, cache: path.join(folder, 'cache') };
+}
+
+test('TOML manifests diagnose names and versions and refresh source diagnostics on unsaved edits', async t => {
+  const f = bottleFixture(t); const s = new Session(t, { AQUA_BOTTLE_HOME: f.cache }); await s.initialize();
+  assert.deepEqual(await s.open(fs.readFileSync(path.join(f.folder, 'main.aqua'), 'utf8'), f.mainUri), []);
+  const invalid = f.manifest.replace('name="demo"', 'name="bad name"');
+  let errors = await s.open(invalid, f.manifestUri);
+  assert.ok(errors.some(d => /whitespace/.test(d.message) && d.range.start.line === 1));
+  errors = await s.diagnostics(1, f.mainUri); assert.ok(errors.some(d => /whitespace/.test(d.message)));
+  const items = await s.feature('completion', 1, 0, f.manifestUri); assert.ok(items.some(i => i.label === 'platforms'));
+  s.send('textDocument/didChange', { textDocument: { uri: f.manifestUri, version: 2 }, contentChanges: [{ text: f.manifest }] });
+  assert.deepEqual(await s.diagnostics(2, f.manifestUri), []); assert.deepEqual(await s.diagnostics(1, f.mainUri), []);
+  const libManifest = pathToFileURL(path.join(f.folder, 'vendor/greeter/aqua.toml')).href;
+  errors = await s.open('[project]\nname="greeter"\ntype="library"\nplatforms=["web"]', libManifest);
+  assert.ok(errors.some(d => /version/.test(d.message)));
+  assert.equal(fs.existsSync(f.cache), false, 'editor inspection does not write to the global cache');
+});
+
+test('Bottle import completion, hover and definitions work from local libraries before installation', async t => {
+  const f = bottleFixture(t); const s = new Session(t, { AQUA_BOTTLE_HOME: f.cache }); await s.initialize();
+  assert.deepEqual(await s.open(fs.readFileSync(path.join(f.folder, 'main.aqua'), 'utf8'), f.mainUri), []);
+  const items = await s.feature('completion', 1, 4, f.mainUri);
+  for (const name of ['問候', 'greet']) assert.ok(items.some(item => item.label === name), name);
+  assert.match((await s.feature('hover', 1, 5, f.mainUri)).contents.value, /greet/);
+  assert.equal((await s.feature('definition', 1, 5, f.mainUri)).uri, f.libraryUri);
+  assert.equal(fs.existsSync(path.join(f.folder, 'aqua.lock.json')), false);
+});
+
+test('locked cached libraries remain navigable after original source removal and file watchers refresh diagnostics', async t => {
+  const f = bottleFixture(t);
+  const cli = process.env.AQUARIUS_CLI || path.resolve(__dirname, '../../AquariusCli/bin/Debug/net8.0/aqua.dll');
+  const restore = spawnSync(process.env.AQUARIUS_DOTNET || 'dotnet', [cli, 'bottle', 'restore', '--project', f.folder], { env: { ...process.env, AQUA_BOTTLE_HOME: f.cache }, encoding: 'utf8', windowsHide: true });
+  assert.equal(restore.status, 0, restore.stderr);
+  fs.rmSync(path.join(f.folder, 'vendor'), { recursive: true });
+  const s = new Session(t, { AQUA_BOTTLE_HOME: f.cache }); await s.initialize();
+  assert.deepEqual(await s.open(fs.readFileSync(path.join(f.folder, 'main.aqua'), 'utf8'), f.mainUri), []);
+  const definition = await s.feature('definition', 1, 5, f.mainUri);
+  assert.match(definition.uri, /packages\/greeter\/1.2.0\/content\/main.aqua$/);
+  const corrupt = path.join(f.cache, 'packages/greeter/1.2.0/content/main.aqua'); fs.writeFileSync(corrupt, 'corrupt');
+  s.send('workspace/didChangeWatchedFiles', { changes: [{ uri: pathToFileURL(corrupt).href, type: 2 }] });
+  assert.ok((await s.diagnostics(1, f.mainUri)).some(d => /integrity/.test(d.message)));
 });

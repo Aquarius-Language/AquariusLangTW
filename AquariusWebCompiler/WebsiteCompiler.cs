@@ -44,6 +44,7 @@ public static class WebsiteCompiler {
         path.StartsWith(Path.TrimEndingDirectorySeparator(directory) + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase);
 
     private static void Export(WasmApplication package, string output, string? entry, bool sourceNames) {
+        package.CheckPlatform("web");
         string selected = package.ResolveScript(entry ?? package.EntryPoint);
         string Name(string p) => sourceNames ? Path.ChangeExtension(p, ".aqua").Replace('\\', '/') : p;
         // Serialize before touching output: unsupported instructions preserve previous builds.

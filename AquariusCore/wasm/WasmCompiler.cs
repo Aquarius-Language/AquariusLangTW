@@ -21,7 +21,7 @@ public sealed class WasmCompiler
     public WasmProgram Compile(LoweredProgram lowered) => Compile(new Dictionary<string, LoweredProgram> { ["main.aqua"] = lowered }, "main.aqua");
 
     public WasmProgram Compile(IReadOnlyDictionary<string, LoweredProgram> modules, string entry,
-        IReadOnlyDictionary<string, byte[]>? assets = null)
+        IReadOnlyDictionary<string, byte[]>? assets = null, string[]? supportedPlatforms = null)
     {
         modules = AquariusLang.Graphics.PortableGraphicsLibraries.Link(modules);
         var bodies = new List<LoweredProgram>();
@@ -79,7 +79,7 @@ public sealed class WasmCompiler
         var data = new WasmRuntimeImage.Data(); data.Build(functions);
         var metadata = new WasmMetadata(WasmAbi.Version, entry, exports, functions,
             assets?.ToDictionary(p => p.Key, p => Convert.ToBase64String(p.Value)) ?? new(),
-            ProgramAddress: WasmRuntimeImage.ProgramAddress, HeapStart: data.End, FunctionLayout: 32);
+            ProgramAddress: WasmRuntimeImage.ProgramAddress, HeapStart: data.End, FunctionLayout: 32, SupportedPlatforms: supportedPlatforms);
         using var output = new MemoryStream();
         output.Write(new byte[] { 0, 97, 115, 109, 1, 0, 0, 0 });
         void Section(byte id, Action<BinaryWriter> write)

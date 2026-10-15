@@ -24,6 +24,16 @@ tests in [tests/lsp.test.js](tests/lsp.test.js). Run them from the repository ro
 with `node --test AquariusLanguageServer/tests/lsp.test.js` after the Release build.
 No source is executed during analysis.
 
+Optional [Bottle projects](../AquariusBottle/README.md) share their manifest parser
+and dependency inspection with the compiler. Open `aqua.toml` with this server
+for TOML syntax/schema diagnostics, invalid project names (including whitespace),
+mandatory library versions/platforms, dependency and asset checks, and manifest
+key completion. `/bottles/NAME/path.aqua` imports support member completion, hover
+and definition in local libraries and locked global cache snapshots. Analysis is
+read only and never downloads dependencies. Unsaved manifest changes, `didSave`
+and `workspace/didChangeWatchedFiles` refresh project diagnostics. The VS Code
+client automatically selects `aqua.toml` and watches sources, manifests and locks.
+
 Functions declared as `變數 加法, add = 函式(...) { ... };` expose both aliases in
 completion, hover, definition and document symbols. Builtins and all desktop
 native libraries offer Chinese and English completion/hover from the portable

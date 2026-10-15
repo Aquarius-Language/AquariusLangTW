@@ -52,7 +52,8 @@ internal sealed class WasmApplicationRuntime : IDisposable {
             // Absolute paths produced by 目前工作目錄 also map into the relocated package.
             path = path.Replace('\\', '/');
             string relative;
-            if (Path.IsPathRooted(path)) relative = Path.GetRelativePath(directory, Path.GetFullPath(path));
+            if (path.StartsWith("/bottles/", StringComparison.OrdinalIgnoreCase)) relative = path.TrimStart('/');
+            else if (Path.IsPathRooted(path)) relative = Path.GetRelativePath(directory, Path.GetFullPath(path));
             else {
                 string currentDirectory = Path.GetDirectoryName(currentEntry.Replace('/', Path.DirectorySeparatorChar)) ?? "";
                 relative = Path.GetRelativePath(directory, Path.GetFullPath(Path.Combine(directory, currentDirectory, path.Replace('\\', '/'))));

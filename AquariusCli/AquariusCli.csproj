@@ -8,6 +8,7 @@
     <Nullable>enable</Nullable>
   </PropertyGroup>
   <ItemGroup>
+    <ProjectReference Include="../AquariusBottle/AquariusBottle.csproj" />
     <ProjectReference Include="../AquariusBuild/AquariusBuild.csproj" />
     <ProjectReference Include="../AquariusAndroid/AquariusAndroid.csproj" />
     <ProjectReference Include="../AquariusPackaging/AquariusPackaging.csproj" />

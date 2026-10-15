@@ -1,0 +1,16 @@
+變數 數學 = 匯入("/bottles/bottle_numbers/main.aqua");
+變數 檔案 = 匯入("GL");
+變數 動態 = 匯入("DynamicLibrary");
+
+變數 訊息, message = 函式() {
+    回傳 檔案.ReadText(目前工作目錄 + "/assets/message.txt");
+};
+變數 答案, answer = 函式() {
+    回傳 數學.add(20, 22);
+};
+變數 動態回音, dynamicEcho = 函式(內容) {
+    變數 函式庫 = 動態.Load({"wasm": 目前工作目錄 + "/native/showcase.wasm"});
+    變數 結果 = 函式庫.Call("echo", 內容);
+    函式庫.Dispose();
+    回傳 結果;
+};

@@ -1,0 +1,10 @@
+manifest_version = 1
+
+[project]
+name = "bottle_numbers"
+type = "library"
+version = "1.0.0"
+entry = "main.aqua"
+sources = ["main.aqua"]
+platforms = ["windows", "linux", "web", "android"]
+license = "MIT"

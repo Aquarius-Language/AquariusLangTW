@@ -7,6 +7,7 @@
     <RollForward>Major</RollForward>
   </PropertyGroup>
   <ItemGroup>
+    <ProjectReference Include="../AquariusBottle/AquariusBottle.csproj" />
     <ProjectReference Include="../AquariusCore/AquariusCore.csproj" />
   </ItemGroup>
 </Project>

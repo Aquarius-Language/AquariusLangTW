@@ -22,7 +22,7 @@ public sealed class WasmApplication
         Assets = new ReadOnlyDictionary<string, byte[]>(program.Metadata.Assets.ToDictionary(p => p.Key, p => Convert.FromBase64String(p.Value), StringComparer.OrdinalIgnoreCase));
     }
     public static void Compile(IEnumerable<string> sourceFiles, string outputPath, string? rootDirectory = null,
-        IEnumerable<string>? assetPaths = null, string? entryPoint = null)
+        IEnumerable<string>? assetPaths = null, string? entryPoint = null, string[]? supportedPlatforms = null)
     {
         string root = Path.GetFullPath(rootDirectory ?? System.Environment.CurrentDirectory), output = Path.GetFullPath(outputPath);
         if (!output.EndsWith(".wasm", StringComparison.OrdinalIgnoreCase)) throw new ArgumentException("Output must have a .wasm extension.");
@@ -55,7 +55,7 @@ public sealed class WasmApplication
         if (modules.Count + assets.Count > MaxEntries) throw new InvalidDataException("Too many application entries.");
         string entry = entryPoint == null ? modules.Keys.First() : ResolvePath(entryPoint);
         entry = modules.Keys.FirstOrDefault(k => k.Equals(entry, StringComparison.OrdinalIgnoreCase)) ?? throw new ArgumentException("Entry must name a compiled module.");
-        var program = new WasmCompiler().Compile(modules, entry, assets);
+        var program = new WasmCompiler().Compile(modules, entry, assets, supportedPlatforms);
         if (program.Bytes.Length > MaxPackageBytes) throw new InvalidDataException("Application exceeds the size limit.");
         Directory.CreateDirectory(Path.GetDirectoryName(output)!);
         string stage = Path.Combine(Path.GetDirectoryName(output)!, ".aquarius-" + Guid.NewGuid().ToString("N") + ".tmp");
@@ -63,6 +63,9 @@ public sealed class WasmApplication
         finally { if (File.Exists(stage)) File.Delete(stage); }
     }
     public static WasmApplication Load(string path) => new(WasmProgram.Load(path));
+    public void CheckPlatform(string target) {
+        if (Program.Metadata.SupportedPlatforms is { } platforms && !platforms.Contains(target)) throw new InvalidDataException($"Application dependencies/assets do not support {target} (supports {string.Join(", ", platforms)}).");
+    }
     public static WasmApplication Load(Stream input)
     {
         if (input.Length > MaxPackageBytes) throw new InvalidDataException("Application exceeds the size limit.");

@@ -10,7 +10,7 @@
   "main": "./dist/extension.js",
   "extensionKind": ["workspace"],
   "capabilities": { "untrustedWorkspaces": { "supported": "limited", "description": "Syntax highlighting and snippets are available. The language server starts after trusting the workspace." }, "virtualWorkspaces": false },
-  "activationEvents": ["onLanguage:aquarius"],
+  "activationEvents": ["onLanguage:aquarius", "workspaceContains:**/aqua.toml", "onLanguage:toml"],
   "contributes": {
     "languages": [{ "id": "aquarius", "aliases": ["Aquarius (繁體中文)", "Aquarius"], "extensions": [".aqua"], "configuration": "./language-configuration.json" }],
     "grammars": [{ "language": "aquarius", "scopeName": "source.aquarius", "path": "./syntaxes/aquarius.tmLanguage.json" }],

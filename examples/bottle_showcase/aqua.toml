@@ -1,0 +1,12 @@
+manifest_version = 1
+
+[project]
+name = "BottleShowcase"
+type = "executable"
+version = "1.0.0"
+entry = "main.aqua"
+sources = ["main.aqua"]
+platforms = ["windows", "linux", "web", "android"]
+
+[dependencies]
+bottle_greeting = { path = "libraries/greeting", version = "> 0.17, <= 0.21" }

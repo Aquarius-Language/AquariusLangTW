@@ -27,3 +27,4 @@ AquariusWebCompiler/browser/physics-core.mjs
 AquariusWebCompiler/browser/audio-core.mjs
 AquariusCore/external/onnx/ort*
 .array-build/
+.aqua/

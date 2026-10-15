@@ -23,6 +23,7 @@ public sealed class SelfContainedExecutableTarget(string name, string runtimeIde
         // Read and validate the input before looking for a pack or touching output.
         using var wasm = File.OpenRead(input);
         var package = WasmApplication.Load(wasm);
+        package.CheckPlatform(Name);
         package.ResolveScript(request.EntryPoint ?? package.EntryPoint);
         string root = runtimePacksDirectory ?? System.Environment.GetEnvironmentVariable("AQUARIUS_BUILD_TARGETS") ?? Path.Combine(AppContext.BaseDirectory, "build-targets");
         string pack = Path.Combine(root, runtimeIdentifier);

@@ -9,6 +9,7 @@
 Linux x86_64／WSL2 的建置、測試與獨立執行檔輸出：見 [Linux 桌面指南](docs/linux.md)。
 
 - **統一入口**：`aqua` 提供編譯、桌面執行、網頁輸出與互動模式（REPL）。
+- **專案與第三方套件**：[Bottle / TOML 專案管理](AquariusBottle/README.md)提供 `aqua new`、`aqua bottle install/restore/uninstall`、本機／GitHub 安裝、版本鎖定、全域快取與相依資產封裝；見 [可執行範例](examples/bottle_showcase/README.md)。
 - **可攜編譯成果**：將模組、圖片與著色器等資源一起封裝，執行與網頁輸出不需原始碼。
 - **動態連結**：[核心動態函式庫 / DynamicLibrary](docs/dynamic-linking.md)以雙語介面載入 Windows DLL、Linux／Android SO、網頁 JavaScript 與跨平台 Wasm。
 - **雙語函式庫**：腳本與桌面原生函式支援繁體中文／英文名稱，共用函式與閉包。

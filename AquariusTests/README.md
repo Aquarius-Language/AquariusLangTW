@@ -19,6 +19,16 @@ identity, arrays/hashes, error propagation, deep recursion, native callbacks,
 Wasm artifact validation/round trips, source-free module and asset deployment,
 CLI usage and standalone executable overlays. Wasmtime is the test execution
 engine; cross-engine tests execute identical bytes in Node WebAssembly.
+
+`bottle/BottleTest.cs` covers manifest validation, semantic version ranges,
+transitive dependencies, immutable snapshots, offline/locked restores and empty
+cache hydration, conflicts/cycles, platform preservation, asset placement and
+CLI create/install/build/run/uninstall. Run `dotnet test AquariusTests --filter
+FullyQualifiedName~AquariusTests.Bottle`. Bottle's LSP behavior is covered in
+`AquariusLanguageServer/tests/lsp.test.js`.
+After exporting the Bottle showcase to a website, verify its transitive imports,
+cached text and dynamic Wasm in real Chromium with `node
+AquariusWebCompiler/tests/bottle-browser.mjs <web-output-directory>`.
 Jolt tests use the actual shared Emscripten Wasm build, including motion, forces,
 collisions, ownership, capacity and engine/world disposal.
 

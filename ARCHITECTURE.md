@@ -10,6 +10,15 @@ dependencies, and completing cross-platform deployment. The [implementation stat
 distinguishes completed runtime changes from remaining library and toolchain work. Future computational
 libraries must follow the [Wasm inclusion requirement](docs/external-libraries.md#requirement-for-future-libraries).
 
+Optional project management lives in [AquariusBottle](AquariusBottle/README.md).
+The CLI and language server share its TOML schema, semantic version constraints,
+local/GitHub sources, immutable global snapshots, dependency locks and read-only
+editor inspection. Project builds stage declared sources and assets into the
+existing packaging pipeline, placing libraries under `/bottles/NAME/`. The core
+Wasm metadata preserves supported-platform declarations through later deployment.
+No dependency resolver, registry client or manifest parser is shipped as part of
+the generated program's runtime.
+
 ```mermaid
 flowchart TD
     Source[Aquarius source] --> Frontend[Core lexer and parser]
