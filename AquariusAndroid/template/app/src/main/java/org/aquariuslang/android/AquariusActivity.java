@@ -12,7 +12,7 @@ import android.widget.EditText;
 import android.widget.FrameLayout;
 import android.widget.TextView;
 
-/** Native activity and surface. A single runtime actor owns V8 and GPU commands. */
+/** Native activity and surface. A single runtime actor owns Wasmtime and GPU commands. */
 public final class AquariusActivity extends Activity implements SurfaceHolder.Callback {
   private NativeBridge bridge;
   private NativeRuntime runtime;

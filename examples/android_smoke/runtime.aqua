@@ -1,0 +1,5 @@
+變數 動態 = 匯入("DynamicLibrary");
+變數 驗證 = 動態.Load("assets/wasmtime-contract.mjs");
+如果 (驗證.Call("run", "") != "WASMTIME_CONTRACT_OK") { Wasmtime驗證失敗; }
+驗證.Dispose();
+印出("ANDROID_WASMTIME_CONTRACT_OK");

@@ -1,7 +1,7 @@
 param(
     [string]$Dotnet = 'dotnet', [string]$Configuration = 'Debug',
     [switch]$BuildApks, [switch]$Emulator, [switch]$DeviceServices, [string]$Adb = 'adb',
-    [string[]]$ProjectRoots = @(), [string[]]$CaseNames = @()
+    [string[]]$ProjectRoots = @(), [string[]]$CaseNames = @(), [switch]$SkipBuild
 )
 $ErrorActionPreference = 'Stop'
 $repository = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
@@ -12,11 +12,14 @@ function Invoke-Aqua([string[]]$Arguments) {
     if ($LASTEXITCODE -ne 0) { throw "Android compiler smoke failed: $($Arguments -join ' ')" }
 }
 New-Item -ItemType Directory -Path $output -Force | Out-Null
-& $Dotnet build (Join-Path $repository 'AquariusCli') -c $Configuration -m:1 --nologo
-if ($LASTEXITCODE -ne 0) { throw 'Compiler build failed.' }
+if (-not $SkipBuild) {
+    & $Dotnet build (Join-Path $repository 'AquariusCli') -c $Configuration -m:1 --nologo
+    if ($LASTEXITCODE -ne 0) { throw 'Compiler build failed.' }
+}
 & node --test (Join-Path $repository 'AquariusAndroid/tests/*.test.mjs')
 if ($LASTEXITCODE -ne 0) { throw 'Android bridge unit tests failed.' }
 $cases = @(
+    @{ name='runtime'; root=(Join-Path $repository 'examples/android_smoke'); entry='runtime.aqua' },
     @{ name='language'; root=(Join-Path $repository 'examples/starship_expedition'); entry='main.aqua' },
     @{ name='capabilities'; root=(Join-Path $repository 'examples/android_smoke'); entry='main.aqua' },
     @{ name='processing'; root=(Join-Path $repository 'examples/processing_showcase'); entry='main.aqua' },
@@ -97,6 +100,8 @@ foreach ($case in $cases) {
                 }
             } while ($logs -notmatch 'AQUARIUS_ANDROID_OK' -and [DateTime]::UtcNow -lt $deadline)
             if ($logs -notmatch 'AQUARIUS_ANDROID_OK') { throw "Android execution timed out: $($case.name)" }
+            if ($logs -notmatch 'AQUARIUS_ENGINE Wasmtime') { throw 'The Android application did not run with Wasmtime.' }
+            if ($case.name -eq 'runtime' -and $logs -notmatch 'ANDROID_WASMTIME_CONTRACT_OK') { throw 'Wasmtime adapter contract was not exercised.' }
             if($case.name -eq 'camera' -and $logs -notmatch 'ANDROID_CAMERA_OK') { throw 'Camera contract was not exercised.' }
             if($case.name -eq 'input') {
                 foreach($marker in @('ANDROID_TOUCH_OK','ANDROID_POINTER_OK','ANDROID_WINDOW_POINTER_OK','ANDROID_IME_OK','ANDROID_KEY_OK','ANDROID_BACK_CANCELLED','ANDROID_INPUT_OK')) {

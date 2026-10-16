@@ -7,9 +7,8 @@ public static class AndroidToolchain
     public static void Build(string project)
     {
         string root = Path.Combine(project, "app/src/main");
-        if (!File.Exists(Path.Combine(root, "assets/aquarius/icudtl.dat")) ||
-            new[] { "arm64-v8a", "x86_64" }.Any(abi =>
-                new[] { "libaquarius_android.so", "libwgpu_native.so", "libc++_shared.so" }.Any(name => !File.Exists(Path.Combine(root, "jniLibs", abi, name)))))
+        if (new[] { "arm64-v8a", "x86_64" }.Any(abi =>
+                new[] { "libaquarius_android.so", "libaquarius_runtime.so", "libwasmtime.so", "libwgpu_native.so", "libc++_shared.so" }.Any(name => !File.Exists(Path.Combine(root, "jniLibs", abi, name)))))
             throw new IOException("Android native runtime assets are missing. Build the compiler after running scripts/prepare-android.ps1.");
         string? gradle = Environment.GetEnvironmentVariable("AQUARIUS_GRADLE");
         gradle ??= Path.Combine(project, OperatingSystem.IsWindows() ? "gradlew.bat" : "gradlew");

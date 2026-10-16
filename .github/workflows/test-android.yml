@@ -19,6 +19,11 @@ jobs:
       - name: Prepare pinned native and portable libraries
         shell: pwsh
         run: |
+          rustup toolchain install stable --profile minimal
+          if ($LASTEXITCODE -ne 0) { throw 'Rust installation failed' }
+          $env:RUSTUP_TOOLCHAIN = 'stable'
+          rustup target add aarch64-linux-android x86_64-linux-android
+          if ($LASTEXITCODE -ne 0) { throw 'Rust Android target installation failed' }
           sdkmanager 'platforms;android-36' 'build-tools;35.0.0' 'ndk;28.2.13676358'
           if ($LASTEXITCODE -ne 0) { throw 'SDK installation failed' }
           npm ci --prefix AquariusWebCompiler

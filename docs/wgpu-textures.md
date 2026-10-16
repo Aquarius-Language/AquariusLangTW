@@ -2,7 +2,7 @@
 
 Core 的 `WgpuTextureDescriptor`、`IWgpuTexture` 與 `WgpuTextureLayout` 定義相同的尺寸、格式、mip、綁定與生命週期契約。Windows 使用 Silk.NET / wgpu-native，網頁使用 WebGPU，Android 使用 JNI / wgpu-native；共用 JavaScript 驗證與主機註冊位於 `AquariusCore/hosting`。
 
-Android 封裝資產使用 Javet 的 owned typed array 傳輸，避免高解析度材質經過重複的 Java base64 字串。這也供一般 `Files`／影像資源載入共用，不需要提高應用程式的 Java heap 上限。
+Android 封裝資產使用 JNI 的 owned typed array 傳輸，避免高解析度材質經過重複的 Java base64 字串。這也供一般 `Files`／影像資源載入共用，不需要提高應用程式的 Java heap 上限。
 
 `WGPU.Device.LoadTexture(path, width, height, format, dimension, mipLevels)` 與 Processing 畫布的 `loadTexture` 使用封裝資產路徑。格式為 `r8unorm`、`rgba8unorm`、`rgba8unorm-srgb`、`rgba16float`，維度為 `2d` 或 `cube`。Cube 必須是正方形，面順序為 +X、-X、+Y、-Y、+Z、-Z。資料為小端序、mip 優先、面／層其次，每層緊密排列；每個 mip 的尺寸為 `max(1, size >> level)`。
 

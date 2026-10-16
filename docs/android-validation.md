@@ -1,5 +1,7 @@
 # Android validation — 2026-10-13
 
+Historical results for the former Javet/V8 runtime. The current Android target uses Wasmtime; see [Wasmtime migration validation](android-wasmtime-validation.md).
+
 The solution includes `AquariusAndroid`, with native Java services, V8 WebAssembly execution, and native WebGPU/Vulkan graphics and compute. CLI project generation and direct debug APK builds were both exercised. The bundled Gradle wrapper also built an APK in a directory containing spaces, with a Chinese application label.
 
 ## Results

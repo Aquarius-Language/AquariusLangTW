@@ -1,4 +1,4 @@
-// Native V8 services. There is no DOM, browser window, or embedded browser.
+// Native capability services for the QuickJS host and Wasmtime guest runtime.
 const alphabet='ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
 globalThis.decode64=text=>{const out=new Uint8Array(text.length*3/4-(text.endsWith('==')?2:text.endsWith('=')?1:0));let value=0,bits=0,index=0;for(const char of text){const n=alphabet.indexOf(char);if(n<0)continue;value=(value<<6)|n;bits+=6;if(bits>=8){bits-=8;out[index++]=(value>>bits)&255;}}return out;};
 globalThis.encode64=data=>{data=ArrayBuffer.isView(data)?new Uint8Array(data.buffer,data.byteOffset,data.byteLength):new Uint8Array(data);const chunks=[];for(let i=0;i<data.length;i+=3){const a=data[i],b=data[i+1],c=data[i+2];chunks.push(alphabet[a>>2]+alphabet[((a&3)<<4)|((b??0)>>4)]+(i+1<data.length?alphabet[((b&15)<<2)|((c??0)>>6)]:'=')+(i+2<data.length?alphabet[c&63]:'='));}return chunks.join('');};
@@ -7,6 +7,11 @@ globalThis.btoa=text=>encode64(Uint8Array.from(text,c=>c.charCodeAt(0)));
 globalThis.TextEncoder=class {encode(text=''){return decode64(native.encode(String(text)));}encodeInto(text,out){let read=0,written=0;for(const character of String(text)){const bytes=this.encode(character);if(written+bytes.length>out.length)break;out.set(bytes,written);written+=bytes.length;read+=character.length;}return {read,written};}};
 globalThis.TextDecoder=class {constructor(encoding='utf-8',options={}){this.encoding=encoding;this.options=options;}decode(data=new Uint8Array()){return native.decodeText(encode64(data),this.encoding,!!this.options.fatal,!!this.options.ignoreBOM);}};
 globalThis.performance={now:()=>native.now()};
+// Android ICU supplies grapheme/word boundaries, including emoji and combining marks.
+globalThis.Intl={Segmenter:class {
+  constructor(locale,options={}){this.granularity=options.granularity??'grapheme';}
+  segment(text){return JSON.parse(native.segments(String(text),this.granularity));}
+}};
 globalThis.crypto={
   randomUUID:()=>native.uuid(),
   getRandomValues(array){

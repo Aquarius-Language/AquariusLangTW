@@ -30,12 +30,15 @@ flowchart TD
     Wasm --> Artifact[Standard .wasm application]
     Artifact --> Desktop[Wasmtime desktop host]
     Artifact --> Web[Browser WebAssembly host]
+    Artifact --> Android[Wasmtime Android host]
     Artifact --> Export[Platform build target registry]
     Export --> Website[Static website with program.wasm]
     Export --> Exe[Self-contained EXE with Wasm overlay]
+    Export --> Apk[Native Android APK]
+    Apk --> Android
     Exe --> Desktop
     Website --> Web
-    Core[Core capability contracts and external library catalog] --> GPU[Desktop and browser WebGPU adapters]
+    Core[Core capability contracts and external library catalog] --> GPU[Desktop, browser and Android WebGPU adapters]
     Application --> Bottle[Third-party TOML libraries]
     Core --> Audio[Shared miniaudio WASM decoder and mixer]
     Audio --> AudioDesktop[Wasmtime and miniaudio PCM sink]
@@ -43,8 +46,10 @@ flowchart TD
     Bottle --> Dynamic[Native and ES-module/Wasm library loaders]
     Desktop --> GPU
     Web --> GPU
+    Android --> GPU
     Desktop --> Emscripten
     Web --> Emscripten
+    Android --> Emscripten
 ```
 
 Aquarius is a compiled language. The front end lowers syntax to compiler-only IR,
@@ -122,7 +127,7 @@ Core owns external library descriptors and portable host contracts. Terminal
 launches explicit scripts through desktop/Android adapters and reports unsupported
 browser execution. Jolt is an independent TOML Bottle package, with its bindings,
 engine assets and numerical tests outside core. Generic ES-module factories run
-on ClearScript/V8 on desktop, browser JavaScript, and Javet on Android; Aquarius
+on ClearScript/V8 on desktop, browser JavaScript, and QuickJS-NG on Android; Aquarius
 application execution remains in compiled Wasm. OpenCV packages use native C++
 matrix handles or portable OpenCV Wasm according to their platform assets. See
 [external libraries](docs/external-libraries.md) for extension rules and profiles.

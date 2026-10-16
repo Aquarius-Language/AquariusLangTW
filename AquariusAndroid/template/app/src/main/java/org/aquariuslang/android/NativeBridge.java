@@ -21,8 +21,6 @@ import android.view.Surface;
 import android.view.WindowInsets;
 import android.view.inputmethod.InputMethodManager;
 import android.widget.EditText;
-import com.caoccao.javet.annotations.V8Function;
-import com.caoccao.javet.values.reference.V8ValueTypedArray;
 import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.nio.charset.StandardCharsets;
@@ -37,14 +35,25 @@ import org.json.JSONObject;
 
 /** Native services expose data, never Android objects, to the capability runtime. */
 public final class NativeBridge implements AutoCloseable {
-  interface ModuleImporter { void load(String name) throws Exception; }
-  ModuleImporter moduleImporter;
-  @V8Function public void importLibrary(String name) throws Exception {
-    if (!name.matches("asset-[a-f0-9]{64}\\.(mjs|js)") || moduleImporter == null)
-      throw new IllegalArgumentException("Expected a packaged JavaScript library");
-    moduleImporter.load(name);
+  // Descriptors are generated from the explicit annotation boundary, then JNI caches method IDs.
+  String[] bindings() {
+    return java.util.Arrays.stream(getClass().getDeclaredMethods())
+        .filter(method -> method.isAnnotationPresent(HostFunction.class))
+        .map(method -> method.getName() + "|(" + java.util.Arrays.stream(method.getParameterTypes())
+            .map(NativeBridge::descriptor).collect(java.util.stream.Collectors.joining())
+            + ")" + descriptor(method.getReturnType()))
+        .toArray(String[]::new);
   }
-  @V8Function public String terminal(String request) throws Exception { return TerminalProcesses.run(request); }
+
+  private static String descriptor(Class<?> type) {
+    if (type == void.class) return "V";
+    if (type == int.class) return "I";
+    if (type == double.class) return "D";
+    if (type == boolean.class) return "Z";
+    if (type.isArray()) return type.getName().replace('.', '/');
+    return "L" + type.getName().replace('.', '/') + ";";
+  }
+  @HostFunction public String terminal(String request) throws Exception { return TerminalProcesses.run(request); }
   final Activity activity;
   private final EditText editor;
   private final FrameClock frameClock;
@@ -52,9 +61,9 @@ public final class NativeBridge implements AutoCloseable {
   private final OnnxBackend onnx = new OnnxBackend(this);
   private final AudioBackend audio = new AudioBackend();
   private final NetworkBackend networking = new NetworkBackend();
-  @V8Function public String network(String operation, String request) throws Exception { return networking.command(operation, request); }
+  @HostFunction public String network(String operation, String request) throws Exception { return networking.command(operation, request); }
   private DynamicLibraries dynamicLibraries;
-  @V8Function
+  @HostFunction
   public String dynamicLibrary(String operation, String request) throws Exception {
     if (dynamicLibraries == null) dynamicLibraries = new DynamicLibraries();
     return dynamicLibraries.command(operation, request);
@@ -140,12 +149,12 @@ public final class NativeBridge implements AutoCloseable {
     }
   }
 
-  @V8Function
+  @HostFunction
   public String readJson() {
     return source("program.json");
   }
 
-  @V8Function
+  @HostFunction
   public String readAsset(String name) {
     if (!name.matches("[A-Za-z0-9_.-]+"))
       throw new IllegalArgumentException("Invalid runtime asset path");
@@ -156,20 +165,20 @@ public final class NativeBridge implements AutoCloseable {
     }
   }
 
-  @V8Function
+  @HostFunction
   public byte[] readAssetBytes(String name) {
-    // Javet returns an owned typed array, avoiding two large base64 strings.
+    // JNI returns an owned typed array without base64 expansion.
     return assetBytes(name, 256 * 1024 * 1024);
   }
 
-  @V8Function
+  @HostFunction
   public String gpuTextureAsset(String name, String data, int expected, boolean halfFloat) {
     if (!name.matches("[A-Za-z0-9_.-]+"))
       throw new IllegalArgumentException("Invalid texture asset path");
     if (!gpuDevices.contains(json(data).optLong("device")))
       throw new IllegalArgumentException("Invalid texture device");
     try {
-      // Decode straight into JNI storage. Large textures never pass through V8.
+      // Decode straight into JNI storage. Large textures stay outside the JS heap.
       var buffer =
           TextureAssets.decode(activity.getAssets().open("aquarius/" + name), expected, halfFloat);
       return NativeGpu.command("texture", data, buffer, 0, expected);
@@ -178,12 +187,12 @@ public final class NativeBridge implements AutoCloseable {
     }
   }
 
-  @V8Function
+  @HostFunction
   public String utf8(String bytes) {
     return new String(unbase64(bytes), StandardCharsets.UTF_8);
   }
 
-  @V8Function
+  @HostFunction
   public String decodeText(String bytes, String encoding, boolean fatal, boolean ignoreBom) {
     try {
       var decoder = java.nio.charset.Charset.forName(encoding).newDecoder();
@@ -202,7 +211,7 @@ public final class NativeBridge implements AutoCloseable {
     }
   }
 
-  @V8Function
+  @HostFunction
   public String segments(String text, String granularity) {
     android.icu.text.BreakIterator iterator =
         granularity.equals("word")
@@ -229,17 +238,17 @@ public final class NativeBridge implements AutoCloseable {
     return result.toString();
   }
 
-  @V8Function
+  @HostFunction
   public String encode(String text) {
     return base64(text.getBytes(StandardCharsets.UTF_8));
   }
 
-  @V8Function
+  @HostFunction
   public String uuid() {
     return UUID.randomUUID().toString();
   }
 
-  @V8Function
+  @HostFunction
   public String randomBytes(int length) {
     if (length < 0 || length > 65536)
       throw new IllegalArgumentException("Random byte request must be 0..65536 bytes.");
@@ -248,17 +257,17 @@ public final class NativeBridge implements AutoCloseable {
     return base64(bytes);
   }
 
-  @V8Function
+  @HostFunction
   public double now() {
     return SystemClock.elapsedRealtimeNanos() / 1e6;
   }
 
-  @V8Function
+  @HostFunction
   public void log(String text) {
     Log.i("Aquarius", text);
   }
 
-  @V8Function
+  @HostFunction
   public void fail(String message) {
     log("AQUARIUS_ANDROID_ERROR: " + message);
     activity.runOnUiThread(
@@ -270,33 +279,22 @@ public final class NativeBridge implements AutoCloseable {
         });
   }
 
-  @V8Function
-  public String gpu(String operation, String data, V8ValueTypedArray bytes)
-      throws com.caoccao.javet.exceptions.JavetException {
-    // Javet exposes the ArrayBuffer as a direct view. JNI consumes it only
-    // during this synchronous call; no V8 pointer escapes into pending GPU work.
-    try (var buffer = bytes.getBuffer()) {
-      String result =
-          NativeGpu.command(
-              operation,
-              data,
-              buffer.getByteBuffer(),
-              bytes.getByteOffset(),
-              bytes.getByteLength());
-      if (operation.equals("device")) gpuDevices.add(Long.parseLong(result));
-      if (operation.equals("disposeDevice")) gpuDevices.remove(json(data).optLong("device"));
-      return result;
-    }
+  @HostFunction
+  public String gpu(String operation, String data, java.nio.ByteBuffer bytes) {
+    String result = NativeGpu.command(operation, data, bytes, 0, bytes.remaining());
+    if (operation.equals("device")) gpuDevices.add(Long.parseLong(result));
+    if (operation.equals("disposeDevice")) gpuDevices.remove(json(data).optLong("device"));
+    return result;
   }
 
-  @V8Function
+  @HostFunction
   public byte[] gpuRead(double device, double resource, boolean texture) {
-    // Javet converts byte[] to an owned Int8Array. The JS adapter views its
+    // JNI converts byte[] to an owned Uint8Array. The JS adapter views its
     // buffer as unsigned bytes; readback needs no base64 text or decoding loop.
     return NativeGpu.read((long) device, (long) resource, texture);
   }
 
-  @V8Function
+  @HostFunction
   public byte[] gpuReadRange(double device, double resource, double offset, double size) {
     if (!Double.isFinite(offset)
         || !Double.isFinite(size)
@@ -309,7 +307,7 @@ public final class NativeBridge implements AutoCloseable {
     return NativeGpu.readRange((long) device, (long) resource, (long) offset, (long) size);
   }
 
-  @V8Function
+  @HostFunction
   public String viewport() {
     float density = activity.getResources().getDisplayMetrics().density;
     return object(
@@ -326,7 +324,7 @@ public final class NativeBridge implements AutoCloseable {
         .toString();
   }
 
-  @V8Function
+  @HostFunction
   public void waitFrame(int milliseconds) {
     synchronized (lifecycle) {
       try {
@@ -340,7 +338,7 @@ public final class NativeBridge implements AutoCloseable {
     }
   }
 
-  @V8Function
+  @HostFunction
   public void awaitFrame(double deadline) {
     synchronized (lifecycle) {
       try {
@@ -354,7 +352,7 @@ public final class NativeBridge implements AutoCloseable {
     frameClock.await(deadline);
   }
 
-  @V8Function
+  @HostFunction
   public String poll() {
     JSONArray list = new JSONArray();
     JSONObject e;
@@ -371,7 +369,7 @@ public final class NativeBridge implements AutoCloseable {
         .toString();
   }
 
-  @V8Function
+  @HostFunction
   public void keyboard(boolean visible) {
     activity.runOnUiThread(
         () -> {
@@ -387,7 +385,7 @@ public final class NativeBridge implements AutoCloseable {
         });
   }
 
-  @V8Function
+  @HostFunction
   public void vibrate(int duration) {
     if (duration < 1 || duration > 10000)
       throw new IllegalArgumentException("Vibration must be 1..10000 ms");
@@ -395,39 +393,39 @@ public final class NativeBridge implements AutoCloseable {
         .vibrate(VibrationEffect.createOneShot(duration, VibrationEffect.DEFAULT_AMPLITUDE));
   }
 
-  @V8Function
+  @HostFunction
   public void resolveBack(String decision) {
     if (decision.equals("Accept")) activity.runOnUiThread(activity::finish);
     else if (!decision.equals("Cancel") && !decision.equals("Defer"))
       throw new IllegalArgumentException("Invalid back decision");
   }
 
-  @V8Function
+  @HostFunction
   public String camera(String operation, String args) {
     return cameras.call(operation, json(args)).toString();
   }
 
-  @V8Function
+  @HostFunction
   public String inference(String operation, String args) {
     return onnx.call(operation, json(args)).toString();
   }
 
-  @V8Function
+  @HostFunction
   public int audio(String operation, int id, String pcm) {
     return audio.call(operation, id, pcm);
   }
 
-  @V8Function
+  @HostFunction
   public String service(String operation, String args) {
     return services.call(operation, json(args)).toString();
   }
 
-  @V8Function
+  @HostFunction
   public void title(String title) {
     activity.runOnUiThread(() -> activity.setTitle(title));
   }
 
-  @V8Function
+  @HostFunction
   public void accessibility(String nodes) {
     JSONArray list;
     try {
@@ -442,7 +440,7 @@ public final class NativeBridge implements AutoCloseable {
         () -> activity.getWindow().getDecorView().setContentDescription(description));
   }
 
-  @V8Function
+  @HostFunction
   public String picker(String operation, String args) {
     if (pickerReady != null)
       throw new IllegalStateException("Conflict: A picker is already active");
@@ -545,7 +543,7 @@ public final class NativeBridge implements AutoCloseable {
     return object("uri", uri.toString(), "name", name, "kind", kind);
   }
 
-  @V8Function
+  @HostFunction
   public String document(String operation, String args) {
     JSONObject a = json(args);
     try {
@@ -621,18 +619,18 @@ public final class NativeBridge implements AutoCloseable {
     }
   }
 
-  @V8Function
+  @HostFunction
   public double measureText(String text, String font, double size) {
     Paint paint = paint(font, size);
     return paint.measureText(text);
   }
 
-  @V8Function
+  @HostFunction
   public String fonts() {
     return fonts.enumerate().toString();
   }
 
-  @V8Function
+  @HostFunction
   public boolean fontAvailable(String family) {
     return fonts.available(family);
   }
@@ -646,7 +644,7 @@ public final class NativeBridge implements AutoCloseable {
     return p;
   }
 
-  @V8Function
+  @HostFunction
   public String raster(String args) {
     JSONObject a = json(args);
     try {
@@ -708,7 +706,7 @@ public final class NativeBridge implements AutoCloseable {
     return out;
   }
 
-  @V8Function
+  @HostFunction
   public String image(String operation, String args) {
     JSONObject a = json(args);
     try {
@@ -780,7 +778,7 @@ public final class NativeBridge implements AutoCloseable {
     }
   }
 
-  @V8Function
+  @HostFunction
   public String storage(String operation, String key, String value) {
     try {
       File folder = new File(activity.getFilesDir(), "aquarius-store");
@@ -836,7 +834,7 @@ public final class NativeBridge implements AutoCloseable {
     }
   }
 
-  @V8Function
+  @HostFunction
   public String clipboard(String operation, String value) {
     try {
       CountDownLatch latch = new CountDownLatch(1);

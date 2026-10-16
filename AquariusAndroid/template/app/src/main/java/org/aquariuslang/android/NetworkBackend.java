@@ -11,7 +11,7 @@ import okhttp3.*;
 import okio.ByteString;
 import org.json.*;
 
-/** Bounded asynchronous I/O jobs. No network work runs on Android's UI or V8 actor thread. */
+/** Bounded asynchronous I/O jobs. No network work runs on Android's UI or Wasmtime actor thread. */
 public final class NetworkBackend implements AutoCloseable {
   private static final int MAX = 16 * 1024 * 1024;
   private final AtomicLong next = new AtomicLong();

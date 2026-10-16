@@ -1,5 +1,5 @@
 import {registerDynamicLibrary,createWasmLibrary,createJavaScriptLibrary} from './dynamic-library-core.mjs';
-export function registerAndroidDynamicLibrary(host, bridge) {
+export function registerAndroidDynamicLibrary(host, bridge, importModule = file => import('./'+file)) {
   const namespaces = new Map();
   const command = (operation, args) => JSON.parse(bridge.dynamicLibrary(operation, JSON.stringify(args)));
   registerDynamicLibrary(host, {
@@ -9,9 +9,8 @@ export function registerAndroidDynamicLibrary(host, bridge) {
         const file=host.modelAsset(path).asset;
         if(!/^asset-[a-f0-9]{64}\.(mjs|js)$/.test(file))throw Error('Invalid packaged module');
         let loaded=namespaces.get(file);
-        if(!loaded){bridge.importLibrary(file);loaded=globalThis.__aquaImportedLibrary;delete globalThis.__aquaImportedLibrary;namespaces.set(file,loaded);}
-        await loaded.ready;
-        return createJavaScriptLibrary(loaded.namespace);
+        if(!loaded){loaded=importModule(file);namespaces.set(file,loaded);}
+        return createJavaScriptLibrary(await loaded);
       }
       if (/\.wasm$/i.test(path)) return createWasmLibrary(host.asset(path));
       const {id} = command('open', {path}); let closed = false;

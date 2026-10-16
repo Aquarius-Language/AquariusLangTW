@@ -2,7 +2,7 @@
 
 以 C# 實作的編譯式程式語言，支援繁體中文關鍵字、Unicode 變數與函式名稱。
 原始碼經詞法分析、語法分析與編譯後，產生標準 **WebAssembly（`.wasm`）**；
-桌面由 **Wasmtime** 執行，瀏覽器由內建 WebAssembly 引擎執行，Android 使用原生 Java 主機與 V8 / WebAssembly；同一份編譯成果可輸出網站、獨立 EXE 與原生 APK。
+桌面與 Android 由 **Wasmtime** 執行，瀏覽器由內建 WebAssembly 引擎執行，Android 使用原生 Java 能力主機；同一份編譯成果可輸出網站、獨立 EXE 與原生 APK。
 
 作者：林天牧 / Temple Lin
 

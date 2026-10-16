@@ -28,6 +28,8 @@ final class KeyboardView extends EditText {
   @Override
   public InputConnection onCreateInputConnection(EditorInfo info) {
     InputConnection base = super.onCreateInputConnection(info);
+    // The renderer owns the editing UI; Android's extracted fullscreen editor would hide it.
+    info.imeOptions |= EditorInfo.IME_FLAG_NO_EXTRACT_UI | EditorInfo.IME_FLAG_NO_FULLSCREEN;
     if (base == null) return null;
     return new InputConnectionWrapper(base, true) {
       @Override

@@ -44,7 +44,9 @@ public class AndroidBuildTest
         Assert.Equal(original.WithExternalAssets().Bytes.ToArray(), deployed.Bytes.ToArray());
         Assert.Equal("", deployed.Metadata.Assets["assets/字.txt"]);
         Assert.True(File.Exists(Path.Combine(output, "gradle/wrapper/gradle-wrapper.jar")));
-        Assert.Contains("com.caoccao.javet", File.ReadAllText(Path.Combine(output, "app/build.gradle")));
+        Assert.DoesNotContain("javet", File.ReadAllText(Path.Combine(output, "app/build.gradle")), StringComparison.OrdinalIgnoreCase);
+        Assert.False(File.Exists(Path.Combine(output, "app/src/main/assets/aquarius/icudtl.dat")));
+        Assert.True(File.Exists(Path.Combine(output, "app/src/main/assets/aquarius/wasmtime.js")));
         Assert.DoesNotContain("WebView", File.ReadAllText(Path.Combine(output, "app/src/main/java/org/aquariuslang/android/AquariusActivity.java")));
         using var json = JsonDocument.Parse(File.ReadAllText(Path.Combine(output, "app/src/main/assets/aquarius/program.json")));
         Assert.Equal("main.aqua", json.RootElement.GetProperty("entry").GetString()); Assert.True(json.RootElement.GetProperty("assets").TryGetProperty("assets/字.txt", out _));

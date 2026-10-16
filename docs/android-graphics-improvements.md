@@ -1,5 +1,7 @@
 # Android graphics improvements — 2026-10-14
 
+These measurements used the earlier Javet/V8 runtime. Android now uses Wasmtime with a QuickJS capability host; the figures below have not been remeasured for that engine migration.
+
 The Android renderer now records ordered binary drawing batches, reuses GPU upload storage, retains sphere meshes, and configures the presentation surface only when needed. The Aquarius drawing API, Wasm engine, and native wgpu/Vulkan backend remain in place.
 
 On the same Samsung SM-A5360 running Android 16, Snake improved from a fresh **1.49 FPS** baseline to **37.88 FPS** after warmup. This is approximately **25.4× higher presentation throughput**. These numbers describe Snake's initial screen on this phone; other applications still need their own performance measurements.
@@ -27,7 +29,7 @@ The earlier [diagnostics](android-graphics-diagnostics.md) measured 1.40 FPS in 
 
 - [gpu-commands.mjs](../AquariusAndroid/template/app/src/main/assets/aquarius/gpu-commands.mjs) records clears, dynamic draws, and immutable mesh draws in a bounded, little-endian binary stream. Compatible adjacent complete primitives merge while retaining their vertex order and uniform snapshots. Clear, target, texture, clip, blend, and uniform changes retain their ordering boundaries.
 - [android-gpu.mjs](../AquariusAndroid/template/app/src/main/assets/aquarius/android-gpu.mjs) sends the stream when a flush is required. Texture writes, resource disposal, offscreen sampling, readback, compute, polling, and presentation flush earlier drawing. Resource descriptors still use small JSON messages; GPU uploads no longer use base64 strings.
-- [NativeBridge](../AquariusAndroid/template/app/src/main/java/org/aquariuslang/android/NativeBridge.java) passes Javet typed-array buffers and their actual byte offset/length to JNI. The native call consumes the view synchronously. Pending GPU work retains wgpu-owned uploaded data, never a V8 pointer.
+- [NativeBridge](../AquariusAndroid/template/app/src/main/java/org/aquariuslang/android/NativeBridge.java) passes typed-array views and their actual byte offset/length to JNI. The native call consumes the view synchronously. Pending GPU work retains wgpu-owned uploaded data, never a JavaScript heap pointer.
 - [gpu.cpp](../AquariusAndroid/template/app/src/main/cpp/gpu.cpp) uses three reusable upload-storage slots with aligned dynamic uniform offsets and bounded bind-group caches. Each binary batch uses one command encoder and retains render passes across compatible draws. Targets keep their attachment views. Full pixel uploads initialize render targets so the first later draw preserves those pixels.
 - Surface configuration is cached by surface generation and extent, with recovery for outdated/lost/suboptimal acquisitions. Rotation and surface replacement invalidate the cache; ordinary presentation does not recreate the swapchain.
 - [processing.mjs](../AquariusCore/hosting/processing.mjs) combines stroke segments into one mesh. Android caches sphere geometry by radius, detail, and fill color, with a bounded cache and eviction flushes. Model/view/projection and lighting uniforms remain per draw. Arbitrary mutable retained shapes continue through the dynamic path.

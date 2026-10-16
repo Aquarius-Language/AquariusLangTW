@@ -608,7 +608,7 @@ void drawBatch(Device& d, ByteSpan bytes) {
       vertexOffset += c.vertexBytes; index++;
     }
     // Queue writes are ordered after earlier submissions. Only wgpu owns the
-    // uploaded copies; neither JNI nor the queued work retains a V8 pointer.
+    // uploaded copies; neither JNI nor queued work retains a JavaScript heap pointer.
     if (vertexSize) wgpuQueueWriteBuffer(d.queue, storage->vertex, 0, storage->vertexData.data(), vertexSize);
     wgpuQueueWriteBuffer(d.queue, storage->uniforms, 0, storage->uniformData.data(), uniformSize);
     wgpuQueueWriteBuffer(d.queue, storage->user, 0, storage->userData.data(), userSize);

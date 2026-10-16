@@ -9,7 +9,7 @@ validation, ownership, bilingual registration and editor metadata. Import
 | Windows x64 | `windows` | `.dll`, `.mjs`, `.js`, `.wasm` | NativeLibrary / ClearScript V8 / Wasmtime |
 | Linux x64 | `linux` | `.so`, `.mjs`, `.js`, `.wasm` | NativeLibrary / ClearScript V8 / Wasmtime |
 | macOS desktop host | `macos` | `.dylib`, `.mjs`, `.js`, `.wasm` | NativeLibrary / ClearScript V8 / Wasmtime |
-| Android arm64-v8a, x86_64 | `android` | `.so`, `.mjs`, `.js`, `.wasm` | JNI dlopen / Javet ES modules and WebAssembly |
+| Android arm64-v8a, x86_64 | `android` | `.so`, `.mjs`, `.js`, `.wasm` | JNI dlopen / QuickJS ES modules / Wasmtime |
 | Frontend web | `web` | `.js`, `.mjs`, `.wasm` | ES module import / browser WebAssembly |
 
 ```text

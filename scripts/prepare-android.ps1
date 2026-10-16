@@ -35,11 +35,5 @@ foreach ($spec in @(
 foreach ($license in @('LICENSE.APACHE','LICENSE.MIT')) {
     Invoke-WebRequest "https://raw.githubusercontent.com/gfx-rs/wgpu-native/v29.0.1.1/$license" -OutFile (Join-Path $template "assets/aquarius/WGPU-$license.txt")
 }
-$icu = Join-Path $template 'assets/aquarius/icudtl.dat'
-if (-not (Test-Path -LiteralPath $icu)) {
-    $encoded = Join-Path $cache 'icudtl.base64'
-    Invoke-WebRequest 'https://chromium.googlesource.com/chromium/deps/icu/+/d578f2e8b7bd5938e21cfb6bf15c079e0aa5b738/common/icudtl.dat?format=TEXT' -OutFile $encoded
-    [IO.File]::WriteAllBytes($icu,[Convert]::FromBase64String([IO.File]::ReadAllText($encoded)))
-}
-if ((Get-FileHash -LiteralPath $icu -Algorithm SHA256).Hash -ne '9F48C7F9C7C94D516A14870707E910AB94D75AE640FF6842C4AF53276CD26EBE') { throw 'V8 15.2.124.17 ICU checksum mismatch.' }
-Write-Output 'Prepared native Android WebGPU libraries and Unicode data for arm64-v8a and x86_64.'
+& (Join-Path $PSScriptRoot 'prepare-android-runtime.ps1') -Ndk $Ndk
+Write-Output 'Prepared native Android WebGPU and Wasmtime for arm64-v8a and x86_64.'

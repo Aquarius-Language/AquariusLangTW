@@ -39,7 +39,7 @@ numeric types, and reacquires the view when mixed or nested values grow memory.
 
 Processing converts RGBA/ARGB directly, without allocating temporary arrays per
 pixel. One-to-one canvas snapshots copy the byte buffer directly. Android GPU
-readback returns a Java byte array through Javet's owned Int8Array conversion; the
+readback returns a Java byte array through JNI's owned Uint8Array conversion; the
 adapter exposes its underlying bytes as Uint8Array. No base64 strings are created
 for GPU texture or compute-buffer readback.
 

@@ -10,7 +10,7 @@ const androidAdapter = readFileSync(new URL('../../AquariusAndroid/template/app/
 const {registerAndroidDynamicLibrary} = await import('data:text/javascript;base64,'+Buffer.from(androidAdapter).toString('base64'));
 const fixture = readFileSync(new URL('../../AquariusTests/linking/fixtures/showcase.wasm', import.meta.url));
 
-for (const extension of ['mjs','js']) test(`Android ${extension} modules await native evaluation and retain independent factory state`, async () => {
+for (const extension of ['mjs','js']) test(`Android ${extension} modules await ES module evaluation and retain independent factory state`, async () => {
   const module = {}, file = `asset-${'a'.repeat(64)}.${extension}`;
   let imported = 0, created = 0, released = 0, ready;
   const host = {
@@ -18,20 +18,16 @@ for (const extension of ['mjs','js']) test(`Android ${extension} modules await n
     set:(target,name,value)=>{target[name]=value;},
     bind:(target,group,name,fn)=>{target[name]=fn;}, modelAsset:()=>({asset:file})
   };
-  const bridge = {importLibrary(name) {
+  const importModule = name => {
     assert.equal(name,file); imported++;
-    globalThis.__aquaImportedLibrary = {
-      ready:new Promise(resolve=>{ready=resolve;}),
-      namespace:{aqua_library_abi:()=>1,aqua_create_library:()=>{
+    return new Promise(resolve=>{ready=()=>resolve({aqua_library_abi:()=>1,aqua_create_library:()=>{
         created++; let calls=0;
         return {counter:()=>new Uint8Array([++calls]),aqua_dispose(){released++;}};
-      }}
-    };
-  }};
-  registerAndroidDynamicLibrary(host,bridge);
+      }});});
+  };
+  registerAndroidDynamicLibrary(host,{},importModule);
   const loading=module.Load('/bottles/example/library.'+extension);
   await Promise.resolve(); assert.equal(created,0); assert.equal(imported,1);
-  assert.equal(Object.hasOwn(globalThis,'__aquaImportedLibrary'),false);
   ready(); const first=await loading, second=await module.Load('/bottles/example/library.'+extension);
   assert.equal(imported,1); assert.equal(created,2);
   assert.equal((await first.Invoke('counter',[]))[0].value,1);

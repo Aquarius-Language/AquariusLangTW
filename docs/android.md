@@ -2,8 +2,8 @@
 
 `AquariusAndroid` 是獨立的建置後端，透過既有 `IWasmBuildTarget` 註冊於 CLI。
 Android 的 Java Activity、Camera2、AudioTrack、文件選擇器及 JNI WebGPU 主機直接使用 Android API。
-程式仍在 V8 的 WebAssembly 引擎執行，圖學使用 wgpu-native 的 Vulkan 後端；沒有 WebView。
-圖學呼叫先記錄為保留順序的二進位批次，再透過 Javet typed array 與 JNI 送往原生 GPU 主機。
+程式由 Wasmtime 48.0.2 執行，共用 JavaScript 能力主機使用 QuickJS-NG 0.17.0，圖學使用 wgpu-native 的 Vulkan 後端；沒有 WebView。
+圖學呼叫先記錄為保留順序的二進位批次，再透過 typed array 的直接記憶體檢視與 JNI 送往原生 GPU 主機。
 主機重用頂點與 uniform 儲存、快取球面網格，並在尺寸或 surface 改變時才重新設定呈現；畫面更新使用 Choreographer 與實際影格期限。
 效能測量與驗證方式見[Android 圖學改善紀錄](android-graphics-improvements.md)。既有產生專案需重新產生，才能取得更新的主機程式。
 Android 部署會保留相同的 Wasm 執行區段，將封裝資源外置為 APK assets，避免大型 ONNX 模型在 JSON / base64 間重複佔用 Java 堆積。
@@ -39,9 +39,9 @@ npm run --prefix AquariusWebCompiler prepare:browser
 dotnet build AquariusLang.sln -m:1
 ```
 
-準備腳本驗證 wgpu-native 29.0.1.1 下載雜湊，使用 NDK r28c 編譯 JNI，並準備 Javet 6.0.2 / V8 15.2.124.17 對應的 ICU Unicode 資料。
+準備腳本驗證 wgpu-native 29.0.1.1、Wasmtime 48.0.2 與 QuickJS-NG 0.17.0 的下載雜湊，使用 NDK r28c 編譯 JNI。需先安裝 Rust stable 與 `rustup target add aarch64-linux-android x86_64-linux-android`；Wasmtime 使用上游鎖定的 Cargo 相依套件。Unicode 分詞直接使用 Android ICU，不再封裝 V8 ICU 資料。
 這些產物不提交 Git。發行的編譯器將它們嵌入，使用者產生專案時不需要 Node、NDK 或原始碼。
-若要修改 JNI，可設定 `AQUARIUS_ANDROID_BUILD_NATIVE=1`、`AQUARIUS_ANDROID_NDK`，並安裝 CMake 3.22.1。
+若要修改 GPU JNI，可設定 `AQUARIUS_ANDROID_BUILD_NATIVE=1`、`AQUARIUS_ANDROID_NDK`，並安裝 CMake 3.22.1。Wasmtime / QuickJS 配接器的變更則重新執行 `scripts/prepare-android-runtime.ps1 -Ndk ...`，再重建編譯器與 APK。
 
 ## 能力與架構
 
@@ -111,8 +111,8 @@ node --test AquariusAndroid/tests/*.test.mjs
 ```
 
 `test-android.ps1` 支援 `-ProjectRoots`，額外驗證範例專案；`-Emulator` 會實際安裝、執行並檢查成功、錯誤及原生崩潰紀錄。
-預設案例涵蓋語言、共用能力、Processing、響應式色彩及文字輸入、文件與影像、Jolt、WGPU 繪圖與計算，以及模組與路徑匯入。
-APK 冒煙測試也執行 Java 的相機平面、旋轉、模組快取回歸測試；`-DeviceServices` 僅在可供自動化的測試模擬器使用，會授予測試 APK 相機權限並注入輸入事件。
+預設案例涵蓋 Wasmtime 回呼與重新進入、記憶體增長、表格、全域值、BigInt、陷阱與模組身分，以及語言、共用能力、Processing、響應式色彩及文字輸入、文件與影像、Jolt、WGPU 繪圖與計算、模組與路徑匯入。
+APK 冒煙測試也執行 Java 的相機平面、旋轉與材質回歸測試；`-DeviceServices` 僅在可供自動化的測試模擬器使用，會授予測試 APK 相機權限並注入輸入事件。
 `-CaseNames` 可選擇個別案例。原生 ONNX CPU 的姿態與臉部驗證也可使用 `--entry 姿態驗證.aqua` / `臉部驗證.aqua` 建置執行。
 以 Vulkan 啟用的 API 35 系統映像測試 GPU；GFXStream 在模擬器上需要接受不完整 conformance 的測試裝置，實機仍使用標準裝置篩選。
 API 37 預覽映像的 GFXStream 驅動在 GPU readback 發生原生崩潰，因此不作為此版本的 GPU 驗證基準。
@@ -124,4 +124,4 @@ Processing / wgpu 在直向螢幕改為上下排列，點擊或空白鍵可暫�
 `node AquariusWebCompiler/tests/mobile-smoke.mjs` 在 412 × 915 與 915 × 412 驗證畫面、可見內容及瀏覽器錯誤，並儲存截圖。
 以 `AQUARIUS_MOBILE_PROJECT_ROOT` 指定包含建置後網頁的範例專案目錄，`AQUARIUS_MOBILE_CASES` 可指定逗號分隔的專案名稱。
 
-本次建置、裝置及行動網頁的結果與七個原始專案 APK 路徑，見[驗證紀錄](android-validation.md)。
+Wasmtime 的單元測試、模擬器驗證與七個原始專案 APK，見[目前驗證紀錄](android-wasmtime-validation.md)。較早的裝置與行動網頁結果保留於[歷史紀錄](android-validation.md)。
