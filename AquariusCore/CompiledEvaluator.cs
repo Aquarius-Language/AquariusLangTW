@@ -7,7 +7,7 @@ using AquariusLang.Wasm;
 namespace AquariusLang.Compiler;
 
 /// <summary>Compile-and-run convenience API for interactive hosts. No AST or instruction interpreter is used.</summary>
-public sealed class CompiledEvaluator
+public sealed class CompiledEvaluator : System.IDisposable
 {
     private static readonly ConditionalWeakTable<INode, WasmProgram> compiled = new();
     private readonly WasmRuntime runtime;
@@ -25,4 +25,5 @@ public sealed class CompiledEvaluator
     }
     public IObject Invoke(IObject function, params IObject[] arguments) => runtime.Invoke(function, arguments);
     public ErrorObj NewError(string message) => new(message);
+    public void Dispose() => runtime.Dispose();
 }

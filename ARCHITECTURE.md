@@ -6,6 +6,8 @@ the desktop HTTP(S) server are documented in [Network / 網路](docs/networking.
 攝影機的核心抽象、桌面與網頁配接器、生命週期及驗證方式見 [攝影機架構指南](docs/webcam.md)。
 ONNX Runtime 的雙語契約、WebGPU 配接器、模型封裝及擴充方式見 [推論架構指南](docs/onnx.md)。
 
+The [Thread / 執行緒 library](docs/threading.md) runs snapshot-isolated functions on desktop OS threads, browser Web Workers and Android native Wasmtime workers, with cancellation, joins and portable result graphs.
+
 This document describes the current implementation. The
 [remaining Wasm migration work](docs/wasm-architecture-migration.md) tracks moving
 language execution and portable libraries into Wasm, removing unnecessary C#/.NET

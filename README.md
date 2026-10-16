@@ -8,6 +8,7 @@
 
 Linux x86_64／WSL2 的建置、測試與獨立執行檔輸出：見 [Linux 桌面指南](docs/linux.md)。
 
+- **多執行緒**：[Thread／執行緒](docs/threading.md)以函式啟動獨立工作，提供逾時等待、結果、取消與安全關閉，支援桌面、網頁及 Android；見[雙語範例](examples/threading/README.md)。
 - **統一入口**：`aqua` 提供編譯、桌面執行、網頁輸出與互動模式（REPL）。
 - **跨平台網路**：[Network／網路](docs/networking.md)提供雙語 HTTP(S)、Cookie、可取消請求、WebSocket、原生 TCP／TLS／UDP，以及桌面的路由、HTTPS、公開前端、SSE 和工作階段；見[繁體中文前後端範例](examples/network_lab/README.md)。
 - **專案與第三方套件**：[Bottle / TOML 專案管理](AquariusBottle/README.md)提供 `aqua new`、`aqua bottle install/restore/uninstall`、本機／GitHub 安裝、版本鎖定、全域快取與相依資產封裝；見 [可執行範例](examples/bottle_showcase/README.md)。

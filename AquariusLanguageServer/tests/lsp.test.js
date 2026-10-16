@@ -11,6 +11,16 @@ const os = require('node:os');
 const server = process.env.AQUARIUS_SERVER || path.resolve(__dirname, '../bin/Release/net8.0/AquariusLanguageServer.dll');
 const uri = 'file:///test/example.aqua';
 
+test('Thread and 執行緒 provide bilingual completion, import aliases and shadowing', async t => {
+  const s = new Session(t); await s.initialize();
+  for (const [source,line,column] of [['Thread.',0,7],['執行緒.',0,4],['變數 t=匯入("執行緒");\nt.',1,2]]) {
+    await s.open(source);const items=await s.feature('completion',line,column);
+    for (const name of ['Start','啟動','Wait','等待','Result','結果','Cancel','取消','Close','關閉','Sleep','休眠','IsDone','是否完成','IsCancellationRequested','是否要求取消']) assert.ok(items.some(item=>item.label===name),name);
+  }
+  await s.open('變數 Thread=1;\nThread.');
+  assert.equal((await s.feature('completion',1,7)).length,0);
+});
+
 test('network results expose bilingual fields, nested errors and optional platform capabilities', async t => {
   const s = new Session(t); await s.initialize();
   await s.open('變數 網路=匯入("網路");變數 回應=網路.取得("https://example.com");\n回應.');

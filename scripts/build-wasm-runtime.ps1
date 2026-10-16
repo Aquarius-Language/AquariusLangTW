@@ -13,6 +13,7 @@ $env:ZIG_GLOBAL_CACHE_DIR = Join-Path $repository '.native-build/zig-cache'
 $env:ZIG_LOCAL_CACHE_DIR = Join-Path $repository '.native-build/zig-local-cache'
 $runtimeSource = Join-Path $repository 'AquariusCore/wasm/runtime/runtime.c'
 $sourceText = Get-Content -LiteralPath $runtimeSource -Raw
+$sourceText += Get-Content -LiteralPath (Join-Path (Split-Path $runtimeSource) 'threads.h') -Raw
 $exports = @([regex]::Matches($sourceText, '\b(?:u32|int)\s+((?:aqua_|rt_)\w+)\s*\(') | ForEach-Object { '-Wl,--export=' + $_.Groups[1].Value })
 $exports += @('add','subtract','multiply','divide','less','greater','lessEqual','greaterEqual','equal','notEqual','and','or') | ForEach-Object { '-Wl,--export=rt_' + $_ }
 & $Compiler cc --target=wasm32-freestanding -O3 -g0 -std=c11 -fno-builtin -mbulk-memory -nostdlib `

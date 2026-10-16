@@ -6,7 +6,7 @@ using System.Runtime.CompilerServices;
 namespace AquariusLang.Compiler;
 
 /// <summary>Convenience host API for compiled programs and the compiler's intermediate representation.</summary>
-public sealed class CompiledRuntime
+public sealed class CompiledRuntime : System.IDisposable
 {
     private static readonly ConditionalWeakTable<LoweredProgram, WasmProgram> compiled = new();
     private readonly WasmRuntime runtime;
@@ -14,4 +14,5 @@ public sealed class CompiledRuntime
     public IObject Execute(LoweredProgram program, AquariusLang.Object.Environment? environment = null) => runtime.Execute(compiled.GetValue(program, p => new WasmCompiler().Compile(p)), environment);
     public IObject Execute(WasmProgram program, AquariusLang.Object.Environment? environment = null, string? entry = null) => runtime.Execute(program, environment, entry);
     public IObject Invoke(IObject function, params IObject[] arguments) => runtime.Invoke(function, arguments);
+    public void Dispose() => runtime.Dispose();
 }

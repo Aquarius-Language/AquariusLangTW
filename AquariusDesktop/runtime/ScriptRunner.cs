@@ -18,6 +18,7 @@ public class ScriptRunner {
     public static void REPL() {
         var environment = Environment.NewEnvironment();
         using DesktopBuiltins desktopBuiltins = newDefaultBuiltins("");
+        using CompiledEvaluator evaluator = CompiledEvaluator.NewInstance(desktopBuiltins);
         
         while (true) {
             Console.Write(PROMPT);
@@ -33,7 +34,6 @@ public class ScriptRunner {
                 continue;
             }
 
-            CompiledEvaluator evaluator = CompiledEvaluator.NewInstance(desktopBuiltins);
             IObject evaluated = evaluator.Eval(tree, environment);
             
             /*
@@ -62,7 +62,7 @@ public class ScriptRunner {
             printParserErrors(lexer.Errors.Select(error => error.Message).Concat(parser.Errors).ToArray());
             return new ErrorObj(string.Join("\n", lexer.Errors.Select(error => error.Message).Concat(parser.Errors)));
         }
-        CompiledEvaluator evaluator = CompiledEvaluator.NewInstance(desktopBuiltins);
+        using CompiledEvaluator evaluator = CompiledEvaluator.NewInstance(desktopBuiltins);
         IObject evaluated = evaluator.Eval(tree, Environment.NewEnvironment());
         if (evaluated != null) {
             Console.WriteLine(evaluated.Inspect());

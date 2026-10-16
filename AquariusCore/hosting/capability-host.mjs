@@ -47,6 +47,7 @@ export class CapabilityHost {
   async loadTexture(device,descriptor,path){return device.createTexture(descriptor,await this.textureData(descriptor,path));}
   async textureData(descriptor,path){return decodeTextureDataAsync(descriptor,this.asset(path),this.signal);}
   async dispose(){
+    await this.runtime.dispose?.();
     this.network?.dispose();
     this.runtime.cancelled=true;
     try{await this.dynamicLibraries?.dispose();}

@@ -21,7 +21,10 @@ public sealed class WasmtimeEngine : IWasmEngine
     }
     private static readonly ConditionalWeakTable<byte[], Wasmtime.Module> Modules = new();
     [ModuleInitializer]
-    public static void Register() => WasmRuntime.EngineFactory ??= () => new WasmtimeEngine();
+    public static void Register() {
+        WasmRuntime.EngineFactory ??= () => new WasmtimeEngine();
+        WasmRuntime.ThreadBackendFactory ??= () => new DesktopThreadBackend();
+    }
     public IWasmInstance Instantiate(ReadOnlyMemory<byte> bytes, IReadOnlyDictionary<string, Delegate> imports) => new Execution(bytes, imports);
     private sealed class Execution : IWasmInstance
     {

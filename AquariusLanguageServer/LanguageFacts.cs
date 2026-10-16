@@ -42,6 +42,7 @@ internal static class LanguageFacts
         }
         result["currWorkingDir"] = result["目前工作目錄"];
         result["陣列"] = result["Array"] = "陣列 / Array — Built-in portable array module: Make, Grow, Append, Copy, Clone, Slice, Fill, Delete, Reverse, Index and Contains.";
+        result["執行緒"] = result["Thread"] = "執行緒 / Thread — Isolated function workers: 啟動 / Start, 等待 / Wait, 結果 / Result, 取消 / Cancel, 關閉 / Close, 是否完成 / IsDone, 休眠 / Sleep, 是否要求取消 / IsCancellationRequested.";
         return result;
     }
 }

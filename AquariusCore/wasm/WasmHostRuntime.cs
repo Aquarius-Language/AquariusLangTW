@@ -13,9 +13,10 @@ using AquaEnvironment = AquariusLang.Object.Environment;
 namespace AquariusLang.Wasm;
 
 /// <summary>Native capability adapter. Values, scopes and script execution live in Wasm.</summary>
-public sealed class WasmRuntime : IDisposable
+public sealed partial class WasmRuntime : IDisposable
 {
     public static Func<IWasmEngine>? EngineFactory { get; set; }
+    public static Func<AquariusLang.Threading.IThreadBackend>? ThreadBackendFactory { get; set; }
     private static readonly ConditionalWeakTable<FunctionObj, Callable> Callables = new();
     private static readonly ConditionalWeakTable<IObject, Origin> Origins = new();
     [ThreadStatic] private static List<Session>? active;
@@ -79,7 +80,7 @@ public sealed class WasmRuntime : IDisposable
         }
         return seen;
     }
-    private sealed class Session : IDisposable
+    private sealed partial class Session : IDisposable
     {
         internal readonly WasmProgram Program;
         private readonly IWasmInstance instance;
@@ -107,6 +108,7 @@ public sealed class WasmRuntime : IDisposable
         private readonly Dictionary<int, List<WeakReference<AquaEnvironment>>> arrayOwners = new();
         internal Session(WasmProgram program, IWasmEngine engine, int quantum)
         {
+            this.engine = engine;
             this.quantum = quantum;
             // Native callback GC handles must not root the owning session forever.
             // Active executions and exported closures provide its actual lifetime.
@@ -127,6 +129,7 @@ public sealed class WasmRuntime : IDisposable
         public void Dispose()
         {
             if (disposed) return;
+            CloseThreads();
             disposed = true; instance?.Dispose();
             contexts.Clear(); contextIds.Clear(); natives.Clear(); nativeIds.Clear(); texts.Clear();
             objects.Clear(); scopeLeases.Clear(); leases.Clear(); projectedScopes.Clear();
@@ -256,9 +259,14 @@ public sealed class WasmRuntime : IDisposable
         }
         private int Service(int operation, int context, int subject, int name, int arguments, int count, int output)
         {
+            if (operation == 4) return ThreadService(subject, arguments, count, output);
             if (operation == 0) { string key = Text(name); var builtin = contexts[context];
+                if (key is "import" or "匯入" && !builtin.BuiltinFuncs.ContainsKey(key)) {
+                    Write(output, new BuiltinObj(args => args.Length == 1 && args[0] is StringObj { Value: "Thread" or "執行緒" } ? new ThreadModule() : new ErrorObj("Module not found."))); return 0;
+                }
                 if (builtin.BuiltinFuncs.TryGetValue(key, out var function)) {
                     if (key is "import" or "匯入") function = new BuiltinObj(args => {
+                        if (args.Length == 1 && args[0] is StringObj { Value: "Thread" or "執行緒" }) return new ThreadModule();
                         if (args.Length == 1 && args[0] is StringObj text &&
                             AquariusLang.Graphics.PortableGraphicsLibraries.Modules.TryGetValue(text.Value, out var path)) {
                             if (!Program.Metadata.Modules.TryGetValue(path, out int index)) return new ErrorObj("Core library was not linked. Include a literal import of " + text.Value + ".");
@@ -285,6 +293,7 @@ public sealed class WasmRuntime : IDisposable
         private void Write(int address, IObject? value)
         {
             switch (value) {
+                case ThreadModule: WriteRaw(address, 9, Call("aqua_thread_module")); return;
                 case null: WriteRaw(address, 0); return;
                 case IntegerObj n: WriteRaw(address, 1, number: n.Value); return;
                 case FloatObj n: WriteRaw(address, 2, number: n.Value); return;
@@ -318,7 +327,7 @@ public sealed class WasmRuntime : IDisposable
             switch (tag) { case 0: return null; case 1: return new IntegerObj((int)number); case 2: return new FloatObj((float)number); case 3: return new DoubleObj(number);
                 case 4: return number != 0 ? RepeatedPrimitives.TRUE : RepeatedPrimitives.FALSE; case 5: return new StringObj(Text(reference)); case 10: return natives[reference];
                 case 11: return RepeatedPrimitives.NULL; case 12: return RepeatedPrimitives.BREAK; case 13: return new ErrorObj(Text(reference));
-                case 14: return contexts.SelectMany(c => c.BuiltinFuncs.Values).FirstOrDefault(f => f.PortableId == reference) ?? ArrayLibrary.Resolve(reference) ?? throw new InvalidOperationException("Unknown portable builtin."); }
+                case 14: return contexts.SelectMany(c => c.BuiltinFuncs.Values).FirstOrDefault(f => f.PortableId == reference) ?? ArrayLibrary.Resolve(reference) ?? AquariusLang.Threading.ThreadCatalog.Resolve(reference) ?? throw new InvalidOperationException("Unknown portable builtin."); }
             if (objects.TryGetValue((tag, reference), out var cached) && cached.TryGetTarget(out var existing)) { if (!refreshingDirtyHashes) Refresh(tag, reference); return existing; }
             IObject result;
             switch (tag) {

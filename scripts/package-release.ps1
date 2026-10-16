@@ -1,4 +1,4 @@
-#requires -Version 5.1
+﻿#requires -Version 5.1
 # Keep this script UTF-8 with BOM so Windows PowerShell 5.1 reads Chinese literals correctly.
 param(
     [string]$Dotnet = 'dotnet',

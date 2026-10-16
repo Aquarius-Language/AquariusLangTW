@@ -41,6 +41,11 @@ those generated assets from the lockfile.
 The built-in `陣列` / `Array` module provides capacity-aware creation and in-place
 array operations directly in core Wasm. See [the bilingual API and semantics](../docs/arrays.md).
 
+`Thread` / `執行緒` provides function workers, captured snapshots, timed joins,
+cancellation and safe closing across desktop, browsers and Android. Guest helpers
+and graph transport live in Wasm; each platform owns its isolated worker engines.
+See [the bilingual threading API](../docs/threading.md).
+
 `GPUMath` / `GPU數學` compiles caller-defined WGSL rules into portable GPU workloads,
 with reusable buffers, range transfers and platform pipeline caches.
 See [the bilingual API, ABI and platform requirements](../docs/gpu-math.md).

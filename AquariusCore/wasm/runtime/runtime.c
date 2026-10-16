@@ -152,6 +152,7 @@ u32 aqua_hash_write_support(void) { return 1; }
 u32 aqua_hash_expose(u32 p) { ((Hash*)pointer(p))->exposed=1;return 0; }
 u32 aqua_take_dirty_hash(void) { Hash*h=dirty_hashes;if(!h)return 0;dirty_hashes=h->dirty_next;h->dirty_next=0;h->dirty=0;return address(h); }
 #include "arrays.h"
+#include "threads.h"
 static Frame *frame(Execution*e,Frame*parent,Program*p,u32 id,Scope*s,u32 context) {
     if(id>=p->count)__builtin_trap();Function*fn=p->functions+id;
     Frame*f=allocate(sizeof(Frame)+fn->capacity*sizeof(Value),FRAMES);f->parent=parent;f->execution=e;f->program=p;f->function=fn;f->scope=s;f->context=context;f->capacity=fn->capacity;u32 cached=fn->wrap_return>>1;if(cached)f->binding_cache=allocate(cached*8,RAW);return f;
@@ -169,6 +170,15 @@ u32 aqua_invoke(u32 closure,u32 arguments,u32 count) {
     e->current->scope->captured=0;
     Function*fn=e->current->function;if(count!=fn->arity){failure(e->current,"Incorrect callback argument count.");return address(e);}
     Value*a=pointer(arguments);for(u32 i=0;i<count;i++)declare(e->current->scope,fn->parameters[i],a[i]);return address(e);
+}
+u32 aqua_thread_enter(u32 closure,u32 arguments,u32 count) {
+    executions=0;pins=0;memset(builtin_scopes,0,sizeof(builtin_scopes));builtin_context_count=0;
+    return aqua_invoke(closure,arguments,count);
+}
+u32 aqua_thread_snapshot_size(void) { return heap_end; }
+u32 aqua_thread_reserve(u32 n) {
+    u32 available=(u32)__builtin_wasm_memory_size(0)*65536;
+    if(n>available&&__builtin_wasm_memory_grow(0,(n-available+65535)/65536)==(size_t)-1)__builtin_trap();return 0;
 }
 u32 aqua_result(u32 e) { return address(&((Execution*)pointer(e))->result); }
 u32 aqua_status(u32 e) { return ((Execution*)pointer(e))->status; }
@@ -194,9 +204,11 @@ int rt_null(Frame*f,int n) { push(f,value(NULL_VALUE,0,0));return 0; }
 int rt_pop(Frame*f,int n) { pop(f);return 0; }
 int rt_duplicate(Frame*f,int n) { push(f,peek(f,1));return 0; }
 int rt_load(Frame*f,int n) { Binding*b=cached_binding(f,n);if(!b&&f->context<65536&&builtin_scopes[f->context])b=find_owned(builtin_scopes[f->context],name(f,n));if(b)push(f,b->value);else {Value v=empty;Text*t=name(f,n);int status;
-    if(text_is(t,u"Array")||text_is(t,u"陣列")){v=value(MODULE,address(array_library()),0);status=0;}else status=host_service(0,f->context,0,address(t),0,0,address(&v));
+    if(text_is(t,u"Thread")||text_is(t,u"執行緒")){v=value(MODULE,address(thread_library()),0);status=0;}
+    else if(text_is(t,u"Array")||text_is(t,u"陣列")){v=value(MODULE,address(array_library()),0);status=0;}else status=host_service(0,f->context,0,address(t),0,0,address(&v));
     if(status)named_failure(f,"Identifier not found: ",t);else {if(f->context<65536){if(!builtin_scopes[f->context]){builtin_scopes[f->context]=scope(0);builtin_contexts[builtin_context_count++]=f->context;}declare(builtin_scopes[f->context],t,v);
         if(text_is(t,u"Array"))declare(builtin_scopes[f->context],utf16(u"陣列"),v);else if(text_is(t,u"陣列"))declare(builtin_scopes[f->context],utf16(u"Array"),v);
+        if(text_is(t,u"Thread"))declare(builtin_scopes[f->context],utf16(u"執行緒"),v);else if(text_is(t,u"執行緒"))declare(builtin_scopes[f->context],utf16(u"Thread"),v);
     }push(f,v);}}return 0; }
 int rt_declare(Frame*f,int n) { declare(f->scope,name(f,n),pop(f));push(f,empty);return 0; }
 int rt_assign(Frame*f,int n) { Value v=pop(f);pop(f);Binding*b=cached_binding(f,n);if(!b)named_failure(f,"Identifier not found: ",name(f,n));else b->value=v;push(f,empty);return 0; }
@@ -235,7 +247,12 @@ static Value flood_fill(Frame*f,Value*args) {
 }
 int rt_call(Frame*f,int n) {
     if(n<0||(u32)n>=f->sp){failure(f,"Invalid compiled call.");return 0;}u32 base=f->sp-n-1;Value callee=f->values[base];Value*args=f->values+base+1;
-    if(callee.tag==BUILTIN&&callee.ref>=6){Value out=array_call(f,callee.ref,args,n);f->sp=base;push(f,out);}
+    if(callee.tag==BUILTIN&&callee.ref>=100&&callee.ref<=107){
+        if(!thread_arguments(f,callee.ref,args,n))return 0;
+        Value out=empty;int pending=host_service(4,f->context,callee.ref,0,address(args),n,address(&out));f->sp=base;
+        if(pending==1){f->pending_base=base;f->pending_count=n+1;f->execution->status=2;}else push(f,out);
+    }
+    else if(callee.tag==BUILTIN&&callee.ref>=6){Value out=array_call(f,callee.ref,args,n);f->sp=base;push(f,out);}
     else if(callee.tag==BUILTIN){Value out=empty;if(callee.ref<1||callee.ref>5||n!=(callee.ref==5?6:callee.ref==4?2:1)){failure(f,"Incorrect builtin argument count.");return 0;}Value a=args[0];
         if(callee.ref==5)out=flood_fill(f,args);
         else if(callee.ref==1){if(a.tag==STRING)out=number(((Text*)pointer(a.ref))->length,INT);else if(a.tag==ARRAY)out=number(((Array*)pointer(a.ref))->count,INT);else failure(f,"Length requires string or array.");}

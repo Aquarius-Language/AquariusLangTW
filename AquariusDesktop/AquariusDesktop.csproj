@@ -37,6 +37,9 @@
     <Content Include="examples/**/*"
              Exclude="examples/**/.idea/**/*"
              CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="../examples/terminal_scripts/**/*"
+             Link="examples/terminal_scripts/%(RecursiveDir)%(Filename)%(Extension)"
+             CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <InternalsVisibleTo Include="AquariusTests" />
   </ItemGroup>
 </Project>

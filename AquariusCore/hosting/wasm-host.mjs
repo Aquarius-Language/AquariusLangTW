@@ -1,8 +1,11 @@
 import {Scope,num,numeric,nativeCall,nativeOwner,isPromiseLike,portableBuiltin} from './values.mjs';
 import {validateManifest} from './wasm-manifest.mjs';
 import {arrayBuiltin} from './array-library.mjs';
+import {ThreadGroup,ThreadPacket,threadBuiltin,threadModule} from './threads.mjs';
 // Shared engine transport: Aquarius values, calls and control flow execute in Wasm.
 export class WasmRuntime {
+  get cancelled(){return this._cancelled??false;}
+  set cancelled(value){this._cancelled=value;if(value)this.program?.session.threads.cancelPending();}
   constructor(host){this.host=host;this.cancelled=false;this.executions=new Set();this.nativeRoots=new Set();this.origins=new WeakMap();}
   async ready(){
     if(this.program)return this.program;
@@ -20,6 +23,7 @@ export class WasmRuntime {
     const origin=this.origins.get(fn);if(fn?.type!=='closure'||!origin)throw new Error('Not a compiled function');if(args.length!==fn.parameters.length)throw new Error(`Function expects ${fn.parameters.length} arguments, got ${args.length}.`);
     const s=origin.session;if(!s.running.length)s.synchronizeIn();const values=s.call('aqua_allocate',args.length*16);args.forEach((v,i)=>s.write(values+i*16,v));return s.run(s.call('aqua_invoke',origin.reference,values,args.length));
   }
+  async dispose(){this.cancelled=true;if(this.program)await this.program.session.threads.dispose();}
   reachable(roots=[]){
     const seen=new Set(),pending=[],add=v=>{if(v&&(typeof v==='object'||typeof v==='function')&&!numeric(v)&&!seen.has(v)){seen.add(v);pending.push(v);}};
     for(const root of roots)add(root);for(const root of this.nativeRoots)add(root);for(const e of this.executions)for(const root of e.session.nativeReachable())add(root);
@@ -29,6 +33,7 @@ export class WasmRuntime {
 class Session {
   constructor(runtime,program){
     this.runtime=runtime;this.program=program;this.contexts=[];this.natives=[null];this.nativeIds=new WeakMap();this.freeNativeIds=[];this.objects=new Map();this.scopes=new WeakMap();this.scopeLeases=[];this.projected=new Map();this.texts=new Map();this.leases=[];this.running=[];this.reading=new Set();this.writing=new Set();
+    this.threads=new ThreadGroup(this);
   }
   async initialize(){
     this.instance=await WebAssembly.instantiate(this.program.module,{aquarius_v2:{service:(...a)=>this.service(...a)}});this.exports=this.instance.exports;this.call('aqua_initialize',this.program.metadata.heapStart);
@@ -87,7 +92,8 @@ class Session {
     }}finally{this.synchronizeOut();this.call('aqua_release_execution',pointer);this.runtime.executions.delete(state);const i=this.running.indexOf(state);if(i>=0)this.running.splice(i,1);}
   }
   service(operation,context,subject,name,arguments_,count,output){
-    if(operation===0){const n=this.text(name),builtins=this.contexts[context];if(!builtins.has(n))return 1;this.write(output,builtins.get(n));return 0;}
+    if(operation===4){const result=this.threads.call(subject,arguments_,count);if(isPromiseLike(result)){const roots=[];this.dispatchState.pending={promise:Promise.resolve(result),args:[],arguments:arguments_,roots,synchronize:false};return 1;}this.write(output,result);return 0;}
+    if(operation===0){const n=this.text(name),builtins=this.contexts[context];if(n==='import'||n==='匯入'){const fallback=builtins.get(n);this.write(output,(name)=>{if(name==='Thread'||name==='執行緒')return threadModule;if(!fallback)throw new Error('Module not found: '+name);return (fallback[nativeCall]??fallback)(name);});return 0;}if(!builtins.has(n))return 1;this.write(output,builtins.get(n));return 0;}
     if(operation===2){const m=this.natives[subject];if(m?.type!=='module')return 1;this.flushDirty(m.scope);try{const value=m.scope.get(this.text(name));this.write(output,value);this.arrayOwner(value,m.scope);return 0;}catch{return 1;}}
     if(operation===3){const m=this.natives[subject];if(m?.type!=='module')return 1;this.raw(output,9,this.scope(m.scope));return 0;}
     if(operation!==1)throw new Error('Invalid native service request');const state=this.dispatchState,fn=this.natives[subject],args=Array.from({length:count},(_,i)=>this.read(arguments_+i*16)),roots=[fn,...args];this.runtime.nativeRoots.add(roots);
@@ -97,6 +103,8 @@ class Session {
     }catch(error){this.runtime.nativeRoots.delete(roots);throw error;}
   }
   write(p,v){
+    if(v===threadModule){this.raw(p,9,this.call('aqua_thread_module'));return;}
+    if(v instanceof ThreadPacket){const bytes=new Uint8Array(v.bytes),packet=this.call('aqua_allocate',bytes.length);new Uint8Array(this.exports.memory.buffer,packet,bytes.length).set(bytes);const cell=this.call('aqua_thread_decode',packet);if(!cell)throw new Error('Invalid thread result packet');new Uint8Array(this.exports.memory.buffer,p,16).set(new Uint8Array(this.exports.memory.buffer,cell,16));this.call('aqua_thread_free_packet',packet);return;}
     if(v===undefined){this.raw(p,0);return;}if(v===null){this.raw(p,11);return;}if(typeof v==='boolean'){this.raw(p,4,0,v?1:0);return;}if(numeric(v)){this.raw(p,{int:1,float:2,double:3}[v.type],0,v.value);return;}if(typeof v==='string'){this.raw(p,5,this.text(v,false));return;}
     if(typeof v==='function'&&v[portableBuiltin]){this.raw(p,14,v[portableBuiltin]);return;}const origin=this.runtime.origins.get(v);
     if(origin?.session===this){this.raw(p,origin.tag,origin.reference);if(this.writing.has(v))return;this.writing.add(v);try{if(Array.isArray(v)){if(this.call('aqua_array_count',origin.reference)!==v.length)this.call('aqua_array_resize',origin.reference,v.length);const items=this.call('aqua_array_values',origin.reference);this.writeArray(items,v);}else if(v instanceof Map){this.call('aqua_hash_resize',origin.reference,v.size);const items=this.call('aqua_hash_pairs',origin.reference);let i=0;for(const [key,value]of v.values()){this.write(items+i*32,key);this.write(items+i*32+16,value);i++;}}}finally{this.writing.delete(v);}return;}
@@ -105,7 +113,7 @@ class Session {
     if(v?.type==='module'&&this.scopes.has(v.scope)){const reference=this.scopes.get(v.scope);this.raw(p,9,reference);this.lease(v,p,9,reference);return;}this.raw(p,10,this.native(v));
   }
   read(p){
-    if(this.int(p)===14){const id=this.int(p+4);for(const context of this.contexts)for(const fn of context.values())if(fn?.[portableBuiltin]===id)return fn;const arrayFn=arrayBuiltin(id);if(arrayFn)return arrayFn;throw new Error('Unknown portable builtin');}
+    if(this.int(p)===14){const id=this.int(p+4);for(const context of this.contexts)for(const fn of context.values())if(fn?.[portableBuiltin]===id)return fn;const arrayFn=arrayBuiltin(id)??threadBuiltin(id);if(arrayFn)return arrayFn;throw new Error('Unknown portable builtin');}
     const tag=this.int(p),reference=this.int(p+4),number=this.view().getFloat64(p+8,true);if(tag===0)return undefined;if(tag>=1&&tag<=3)return num(number,['','int','float','double'][tag]);if(tag===4)return number!==0;if(tag===5)return this.text(reference);if(tag===10)return this.natives[reference];if(tag===11)return null;if(tag===12)return {type:'break'};if(tag===13)throw new Error(this.text(reference));
     const key=`${tag}:${reference}`,cached=this.objects.get(key)?.deref();if(cached){if(!this.refreshingDirtyHashes)this.refresh(tag,reference,cached);return cached;}
     let result;if(tag===6){result=new Array(this.call('aqua_array_count',reference));this.objects.set(key,new WeakRef(result));this.lease(result,p,tag,reference);this.reading.add(key);try{this.readArray(reference,result);}finally{this.reading.delete(key);}return result;}

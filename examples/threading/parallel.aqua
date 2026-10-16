@@ -1,0 +1,17 @@
+# Functions and captured values are copied into isolated workers.
+變數 factor = 2;
+變數 transform = 函式(value) { 回傳 value * factor; };
+變數 calculate = 函式(callback, first, last) {
+    變數 total = 0;
+    迴圈 (變數 i = first; i <= last; i++) { total += callback(i); }
+    回傳 total;
+};
+變數 left = Thread.Start(calculate, [transform, 1, 500]);
+變數 right = Thread.Start(calculate, [transform, 501, 1000]);
+Thread.Wait(left);
+Thread.Wait(right);
+變數 total = Thread.Result(left) + Thread.Result(right);
+Thread.Close(left);
+Thread.Close(right);
+print(total); # 1001000
+total;

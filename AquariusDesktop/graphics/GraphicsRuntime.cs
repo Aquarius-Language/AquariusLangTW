@@ -47,6 +47,7 @@ internal sealed partial class GraphicsRuntime : IDisposable {
         dynamicLibraries = new(new Linking.DesktopDynamicLibraryBackend(path => ResourcePath(path)));
         pose = new(new runtime.WasmtimeEngine(), inferenceBackend, ReadModel, Application.GetImage);
         modules["GL"] = new ModuleObj(GlEnvironment);
+        modules["Thread"] = modules["執行緒"] = AquariusLang.Threading.ThreadCatalog.CreateModule();
         RegisterGl();
         RegisterGlHelpers();
         RegisterGlfw();

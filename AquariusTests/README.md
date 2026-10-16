@@ -20,6 +20,15 @@ Wasm artifact validation/round trips, source-free module and asset deployment,
 CLI usage and standalone executable overlays. Wasmtime is the test execution
 engine; cross-engine tests execute identical bytes in Node WebAssembly.
 
+`threading/ThreadTest.cs` and `AquariusWebCompiler/tests/threads.test.mjs` cover
+function parameters, captured snapshots, isolated mutation, graph results, worker
+failures, timed waits, cancellation and joined disposal. Run the real browser
+check with `node AquariusWebCompiler/tests/threads-browser.mjs .web-build/threading`
+after exporting `examples/threading/parallel.aqua` there. Android bridge tests live
+in `AquariusAndroid/tests/threads.test.mjs`; `scripts/test-android.ps1 -CaseNames
+threading -BuildApks -Emulator` runs the shared behavioral verification on a device.
+See the [bilingual threading API](../docs/threading.md).
+
 `bottle/BottleTest.cs` covers manifest validation, semantic version ranges,
 transitive dependencies, immutable snapshots, offline/locked restores and empty
 cache hydration, conflicts/cycles, platform preservation, asset placement and

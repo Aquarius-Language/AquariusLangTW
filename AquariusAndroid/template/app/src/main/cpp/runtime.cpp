@@ -8,6 +8,7 @@
 #include <stdexcept>
 #include <string>
 #include <vector>
+#include "thread_workers.h"
 
 namespace {
 struct Engine;
@@ -24,6 +25,8 @@ struct Engine {
   wasmtime_store_t* store = nullptr;
   wasmtime_context_t* active = nullptr;
   std::atomic<bool> cancelled{false};
+  std::unordered_map<int, std::unique_ptr<AquariusThread>> threads;
+  int nextThread = 1;
   std::vector<Binding> bindings;
   std::vector<wasmtime_module_t*> modules;
   std::deque<External> externals;
@@ -33,6 +36,8 @@ struct Engine {
   std::string rejection;
   explicit Engine(JNIEnv* env, jobject bridge) : env(env), bridge(env->NewGlobalRef(bridge)) {}
   ~Engine() {
+    for (auto& worker : threads) worker.second->cancel();
+    threads.clear();
     if (context) {
       for (auto& item : externals) { if (!JS_IsUndefined(item.buffer)) JS_DetachArrayBuffer(context, item.buffer); JS_FreeValue(context, item.buffer); }
       for (auto& callback : callbacks) JS_FreeValue(context, callback->function);
@@ -364,6 +369,27 @@ JSModuleDef* loadModule(JSContext* ctx, const char* name, void*) {
   } catch (const std::exception& ex) { JS_ThrowReferenceError(ctx, "%s", ex.what()); return nullptr; }
 }
 void evaluate(Engine* e, const std::string& code, const char* name, int flags = JS_EVAL_TYPE_GLOBAL) { checked(e->context, JS_Eval(e->context, code.data(), code.size(), name, flags)); }
+JSValue threadCall(JSContext* ctx, JSValueConst, int argc, JSValueConst* argv, int operation) {
+  auto* e = engine(ctx);
+  try {
+    if (operation == 0) {
+      if (argc != 5 || e->threads.size() >= 64) throw std::runtime_error("Invalid thread request or thread limit exceeded");
+      auto* module = e->modules.at(index(ctx, argv[0], e->modules.size())); Bytes snapshot(ctx, argv[1]); int32_t closure, args, count;
+      if (JS_ToInt32(ctx, &closure, argv[2]) || JS_ToInt32(ctx, &args, argv[3]) || JS_ToInt32(ctx, &count, argv[4])) throw std::runtime_error("Invalid thread arguments");
+      int id = e->nextThread++; e->threads.emplace(id, std::make_unique<AquariusThread>(e->wasm, module, std::vector<uint8_t>(snapshot.data, snapshot.data + snapshot.length), closure, args, count)); return JS_NewInt32(ctx, id);
+    }
+    int32_t id; if (argc != 1 || JS_ToInt32(ctx, &id, argv[0]) || !e->threads.count(id)) throw std::runtime_error("Invalid thread handle");
+    auto& worker = e->threads.at(id);
+    if (operation == 1) {
+      if (!worker->done.load(std::memory_order_acquire)) return JS_UNDEFINED;
+      auto result = JS_NewObject(ctx);
+      if (!worker->error.empty()) JS_SetPropertyStr(ctx, result, "error", JS_NewString(ctx, worker->error.c_str()));
+      else JS_SetPropertyStr(ctx, result, "packet", JS_NewArrayBufferCopy(ctx, worker->packet.data(), worker->packet.size()));
+      return result;
+    }
+    if (operation == 2) worker->cancel(); else e->threads.erase(id); return JS_UNDEFINED;
+  } catch (const std::exception& failure) { return JS_ThrowInternalError(ctx, "%s", failure.what()); }
+}
 void initialize(Engine* e) {
   auto config = wasm_config_new(); wasmtime_config_epoch_interruption_set(config, true);
   e->wasm = wasm_engine_new_with_config(config); e->store = wasmtime_store_new(e->wasm, nullptr, nullptr); e->active = wasmtime_store_context(e->store); wasmtime_context_set_epoch_deadline(e->active, 1);
@@ -390,6 +416,8 @@ void initialize(Engine* e) {
   auto global = JS_GetGlobalObject(e->context); JS_SetPropertyStr(e->context, global, "native", object);
   auto api = JS_NewObject(e->context); const char* names[] = {"compile","describe","instantiate","call","memory","buffer","growMemory","table","tableSize","tableGet","tableSet","tableGrow","global","globalGet","globalSet"};
   for (int i = 0; i <= GlobalSet; ++i) JS_SetPropertyStr(e->context, api, names[i], JS_NewCFunctionMagic(e->context, wasmCall, names[i], 0, JS_CFUNC_generic_magic, i));
+  const char* threadNames[] = {"threadStart", "threadPoll", "threadCancel", "threadClose"};
+  for (int i = 0; i < 4; ++i) JS_SetPropertyStr(e->context, api, threadNames[i], JS_NewCFunctionMagic(e->context, threadCall, threadNames[i], 0, JS_CFUNC_generic_magic, i));
   JS_SetPropertyStr(e->context, global, "__wasmtime", api); JS_FreeValue(e->context, global);
   evaluate(e, source(e, "wasmtime.js"), "wasmtime.js"); evaluate(e, source(e, "bootstrap.js"), "bootstrap.js");
 }

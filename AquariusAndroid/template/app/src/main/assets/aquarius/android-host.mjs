@@ -42,6 +42,7 @@ function registerCamera(host){const m=host.library('Camera');host.modules.set('�
   const webcam=host.library('攝影機');host.modules.set('Webcam',webcam);host.modules.set('網路攝影機',webcam);host.bind(webcam,'攝影機','是否支援',()=>false);host.bind(webcam,'攝影機','列出裝置',()=>[]);host.bind(webcam,'攝影機','開啟',()=>{throw new Error('Unsupported: Use 相機 on Android');});
 }
 export class AndroidHost extends CapabilityHost {
+  threadWorker(request,receive){return WebAssembly.threadWorker(request,receive);}
   constructor(bundle,options){super(bundle,{...options,adapters:{platform:'android',graphics:abi=>new AndroidWgpuBackend(abi),register:host=>{registerApplication(host);registerAudio(host,new AndroidAudioBackend(host));registerOnnx(host,new AndroidOnnxBackend());registerMediaPipe(host);registerAndroidDynamicLibrary(host,native);registerCamera(host);registerAndroidInput(host,native);registerAndroidNetwork(host,native);registerTerminal(host,{platform:"android",isSupported:true,run:request=>JSON.parse(native.terminal(JSON.stringify(request)))});}}});this.input={events:[],insets:{},orientation:'portrait',keyboardVisible:false};}
   record(fields){const r=this.newModule();for(const [name,value]of Object.entries(fields))this.set(r,name,value);return r;}
   modelAsset(path){return {asset:this.bundle.assets[lookupPath(this.bundle.assets,this.resolve(path))]};}

@@ -63,6 +63,12 @@
     valueOf() { return this.value; }
   }
   globalThis.WebAssembly = {Module, Instance, Memory, Table, Global, CompileError, LinkError, RuntimeError,
+    threadWorker(request,receive) {
+      const id=api.threadStart(handles.get(request.module),new Uint8Array(request.snapshot),request.closure,request.arguments,request.count);
+      let timer,closed=false;
+      const poll=()=>{if(closed)return;const result=api.threadPoll(id);if(result)receive(result);else timer=setTimeout(poll,2);};timer=setTimeout(poll,0);
+      return {postMessage(message){if(!closed&&message.cancel)api.threadCancel(id);},terminate(){if(closed)return;closed=true;clearTimeout(timer);api.threadClose(id);}};
+    },
     validate(input) { try { new Module(input); return true; } catch { return false; } },
     async compile(input) { return new Module(input); },
     async instantiate(input, imports) { if (input instanceof Module) return new Instance(input, imports); const module = new Module(input); return {module, instance: new Instance(module, imports)}; }
