@@ -28,3 +28,6 @@ AquariusWebCompiler/browser/audio-core.mjs
 AquariusCore/external/onnx/ort*
 .array-build/
 .aqua/
+/.performance
+.performance-build-fast.log
+.performance-build.log
