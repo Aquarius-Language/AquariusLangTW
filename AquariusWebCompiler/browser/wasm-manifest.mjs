@@ -17,7 +17,7 @@ export function validateManifest(module,m){
   const record=v=>v!==null&&typeof v==='object'&&!Array.isArray(v);
   if(!record(m)||m.abiVersion!==2||m.valueAbi!==2)invalid('unsupported ABI; recompile the application');
   if(m.programAddress!==4194304||!Number.isInteger(m.heapStart)||m.heapStart<4194312||m.heapStart>268435456)invalid('memory layout');
-  const functionLayout=m.functionLayout??24;if(functionLayout!==24&&functionLayout!==32)invalid('function layout');
+  const functionLayout=m.functionLayout??24;if(functionLayout!==24&&functionLayout!==32&&functionLayout!==40)invalid('function layout');
   if(!record(m.modules)||!record(m.assets)||!Array.isArray(m.functions)||!Object.keys(m.modules).length||Object.keys(m.modules).length+Object.keys(m.assets).length>10000||m.functions.length>100000)invalid('module count');
   const seen=new Set(),fold=value=>Array.from(value,c=>{const upper=c.toUpperCase();return [...upper].length===1&&(c.codePointAt(0)<128||upper.codePointAt(0)>=128)?upper:c;}).join('');
   const path=name=>{if(typeof name!=='string'||name.length>1024||resolvePath(name)!==name||seen.has(fold(name)))invalid('unsafe or duplicate path');seen.add(fold(name));};
@@ -33,6 +33,8 @@ export function validateManifest(module,m){
     if(!record(f)||!Array.isArray(f.pool)||!Array.isArray(f.parameters)||f.parameters.length>10000||f.parameters.some(p=>typeof p!=='string'||!p.trim())||!Number.isInteger(f.stackCapacity)||f.stackCapacity<16||f.stackCapacity>1000000)invalid('function frame');
     const numericTable=f.numericTable??0,recursiveName=f.numericRecursiveName??null;
     if(!Number.isInteger(numericTable)||numericTable<0||numericTable>m.functions.length*2||recursiveName!==null&&(typeof recursiveName!=='string'||!recursiveName.trim()||numericTable===0)||functionLayout===24&&(numericTable!==0||recursiveName!==null))invalid('numeric function');
+    const locals=f.locals??0,promoted=f.promotedScope??false;
+    if(!Number.isInteger(locals)||locals<0||locals>1000000||typeof promoted!=='boolean'||functionLayout<40&&(locals!==0||promoted)||promoted&&locals<f.parameters.length)invalid('frame locals');
     reserve(f.parameters.length*4,4);reserve(f.pool.length*16);if(recursiveName!==null)text(recursiveName);for(const p of f.parameters)text(p);
     for(const c of f.pool){
       if(!record(c)||!types.has(c.type))invalid('constant type');

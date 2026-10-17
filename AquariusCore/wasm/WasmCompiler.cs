@@ -56,8 +56,25 @@ public sealed class WasmCompiler
         var parameters = new Dictionary<LoweredProgram, string[]>();
         foreach (var body in bodies) foreach (var item in body.Constants)
             if (item is FunctionCode function) parameters[function.BodyCode] = function.Parameters.Select(p => p.Value).ToArray();
-        var functions = bodies.Select(b => new WasmFunction(b.WrapReturn, b.Constants.Select(Constant).ToArray(),
-            parameters.GetValueOrDefault(b, System.Array.Empty<string>()), WasmStackAnalysis.Capacity(b), b.Code.Any(op => op.Code == IrOperation.EnterLoop))).ToArray();
+        // Closure-free lexical scopes become frame slots; bodies with very deep operand stacks keep the
+        // memory-resident emitter so the register-resident operand window stays bounded.
+        var runtime = new WasmRuntimeImage();
+        var plans = bodies.Select(b => {
+            int capacity = WasmStackAnalysis.Capacity(b);
+            if (!optimize || !WasmBodyEmitter.Supports(capacity)) return null;
+            string[]? arguments = parameters.TryGetValue(b, out var p) ? p : null;
+            WasmScopePlan plan;
+            try { plan = WasmScopePlan.Analyze(b, arguments, true); }
+            catch (InvalidOperationException) { plan = WasmScopePlan.Analyze(b, arguments, false); }
+            // A body whose plan violates an emitter invariant keeps the memory-resident emitter.
+            try { WasmBodyEmitter.Emit(new BinaryWriter(Stream.Null), b, runtime.Functions, 0, plan, capacity); return plan; }
+            catch (InvalidOperationException) { return null; }
+        }).ToArray();
+        var functions = bodies.Select((b, f) => new WasmFunction(b.WrapReturn, b.Constants.Select(Constant).ToArray(),
+            // Promoted calls share one binding cache per closure, so free-name lookups are cached across calls.
+            parameters.GetValueOrDefault(b, System.Array.Empty<string>()), WasmStackAnalysis.Capacity(b),
+            b.Code.Any(op => op.Code == IrOperation.EnterLoop) || plans[f]?.PromotedFunction == true,
+            Locals: plans[f]?.Locals ?? 0, PromotedScope: plans[f]?.PromotedFunction ?? false)).ToArray();
         var numeric = new List<(int Body, WasmNumericFunction Plan)>();
         if (optimize) for (int f = 0; f < bodies.Count; f++)
             if (parameters.TryGetValue(bodies[f], out var args) && WasmNumericFunction.Analyze(bodies[f], args) is { } plan)
@@ -66,7 +83,6 @@ public sealed class WasmCompiler
             functions[numeric[p].Body] = functions[numeric[p].Body] with {
                 NumericTable = bodies.Count + 1 + p, NumericRecursiveName = numeric[p].Plan.RecursiveName };
         }
-        var runtime = new WasmRuntimeImage();
         var integers = numeric.Select(item => WasmIntegerFunction.Analyze(item.Plan)).ToArray();
         var adapterIndices = new int[numeric.Count];
         var integerTypes = new int[numeric.Count];
@@ -79,7 +95,7 @@ public sealed class WasmCompiler
         var data = new WasmRuntimeImage.Data(); data.Build(functions);
         var metadata = new WasmMetadata(WasmAbi.Version, entry, exports, functions,
             assets?.ToDictionary(p => p.Key, p => Convert.ToBase64String(p.Value)) ?? new(),
-            ProgramAddress: WasmRuntimeImage.ProgramAddress, HeapStart: data.End, FunctionLayout: 32, SupportedPlatforms: supportedPlatforms);
+            ProgramAddress: WasmRuntimeImage.ProgramAddress, HeapStart: data.End, FunctionLayout: 40, SupportedPlatforms: supportedPlatforms);
         using var output = new MemoryStream();
         output.Write(new byte[] { 0, 97, 115, 109, 1, 0, 0, 0 });
         void Section(byte id, Action<BinaryWriter> write)
@@ -111,17 +127,27 @@ public sealed class WasmCompiler
             for (int f = 0; f < bodies.Count; f++)
             {
                 using var bytes = new MemoryStream(); using var code = new BinaryWriter(bytes, Encoding.UTF8, true);
-                EmitBody(code, bodies[f], runtime.Functions, data.Pools[f], functions[f].Parameters!, optimize); U(w, (int)bytes.Length); w.Write(bytes.ToArray());
+                if (plans[f] is { } plan) WasmBodyEmitter.Emit(code, bodies[f], runtime.Functions, data.Pools[f], plan, functions[f].StackCapacity);
+                else EmitBody(code, bodies[f], runtime.Functions, data.Pools[f], functions[f].Parameters!, optimize);
+                U(w, (int)bytes.Length); w.Write(bytes.ToArray());
             }
             for (int p = 0; p < numeric.Count; p++) {
                 int implementation = adapterIndices[p] + 1;
                 int? integerImplementation = integers[p] == null ? null : implementation + 1;
-                using var adapter = new MemoryStream(); using (var code = new BinaryWriter(adapter, Encoding.UTF8, true)) numeric[p].Plan.EmitAdapter(code, implementation, integerImplementation);
+                using var adapter = new MemoryStream(); using (var code = new BinaryWriter(adapter, Encoding.UTF8, true)) numeric[p].Plan.EmitAdapter(code, implementation, integerImplementation, integers[p]?.ResultType ?? 1);
                 U(w, (int)adapter.Length); w.Write(adapter.ToArray());
                 using var typed = new MemoryStream(); using (var code = new BinaryWriter(typed, Encoding.UTF8, true)) numeric[p].Plan.EmitImplementation(code, implementation);
                 U(w, (int)typed.Length); w.Write(typed.ToArray());
                 if (integers[p] != null) {
-                    using var integer = new MemoryStream(); using (var code = new BinaryWriter(integer, Encoding.UTF8, true)) integers[p]!.EmitImplementation(code, integerImplementation!.Value);
+                    // A promoted generic body is a deoptimization target for the integer specialization.
+                    WasmIntegerFunction.Deopt? deopt = null;
+                    if (plans[numeric[p].Body] is { PromotedFunction: true } generic) {
+                        var slots = numeric[p].Plan.Variables.Select(name => generic.Scopes[0].Slots.TryGetValue(name, out int slot) ? slot : -1).ToArray();
+                        if (slots.All(slot => slot >= 0))
+                            deopt = new(slots, generic.Locals, WasmBodyEmitter.BlockStarts(bodies[numeric[p].Body], generic),
+                                WasmFuel.Checkpoints(bodies[numeric[p].Body])[0], runtime.Functions["rt_numericFrame"]);
+                    }
+                    using var integer = new MemoryStream(); using (var code = new BinaryWriter(integer, Encoding.UTF8, true)) integers[p]!.EmitImplementation(code, integerImplementation!.Value, deopt);
                     U(w, (int)integer.Length); w.Write(integer.ToArray());
                 }
             }
@@ -144,6 +170,7 @@ public sealed class WasmCompiler
             if (op.Code is IrOperation.Jump or IrOperation.JumpIfFalse or IrOperation.JumpIfBreak or IrOperation.LoopCondition or IrOperation.Break or IrOperation.Call or IrOperation.ResolveMemberFunction or IrOperation.Return) leaders.Add(i + 1);
         }
         var starts = leaders.ToArray(); int count = starts.Length;
+        var fuel = WasmFuel.Checkpoints(body);
         int Block(int position) => System.Array.BinarySearch(starts, position);
         void I(int n) { w.Write((byte)0x41); Signed(w, n); }
         void Call(string name, int? operand = null)
@@ -284,7 +311,7 @@ public sealed class WasmCompiler
         for (int b = 0; b < count; b++)
         {
             w.Write((byte)0x0b);
-            Call("checkpoint"); w.Write(new byte[] { 0x04, 0x40 }); Resume(b); w.Write((byte)0x0b);
+            if (fuel.TryGetValue(starts[b], out int weight)) { Call("checkpoint", weight); w.Write(new byte[] { 0x04, 0x40 }); Resume(b); w.Write((byte)0x0b); }
             if (starts[b] == body.Code.Length) { Resume(-1); continue; }
             bool terminated = false;
             for (int i = starts[b]; i < starts[b + 1]; i++)

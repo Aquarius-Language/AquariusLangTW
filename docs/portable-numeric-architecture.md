@@ -28,19 +28,20 @@ a tag and numeric payload, while proven integer registers omit both repeated typ
 checks and floating-point normalization. This is a representation selection pass, not a
 complete whole-program SSA optimizer or typed-array system.
 
-Scalar basic blocks account for execution fuel. The direct-call depth bound is at
-most 64 and decreases with register pressure. Fuel and depth failures return to
-the existing stackless scheduler. Failed speculation restores its original fuel
-before generic execution: discarded work must not trigger an observable yield with
-restarted call state. Restart is valid only because the selected body performs no
-external effects or heap mutation, and no host reentry occurs during the attempt.
-A depth failure disables that function's fast entry for the rest of the execution,
-avoiding repeated deep speculative traversals.
-Recursive fast entry requires the integer proof and integer arguments. General
-tag/payload recursion is deliberately kept on the resumable path: measured repeated
-speculation and normalization cost outweighed its allocation savings.
+Scalar code accounts for execution fuel with the shared checkpoint model described in
+[generic execution tiers](execution-tiers.md). Functions whose promoted generic body is
+available deoptimize instead of failing: at the direct-call depth bound, on fuel
+exhaustion or when a collection is pending, typed activations are materialized as
+generic frames and the scheduler continues from that point, so no work is repeated.
+Integer arguments may now produce integer, double, float or Boolean results.
+Functions without such a body keep the earlier restartable speculation: the depth
+bound is at most 64, failed speculation restores its original fuel before generic
+execution, and a depth failure disables that function's fast entry. Restart is valid
+only because the selected body performs no external effects or heap mutation, and no
+host reentry occurs during the attempt. Repeated speculation misses are counted per
+function and disable fast entry.
 
-This design does not materialize arbitrary optimized continuations. Functions with
+This design materializes only typed scalar activations, not arbitrary optimized continuations. Functions with
 effects, suspension, uncertain calls or captured data retain resumable execution.
 The public `aqua_fN(frame) -> continuation` exports remain available for every
 function, including scalar functions.
@@ -51,7 +52,7 @@ through a retained closure or host projection and use dynamic lookup. Destinatio
 binding count/name guards preserve conditional declarations, host insertion,
 callback mutation, shadowing and per-iteration captured scopes.
 
-New artifacts declare `functionLayout: 32` and optional `numericTable` and
+Artifacts declare `functionLayout: 32` (now 40, see [generic execution tiers](execution-tiers.md)) and optional `numericTable` and
 `numericRecursiveName` function metadata. The definition's original 24 bytes are
 followed by a scalar adapter table slot and recursive name pointer. Shared desktop
 and browser validators reproduce this layout. Existing ABI 2 artifacts without the
@@ -61,7 +62,7 @@ capability value representation stays unchanged.
 
 Guest exports `aqua_numeric_fast_calls`, `aqua_numeric_fallback_calls`, and
 `aqua_numeric_depth_fallbacks` report successful scalar dispatches, failed attempts
-and depth fallbacks. Direct recursive invocations are not individually counted by
+and depth fallbacks; `aqua_numeric_deopts` reports deoptimizations. Direct recursive invocations are not individually counted by
 the successful-dispatch counter. Counts are not CPU-time shares.
 
 Differential coverage compares optimized and generic code across numeric types,

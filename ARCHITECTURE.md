@@ -66,6 +66,9 @@ Eligible closed scalar functions also use a private typed Wasm calling conventio
 with register values and guarded direct recursion. Failed speculation returns to
 the resumable implementation before yielding. Lexical ancestor slots are guarded
 by capture ownership. See [portable numeric compilation](docs/portable-numeric-architecture.md).
+Generic functions keep closure-free scopes in frame slots, keep their operand stack
+in Wasm locals, consume fuel only at loop heads and run callees directly on the Wasm
+stack up to a bounded depth. See [generic execution tiers](docs/execution-tiers.md).
 
 Each compiled function exports `aqua_fN(i32 frame) -> i32`. The frame and its
 continuation live in Wasm memory. Compiled basic blocks use structured Wasm branches

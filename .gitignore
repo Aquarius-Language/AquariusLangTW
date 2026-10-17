@@ -28,3 +28,4 @@ AquariusWebCompiler/browser/audio-core.mjs
 AquariusCore/external/onnx/ort*
 .array-build/
 .aqua/
+.build-validation

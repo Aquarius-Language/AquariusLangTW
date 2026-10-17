@@ -30,7 +30,9 @@ test('recursive binding replacement is observed by previously retained closures'
 test('portable depth guard preserves stackless recursion',async()=>{
   const {vm,index}=await runtime('變數 f=函式(n){如果(n==0){回傳 0;}回傳 f(n-1)+1;};f(20000);');
   assert.equal(inspect(await vm.execute(index)),'20000');
-  assert.equal(vm.program.session.call('aqua_numeric_depth_fallbacks'),1);
+  // The depth bound deoptimizes native activations into generic frames instead of restarting.
+  assert.equal(vm.program.session.call('aqua_numeric_depth_fallbacks'),0);
+  assert.ok(vm.program.session.call('aqua_numeric_deopts')>0);
 });
 
 test('fuel exhaustion yields before pure scalar work resumes on the generic path',async()=>{
@@ -38,7 +40,8 @@ test('fuel exhaustion yields before pure scalar work resumes on the generic path
   const session=vm.program.session,call=session.call.bind(session);let slices=0;
   session.call=(name,...args)=>{if(name==='aqua_run'){args[1]=32;slices++;}return call(name,...args);};
   assert.equal(inspect(await vm.execute(index)),'2584');
-  assert.ok(slices>10);assert.ok(session.call('aqua_numeric_fallback_calls')>0);
+  // Exhausted fuel deoptimizes into the generic body, which then yields at its own checkpoint.
+  assert.ok(slices>10);assert.ok(session.call('aqua_numeric_deopts')>0);
 });
 
 test('capability effects are excluded from restartable numeric execution',async()=>{

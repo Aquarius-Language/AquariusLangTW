@@ -32,7 +32,10 @@ public sealed class WasmtimeEngine : IWasmEngine
         private readonly Linker linker = new(Engine);
         private Wasmtime.Module? ownedModule;
         private readonly Instance instance;
-        private readonly Dictionary<string, Function> functions = new();
+        // Desktop fast path: typed Wasmtime wrappers avoid boxing every host-to-guest call, and the
+        // memory export is resolved once per instance instead of on every access.
+        private readonly Dictionary<string, Func<int[], int>> functions = new();
+        private Memory? memory;
         internal Execution(ReadOnlyMemory<byte> bytes, IReadOnlyDictionary<string, Delegate> imports)
         {
             try
@@ -59,12 +62,26 @@ public sealed class WasmtimeEngine : IWasmEngine
         }
         public int Invoke(string name, params int[] arguments)
         {
-            if (!functions.TryGetValue(name, out var function)) functions.Add(name, function = instance.GetFunction(name) ?? throw new InvalidDataException($"Missing Wasm runtime export: {name}"));
-            var values = new ValueBox[arguments.Length]; for (int i = 0; i < arguments.Length; i++) values[i] = arguments[i];
-            try { return Convert.ToInt32(function.Invoke(values)); }
+            if (!functions.TryGetValue(name, out var invoke)) functions.Add(name, invoke = Bind(instance.GetFunction(name) ?? throw new InvalidDataException($"Missing Wasm runtime export: {name}"), arguments.Length));
+            try { return invoke(arguments); }
             catch (WasmtimeException e) when (e.InnerException != null) { ExceptionDispatchInfo.Capture(e.InnerException).Throw(); throw; }
         }
-        public Span<byte> Memory(int address, int length) => (instance.GetMemory("memory") ?? throw new InvalidDataException("Missing Wasm memory.")).GetSpan(address, length);
+        private static Func<int[], int> Bind(Function function, int arity)
+        {
+            // Every runtime export takes i32 arguments and returns one i32; other shapes use the boxed path.
+            switch (arity) {
+                case 0: if (function.WrapFunc<int>() is { } f0) return _ => f0(); break;
+                case 1: if (function.WrapFunc<int, int>() is { } f1) return a => f1(a[0]); break;
+                case 2: if (function.WrapFunc<int, int, int>() is { } f2) return a => f2(a[0], a[1]); break;
+                case 3: if (function.WrapFunc<int, int, int, int>() is { } f3) return a => f3(a[0], a[1], a[2]); break;
+                case 4: if (function.WrapFunc<int, int, int, int, int>() is { } f4) return a => f4(a[0], a[1], a[2], a[3]); break;
+            }
+            return arguments => {
+                var values = new ValueBox[arguments.Length]; for (int i = 0; i < arguments.Length; i++) values[i] = arguments[i];
+                return Convert.ToInt32(function.Invoke(values));
+            };
+        }
+        public Span<byte> Memory(int address, int length) => (memory ??= instance.GetMemory("memory") ?? throw new InvalidDataException("Missing Wasm memory.")).GetSpan(address, length);
         public void Dispose() { linker.Dispose(); store.Dispose(); ownedModule?.Dispose(); }
     }
 }
