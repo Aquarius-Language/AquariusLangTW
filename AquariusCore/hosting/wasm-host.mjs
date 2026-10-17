@@ -43,7 +43,7 @@ class Session {
     this.deferredCollections=typeof this.exports.aqua_collection_due==='function'&&typeof this.exports.aqua_collection_generation==='function';
   }
   call(name,...args){return this.exports[name](...args);}
-  view(){return new DataView(this.exports.memory.buffer);}
+  view(){const buffer=this.exports.memory.buffer;if(this.memoryView?.buffer!==buffer)this.memoryView=new DataView(buffer);return this.memoryView;}
   int(p,n){const v=this.view();if(n===undefined)return v.getUint32(p,true);v.setUint32(p,n,true);}
   raw(p,tag,reference=0,number=0){this.int(p,tag);this.int(p+4,reference);this.view().setFloat64(p+8,number,true);}
   text(value,intern=true){

@@ -57,6 +57,11 @@ public class WasmTieredExecutionTest
     [InlineData("變數 f=函式(n){n+1;};變數 s=0;迴圈(變數 i=0;i<200;i++){s+=f(1.5d);};[s,f(2),f(2147483647)];")]
     [InlineData("變數 fib=函式(n){如果(n<2){回傳 n;}回傳 fib(n-1)+fib(n-2);};fib(20);")]
     [InlineData("變數 c=函式(n){變數 k=n;如果(k>2){k=k*3;}否則{k=k+1;}k;};[c(1),c(5)];")]
+    // Cached binding addresses must survive branches but be discarded after scope changes and calls.
+    [InlineData("變數 x=1;變數 read=函式(){x;};變數 s=0;迴圈(變數 i=0;i<20;i++){s+=x;如果(i==10){變數 x=7;}s+=read();};[s,x];")]
+    [InlineData("變數 x=1;變數 edit=函式(){x+=2;};變數 s=0;迴圈(變數 i=0;i<20;i++){s+=x;edit();s+=x;};[s,x];")]
+    [InlineData("變數 x=10;變數 fs=陣列.建立(4,0);變數 s=0;迴圈(變數 i=0;i<4;i++){s+=x;變數 x=i;fs[i]=函式(){x;};s+=x;};[s,x,fs[0](),fs[3]()];")]
+    [InlineData("變數 f=函式(){變數 x=42;回傳 x;x++;};f();")]
     public void TieredExecutionMatchesTheGenericEmitter(string source)
     {
         string Run(bool optimize, int quantum) {
@@ -83,5 +88,15 @@ public class WasmTieredExecutionTest
         Assert.False(g.PromotedScope);
         // Unoptimized compilation keeps every scope dynamic.
         Assert.All(new WasmCompiler(false).Compile("變數 f=函式(a){a;};f(1);").Metadata.Functions, x => Assert.Equal(0, x.Locals));
+    }
+
+    [Fact]
+    public void BindingCacheObservesReallocatedScopeBuffers()
+    {
+        string source = "變數 x=1;變數 f=函式(){x;};變數 s=x;" +
+            string.Concat(Enumerable.Range(0, 160).Select(i => $"變數 padding{i}={i};")) +
+            "迴圈(變數 i=0;i<50;i++){s+=x;};[s,f()];";
+        using var runtime = new WasmRuntime();
+        Assert.Equal("[51, 1]", runtime.Execute(new WasmCompiler().Compile(source)).Inspect());
     }
 }

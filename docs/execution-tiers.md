@@ -24,6 +24,15 @@ representation; bindings reached through them use the closure-shared binding cac
 The plan is bounded (`MaxSlotStates`) so huge bodies fall back to the original
 representation rather than spending quadratic compile time.
 
+Dynamic bindings that cannot be promoted also have a small activation-local
+address cache. Loads and assignment targets reuse positive binding addresses
+across basic blocks and loop backedges. Runtime helpers and calls invalidate all
+cached addresses, because declarations can reallocate scope buffers and callbacks
+can insert shadowing bindings. Resumption starts with zeroed Wasm locals. Cached
+values are always read from their current binding, so mutation remains visible;
+the nonmoving collector preserves addresses of reachable scope buffers. This uses
+ordinary Wasm locals and requires no additional engine or host ABI.
+
 ## Register-resident operand stack
 
 `WasmBodyEmitter` gives every lowered instruction a static operand stack depth and
@@ -92,12 +101,24 @@ together with the compiler. The capability import/value ABI stays version 2.
 
 Platform projects may add their own accelerators without changing the core. The
 desktop host's `WasmtimeEngine` binds service imports with typed `WrapFunc`
-invokers (no boxed argument arrays) and caches the memory export. Other hosts are
-free to make similar embedding-level optimizations.
+invokers (no boxed argument arrays) and caches the memory export. Its checked
+memory spans use a base pointer and length refreshed before host callbacks and
+after every guest return, including reentrant and trapping calls. Primitive
+reads no longer query Wasmtime for the memory bounds and pointer individually.
+Disposal and range checks still apply to every access.
+
+The shared JavaScript adapter reuses a DataView until the memory buffer changes.
+Android's JNI adapter caches immutable function signatures and uses stack buffers
+for up to eight arguments/results, retaining dynamically sized buffers for larger
+signatures. Engine-specific behavior remains inside the platform projects; core
+compilation and artifact layout stay portable.
 
 ## Tests
 
-`AquariusTests/compiler/WasmTieredExecutionTest.cs` runs 41 differential programs
+`AquariusTests/compiler/WasmTieredExecutionTest.cs` runs differential programs
 under the desktop quantum and quanta 1, 3 and 17 and compares results, output and
 errors with the unoptimized path; it also checks that closure-free scopes become
 frame slots. The JavaScript suite runs the same artifacts in the browser runtime.
+`WasmtimeMemoryTest` verifies growth, callbacks, reentry, traps, bounds and disposal.
+Android's real-device contract also exercises repeated calls with nine parameters
+and nine return values, beyond the stack-buffer fast path.

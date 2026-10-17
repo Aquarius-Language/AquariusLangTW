@@ -6,25 +6,32 @@ export function aqua_create_library() { return {async run() {
   const string = value => { const data = [...new TextEncoder().encode(value)]; return [...leb(data.length), ...data]; };
   const section = (id, data) => [id, ...leb(data.length), ...data];
   const exp = (name, kind, index) => [...string(name), kind, index];
-  const bodies = [[0,32,0,16,0,11], [0,65,1,64,0,11], [0,0,11], [0,66,42,11], [0,32,0,11]];
+  const bodies = [[0,32,0,16,0,11], [0,65,1,64,0,11], [0,0,11], [0,66,42,11], [0,32,0,11],
+    [0,32,0,...Array.from({length:8},(_,i)=>[32,i+1,106]).flat(),11],
+    [0,...Array.from({length:9},(_,i)=>[65,i]).flat(),11]];
   const data = Uint8Array.from([0,97,115,109,1,0,0,0,
     ...section(0,[...string('test'),12,34,56]),
-    ...section(1,[3,96,1,127,1,127,96,0,1,127,96,0,1,126]),
+    ...section(1,[5,96,1,127,1,127,96,0,1,127,96,0,1,126,
+      96,9,...Array(9).fill(127),1,127,96,0,9,...Array(9).fill(127)]),
     ...section(2,[1,...string('env'),...string('callback'),0,0]),
-    ...section(3,[5,0,1,1,2,0]), ...section(4,[1,112,1,1,2]), ...section(5,[1,1,1,3]),
+    ...section(3,[7,0,1,1,2,0,3,4]), ...section(4,[1,112,1,1,2]), ...section(5,[1,1,1,3]),
     ...section(6,[1,127,1,65,7,11]),
-    ...section(7,[8,...exp('memory',2,0),...exp('table',1,0),...exp('global',3,0),...exp('call',0,1),...exp('grow',0,2),...exp('trap',0,3),...exp('big',0,4),...exp('echo',0,5)]),
-    ...section(9,[1,0,65,0,11,1,1]), ...section(10,[5,...bodies.flatMap(body=>[...leb(body.length),...body])])]);
+    ...section(7,[10,...exp('memory',2,0),...exp('table',1,0),...exp('global',3,0),...exp('call',0,1),...exp('grow',0,2),...exp('trap',0,3),...exp('big',0,4),...exp('echo',0,5),...exp('manyArgs',0,6),...exp('manyResults',0,7)]),
+    ...section(9,[1,0,65,0,11,1,1]), ...section(10,[7,...bodies.flatMap(body=>[...leb(body.length),...body])])]);
   check(WebAssembly.validate(data), 'module validation');
   check(!WebAssembly.validate(Uint8Array.of(0,1,2)), 'malformed validation');
   const padded = new Uint8Array(data.length+4); padded.set(data,2);
   const module = await WebAssembly.compile(padded.subarray(2,-2));
   check(WebAssembly.Module.imports(module)[0].name === 'callback', 'import descriptors');
-  check(WebAssembly.Module.exports(module).length === 8, 'export descriptors');
+  check(WebAssembly.Module.exports(module).length === 10, 'export descriptors');
   check(new Uint8Array(WebAssembly.Module.customSections(module,'test')[0]).join() === '12,34,56', 'custom sections');
   let instance;
   instance = await WebAssembly.instantiate(module,{env:{callback:n=>instance.exports.echo(n)+1}});
   const e = instance.exports;
+  for(let i=0;i<100;i++) {
+    check(e.manyArgs(1,2,3,4,5,6,7,8,9) === 45, 'cached large parameter signature');
+    check(e.manyResults().join() === '0,1,2,3,4,5,6,7,8', 'large multi-value result signature');
+  }
   check(e.call(41) === 42, 'reentrant host callback');
   check(e.big() === 42n, 'i64 BigInt');
   check(e.table.get(0) === e.call && e.table.get(0)(8) === 9, 'table function identity');

@@ -1,0 +1,33 @@
+{
+  "date": "2026-10-18",
+  "baseline_commit": "db6ff6127bde180c856a15079cb777be7375e4e6",
+  "solution_build": "Release, all solution projects, zero errors",
+  "desktop_regression": {
+    "native_application_enabled": true,
+    "passed": 1803,
+    "native_graphics_enabled": true,
+    "failed": 0,
+    "skipped": 0
+  },
+  "webassembly_suite": {
+    "passed": 418,
+    "failed": 0
+  },
+  "language_server_suite": {
+    "passed": 23,
+    "failed": 0
+  },
+  "android_js_suite": {
+    "passed": 98,
+    "failed": 0
+  },
+  "android_native_builds": [
+    "arm64-v8a",
+    "x86_64"
+  ],
+  "android_emulator": [
+    "runtime contract",
+    "threading",
+    "cached nine-parameter and nine-result signatures"
+  ]
+}

@@ -43,7 +43,6 @@ internal sealed class WasmBodyEmitter
     private readonly int i32Count, f64Count;
 
     private Loc[] loc;
-    private HashSet<int> valid = new();
     private int nest, block, count, pc, fusedTruth = -1;
     private int[] starts = System.Array.Empty<int>();
     private bool[] deadTop = System.Array.Empty<bool>();
@@ -54,7 +53,8 @@ internal sealed class WasmBodyEmitter
         locals = plan.Locals; this.capacity = capacity; loc = new Loc[capacity];
         int addresses = 0;
         for (int i = 0; i < body.Code.Length; i++)
-            if (body.Code[i].Code is IrOperation.Assign or IrOperation.CompoundAssign or IrOperation.IncrementPrefix or IrOperation.IncrementPostfix
+            if (plan.Depth[i] >= 0 && plan.Accesses[i] is { } access && !access.Slots.Any(slot => plan.SlotDecl[i]![slot] == WasmScopePlan.Yes)
+                && body.Code[i].Code is IrOperation.Load or IrOperation.Assign or IrOperation.CompoundAssign or IrOperation.IncrementPrefix or IrOperation.IncrementPostfix
                 && !addressLocals.ContainsKey(body.Code[i].Operand) && addressLocals.Count < 64)
                 addressLocals.Add(body.Code[i].Operand, addresses++);
         tagBase = 7; refBase = tagBase + capacity; intBase = refBase + capacity; addressBase = intBase + capacity;
@@ -113,19 +113,18 @@ internal sealed class WasmBodyEmitter
     private int[] Tags(int at) => plan.StackTags[at] ?? throw new InvalidOperationException("Unreachable instruction.");
     private int TagAfter(int p) => plan.OutTags[pc] is { } t && p < t.Length ? t[p] : Unknown;
 
-    private (Loc[] Loc, HashSet<int> Valid) Save() => ((Loc[])loc.Clone(), new HashSet<int>(valid));
-    private void Restore((Loc[] Loc, HashSet<int> Valid) s) { loc = (Loc[])s.Loc.Clone(); valid = new HashSet<int>(s.Valid); }
-    private void Merge((Loc[] Loc, HashSet<int> Valid) other)
+    private Loc[] Save() => (Loc[])loc.Clone();
+    private void Restore(Loc[] s) => loc = (Loc[])s.Clone();
+    private void Merge(Loc[] other)
     {
         for (int p = 0; p < loc.Length; p++) {
-            Loc a = loc[p], b = other.Loc[p];
+            Loc a = loc[p], b = other[p];
             if (a == b) continue;
             if (a == Loc.Mem || b == Loc.Mem) {
                 if (a == Loc.Reg || b == Loc.Reg) throw new InvalidOperationException("Inconsistent operand location.");
                 loc[p] = Loc.Mem;
             } else loc[p] = Loc.Reg;
         }
-        valid.IntersectWith(other.Valid);
     }
 
     /// <summary>Emits a two-armed conditional (condition already on the Wasm stack) and merges the
@@ -195,7 +194,7 @@ internal sealed class WasmBodyEmitter
     {
         SpillAll(depth); StoreSp(depth);
         Get(F); I32(operand); if (third is int l) Get(l); Call(name); Drop();
-        Forget(depth - consumes); valid.Clear();
+        Forget(depth - consumes); InvalidateAddresses();
         if (check) Checked();
     }
 
@@ -282,13 +281,27 @@ internal sealed class WasmBodyEmitter
     /// <summary>Leaves the value address of a dynamic binding in local A, failing like rt_binding.</summary>
     private void DynamicAddress(int constant, WasmBindingSlots.Candidate? candidate)
     {
+        LookupAddress(constant, candidate);
+        Get(A); Op(0x45); If(); Get(F); I32(constant); Call("binding"); Set(A); Checked(); End();
+    }
+
+    // Positive binding addresses survive control-flow edges, but never a helper or a call: a
+    // declaration can grow a binding buffer, and a callback can introduce a shadowing binding.
+    // Wasm locals start at zero on every entry/resumption; GC does not move live scope buffers.
+    private void InvalidateAddresses()
+    {
+        foreach (int constant in addressLocals.Keys) { I32(0); Set(Address(constant)); }
+    }
+
+    private void LookupAddress(int constant, WasmBindingSlots.Candidate? candidate)
+    {
         bool cache = addressLocals.ContainsKey(constant);
-        if (cache && valid.Contains(constant)) { Get(Address(constant)); Set(A); return; }
+        if (cache) { Get(Address(constant)); Tee(A); Op(0x45); If(); }
         if (candidate != null) {
             CandidatePointer(constant, candidate); Set(A);
-            Get(A); Op(0x45); If(); Get(F); I32(constant); Call("binding"); Set(A); Checked(); End();
-        } else { Get(F); I32(constant); Call("binding"); Set(A); Checked(); }
-        if (cache) { Get(A); Set(Address(constant)); valid.Add(constant); }
+            Get(A); Op(0x45); If(); Get(F); I32(constant); Call("lookup"); Set(A); End();
+        } else { Get(F); I32(constant); Call("lookup"); Set(A); }
+        if (cache) { Get(A); Set(Address(constant)); End(); }
     }
     /// <summary>Leaves the value address of the resolved target of an assignment-like access in local A.</summary>
     private void TargetAddress(WasmScopePlan.Access access, int constant)
@@ -359,9 +372,7 @@ internal sealed class WasmBodyEmitter
     private void DynamicLoad(int constant, WasmScopePlan.Access access, int d, int resultTag)
     {
         if (resultTag != Unknown) throw new InvalidOperationException("Dynamic loads have unknown tags.");
-        if (access.Dynamic != null) CandidatePointer(constant, access.Dynamic);
-        else { Get(F); I32(constant); Call("lookup"); }
-        Set(A); Get(A);
+        LookupAddress(constant, access.Dynamic); Get(A);
         Branch(() => { LoadValue(d, A, 0, Unknown); loc[d] = Loc.Reg; return false; },
             () => { Helper("load", constant, d, 0); LoadValue(d, F, StackOffset(d), Unknown); loc[d] = Loc.Both; return false; });
     }
@@ -416,7 +427,7 @@ internal sealed class WasmBodyEmitter
             int start = starts[block];
             int depth = plan.Depth[start];
             if (depth < 0) { w.Write((byte)0x00); continue; }
-            System.Array.Fill(loc, Loc.Mem); valid.Clear(); fusedTruth = -1;
+            System.Array.Fill(loc, Loc.Mem); fusedTruth = -1;
             if (start == n) { pc = n; StoreSp(depth); Resume(-1); continue; }
             if (checkpointBlocks.TryGetValue(block, out int weight)) Checkpoint(depth, weight);
             bool terminated = false;
@@ -581,7 +592,7 @@ internal sealed class WasmBodyEmitter
             case IrOperation.Error: Helper("error", n, d, 0, false); Resume(-1); return true;
             case IrOperation.Call:
                 SpillAll(d); StoreSp(d); Get(F); I32(n); Call("call");
-                If(); WriteBack(); Resume(BlockOf(pc + 1)); End(); Forget(d - n - 1); valid.Clear();
+                If(); WriteBack(); Resume(BlockOf(pc + 1)); End(); Forget(d - n - 1); InvalidateAddresses();
                 GoBlock(pc + 1); return true;
             case IrOperation.ResolveMemberFunction:
                 Helper("resolveMemberFunction", n, d, 1, false); WriteBack(); Resume(BlockOf(pc + 1)); return true;

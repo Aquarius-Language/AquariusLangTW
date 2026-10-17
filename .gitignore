@@ -29,3 +29,5 @@ AquariusCore/external/onnx/ort*
 .array-build/
 .aqua/
 .build-validation
+.performance/
+.performance-*.log

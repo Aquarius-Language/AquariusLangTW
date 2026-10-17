@@ -36,6 +36,9 @@ public sealed class WasmtimeEngine : IWasmEngine
         // memory export is resolved once per instance instead of on every access.
         private readonly Dictionary<string, Func<int[], int>> functions = new();
         private Memory? memory;
+        private IntPtr memoryBase;
+        private long memoryLength;
+        private bool disposed;
         internal Execution(ReadOnlyMemory<byte> bytes, IReadOnlyDictionary<string, Delegate> imports)
         {
             try
@@ -48,10 +51,11 @@ public sealed class WasmtimeEngine : IWasmEngine
                 {
                     switch (item.Value)
                     {
-                        case Action a: linker.DefineFunction(WasmAbi.ImportModule, item.Key, a); break;
-                        case Action<int> a: linker.DefineFunction(WasmAbi.ImportModule, item.Key, a); break;
-                        case Func<int> f: linker.DefineFunction(WasmAbi.ImportModule, item.Key, f); break;
-                        case Func<int, int, int, int, int, int, int, int> f: linker.DefineFunction(WasmAbi.ImportModule, item.Key, f); break;
+                        case Action a: linker.DefineFunction(WasmAbi.ImportModule, item.Key, () => { RefreshMemory(); a(); }); break;
+                        case Action<int> a: linker.DefineFunction(WasmAbi.ImportModule, item.Key, (int n) => { RefreshMemory(); a(n); }); break;
+                        case Func<int> f: linker.DefineFunction(WasmAbi.ImportModule, item.Key, () => { RefreshMemory(); return f(); }); break;
+                        case Func<int, int, int, int, int, int, int, int> f:
+                            linker.DefineFunction(WasmAbi.ImportModule, item.Key, (int a, int b, int c, int d, int e, int g, int h) => { RefreshMemory(); return f(a, b, c, d, e, g, h); }); break;
                         default: throw new InvalidOperationException($"Unsupported host signature: {item.Key}");
                     }
                 }
@@ -62,9 +66,11 @@ public sealed class WasmtimeEngine : IWasmEngine
         }
         public int Invoke(string name, params int[] arguments)
         {
+            ObjectDisposedException.ThrowIf(disposed, this);
             if (!functions.TryGetValue(name, out var invoke)) functions.Add(name, invoke = Bind(instance.GetFunction(name) ?? throw new InvalidDataException($"Missing Wasm runtime export: {name}"), arguments.Length));
             try { return invoke(arguments); }
             catch (WasmtimeException e) when (e.InnerException != null) { ExceptionDispatchInfo.Capture(e.InnerException).Throw(); throw; }
+            finally { RefreshMemory(); }
         }
         private static Func<int[], int> Bind(Function function, int arity)
         {
@@ -81,7 +87,23 @@ public sealed class WasmtimeEngine : IWasmEngine
                 return Convert.ToInt32(function.Invoke(values));
             };
         }
-        public Span<byte> Memory(int address, int length) => (memory ??= instance.GetMemory("memory") ?? throw new InvalidDataException("Missing Wasm memory.")).GetSpan(address, length);
-        public void Dispose() { linker.Dispose(); store.Dispose(); ownedModule?.Dispose(); }
+        private void RefreshMemory()
+        {
+            // Guest code (including a trapping call) can grow memory. Refresh before callbacks and
+            // after every guest return, including reentrant calls, rather than per primitive read.
+            if (disposed || instance == null) return;
+            memory ??= instance.GetMemory("memory");
+            if (memory == null) return;
+            memoryBase = memory.GetPointer(); memoryLength = memory.GetLength();
+        }
+        public unsafe Span<byte> Memory(int address, int length)
+        {
+            ObjectDisposedException.ThrowIf(disposed, this);
+            if (memory == null) RefreshMemory();
+            if (memory == null) throw new InvalidDataException("Missing Wasm memory.");
+            if (address < 0 || length < 0 || (long)address + length > memoryLength) throw new ArgumentOutOfRangeException(nameof(address));
+            return new Span<byte>((byte*)memoryBase + address, length);
+        }
+        public void Dispose() { if (disposed) return; disposed = true; memoryBase = IntPtr.Zero; memoryLength = 0; linker.Dispose(); store.Dispose(); ownedModule?.Dispose(); }
     }
 }

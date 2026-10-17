@@ -3,6 +3,19 @@ import assert from 'node:assert/strict';
 import {runtime} from './wasm-fixture.mjs';
 import {num,inspect} from '../browser/values.mjs';
 
+test('host memory views are reused and refreshed after guest growth',async()=>{
+  const {vm}=await runtime('42;');
+  const session=vm.program.session,first=session.view();
+  assert.strictEqual(session.view(),first);
+  session.exports.memory.grow(1);
+  const next=session.view();
+  assert.notStrictEqual(next,first);
+  assert.strictEqual(session.view(),next);
+  const address=next.byteLength-16;
+  session.raw(address,1,0,42);
+  assert.equal(inspect(session.read(address)),'42');
+});
+
 test('closed scalar helpers and recursion execute the portable typed ABI',async()=>{
   const {vm,index}=await runtime('變數 fib=函式(n){如果(n<2){回傳 n;}回傳 fib(n-1)+fib(n-2);};fib(20);');
   assert.equal(inspect(await vm.execute(index)),'6765');
