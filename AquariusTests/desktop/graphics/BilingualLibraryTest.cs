@@ -6,7 +6,7 @@ using Xunit;
 namespace AquariusLang.Desktop.Graphics;
 
 public class BilingualLibraryTest {
-    public static IEnumerable<object[]> NativeFunctions => LibraryCatalog.Functions.Where(f => !f.Library.Contains('.') && !ArrayLibrary.IsName(f.Library) && !AquariusLang.Graphics.PortableGraphicsLibraries.Modules.ContainsKey(f.Library))
+    public static IEnumerable<object[]> NativeFunctions => LibraryCatalog.Functions.Where(f => !f.Library.Contains('.') && !LibraryCatalog.IsPortableModule(f.Library) && !AquariusLang.Graphics.PortableGraphicsLibraries.Modules.ContainsKey(f.Library))
         .Select(f => new object[] { f.Library, f.EnglishName, f.TraditionalChineseName, f.MaximumArguments });
 
     [Theory, MemberData(nameof(NativeFunctions))]

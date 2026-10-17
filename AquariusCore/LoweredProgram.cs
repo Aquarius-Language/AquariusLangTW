@@ -13,7 +13,7 @@ public enum IrOperation : byte {
     CompoundAssign, Jump, JumpIfFalse, JumpIfBreak, Closure, Call, Return,
     Array, Hash, CheckHashKey, Index, CheckArrayWrite, WriteIndex, Member, MemberFunction, ResolveMemberFunction,
     EnterLoop, LoopCondition, NextIteration, LeaveLoop, Break, Error,
-    Duplicate
+    Duplicate, Modulo
 }
 
 public readonly struct Instruction {

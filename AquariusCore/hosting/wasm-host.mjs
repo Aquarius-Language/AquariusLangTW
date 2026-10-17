@@ -1,6 +1,8 @@
 import {Scope,num,numeric,nativeCall,nativeOwner,isPromiseLike,portableBuiltin} from './values.mjs';
 import {validateManifest} from './wasm-manifest.mjs';
 import {arrayBuiltin} from './array-library.mjs';
+import {hashBuiltin} from './hash-library.mjs';
+import {stringBuiltin} from './string-library.mjs';
 import {ThreadGroup,ThreadPacket,threadBuiltin,threadModule} from './threads.mjs';
 // Shared engine transport: Aquarius values, calls and control flow execute in Wasm.
 export class WasmRuntime {
@@ -113,7 +115,7 @@ class Session {
     if(v?.type==='module'&&this.scopes.has(v.scope)){const reference=this.scopes.get(v.scope);this.raw(p,9,reference);this.lease(v,p,9,reference);return;}this.raw(p,10,this.native(v));
   }
   read(p){
-    if(this.int(p)===14){const id=this.int(p+4);for(const context of this.contexts)for(const fn of context.values())if(fn?.[portableBuiltin]===id)return fn;const arrayFn=arrayBuiltin(id)??threadBuiltin(id);if(arrayFn)return arrayFn;throw new Error('Unknown portable builtin');}
+    if(this.int(p)===14){const id=this.int(p+4);for(const context of this.contexts)for(const fn of context.values())if(fn?.[portableBuiltin]===id)return fn;const arrayFn=arrayBuiltin(id)??hashBuiltin(id)??stringBuiltin(id)??threadBuiltin(id);if(arrayFn)return arrayFn;throw new Error('Unknown portable builtin');}
     const tag=this.int(p),reference=this.int(p+4),number=this.view().getFloat64(p+8,true);if(tag===0)return undefined;if(tag>=1&&tag<=3)return num(number,['','int','float','double'][tag]);if(tag===4)return number!==0;if(tag===5)return this.text(reference);if(tag===10)return this.natives[reference];if(tag===11)return null;if(tag===12)return {type:'break'};if(tag===13)throw new Error(this.text(reference));
     const key=`${tag}:${reference}`,cached=this.objects.get(key)?.deref();if(cached){if(!this.refreshingDirtyHashes)this.refresh(tag,reference,cached);return cached;}
     let result;if(tag===6){result=new Array(this.call('aqua_array_count',reference));this.objects.set(key,new WeakRef(result));this.lease(result,p,tag,reference);this.reading.add(key);try{this.readArray(reference,result);}finally{this.reading.delete(key);}return result;}

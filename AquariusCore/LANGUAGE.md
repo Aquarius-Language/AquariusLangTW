@@ -36,6 +36,9 @@ optimizations preserve the language behavior below; see
 - Arithmetic promotes mixed numeric operands to double, then float, then integer.
   Compound numeric assignments preserve the left variable's numeric type by
   converting the result back to that type. Prefix/postfix `++` also preserve it.
+- `%` and `%=` compute remainders with the precedence of `*` and `/`. Integer
+  remainders truncate toward zero like integer division; floating operands use
+  floating remainders. Integer remainder by zero is a runtime error.
 - `++值` returns the updated number; `值++` returns the original number.
   Both require an existing numeric variable.
 - Boolean `&&` and `||` evaluate both operands. They do not short-circuit.
@@ -61,6 +64,11 @@ optimizations preserve the language behavior below; see
 - The built-in `陣列` / `Array` module provides capacity-aware creation and in-place
   array manipulation. `加入` / `push` still preserves the input; mutating library
   operations preserve Aquarius reference aliases. See [array semantics](../docs/arrays.md).
+- The built-in `雜湊` / `Hash` module enumerates and edits hashes (keys, values,
+  entries, has, get with default, delete, clone, clear, merge), and `字串` / `String`
+  provides portable text operations (`轉文字` / `From`, slicing, searching, splitting,
+  joining, replacing, trimming, case, code points, integer parsing). `長度` / `len`
+  also counts hash entries. See [hash and string libraries](../docs/hash-and-string.md).
 - Imported script modules expose their environment through `ModuleObj`.
   Module member calls evaluate arguments in the caller's environment and execute
   function bodies in their captured environment.

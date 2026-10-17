@@ -48,7 +48,7 @@ internal static class WasmStackAnalysis
                 case IrOperation.ResolveMemberFunction: case IrOperation.JumpIfBreak:
                     required = 1; break;
                 case IrOperation.Assign: case IrOperation.CompoundAssign:
-                case IrOperation.Add: case IrOperation.Subtract: case IrOperation.Multiply: case IrOperation.Divide:
+                case IrOperation.Add: case IrOperation.Subtract: case IrOperation.Multiply: case IrOperation.Divide: case IrOperation.Modulo:
                 case IrOperation.Less: case IrOperation.Greater: case IrOperation.LessEqual: case IrOperation.GreaterEqual:
                 case IrOperation.Equal: case IrOperation.NotEqual: case IrOperation.And: case IrOperation.Or:
                 case IrOperation.Index:

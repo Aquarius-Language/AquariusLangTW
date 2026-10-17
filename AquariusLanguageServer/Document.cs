@@ -244,6 +244,8 @@ internal sealed class Document
         {
             var declaration = Lookup(identifier.Value, scope, offset);
             if (declaration == null && ArrayLibrary.IsName(identifier.Value)) return new ModuleInfo(Library: "Array");
+            if (declaration == null && HashLibrary.IsName(identifier.Value)) return new ModuleInfo(Library: "Hash");
+            if (declaration == null && StringLibrary.IsName(identifier.Value)) return new ModuleInfo(Library: "String");
             if (declaration == null && AquariusLang.Threading.ThreadCatalog.IsName(identifier.Value)) return new ModuleInfo(Library: "Thread");
             return declaration == null ? null : ResolveModule(declaration.Value, declaration.Scope, declaration.Token.Start, depth + 1);
         }

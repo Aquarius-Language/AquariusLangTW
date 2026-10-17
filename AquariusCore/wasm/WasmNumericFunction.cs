@@ -55,7 +55,8 @@ internal sealed class WasmNumericFunction
                     if (!names.Contains((string)body.Pool[op.Operand], StringComparer.Ordinal)) return null;
                     break;
                 case IrOperation.CompoundAssign:
-                    if (!names.Contains(((Assignment)body.Pool[op.Operand]).Name, StringComparer.Ordinal)) return null;
+                    var assignment = (Assignment)body.Pool[op.Operand];
+                    if (assignment.Operation == IrOperation.Modulo || !names.Contains(assignment.Name, StringComparer.Ordinal)) return null;
                     break;
                 case IrOperation.Jump: case IrOperation.JumpIfFalse: case IrOperation.JumpIfBreak:
                 case IrOperation.Pop: case IrOperation.Duplicate: case IrOperation.Declare:

@@ -294,7 +294,8 @@ public sealed class WasmCompiler
                     switch (op.Code) {
                         case IrOperation.Load: LoadBinding(n, bindingSlots[i]); continue;
                         case IrOperation.Assign: AssignBinding(n, bindingSlots[i]); continue;
-                        case IrOperation.CompoundAssign: CompoundBinding(n, bindingSlots[i]); continue;
+                        // Remainder has no inline numeric fast path; it falls through to rt_compoundAssign.
+                        case IrOperation.CompoundAssign when ((Assignment)body.Pool[n]).Operation != IrOperation.Modulo: CompoundBinding(n, bindingSlots[i]); continue;
                         case IrOperation.IncrementPrefix: IncrementBinding(n, bindingSlots[i], true); continue;
                         case IrOperation.IncrementPostfix: IncrementBinding(n, bindingSlots[i], false); continue;
                         case IrOperation.Index: ArrayIndex(); continue;

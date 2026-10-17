@@ -131,7 +131,7 @@ public sealed class LoweringCompiler {
             return;
         }
         Node(expression.Right);
-        if (op == "=" || op == "+=" || op == "-=" || op == "*=" || op == "/=") {
+        if (op == "=" || op == "+=" || op == "-=" || op == "*=" || op == "/=" || op == "%=") {
             if (!(expression.Left is Identifier variable)) {
                 Error($"Left operand for {op} operator not identifier. Got={expression.Left.GetType()}"); return;
             }
@@ -143,7 +143,7 @@ public sealed class LoweringCompiler {
     }
 
     private static IrOperation BinaryCode(string op) => op switch {
-        "+" => IrOperation.Add, "-" => IrOperation.Subtract, "*" => IrOperation.Multiply, "/" => IrOperation.Divide,
+        "+" => IrOperation.Add, "-" => IrOperation.Subtract, "*" => IrOperation.Multiply, "/" => IrOperation.Divide, "%" => IrOperation.Modulo,
         "<" => IrOperation.Less, ">" => IrOperation.Greater, "<=" => IrOperation.LessEqual, ">=" => IrOperation.GreaterEqual,
         "==" => IrOperation.Equal, "!=" => IrOperation.NotEqual, "&&" => IrOperation.And, "||" => IrOperation.Or,
         _ => throw new CompilationException($"Unsupported operator: {op}")

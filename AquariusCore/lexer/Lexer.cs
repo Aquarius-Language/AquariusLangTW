@@ -98,6 +98,15 @@ namespace AquariusLang.lexer {
                     }
 
                     break;
+                case '%':
+                    if (peekChar() == '=') {
+                        readChar();
+                        token = newToken(TokenType.PERCENT_EQ, "%=");
+                    } else {
+                        token = newToken(TokenType.PERCENT, ch);
+                    }
+
+                    break;
                 case '*':
                     if (peekChar() == '=') {
                         readChar();

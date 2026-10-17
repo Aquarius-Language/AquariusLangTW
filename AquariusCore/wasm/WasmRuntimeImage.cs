@@ -101,7 +101,7 @@ internal sealed class WasmRuntimeImage
                     int tag = literal.Type switch { "int" => 1, "float" => 2, "double" => 3, "bool" => 4, "name" or "string" or "assignment" => 5, "function" => 8, "null" => 11, "break" => 12, _ => 0 };
                     Int(slot, tag); if (literal.Text != null) Int(slot + 4, Text(literal.Text));
                     double number = literal.Type switch { "function" or "program" => literal.Function, "bool" => literal.Boolean ? 1 : 0,
-                        "assignment" => literal.Operation switch { "Add" => 0, "Subtract" => 1, "Multiply" => 2, "Divide" => 3, _ => throw new InvalidDataException("Invalid assignment.") }, _ => literal.Number };
+                        "assignment" => literal.Operation switch { "Add" => 0, "Subtract" => 1, "Multiply" => 2, "Divide" => 3, "Modulo" => 12, _ => throw new InvalidDataException("Invalid assignment.") }, _ => literal.Number };
                     Number(slot + 8, number);
                 }
             }

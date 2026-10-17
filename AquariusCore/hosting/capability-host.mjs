@@ -1,5 +1,7 @@
 import {textureDescriptor,decodeTextureDataAsync} from './wgpu-textures.mjs';
 import {registerArrayLibrary} from './array-library.mjs';
+import {registerHashLibrary} from './hash-library.mjs';
+import {registerStringLibrary} from './string-library.mjs';
 import {Scope,module,num,numeric,wrap,unwrap,inspect,nativeCall,nativeOwner,isPromiseLike,portableBuiltin} from './values.mjs';
 import {WasmRuntime} from './wasm-host.mjs';
 import {Processing,pack} from './processing.mjs';
@@ -21,11 +23,11 @@ export class CapabilityHost {
   async execute(entry){entry=lookupPath(this.bundle.modules,this.resolve(entry),{module:true});if(this.importing.has(entry))throw new Error(`Circular import: ${entry}`);this.importing.add(entry);try{return await this.runtime.execute(this.bundle.modules[entry],new Scope(),this.builtinsFor(entry));}finally{this.importing.delete(entry);this.webcam?.closeSessions();}}
   registerGlobals(){const globals=this.newModule(),b=(n,f,raw=false)=>this.bind(globals,'',n,f,raw);
     b('currentTime',()=>num(performance.now(),'double'),true);b('currentDate',()=>{const d=new Date();return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');});
-    b('len',v=>num(typeof v==='string'?v.length:Array.isArray(v)?v.length:(()=>{throw new Error('len expects string or array');})(),'int'),true);b('last',v=>{if(!Array.isArray(v))throw new Error('last expects array');return v.at(-1)??null;},true);b('rest',v=>{if(!Array.isArray(v))throw new Error('rest expects array');return v.length?v.slice(1):null;},true);b('push',(a,v)=>{if(!Array.isArray(a))throw new Error('push expects array');return [...a,v];},true);b('print',(...a)=>{this.print(a.map(inspect).join(' '));},true);for(const n of ['isOSWindows','isOSLinux','isOSMacOS'])b(n,()=>false);b('isOSAndroid',()=>this.adapters.platform==='android');b('isWeb',()=>this.adapters.platform==='web');b('execFile',()=>{throw new Error('execFile requires a desktop host');});this.builtins=new Map(globals.scope.store);
+    b('len',v=>num(typeof v==='string'?v.length:Array.isArray(v)?v.length:v instanceof Map?v.size:(()=>{throw new Error('len expects string, array or hash');})(),'int'),true);b('last',v=>{if(!Array.isArray(v))throw new Error('last expects array');return v.at(-1)??null;},true);b('rest',v=>{if(!Array.isArray(v))throw new Error('rest expects array');return v.length?v.slice(1):null;},true);b('push',(a,v)=>{if(!Array.isArray(a))throw new Error('push expects array');return [...a,v];},true);b('print',(...a)=>{this.print(a.map(inspect).join(' '));},true);for(const n of ['isOSWindows','isOSLinux','isOSMacOS'])b(n,()=>false);b('isOSAndroid',()=>this.adapters.platform==='android');b('isWeb',()=>this.adapters.platform==='web');b('execFile',()=>{throw new Error('execFile requires a desktop host');});this.builtins=new Map(globals.scope.store);
     b('floodFill',()=>{throw new Error('floodFill requires compiled Wasm execution');},true);this.builtins=new Map(globals.scope.store);
     for(const [name,id]of [['len',1],['last',2],['rest',3],['push',4],['floodFill',5]])this.builtins.get(name)[portableBuiltin]=id;
   }
-  register(){this.registerGlobals();registerArrayLibrary(this);
+  register(){this.registerGlobals();registerArrayLibrary(this);registerHashLibrary(this);registerStringLibrary(this);
     this.processing=new Processing(this);this.modules.set('Processing',this.processing.module);this.registerGpu();registerTerminal(this);this.registerMath();this.registerText();this.adapters.registerLegacy?.(this);
     this.adapters.register(this);this.modules.set("繪圖",this.processing.module);if(this.modules.has("Serialization"))this.modules.set("序列化",this.modules.get("Serialization"));
     for(const [library,alias]of [['Camera','相機'],['AndroidInput','Android輸入']])if(!this.modules.has(library)){

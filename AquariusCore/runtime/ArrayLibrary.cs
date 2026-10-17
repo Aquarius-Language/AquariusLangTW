@@ -19,12 +19,5 @@ public static class ArrayLibrary {
     public static bool IsName(string name) => name is "Array" or "陣列";
     public static BuiltinObj? Resolve(int id) => id is >= 6 and <= 19
         ? BuiltinObj.FromPortable(id, _ => new ErrorObj("Array functions require compiled Wasm execution.")) : null;
-    public static ModuleObj CreateModule() {
-        var environment = AquariusLang.Object.Environment.NewEnvironment();
-        for (int i = 0; i < Functions.Count; i++) {
-            var function = Functions[i]; var token = Resolve(i + 6)!;
-            foreach (var name in function.Names) environment.Create(name, token);
-        }
-        return new ModuleObj(environment);
-    }
+    public static ModuleObj CreateModule() => PortableModules.Create(Functions, 6, Resolve);
 }

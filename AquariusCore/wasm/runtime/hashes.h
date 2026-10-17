@@ -1,0 +1,57 @@
+/* Builtin IDs 20..29: portable hash library. Included after arrays.h; shares its helpers. */
+static Scope *hash_library(void) {
+    static const uint16_t *names[][2]={
+        {u"Keys",u"鍵列表"},{u"Values",u"值列表"},{u"Has",u"包含鍵"},{u"Get",u"取得"},
+        {u"Delete",u"刪除鍵"},{u"Len",u"長度"},{u"Clone",u"克隆"},{u"Clear",u"清空"},
+        {u"Merge",u"合併"},{u"Entries",u"項目列表"}
+    };
+    Scope*s=scope(0);s->captured=1;for(u32 i=0;i<10;i++)for(u32 j=0;j<2;j++)declare(s,utf16(names[i][j]),value(BUILTIN,i+20,0));return s;
+}
+static void hash_changed(Hash*h) {
+    if(h->exposed&&!h->dirty){h->dirty=1;h->dirty_next=dirty_hashes;dirty_hashes=h;}
+}
+static int hash_key(Frame*f,Value k) {
+    if(numeric(k)||k.tag==STRING||k.tag==BOOL)return 1;
+    named_failure(f,"Unusable as hash key: ",ascii(type_name(k.tag)));return 0;
+}
+static u32 hash_find(Hash*h,Value k) { u32 j=0;while(j<h->count&&!equal(h->pairs[j].key,k,1))j++;return j; }
+static Value hash_copy(Hash*source) {
+    Hash*h=pointer(aqua_hash(source->count));memcpy(h->pairs,source->pairs,source->count*sizeof(Pair));return value(HASH,address(h),0);
+}
+static Value hash_call(Frame*f,u32 id,Value*args,u32 n) {
+    static const unsigned char arity[]={1,1,2,3,2,1,1,1,2,1};
+    if(id<20||id>29||n!=arity[id-20]){failure(f,"Incorrect Hash argument count.");return empty;}
+    if(args[0].tag!=HASH){failure(f,"Hash function requires a hash.");return empty;}
+    Hash*h=pointer(args[0].ref);
+    if(id==20||id==21||id==29){
+        Array*a=array(h->count);
+        for(u32 i=0;i<h->count;i++){
+            if(id==20)a->values[i]=h->pairs[i].key;
+            else if(id==21)a->values[i]=h->pairs[i].value;
+            else{Array*p=array(2);p->values[0]=h->pairs[i].key;p->values[1]=h->pairs[i].value;a->values[i]=value(ARRAY,address(p),0);}
+        }
+        return value(ARRAY,address(a),0);
+    }
+    if(id==22||id==23||id==24){
+        if(!hash_key(f,args[1]))return empty;
+        u32 j=hash_find(h,args[1]);
+        if(id==22)return value(BOOL,0,j<h->count);
+        if(id==23)return j<h->count?h->pairs[j].value:args[2];
+        if(j==h->count)return value(BOOL,0,0);
+        memmove(h->pairs+j,h->pairs+j+1,(h->count-j-1)*sizeof(Pair));
+        h->count--;memset(h->pairs+h->count,0,sizeof(Pair));hash_changed(h);return value(BOOL,0,1);
+    }
+    if(id==25)return number(h->count,INT);
+    if(id==26)return hash_copy(h);
+    if(id==27){if(h->count){memset(h->pairs,0,h->count*sizeof(Pair));h->count=0;hash_changed(h);}return args[0];}
+    /* id 28: Merge(destination, source) writes every source pair into destination. */
+    if(args[1].tag!=HASH){failure(f,"Hash.Merge requires a hash source.");return empty;}
+    Hash*source=pointer(args[1].ref);u32 count=source->count;
+    for(u32 i=0;i<count;i++){
+        Pair p=source->pairs[i];u32 j=hash_find(h,p.key);
+        if(j==h->count)aqua_hash_resize(address(h),h->count+1);
+        h->pairs[j]=p;
+    }
+    if(count)hash_changed(h);
+    return args[0];
+}

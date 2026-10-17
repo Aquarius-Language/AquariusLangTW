@@ -39,7 +39,7 @@ export function validateManifest(module,m){
       if(['function','program'].includes(c.type)&&(!Number.isInteger(c.function)||c.function<0||c.function>=m.functions.length))invalid('function reference');
       if(c.type==='function'&&(!Array.isArray(c.parameters)||c.parameters.some(p=>typeof p!=='string'||!p.trim())))invalid('function parameters');
       if(['name','string','assignment'].includes(c.type)&&typeof c.text!=='string')invalid('constant text');
-      if(c.type==='assignment'&&!['Add','Subtract','Multiply','Divide'].includes(c.operation))invalid('assignment operation');
+      if(c.type==='assignment'&&!['Add','Subtract','Multiply','Divide','Modulo'].includes(c.operation))invalid('assignment operation');
       if(c.type==='int'&&(!Number.isInteger(c.number)||c.number<-2147483648||c.number>2147483647))invalid('integer constant');
       if(c.text!==null&&c.text!==undefined){if(typeof c.text!=='string')invalid('constant text');text(c.text);}
     }

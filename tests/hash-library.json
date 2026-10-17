@@ -1,0 +1,72 @@
+{
+  "valid": [
+    [
+      "Module aliases share identity",
+      "Hash==雜湊;",
+      "真"
+    ],
+    [
+      "Keys and values keep insertion order",
+      "變數 h={\"b\":2,\"a\":1,3:\"c\"};[Hash.Keys(h),Hash.Values(h)];",
+      "[[b, a, 3], [2, 1, c]]"
+    ],
+    [
+      "Entries pair keys with values",
+      "Hash.Entries({\"x\":1,真:假});",
+      "[[x, 1], [真, 假]]"
+    ],
+    [
+      "Has distinguishes typed keys",
+      "變數 h={1:\"int\"};[Hash.Has(h,1),Hash.Has(h,1.0d),Hash.Has(h,\"1\")];",
+      "[真, 假, 假]"
+    ],
+    [
+      "Get returns the stored value or a default",
+      "變數 h={\"a\":[]};[Hash.Get(h,\"a\",0),Hash.Get(h,\"z\",0),Hash.Get(h,\"z\",\"預設\")];",
+      "[[], 0, 預設]"
+    ],
+    [
+      "Delete mutates aliases and reports removal",
+      "變數 h={\"a\":1,\"b\":2,\"c\":3};變數 alias=h;[Hash.Delete(h,\"b\"),Hash.Delete(h,\"b\"),alias,Hash.Len(h)];",
+      "[真, 假, {a: 1, c: 3}, 2]"
+    ],
+    [
+      "Len counts entries",
+      "[Hash.Len({\"a\":1,\"b\":2}),Hash.Len({})];",
+      "[2, 0]"
+    ],
+    [
+      "Clone is shallow and independent",
+      "變數 child=[1];變數 h={\"c\":child};變數 copy=Hash.Clone(h);copy[\"n\"]=2;child[0]=9;[h,copy];",
+      "[{c: [9]}, {c: [9], n: 2}]"
+    ],
+    [
+      "Clear empties in place",
+      "變數 h={\"a\":1};變數 alias=h;[Hash.Clear(h)==alias,alias,Hash.Len(h)];",
+      "[真, {}, 0]"
+    ],
+    [
+      "Merge overwrites and appends",
+      "變數 h={\"a\":1,\"b\":2};[Hash.Merge(h,{\"b\":20,\"c\":30})==h,h];",
+      "[真, {a: 1, b: 20, c: 30}]"
+    ],
+    [
+      "Merge with itself is stable",
+      "變數 h={\"a\":1};Hash.Merge(h,h);h;",
+      "{a: 1}"
+    ],
+    [
+      "Deleted keys can be reinserted",
+      "變數 h={\"a\":1,\"b\":2};Hash.Delete(h,\"a\");h[\"a\"]=3;[Hash.Keys(h),h[\"a\"]];",
+      "[[b, a], 3]"
+    ]
+  ],
+  "invalid": [
+    "Hash.Keys();",
+    "Hash.Keys([]);",
+    "Hash.Get({},1);",
+    "Hash.Delete({},[]);",
+    "Hash.Merge({},[]);",
+    "Hash.Has({}, {});"
+  ]
+}

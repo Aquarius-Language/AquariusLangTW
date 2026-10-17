@@ -20,7 +20,7 @@ internal static class LanguageFacts
     {
         var result = new Dictionary<string, string>
         {
-            ["長度"] = "長度(值) — UTF-16 string length or array element count.",
+            ["長度"] = "長度(值) — UTF-16 string length, array element count or hash entry count.",
             ["最後一個"] = "最後一個(陣列) — Last array element, or null for an empty array.",
             ["其餘"] = "其餘(陣列) — Array without its first element.",
             ["加入"] = "加入(陣列, 值) — Return an array with a value appended.",
@@ -42,6 +42,8 @@ internal static class LanguageFacts
         }
         result["currWorkingDir"] = result["目前工作目錄"];
         result["陣列"] = result["Array"] = "陣列 / Array — Built-in portable array module: Make, Grow, Append, Copy, Clone, Slice, Fill, Delete, Reverse, Index and Contains.";
+        result["雜湊"] = result["Hash"] = "雜湊 / Hash — Built-in portable hash module: Keys, Values, Has, Get, Delete, Len, Clone, Clear, Merge and Entries.";
+        result["字串"] = result["String"] = "字串 / String — Built-in portable text module: From, Slice, Find, Contains, StartsWith, EndsWith, Split, Join, Replace, Trim, Upper, Lower, Repeat, Code, FromCode and ParseInt.";
         result["執行緒"] = result["Thread"] = "執行緒 / Thread — Isolated function workers: 啟動 / Start, 等待 / Wait, 結果 / Result, 取消 / Cancel, 關閉 / Close, 是否完成 / IsDone, 休眠 / Sleep, 是否要求取消 / IsCancellationRequested.";
         return result;
     }

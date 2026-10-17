@@ -124,7 +124,7 @@ public sealed class WasmProgram
                 if (c == null || !new[] { "name", "int", "float", "double", "string", "bool", "null", "break", "assignment", "function", "program" }.Contains(c.Type)) throw new InvalidDataException("Invalid constant type.");
                 if (c.Type is "function" or "program" && (c.Function < 0 || c.Function >= metadata.Functions.Length)) throw new InvalidDataException("Invalid function reference.");
                 if (c.Type == "function" && c.Parameters == null || c.Type is "name" or "string" or "assignment" && c.Text == null) throw new InvalidDataException("Invalid constant metadata.");
-                if (c.Type == "assignment" && c.Operation is not ("Add" or "Subtract" or "Multiply" or "Divide")) throw new InvalidDataException("Invalid assignment operation.");
+                if (c.Type == "assignment" && c.Operation is not ("Add" or "Subtract" or "Multiply" or "Divide" or "Modulo")) throw new InvalidDataException("Invalid assignment operation.");
                 if (c.Type == "function" && c.Parameters!.Any(p => string.IsNullOrWhiteSpace(p))) throw new InvalidDataException("Invalid function parameter.");
                 if (c.Type == "int" && (c.Number < int.MinValue || c.Number > int.MaxValue || c.Number != Math.Truncate(c.Number))) throw new InvalidDataException("Invalid integer constant.");
             }

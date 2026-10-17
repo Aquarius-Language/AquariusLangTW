@@ -123,10 +123,15 @@ static int numeric(Value v) { return v.tag>=INT&&v.tag<=DOUBLE; }
 static Value number(double n,u32 tag) { if(tag==INT)n=n>=-2147483648.0&&n<2147483648.0?(double)(int32_t)n:-2147483648.0;else if(tag==FLOAT)n=(double)(float)n;return value(tag,0,n); }
 static int equal(Value a,Value b,int typed) { if(numeric(a)&&numeric(b))return (!typed||a.tag==b.tag)&&(a.number==b.number||(typed&&a.number!=a.number&&b.number!=b.number));if(a.tag!=b.tag)return 0;if(a.tag==STRING)return text_equal(pointer(a.ref),pointer(b.ref));if(a.tag==BOOL)return a.number==b.number;return a.ref==b.ref; }
 static Value binary(Frame*f,int op,Value a,Value b,int compound) {
-    static const char *symbols[]={"+","-","*","/","<",">","<=",">=","==","!=","&&","||"};
+    static const char *symbols[]={"+","-","*","/","<",">","<=",">=","==","!=","&&","||","%"};
     if(numeric(a)&&numeric(b)){
         u32 tag=compound?a.tag:a.tag>b.tag?a.tag:b.tag;double x=a.number,y=b.number;
-        switch(op){case 0:return number(x+y,tag);case 1:return number(x-y,tag);case 2:return number(x*y,tag);case 3:return number(x/y,tag);case 4:return value(BOOL,0,x<y);case 5:return value(BOOL,0,x>y);case 6:return value(BOOL,0,x<=y);case 7:return value(BOOL,0,x>=y);case 8:return value(BOOL,0,x==y);case 9:return value(BOOL,0,x!=y);}
+        switch(op){case 0:return number(x+y,tag);case 1:return number(x-y,tag);case 2:return number(x*y,tag);case 3:return number(x/y,tag);case 4:return value(BOOL,0,x<y);case 5:return value(BOOL,0,x>y);case 6:return value(BOOL,0,x<=y);case 7:return value(BOOL,0,x>=y);case 8:return value(BOOL,0,x==y);case 9:return value(BOOL,0,x!=y);
+        case 12:
+            // Remainder truncates toward zero like division; integer remainder by zero is an error.
+            if(tag==INT){if(y==0){failure(f,"Integer remainder by zero / 整數不能對零取餘數。");return empty;}
+                if(a.tag==INT&&b.tag==INT)return number(y==-1?0:(double)((int32_t)x%(int32_t)y),INT);}
+            return number(x-__builtin_trunc(x/y)*y,tag);}
     }
     if(op==8||op==9)return value(BOOL,0,equal(a,b,0)^(op==9));
     if((op==10||op==11)&&a.tag==BOOL&&b.tag==BOOL)return value(BOOL,0,op==10?(a.number&&b.number):(a.number||b.number));
@@ -152,6 +157,8 @@ u32 aqua_hash_write_support(void) { return 1; }
 u32 aqua_hash_expose(u32 p) { ((Hash*)pointer(p))->exposed=1;return 0; }
 u32 aqua_take_dirty_hash(void) { Hash*h=dirty_hashes;if(!h)return 0;dirty_hashes=h->dirty_next;h->dirty_next=0;h->dirty=0;return address(h); }
 #include "arrays.h"
+#include "hashes.h"
+#include "texts.h"
 #include "threads.h"
 static Frame *frame(Execution*e,Frame*parent,Program*p,u32 id,Scope*s,u32 context) {
     if(id>=p->count)__builtin_trap();Function*fn=p->functions+id;
@@ -203,18 +210,26 @@ int rt_void(Frame*f,int n) { push(f,empty);return 0; }
 int rt_null(Frame*f,int n) { push(f,value(NULL_VALUE,0,0));return 0; }
 int rt_pop(Frame*f,int n) { pop(f);return 0; }
 int rt_duplicate(Frame*f,int n) { push(f,peek(f,1));return 0; }
-int rt_load(Frame*f,int n) { Binding*b=cached_binding(f,n);if(!b&&f->context<65536&&builtin_scopes[f->context])b=find_owned(builtin_scopes[f->context],name(f,n));if(b)push(f,b->value);else {Value v=empty;Text*t=name(f,n);int status;
-    if(text_is(t,u"Thread")||text_is(t,u"執行緒")){v=value(MODULE,address(thread_library()),0);status=0;}
-    else if(text_is(t,u"Array")||text_is(t,u"陣列")){v=value(MODULE,address(array_library()),0);status=0;}else status=host_service(0,f->context,0,address(t),0,0,address(&v));
+/* Built-in portable modules: each has an English and a Traditional Chinese global name. */
+static Scope *portable_module(Text*t,const uint16_t**alias) {
+    static const uint16_t *names[][2]={{u"Thread",u"執行緒"},{u"Array",u"陣列"},{u"Hash",u"雜湊"},{u"String",u"字串"}};
+    for(u32 i=0;i<4;i++)for(u32 j=0;j<2;j++)if(text_is(t,names[i][j])){
+        *alias=names[i][1-j];
+        return i==0?thread_library():i==1?array_library():i==2?hash_library():text_library();
+    }
+    return 0;
+}
+int rt_load(Frame*f,int n) { Binding*b=cached_binding(f,n);if(!b&&f->context<65536&&builtin_scopes[f->context])b=find_owned(builtin_scopes[f->context],name(f,n));if(b)push(f,b->value);else {Value v=empty;Text*t=name(f,n);int status;const uint16_t*alias=0;
+    Scope*module=portable_module(t,&alias);
+    if(module){v=value(MODULE,address(module),0);status=0;}else status=host_service(0,f->context,0,address(t),0,0,address(&v));
     if(status)named_failure(f,"Identifier not found: ",t);else {if(f->context<65536){if(!builtin_scopes[f->context]){builtin_scopes[f->context]=scope(0);builtin_contexts[builtin_context_count++]=f->context;}declare(builtin_scopes[f->context],t,v);
-        if(text_is(t,u"Array"))declare(builtin_scopes[f->context],utf16(u"陣列"),v);else if(text_is(t,u"陣列"))declare(builtin_scopes[f->context],utf16(u"Array"),v);
-        if(text_is(t,u"Thread"))declare(builtin_scopes[f->context],utf16(u"執行緒"),v);else if(text_is(t,u"執行緒"))declare(builtin_scopes[f->context],utf16(u"Thread"),v);
+        if(alias)declare(builtin_scopes[f->context],utf16(alias),v);
     }push(f,v);}}return 0; }
 int rt_declare(Frame*f,int n) { declare(f->scope,name(f,n),pop(f));push(f,empty);return 0; }
 int rt_assign(Frame*f,int n) { Value v=pop(f);pop(f);Binding*b=cached_binding(f,n);if(!b)named_failure(f,"Identifier not found: ",name(f,n));else b->value=v;push(f,empty);return 0; }
 int rt_compoundAssign(Frame*f,int n) { Value c=constant(f,n),r=pop(f);pop(f);Binding*b=cached_binding(f,n);if(!b)named_failure(f,"Identifier not found: ",pointer(c.ref));else b->value=binary(f,(int)c.number,b->value,r,1);push(f,empty);return 0; }
 #define BINARY(NAME,OP) int rt_##NAME(Frame*f,int n){Value r=pop(f),l=pop(f);push(f,binary(f,OP,l,r,0));return 0;}
-BINARY(add,0) BINARY(subtract,1) BINARY(multiply,2) BINARY(divide,3) BINARY(less,4) BINARY(greater,5) BINARY(lessEqual,6) BINARY(greaterEqual,7) BINARY(equal,8) BINARY(notEqual,9) BINARY(and,10) BINARY(or,11)
+BINARY(add,0) BINARY(subtract,1) BINARY(multiply,2) BINARY(divide,3) BINARY(less,4) BINARY(greater,5) BINARY(lessEqual,6) BINARY(greaterEqual,7) BINARY(equal,8) BINARY(notEqual,9) BINARY(and,10) BINARY(or,11) BINARY(modulo,12)
 int rt_negate(Frame*f,int n) { Value v=pop(f);if(numeric(v))push(f,number(-v.number,v.tag));else named_failure(f,"Unknown operator: -",ascii(type_name(v.tag)));return 0; }
 int rt_not(Frame*f,int n) { Value v=pop(f);push(f,value(BOOL,0,v.tag==BOOL?!v.number:v.tag==NULL_VALUE));return 0; }
 static int increment(Frame*f,int n,int prefix) { Binding*b=cached_binding(f,n);if(!b){named_failure(f,"Identifier not found: ",name(f,n));return 0;}Value old=b->value;if(!numeric(old)){failure(f,"Increment requires a number.");return 0;}b->value=number(old.number+1,old.tag);push(f,prefix?b->value:old);return 0; }
@@ -252,10 +267,10 @@ int rt_call(Frame*f,int n) {
         Value out=empty;int pending=host_service(4,f->context,callee.ref,0,address(args),n,address(&out));f->sp=base;
         if(pending==1){f->pending_base=base;f->pending_count=n+1;f->execution->status=2;}else push(f,out);
     }
-    else if(callee.tag==BUILTIN&&callee.ref>=6){Value out=array_call(f,callee.ref,args,n);f->sp=base;push(f,out);}
+    else if(callee.tag==BUILTIN&&callee.ref>=6&&callee.ref<=45){Value out=callee.ref<=19?array_call(f,callee.ref,args,n):callee.ref<=29?hash_call(f,callee.ref,args,n):text_call(f,callee.ref,args,n);f->sp=base;push(f,out);}
     else if(callee.tag==BUILTIN){Value out=empty;if(callee.ref<1||callee.ref>5||n!=(callee.ref==5?6:callee.ref==4?2:1)){failure(f,"Incorrect builtin argument count.");return 0;}Value a=args[0];
         if(callee.ref==5)out=flood_fill(f,args);
-        else if(callee.ref==1){if(a.tag==STRING)out=number(((Text*)pointer(a.ref))->length,INT);else if(a.tag==ARRAY)out=number(((Array*)pointer(a.ref))->count,INT);else failure(f,"Length requires string or array.");}
+        else if(callee.ref==1){if(a.tag==STRING)out=number(((Text*)pointer(a.ref))->length,INT);else if(a.tag==ARRAY)out=number(((Array*)pointer(a.ref))->count,INT);else if(a.tag==HASH)out=number(((Hash*)pointer(a.ref))->count,INT);else failure(f,"Length requires string, array or hash.");}
         else if(a.tag!=ARRAY)failure(f,"Builtin requires an array.");else{Array*x=pointer(a.ref);if(callee.ref==2)out=x->count?x->values[x->count-1]:value(NULL_VALUE,0,0);
             else if(callee.ref==3){if(!x->count)out=value(NULL_VALUE,0,0);else{Array*y=array(x->count-1);memcpy(y->values,x->values+1,y->count*sizeof(Value));out=value(ARRAY,address(y),0);}}
             else{Array*y=append_array(x,args[1]);out=value(ARRAY,address(y),0);}}

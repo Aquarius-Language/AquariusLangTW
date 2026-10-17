@@ -41,9 +41,15 @@ internal sealed partial class GraphicsRuntime {
         Draw("rect",4,5,a=> {
             var b=ProcessingGeometry.Bounds(F(a[0]),F(a[1]),F(a[2]),F(a[3]),c.Style.RectMode);
             if(a.Length==4) {c.Polygon(new[]{new Vector3(b.x,b.y,0),new(b.x+b.w,b.y,0),new(b.x+b.w,b.y+b.h,0),new(b.x,b.y+b.h,0)});return;}
-            float r=Math.Clamp(F(a[4]),0,Math.Min(Math.Abs(b.w),Math.Abs(b.h))/2);var pts=new List<Vector3>();
+            float r=Math.Clamp(F(a[4]),0,Math.Min(Math.Abs(b.w),Math.Abs(b.h))/2);
+            if(r<=0) {c.Polygon(new[]{new Vector3(b.x,b.y,0),new(b.x+b.w,b.y,0),new(b.x+b.w,b.y+b.h,0),new(b.x,b.y+b.h,0)});return;}
+            // When r is half a side (a pill or circle), adjacent corner arcs meet at one point. Computing that point
+            // twice gives float near-duplicates (an ulp apart, a tiny backtrack) that make ear clipping fail, so emit it once.
+            float eps=1e-4f*Math.Max(1f,Math.Max(Math.Abs(b.w),Math.Abs(b.h)));
+            bool flatW=Math.Abs(b.w)-2*r<=eps,flatH=Math.Abs(b.h)-2*r<=eps;var pts=new List<Vector3>();
             for(int corner=0;corner<4;corner++) {float cx=corner is 0 or 1?b.x+b.w-r:b.x+r,cy=corner is 1 or 2?b.y+b.h-r:b.y+r;
-                for(int i=0;i<=8;i++){float angle=(-MathF.PI/2+corner*MathF.PI/2)+i*MathF.PI/16;pts.Add(new(cx+r*MathF.Cos(angle),cy+r*MathF.Sin(angle),0));}}
+                bool skipFirst=corner switch{1=>flatH,2=>flatW,3=>flatH,_=>false},skipLast=corner==3&&flatW;
+                for(int i=skipFirst?1:0;i<=(skipLast?7:8);i++){float angle=(-MathF.PI/2+corner*MathF.PI/2)+i*MathF.PI/16;pts.Add(new(cx+r*MathF.Cos(angle),cy+r*MathF.Sin(angle),0));}}
             c.Polygon(pts);
         });
         Draw("ellipse",4,4,a=>c.Ellipse(F(a[0]),F(a[1]),F(a[2]),F(a[3])));

@@ -327,7 +327,7 @@ public sealed partial class WasmRuntime : IDisposable
             switch (tag) { case 0: return null; case 1: return new IntegerObj((int)number); case 2: return new FloatObj((float)number); case 3: return new DoubleObj(number);
                 case 4: return number != 0 ? RepeatedPrimitives.TRUE : RepeatedPrimitives.FALSE; case 5: return new StringObj(Text(reference)); case 10: return natives[reference];
                 case 11: return RepeatedPrimitives.NULL; case 12: return RepeatedPrimitives.BREAK; case 13: return new ErrorObj(Text(reference));
-                case 14: return contexts.SelectMany(c => c.BuiltinFuncs.Values).FirstOrDefault(f => f.PortableId == reference) ?? ArrayLibrary.Resolve(reference) ?? AquariusLang.Threading.ThreadCatalog.Resolve(reference) ?? throw new InvalidOperationException("Unknown portable builtin."); }
+                case 14: return contexts.SelectMany(c => c.BuiltinFuncs.Values).FirstOrDefault(f => f.PortableId == reference) ?? ArrayLibrary.Resolve(reference) ?? HashLibrary.Resolve(reference) ?? StringLibrary.Resolve(reference) ?? AquariusLang.Threading.ThreadCatalog.Resolve(reference) ?? throw new InvalidOperationException("Unknown portable builtin."); }
             if (objects.TryGetValue((tag, reference), out var cached) && cached.TryGetTarget(out var existing)) { if (!refreshingDirtyHashes) Refresh(tag, reference); return existing; }
             IObject result;
             switch (tag) {

@@ -49,12 +49,14 @@ namespace AquariusLang.parser {
             { TokenType.MINUS, OperatorPrecedence.SUM },
             { TokenType.SLASH, OperatorPrecedence.PRODUCT },
             { TokenType.ASTERISK, OperatorPrecedence.PRODUCT },
+            { TokenType.PERCENT, OperatorPrecedence.PRODUCT },
             { TokenType.LPAREN, OperatorPrecedence.CALL },
             { TokenType.LBRACKET, OperatorPrecedence.INDEX },
             { TokenType.PLUS_EQ, OperatorPrecedence.PLUS_EQ },
             { TokenType.MINUS_EQ, OperatorPrecedence.PLUS_EQ },
             { TokenType.ASTERISK_EQ, OperatorPrecedence.PLUS_EQ },
             { TokenType.SLASH_EQ, OperatorPrecedence.PLUS_EQ },
+            { TokenType.PERCENT_EQ, OperatorPrecedence.PLUS_EQ },
             { TokenType.AND_AND, OperatorPrecedence.AND_AND },
             { TokenType.OR_OR, OperatorPrecedence.AND_AND },
             { TokenType.DOT, OperatorPrecedence.DOT },
@@ -144,6 +146,7 @@ namespace AquariusLang.parser {
             parser.registerInfix(TokenType.MINUS, parser.parseInfixExpression);
             parser.registerInfix(TokenType.SLASH, parser.parseInfixExpression);
             parser.registerInfix(TokenType.ASTERISK, parser.parseInfixExpression);
+            parser.registerInfix(TokenType.PERCENT, parser.parseInfixExpression);
             parser.registerInfix(TokenType.EQ, parser.parseInfixExpression);
             parser.registerInfix(TokenType.NOT_EQ, parser.parseInfixExpression);
             parser.registerInfix(TokenType.LT, parser.parseInfixExpression);
@@ -158,6 +161,7 @@ namespace AquariusLang.parser {
             parser.registerInfix(TokenType.MINUS_EQ, parser.parseInfixExpression);
             parser.registerInfix(TokenType.ASTERISK_EQ, parser.parseInfixExpression);
             parser.registerInfix(TokenType.SLASH_EQ, parser.parseInfixExpression);
+            parser.registerInfix(TokenType.PERCENT_EQ, parser.parseInfixExpression);
             parser.registerInfix(TokenType.AND_AND, parser.parseInfixExpression);
             parser.registerInfix(TokenType.OR_OR, parser.parseInfixExpression);
             parser.registerInfix(TokenType.DOT, parser.parseInfixExpression);

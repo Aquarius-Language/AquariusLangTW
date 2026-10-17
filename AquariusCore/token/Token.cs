@@ -23,6 +23,7 @@ namespace AquariusLang.token {
         public const string BANG = "!";
         public const string ASTERISK = "*";
         public const string SLASH = "/";
+        public const string PERCENT = "%";
         public const string LT = "<";
         public const string GT = ">";
         public const string GT_ET = ">=";
@@ -33,6 +34,7 @@ namespace AquariusLang.token {
         public const string MINUS_EQ = "-=";
         public const string ASTERISK_EQ = "*=";
         public const string SLASH_EQ = "/=";
+        public const string PERCENT_EQ = "%=";
         public const string AND_AND = "&&";
         public const string OR_OR = "||";
         public const string DOT = ".";

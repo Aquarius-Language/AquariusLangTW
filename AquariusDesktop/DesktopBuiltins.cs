@@ -15,6 +15,8 @@ namespace AquariusLang.Desktop;
 public class DesktopBuiltins : Builtins, IDisposable {
     private readonly Lazy<GraphicsRuntime> graphics;
     private readonly Lazy<ModuleObj> arrayLibrary = new(ArrayLibrary.CreateModule);
+    private readonly Lazy<ModuleObj> hashLibrary = new(HashLibrary.CreateModule);
+    private readonly Lazy<ModuleObj> stringLibrary = new(StringLibrary.CreateModule);
     private readonly bool ownsGraphics;
     internal Func<string, IObject>? ScriptImport { get; set; }
     internal Func<string, string> ResourceArgument { get; set; } = path => path;
@@ -42,6 +44,8 @@ public class DesktopBuiltins : Builtins, IDisposable {
                         var arg0ArrObj = (ArrayObj)arg0;
                         return new IntegerObj(arg0ArrObj.Elements.Length);
                     }
+
+                    if (arg0 is HashObj hash) return new IntegerObj(hash.Pairs.Count);
 
                     return newError($"Argument to `長度` not supported, got {arg0.Type()}");
                 })
@@ -105,6 +109,8 @@ public class DesktopBuiltins : Builtins, IDisposable {
                     
                     if (args[0] is StringObj stringObj) {
                         if (ArrayLibrary.IsName(stringObj.Value)) return arrayLibrary.Value;
+                        if (HashLibrary.IsName(stringObj.Value)) return hashLibrary.Value;
+                        if (StringLibrary.IsName(stringObj.Value)) return stringLibrary.Value;
                         var services = graphics.Value;
                         services.InvokeAqua = (callback, values) => {
                             if (callback is BuiltinObj builtin) return builtin.Fn(values);
