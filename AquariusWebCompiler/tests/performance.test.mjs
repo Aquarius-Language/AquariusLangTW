@@ -25,7 +25,7 @@ test('asynchronous RHS and callback reentry retain compound-assignment behavior'
 });
 
 test('optimized scalar loops still yield and observe browser cancellation',async()=>{
-  const {vm,index}=await runtime('變數 x=0;迴圈(變數 i=0;i<1000000;i++){x+=i;}x;');
+  const {vm,index}=await runtime('變數 x=0;迴圈(變數 i=0;i<100000000;i++){x+=i;}x;');
   const previous=globalThis.window;globalThis.window={};
   try {
     const running=vm.execute(index);setTimeout(()=>{vm.cancelled=true;},0);

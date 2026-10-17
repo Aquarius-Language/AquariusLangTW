@@ -85,15 +85,18 @@ for name, folder, entry, assets, checks in projects:
         continue
     sources = sorted(p for p in source.rglob('*.aqua') if not excluded.intersection(p.relative_to(source).parts))
     wasm = OUT / (name + '.wasm')
-    command = cli + ['build', *map(str, sources), '--root', str(source), '--entry', entry, '-o', str(wasm)]
-    for pattern in assets:
-        for asset in sorted(source.glob(pattern)):
-            command += ['--assets', str(asset)]
+    project = (source / 'aqua.toml').is_file()
+    command = cli + (['build', str(source), '--platform', 'linux', '-o', str(wasm)] if project else
+                     ['build', *map(str, sources), '--root', str(source), '--entry', entry, '-o', str(wasm)])
+    if not project:
+        for pattern in assets:
+            for asset in sorted(source.glob(pattern)):
+                command += ['--assets', str(asset)]
     if not run(command, name + '/compile'):
         continue
     frames = 1 if name in ('painter', 'kanban') else 2
     run(cli + ['run', str(wasm)], name + '/wasm', frames=frames, capture=name != 'patchcore')
-    run(cli + ['build', str(wasm), '--target', 'web', '-o', str(OUT / (name + '-web'))], name + '/web-export')
+    run(cli + ['build', str(source if project else wasm), '--target', 'web', '-o', str(OUT / (name + '-web'))], name + '/web-export')
     for check, expected in checks:
         run(cli + ['run', str(wasm), '--entry', check], name + '/' + check, expected=expected)
     if args.executables:
@@ -119,7 +122,9 @@ if args.examples:
                     if not (model_directory / model).exists() and prepared.exists():
                         shutil.copy2(prepared, model_directory / model)
                         results[:] = [row for row in results if row['name'] != name + '/compile']
-            sources = sorted(source.rglob('*.aqua'))
+            sources = sorted(p for p in source.rglob('*.aqua')
+                             if not any((source / parent / 'aqua.toml').is_file()
+                                        for parent in p.relative_to(source).parents))
             wasm = OUT / (name + '.wasm')
             if not run(cli + ['build', *map(str, sources), '--root', str(source), '--assets', str(source),
                               '--entry', 'increment.aqua', '-o', str(wasm)], name + '/compile'):

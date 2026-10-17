@@ -10,7 +10,7 @@ namespace AquariusLang.Wasm;
 public sealed record WasmConstant(string Type, double Number = 0, string? Text = null, bool Boolean = false,
     int Function = -1, string[]? Parameters = null, string? Operation = null, string? Display = null);
 public sealed record WasmFunction(bool WrapReturn, WasmConstant[] Pool, string[]? Parameters = null, int StackCapacity = 0, bool CacheBindings = false,
-    int NumericTable = 0, string? NumericRecursiveName = null);
+    int NumericTable = 0, string? NumericRecursiveName = null, int Locals = 0, bool PromotedScope = false);
 public sealed record WasmMetadata(int AbiVersion, string Entry, Dictionary<string, int> Modules,
     WasmFunction[] Functions, Dictionary<string, string> Assets, int ValueAbi = 2, int ProgramAddress = 0, int HeapStart = 0, int FunctionLayout = 24,
     string[]? SupportedPlatforms = null);
@@ -115,10 +115,14 @@ public sealed class WasmProgram
             if (f?.Pool == null) throw new InvalidDataException("Missing function constants.");
             if (f.Parameters == null || f.Parameters.Length > 10000 || f.Parameters.Any(p => string.IsNullOrWhiteSpace(p)) || f.StackCapacity < 16 || f.StackCapacity > 1000000)
                 throw new InvalidDataException("Invalid function frame layout.");
-            if (metadata.FunctionLayout is not (24 or 32) || f.NumericTable < 0 || f.NumericTable > metadata.Functions.Length * 2 ||
+            if (metadata.FunctionLayout is not (24 or 32 or 40) || f.NumericTable < 0 || f.NumericTable > metadata.Functions.Length * 2 ||
                 f.NumericRecursiveName != null && (string.IsNullOrWhiteSpace(f.NumericRecursiveName) || f.NumericTable == 0) ||
                 metadata.FunctionLayout == 24 && (f.NumericTable != 0 || f.NumericRecursiveName != null))
                 throw new InvalidDataException("Invalid numeric function layout.");
+            // Layout 40 adds frame-slot locals for closure-free lexical scopes.
+            if (f.Locals < 0 || f.Locals > 1000000 || metadata.FunctionLayout < 40 && (f.Locals != 0 || f.PromotedScope) ||
+                f.PromotedScope && f.Locals < f.Parameters.Length)
+                throw new InvalidDataException("Invalid frame local layout.");
             foreach (var c in f.Pool)
             {
                 if (c == null || !new[] { "name", "int", "float", "double", "string", "bool", "null", "break", "assignment", "function", "program" }.Contains(c.Type)) throw new InvalidDataException("Invalid constant type.");

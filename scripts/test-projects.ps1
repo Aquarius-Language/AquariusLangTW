@@ -2,7 +2,7 @@ param(
     [string]$Dotnet = '', [string]$Configuration = 'Debug', [switch]$SkipBuild,
     [string]$Marble = '', [string]$Painter = '', [string]$Snake = '',
     [string]$Pbr = '', [string]$Audio = '',
-    [switch]$WindowsExecutables
+    [switch]$WindowsExecutables, [string[]]$ProjectNames = @()
 )
 $ErrorActionPreference = 'Stop'
 $repository = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
@@ -55,17 +55,35 @@ try {
         @{ name = 'painter'; root = $Painter; entry = '星泉塗鴉室.aqua'; frames = 1 },
         @{ name = 'snake'; root = $Snake; entry = '貪吃蛇.aqua'; frames = 2; check = '規則驗證.aqua'; expected = '規則驗證全部通過，共 236 項' },
         @{ name = 'pbr'; root = $Pbr; entry = 'main.aqua'; frames = 3; check = 'gpu-smoke.aqua'; expected = 'PBR GPU 驗證通過'; assets = 'assets'; optional = $true },
-        @{ name = 'audio'; root = $Audio; entry = '星泉聲音工坊.aqua'; frames = 2; check = '音訊驗證.aqua'; expected = '音訊驗證全部通過'; assets = '音色'; optional = $true }
+        @{ name = 'audio'; root = $Audio; entry = '星泉聲音工坊.aqua'; frames = 2; check = '音訊驗證.aqua'; expected = '音訊驗證全部通過'; assets = '音色'; optional = $true },
+        @{ name = 'mediapipe'; root = (Join-Path $parent 'AquariusLangTW_MediaPipeExamples'); entry = '星泉視覺實驗室.aqua'; frames = 2; check = '姿態驗證.aqua'; expected = '模型推論驗證通過'; assets = '模型'; optional = $true },
+        @{ name = 'kanban'; root = (Join-Path $parent 'AquariusLangTW_SingleUserKanban'); entry = '啟動看板.aqua'; frames = 1; optional = $true },
+        @{ name = 'patchcore'; root = (Join-Path $parent 'AquariusLangTW_PatchCore'); entry = '主程式.aqua'; frames = 2; check = '單元測試.aqua'; expected = ''; assets = '資源'; optional = $true; headless = $true },
+        @{ name = 'advanced-pbr'; root = (Join-Path $parent 'AquariusLangTW_Advanced_PBR_Example'); entry = 'main.aqua'; frames = 2; check = '驗證.aqua'; expected = ''; assets = @('assets/original/meshes/skybox.obj','assets/baked/*.gz','assets/baked/*.aqmesh','assets/*.wgsl'); optional = $true },
+        @{ name = 'sponza'; root = (Join-Path $parent 'AquariusLangTW_Sponza_Atrium'); entry = 'main.aqua'; frames = 2; check = '驗證.aqua'; expected = ''; assets = @('assets/baked/*.gz','assets/baked/*.aqmesh','assets/*.wgsl','ASSET-LICENSES.md','assets/original/LICENSE.upstream.md','assets/original/LicenseRef-CRYENGINE-Agreement.txt'); optional = $true }
     )) {
+        if ($ProjectNames.Count -and $project.name -notin $ProjectNames) { continue }
         if ($project.optional -and -not (Test-Path -LiteralPath $project.root)) { continue }
         $sources = @(Get-ChildItem -LiteralPath $project.root -Filter '*.aqua' -Recurse | Where-Object { $_.FullName -notmatch '[\\/](web|dist|\.git)[\\/]' } | Sort-Object FullName)
         if (-not $sources.Count) { throw "No sources found: $($project.root)" }
         $wasm = Join-Path $output "$($project.name).wasm"
-        $buildArguments = @($cli, 'build') + @($sources.FullName) + @('--root', $project.root, '--entry', $project.entry, '-o', $wasm)
-        if ($project.assets) { $buildArguments += @('--assets', (Join-Path $project.root $project.assets)) }
+        if (Test-Path -LiteralPath (Join-Path $project.root 'aqua.toml')) {
+            $buildArguments = @($cli, 'build', $project.root, '--platform', 'windows', '-o', $wasm)
+        } else {
+            $buildArguments = @($cli, 'build') + @($sources.FullName) + @('--root', $project.root, '--entry', $project.entry, '-o', $wasm)
+            foreach ($pattern in $project.assets) {
+                foreach ($asset in Get-Item -Path (Join-Path $project.root $pattern)) { $buildArguments += @('--assets', $asset.FullName) }
+            }
+        }
         Invoke-Program $Dotnet $buildArguments | Out-Null
-        Invoke-Program $Dotnet @($cli, 'build', $wasm, '--target', 'web', '-o', (Join-Path $output $project.name)) | Out-Null
-        $run = Invoke-Program $Dotnet @($cli, 'run', $wasm) $project.frames (Join-Path $output "$($project.name)-desktop.png")
+        $webArguments = if (Test-Path -LiteralPath (Join-Path $project.root 'aqua.toml')) {
+            @($cli, 'build', $project.root, '--target', 'web', '-o', (Join-Path $output $project.name))
+        } else {
+            @($cli, 'build', $wasm, '--target', 'web', '-o', (Join-Path $output $project.name))
+        }
+        Invoke-Program $Dotnet $webArguments | Out-Null
+        $desktopCapture = if ($project.headless) { '' } else { Join-Path $output "$($project.name)-desktop.png" }
+        $run = Invoke-Program $Dotnet @($cli, 'run', $wasm) $project.frames $desktopCapture
         $results.Add(@{ project = $project.name; mode = 'wasm'; passed = $true; output = $run.output })
         Write-Host "PASS $($project.name)/desktop-wasm"
         if ($project.check) {
@@ -77,7 +95,8 @@ try {
         if ($WindowsExecutables) {
             $exe = Join-Path $output "$($project.name).exe"
             Invoke-Program $Dotnet @($cli, 'build', $wasm, '--target', 'windows', '-o', $exe) | Out-Null
-            $run = Invoke-Program $exe @() $project.frames (Join-Path $output "$($project.name)-exe.png")
+            $exeCapture = if ($project.headless) { '' } else { Join-Path $output "$($project.name)-exe.png" }
+            $run = Invoke-Program $exe @() $project.frames $exeCapture
             $results.Add(@{ project = $project.name; mode = 'exe'; passed = $true; output = $run.output })
             Write-Host "PASS $($project.name)/standalone-exe"
         }
@@ -85,6 +104,7 @@ try {
 } catch {
     $results.Add(@{ passed = $false; error = $_.Exception.Message }); throw
 } finally {
-    $results | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath (Join-Path $output 'desktop-results.json') -Encoding utf8
+    $reportName = if ($ProjectNames.Count) { 'desktop-selected-results.json' } else { 'desktop-results.json' }
+    $results | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath (Join-Path $output $reportName) -Encoding utf8
     Pop-Location
 }

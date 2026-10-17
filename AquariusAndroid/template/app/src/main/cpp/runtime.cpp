@@ -2,6 +2,7 @@
 #include <quickjs.h>
 #include <wasmtime.h>
 #include <atomic>
+#include <array>
 #include <cstring>
 #include <deque>
 #include <memory>
@@ -13,7 +14,11 @@
 namespace {
 struct Engine;
 struct Binding { std::string name, signature; jmethodID method; std::vector<char> args; char result; };
-struct External { wasmtime_extern_t value{}; JSValue buffer = JS_UNDEFINED; size_t size = 0; uint8_t* data = nullptr; };
+struct External {
+  wasmtime_extern_t value{}; JSValue buffer = JS_UNDEFINED; size_t size = 0; uint8_t* data = nullptr;
+  bool signatureReady = false;
+  std::vector<wasm_valkind_t> parameters, results;
+};
 struct Callback { Engine* engine; JSValue function; std::vector<wasm_valkind_t> results; };
 struct Engine {
   JNIEnv* env;
@@ -289,18 +294,34 @@ JSValue wasmCall(JSContext* ctx, JSValueConst, int, JSValueConst* argv, int oper
       wasm_importtype_vec_delete(&imports); wasm_exporttype_vec_delete(&exports); return array;
     }
     if (operation == Call) {
-      auto function = external(ctx, argv[0], WASMTIME_EXTERN_FUNC).value.of.func;
-      auto* type = wasmtime_func_type(e->active, &function); auto* params = wasm_functype_params(type); auto* returns = wasm_functype_results(type);
-      std::vector<wasmtime_val_t> args, results(returns->size);
-      try {
-        for (size_t i = 0; i < params->size; ++i) { auto value = JS_GetPropertyUint32(ctx, argv[1], i); args.push_back(toWasm(e, value, wasm_valtype_kind(params->data[i]))); JS_FreeValue(ctx, value); }
-        wasm_trap_t* trap = nullptr; auto* error = wasmtime_func_call(e->active, &function, args.data(), args.size(), results.data(), results.size(), &trap);
-        refreshMemories(e); wasmError(error, trap);
-      } catch (...) { wasm_functype_delete(type); throw; }
-      wasm_functype_delete(type);
-      if (results.empty()) return JS_UNDEFINED;
-      if (results.size() == 1) return fromWasm(e, results[0]);
-      auto array = JS_NewArray(ctx); for (size_t i = 0; i < results.size(); ++i) JS_SetPropertyUint32(ctx, array, i, fromWasm(e, results[i])); return array;
+      auto& target = external(ctx, argv[0], WASMTIME_EXTERN_FUNC);
+      if (!target.signatureReady) {
+        auto* type = wasmtime_func_type(e->active, &target.value.of.func);
+        auto* params = wasm_functype_params(type); auto* returns = wasm_functype_results(type);
+        for (size_t i = 0; i < params->size; ++i) target.parameters.push_back(wasm_valtype_kind(params->data[i]));
+        for (size_t i = 0; i < returns->size; ++i) target.results.push_back(wasm_valtype_kind(returns->data[i]));
+        wasm_functype_delete(type); target.signatureReady = true;
+      }
+      // Runtime exports normally have at most four parameters and one result. Keep those calls
+      // on the stack; arbitrary imported modules retain the dynamically sized path.
+      std::array<wasmtime_val_t, 8> smallArgs, smallResults;
+      std::vector<wasmtime_val_t> largeArgs, largeResults;
+      if (target.parameters.size() > smallArgs.size()) largeArgs.resize(target.parameters.size());
+      if (target.results.size() > smallResults.size()) largeResults.resize(target.results.size());
+      auto* args = largeArgs.empty() ? smallArgs.data() : largeArgs.data();
+      auto* results = largeResults.empty() ? smallResults.data() : largeResults.data();
+      for (size_t i = 0; i < target.parameters.size(); ++i) {
+        auto value = JS_GetPropertyUint32(ctx, argv[1], i);
+        try { args[i] = toWasm(e, value, target.parameters[i]); }
+        catch (...) { JS_FreeValue(ctx, value); throw; }
+        JS_FreeValue(ctx, value);
+      }
+      wasm_trap_t* trap = nullptr;
+      auto* error = wasmtime_func_call(e->active, &target.value.of.func, args, target.parameters.size(), results, target.results.size(), &trap);
+      refreshMemories(e); wasmError(error, trap);
+      if (target.results.empty()) return JS_UNDEFINED;
+      if (target.results.size() == 1) return fromWasm(e, results[0]);
+      auto array = JS_NewArray(ctx); for (size_t i = 0; i < target.results.size(); ++i) JS_SetPropertyUint32(ctx, array, i, fromWasm(e, results[i])); return array;
     }
     if (operation == Memory || operation == Table || operation == Global) {
       wasmtime_extern_t value{};

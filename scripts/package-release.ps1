@@ -139,13 +139,15 @@ try {
 
     Write-Host '[4/8] Restoring, building and testing Release...'
     Invoke-Checked $dotnetPath @('restore', 'AquariusLang.sln')
+    # Executable tests bundle this runtime pack. Refresh it before the solution
+    # build copies it into the CLI/test outputs, so it matches the current ABI.
+    & (Join-Path $PSScriptRoot 'publish-apphost.ps1') -Dotnet $dotnetPath
     Invoke-Checked $dotnetPath @('build', 'AquariusLang.sln', '-c', 'Release', '--no-restore', '-m:1', '--nologo')
     Invoke-Checked $dotnetPath @('test', 'AquariusTests', '-c', 'Release', '--no-build', '--no-restore', '-m:1', '--logger', 'trx;LogFileName=compiler.trx', '--results-directory', $reports)
     $env:AQUARIUS_COMPILER_DLL = Join-Path $repository 'AquariusCli/bin/Release/net8.0/aqua.dll'
     Invoke-Checked 'npm.cmd' @('test', '--prefix', 'AquariusWebCompiler')
 
     Write-Host '[5/8] Publishing the self-contained compiler...'
-    & (Join-Path $PSScriptRoot 'publish-apphost.ps1') -Dotnet $dotnetPath
     Invoke-Checked $dotnetPath @('publish', 'AquariusCli/AquariusCli.csproj', '-c', 'Release', '-f', 'net8.0', '-r', 'win-x64', '--self-contained', 'true', '-p:UseAppHost=true', '-p:PublishSingleFile=false', '-p:PublishTrimmed=false', '-p:DebugType=None', '-p:DebugSymbols=false', '-o', $package)
     foreach ($file in @('aqua.exe', 'aqua.dll', 'aqua.runtimeconfig.json', 'coreclr.dll', 'hostfxr.dll', 'hostpolicy.dll', 'wgpu_native.dll', 'wasmtime.dll', 'ClearScriptV8.win-x64.dll', 'Magick.NET.Core.dll', 'Magick.NET-Q8-AnyCPU.dll', 'Magick.Native-Q8-x64.dll', 'runtimes/win-x64/native/aquarius_graphics.dll', 'examples/increment.aqua', 'licenses/WGPU-NOTICES.md', 'licenses/JOLT-NOTICES.md', 'licenses/MAGICK-NET-LICENSE.txt', 'licenses/MAGICK-NET-NOTICES.txt')) {
         Assert-File (Join-Path $package $file)

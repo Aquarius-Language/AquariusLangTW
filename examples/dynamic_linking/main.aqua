@@ -1,11 +1,12 @@
 變數 動態 = 匯入("動態函式庫");
 變數 dynamic = 動態;
+變數 函式庫目錄 = 目前工作目錄 + "/libraries/";
 印出("Dynamic linking / 動態連結", dynamic.Platform, "ABI", 動態.介面版本);
 變數 函式庫 = 動態.載入({
-    "windows": "libraries/windows/showcase.dll",
-    "linux": "libraries/linux/libshowcase.so",
+    "windows": 函式庫目錄 + "windows/showcase.dll",
+    "linux": 函式庫目錄 + "linux/libshowcase.so",
     "android": "libshowcase.so",
-    "web": "libraries/portable/showcase.wasm"
+    "web": 函式庫目錄 + "portable/showcase.wasm"
 });
 變數 library = 函式庫;
 印出(library.Call("greeting", ""));
@@ -17,11 +18,11 @@
 函式庫.釋放(); library.Dispose();
 
 # Load the same portable library a second time on every platform.
-變數 可攜 = dynamic.Load({"wasm": "libraries/portable/showcase.wasm"});
+變數 可攜 = dynamic.Load({"wasm": 函式庫目錄 + "portable/showcase.wasm"});
 印出("WebAssembly:", 可攜.呼叫("echo", "同一個 Wasm / identical Wasm"));
 可攜.釋放();
 如果 (是網頁()) {
-    變數 js = dynamic.Load("libraries/web/showcase.mjs");
+    變數 js = dynamic.Load(函式庫目錄 + "web/showcase.mjs");
     印出("JavaScript:", js.Call("echo", "JS & WebAssembly / 網頁雙格式"));
     js.Dispose();
 }

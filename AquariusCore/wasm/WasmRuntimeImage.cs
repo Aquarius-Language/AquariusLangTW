@@ -77,7 +77,7 @@ internal sealed class WasmRuntimeImage
             long end = bytes.Length; bytes.Position = address + 4 - ProgramAddress; writer.Write(Encoding.Unicode.GetBytes(text)); bytes.Position = end;
             strings.Add(text, address); return address;
         }
-        internal int Build(WasmFunction[] functions, int functionLayout = 32)
+        internal int Build(WasmFunction[] functions, int functionLayout = 40)
         {
             Pools = new int[functions.Length];
             int program = Reserve(8), definitions = Reserve(functions.Length * functionLayout, 4);
@@ -90,9 +90,13 @@ internal sealed class WasmRuntimeImage
                 Pools[f] = constants;
                 Int(definition, f + 1); Int(definition + 4, parameters.Length); Int(definition + 8, function.StackCapacity);
                 Int(definition + 12, checked((function.CacheBindings ? function.Pool.Length * 2 : 0) + (function.WrapReturn ? 1 : 0))); Int(definition + 16, names); Int(definition + 20, constants);
-                if (functionLayout == 32) {
+                if (functionLayout >= 32) {
                     Int(definition + 24, function.NumericTable);
                     Int(definition + 28, function.NumericRecursiveName is string recursive ? Text(recursive) : 0);
+                }
+                if (functionLayout >= 40) {
+                    Int(definition + 32, function.Locals);
+                    Int(definition + 36, function.PromotedScope ? 1 : 0);
                 }
                 for (int p = 0; p < parameters.Length; p++) Int(names + p * 4, Text(parameters[p]));
                 for (int c = 0; c < function.Pool.Length; c++)

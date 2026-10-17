@@ -122,7 +122,7 @@ internal sealed class WasmNumericFunction
         U(w, 3); w.Write(new byte[] { 0x7f, 0x7f, 0x7c }); // status, tag, payload
     }
 
-    internal void EmitAdapter(BinaryWriter w, int implementation, int? integerImplementation = null)
+    internal void EmitAdapter(BinaryWriter w, int implementation, int? integerImplementation = null, int integerResult = 1)
     {
         U(w, 3); U(w, 1); w.Write((byte)0x7f); U(w, 1); w.Write((byte)0x7f); U(w, 1); w.Write((byte)0x7c);
         // (args, output, execution) -> status; only scalar arguments enter typed code.
@@ -149,8 +149,13 @@ internal sealed class WasmNumericFunction
             }
             Get(w, 2); I(w, 0);
             for (int p = 0; p < Parameters.Length; p++) { Get(w, 0); Memory(w, 0x2b, 3, p * 16 + 8); w.Write((byte)0xaa); }
-            w.Write((byte)0x10); U(w, integerImplementation.Value); Set(w, 4); Set(w, 3);
-            Get(w, 4); w.Write((byte)0xb7); Set(w, 5); I(w, 1); Set(w, 4);
+            w.Write((byte)0x10); U(w, integerImplementation.Value); Set(w, 5); Set(w, 4); Set(w, 3);
+            // Status 4: the typed code deoptimized into generic frames; report the outermost one.
+            Get(w, 3); I(w, 4); w.Write(new byte[] { 0x46, 0x04, 0x40 }); Get(w, 1); Get(w, 4); Memory(w, 0x36, 2, 4); I(w, 4); w.Write(new byte[] { 0x0f, 0x0b });
+            // Typed result: integers and booleans arrive as i32, floats and doubles as f64.
+            if (integerResult == 1) { Get(w, 4); w.Write((byte)0xb7); Set(w, 5); }
+            else if (integerResult == 4) { Get(w, 4); w.Write((byte)0xb8); Set(w, 5); }
+            I(w, integerResult); Set(w, 4);
             w.Write((byte)0x05);
         }
         // Repeated speculative tag/f64 recursion was slower than resumable

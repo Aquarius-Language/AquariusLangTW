@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AquariusHost Condition="'$(AquariusHost)' == ''">$(MSBuildThisFileDirectory)../../AquariusCli/bin/Release/net8.0</AquariusHost>
+  </PropertyGroup>
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    <Reference Include="AquariusCore"><HintPath>$(AquariusHost)/AquariusCore.dll</HintPath></Reference>
+    <Reference Include="AquariusDesktop"><HintPath>$(AquariusHost)/AquariusDesktop.dll</HintPath></Reference>
+    <Reference Include="Wasmtime.Dotnet"><HintPath>$(AquariusHost)/Wasmtime.Dotnet.dll</HintPath></Reference>
+    <Content Include="$(AquariusHost)/runtimes/win-x64/native/wasmtime.dll" Link="wasmtime.dll" CopyToOutputDirectory="PreserveNewest" Condition="Exists('$(AquariusHost)/runtimes/win-x64/native/wasmtime.dll')" />
+    <Content Include="$(AquariusHost)/wasmtime.dll" Link="wasmtime.dll" CopyToOutputDirectory="PreserveNewest" Condition="Exists('$(AquariusHost)/wasmtime.dll')" />
+  </ItemGroup>
+</Project>

@@ -17,6 +17,8 @@ try{
     if(process.env.AQUARIUS_WEB_ENTRIES)entries=entries.filter(n=>process.env.AQUARIUS_WEB_ENTRIES.split(',').includes(n));
     if(!entries.some(n=>n.startsWith('bottles/Aqua_JoltPhysics/')))entries=entries.filter(n=>!n.startsWith('jolt_physics/'));
     if(process.env.AQUARIUS_WEBCAM_HARDWARE!=='1')entries=entries.filter(n=>!/^webcam\/(main|影格驗證)\.aqua$/.test(n));
+    // execFile is a desktop process capability; browsers intentionally reject it.
+    entries=entries.filter(n=>n!=='execute_file.aqua');
     for(const entry of entries){errors.length=0;const start=Date.now();try{
       const logical=entry.replace(/\.aqua$/i,'.aqua');
       const frames=logical==='smoke.aqua'?0:logical==='color_mapping/main.aqua'?1:2;

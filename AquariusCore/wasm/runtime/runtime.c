@@ -14,18 +14,28 @@ typedef struct { u32 references,capacity,used,padding; Value values[]; } ArraySt
 typedef struct Array { u32 count, capacity; Value *values; struct Array *dirty_next; u32 dirty, exposed; ArrayStorage *storage; } Array;
 typedef struct { Value key, value; } Pair;
 typedef struct Hash { u32 count,capacity; Pair *pairs; struct Hash *dirty_next; u32 dirty,exposed; } Hash;
-typedef struct { u32 table, arity, capacity, wrap_return; Text **parameters; Value *constants; u32 numeric_table; Text *recursive_name; } Function;
+typedef struct { u32 table, arity, capacity, wrap_return; Text **parameters; Value *constants; u32 numeric_table; Text *recursive_name; u32 locals, flags; } Function;
+/* Function flags. PROMOTED_SCOPE: parameters and function-level locals live in frame slots 0..locals-1;
+   the frame's scope is the closure scope itself. Only closure-free bodies are promoted, so no other
+   frame, closure or host can observe the replaced lexical scope. */
+enum { PROMOTED_SCOPE=1 };
+/* Runtime-only speculation statistics in the upper bits of Function.flags (instance memory). */
+#define NUMERIC_HITS(fn) (((fn)->flags>>16)&0xff)
+#define NUMERIC_MISSES(fn) ((fn)->flags>>24)
+#define UNDECLARED 0xffffffffu
 typedef struct { u32 count; Function *functions; } Program;
-typedef struct { Program *program; u32 function; Scope *scope; u32 context; } Closure;
+/* cache: binding cache shared by promoted-scope calls of this closure (their frame scope is the closure scope). */
+typedef struct { Program *program; u32 function; Scope *scope; u32 context; u32 *cache, cache_era; } Closure;
 typedef struct Loop { struct Loop *previous; Scope *outer; u32 base; Text *binding; } Loop;
 typedef struct Execution Execution;
 typedef struct Frame {
     struct Frame *parent; Execution *execution; Program *program; Function *function;
     Scope *scope; Loop *loops; u32 pc, sp, returned, context, capacity, pending_base, pending_count; u32 *binding_cache; Value values[];
 } Frame;
-struct Execution { Execution *next; Frame *current; Value result; u32 budget, status; Function *numeric_depth_disabled; };
+struct Execution { Execution *next; Frame *current; Value result; u32 budget, status; Function *numeric_depth_disabled; u32 poll; Closure *numeric_closure; Frame *numeric_innermost; };
 _Static_assert(offsetof(Frame, values)==56, "Compiler frame ABI mismatch");
-_Static_assert(offsetof(Execution, status)==28, "Compiler execution ABI mismatch");
+_Static_assert(offsetof(Execution, status)==28 && offsetof(Execution, budget)==24 && offsetof(Execution, poll)==36 && offsetof(Execution, numeric_closure)==40, "Compiler execution ABI mismatch");
+_Static_assert(sizeof(Function)==40, "Function layout mismatch");
 _Static_assert(sizeof(Value)==16 && sizeof(Binding)==24 && offsetof(Binding,value)==8, "Host value/binding ABI mismatch");
 typedef struct Pin { struct Pin *next; Value value; } Pin;
 
@@ -44,8 +54,12 @@ static Hash *dirty_hashes;
 static unsigned char native_live[65536];
 static u32 marked_native_ids[65536], marked_native_count, collection_generation;
 static u32 bytes_since_collection;
-static u32 scope_epoch=1;
-static u32 numeric_fast_calls, numeric_fallback_calls, numeric_depth_fallbacks;
+/* Collection is due after gc_threshold bytes of allocation that were not explicitly released.
+   The threshold grows with the live heap so repeated collections of large live graphs stay amortized. */
+static u32 gc_threshold=8u*1024*1024, gc_armed;
+static u32 scope_epoch=1, epoch_era=1;
+static u32 numeric_fast_calls, numeric_fallback_calls, numeric_depth_fallbacks, numeric_deopts;
+u32 aqua_numeric_deopts(void) { return numeric_deopts; }
 u32 aqua_numeric_fast_calls(void) { return numeric_fast_calls; }
 u32 aqua_numeric_fallback_calls(void) { return numeric_fallback_calls; }
 u32 aqua_numeric_depth_fallbacks(void) { return numeric_depth_fallbacks; }
@@ -59,17 +73,22 @@ static Value value(u32 tag, u32 ref, double n) { return (Value){tag,ref,n}; }
 static u32 address(const void *p) { return (u32)(uintptr_t)p; }
 static void *pointer(u32 p) { return (void *)(uintptr_t)p; }
 static u32 allocation_class(u32 size) { return 27u-(u32)__builtin_clz(size); }
-static void release(void *p) { if(p&&address(p)>=heap_start){Block*b=(Block*)p-1;if(b->kind==FREE)return;u32 bucket=allocation_class(b->size);b->kind=FREE;*(u32*)p=free_heads[bucket];free_heads[bucket]=address(b);} }
+static void release(void *p) { if(p&&address(p)>=heap_start){Block*b=(Block*)p-1;if(b->kind==FREE)return;bytes_since_collection=bytes_since_collection>b->size?bytes_since_collection-b->size:0;u32 bucket=allocation_class(b->size);b->kind=FREE;*(u32*)p=free_heads[bucket];free_heads[bucket]=address(b);} }
 static void initialize_allocation(void *p,u32 n,u32 kind) {
     // Collection scans only committed elements and live stack operands.
     // Constructors fill value/binding buffers completely before a checkpoint.
     if(kind==VALUES||kind==BINDINGS)return;
-    memset(p,0,kind==FRAMES?sizeof(Frame):n);
+    // Small fixed-size clears stay as stores: engines lower variable memory.fill to a runtime call.
+    if(kind==FRAMES){memset(p,0,sizeof(Frame));return;}
+    if(n<=64){u32*w=p;for(u32 i=0;i<n/4;i++)w[i]=0;return;}
+    memset(p,0,n);
 }
 static void *allocate(u32 n,u32 kind) {
     if(n>512u*1024*1024)__builtin_trap();
     n=n<=16?16:1u<<(32u-(u32)__builtin_clz(n-1));u32 bucket=allocation_class(n);
     bytes_since_collection+=n;
+    // Compiled checkpoints poll Execution.poll instead of calling into the runtime every block.
+    if(!gc_armed&&bytes_since_collection>=gc_threshold){gc_armed=1;for(Execution*e=executions;e;e=e->next)e->poll=1;}
     if(free_heads[bucket]){Block*b=pointer(free_heads[bucket]);free_heads[bucket]=*(u32*)(b+1);b->kind=kind;b->marked=0;initialize_allocation(b+1,b->size,kind);return b+1;}
     if(n>512u*1024*1024-heap_end-sizeof(Block))__builtin_trap();
     u32 end=heap_end+sizeof(Block)+n,available=(u32)__builtin_wasm_memory_size(0)*65536;
@@ -79,7 +98,7 @@ static void *allocate(u32 n,u32 kind) {
 u32 aqua_initialize(u32 start) { if(!heap_start)heap_start=heap_end=(start+15)&~15u;return heap_start; }
 u32 aqua_allocate(u32 n) { return address(allocate(n,RAW)); }
 u32 aqua_heap_bytes(void) { return heap_end-heap_start; }
-u32 aqua_collection_due(void) { return bytes_since_collection>=8u*1024*1024; }
+u32 aqua_collection_due(void) { return bytes_since_collection>=gc_threshold; }
 u32 aqua_collection_generation(void) { return collection_generation; }
 u32 aqua_value(void) { return address(allocate(sizeof(Value),RAW)); }
 u32 aqua_text(u32 length) { Text *t=allocate(sizeof(Text)+length*2,TEXT);t->length=length;return address(t); }
@@ -95,7 +114,7 @@ static void operator_failure(Frame*f,Value a,Value b,const char*op) {
 }
 static Text *decimal(u32 n) { char b[11];u32 count=0;do{b[count++]=(char)('0'+n%10);n/=10;}while(n);Text*t=pointer(aqua_text(count));for(u32 i=0;i<count;i++)t->data[i]=b[count-i-1];return t; }
 static Scope *scope(Scope *outer) { Scope*s=allocate(sizeof(Scope),ENV);s->outer=outer;return s; }
-static void invalidate_scopes(void) { if(++scope_epoch)return;scope_epoch=1;for(Execution*e=executions;e;e=e->next)for(Frame*f=e->current;f;f=f->parent)if(f->binding_cache)memset(f->binding_cache,0,(f->function->wrap_return>>1)*8); }
+static void invalidate_scopes(void) { if(++scope_epoch)return;scope_epoch=1;epoch_era++;for(Execution*e=executions;e;e=e->next)for(Frame*f=e->current;f;f=f->parent)if(f->binding_cache)memset(f->binding_cache,0,(f->function->wrap_return>>1)*8); }
 u32 aqua_scope(u32 outer) { Scope*s=scope(pointer(outer));s->captured=1;return address(s); }
 static u32 text_hash(Text*n) { u32 h=2166136261u;for(u32 i=0;i<n->length;i++)h=(h^n->data[i])*16777619u;return h; }
 static Binding *find_small_scope(Scope*s,Text*n) { for(u32 i=0;i<s->count;i++)if(text_equal(s->bindings[i].name,n))return s->bindings+i;return 0; }
@@ -162,21 +181,56 @@ u32 aqua_take_dirty_hash(void) { Hash*h=dirty_hashes;if(!h)return 0;dirty_hashes
 #include "threads.h"
 static Frame *frame(Execution*e,Frame*parent,Program*p,u32 id,Scope*s,u32 context) {
     if(id>=p->count)__builtin_trap();Function*fn=p->functions+id;
-    Frame*f=allocate(sizeof(Frame)+fn->capacity*sizeof(Value),FRAMES);f->parent=parent;f->execution=e;f->program=p;f->function=fn;f->scope=s;f->context=context;f->capacity=fn->capacity;u32 cached=fn->wrap_return>>1;if(cached)f->binding_cache=allocate(cached*8,RAW);return f;
+    Frame*f=allocate(sizeof(Frame)+(fn->locals+fn->capacity)*sizeof(Value),FRAMES);f->parent=parent;f->execution=e;f->program=p;f->function=fn;f->scope=s;f->context=context;f->capacity=fn->locals+fn->capacity;f->sp=fn->locals;for(u32 i=0;i<fn->locals;i++)f->values[i].tag=UNDECLARED;u32 cached=fn->wrap_return>>1;if(cached&&!(fn->flags&PROMOTED_SCOPE))f->binding_cache=allocate(cached*8,RAW);return f;
 }
 static void retain_scope(Scope*s) { for(;s&&!s->captured;s=s->outer)s->captured=1; }
 static void dispose_scope(Scope*s) { if(s&&!s->captured){release(s->bindings);release(s->index);release(s);} }
 static Value constant(Frame*f,u32 n) { return f->function->constants[n]; }
 static Text *name(Frame*f,u32 n) { return pointer(constant(f,n).ref); }
 static Binding *cached_binding(Frame*f,u32 n) { u32*c=f->binding_cache?f->binding_cache+n*2:0;if(c&&c[0]==scope_epoch&&c[1])return pointer(c[1]);Binding*b=find(f->scope,name(f,n));if(c){c[0]=scope_epoch;c[1]=address(b);}return b; }
+/* Address of a lexical binding's value, or 0 when the scope chain has none (no failure). */
+int rt_lookup(Frame*f,int n) { Binding*b=cached_binding(f,(u32)n);return b?(int)address(&b->value):0; }
 int rt_binding(Frame*f,int n) { Binding*b=cached_binding(f,(u32)n);if(!b){named_failure(f,"Identifier not found: ",name(f,(u32)n));return 0;}return (int)address(&b->value); }
-static void release_frame(Frame*f) { release(f->binding_cache);release(f); }
-u32 aqua_execute(u32 p,u32 id,u32 s,u32 context) { Execution*e=allocate(sizeof(Execution),EXECUTIONS);e->next=executions;executions=e;((Scope*)pointer(s))->captured=1;e->current=frame(e,0,pointer(p),id,pointer(s),context);return address(e); }
+static void release_frame(Frame*f) { if(!(f->function->flags&PROMOTED_SCOPE))release(f->binding_cache);release(f); }
+/* A promoted call resolves free names from the closure scope itself, so lookups can be shared by all calls. */
+static u32 *closure_cache(Closure*c,Function*fn) {
+    u32 cached=fn->wrap_return>>1;if(!cached)return 0;
+    if(!c->cache){c->cache=allocate(cached*8,RAW);c->cache_era=epoch_era;}
+    else if(c->cache_era!=epoch_era){memset(c->cache,0,cached*8);c->cache_era=epoch_era;}
+    return c->cache;
+}
+static void complete_frame(Execution*e,Frame*f) {
+    Value result=f->sp>f->function->locals?pop(f):empty;Frame*parent=f->parent;
+    if(!(f->function->flags&PROMOTED_SCOPE))dispose_scope(f->scope);release_frame(f);e->current=parent;push(parent,result);
+}
+/* Run a callee frame just pushed by rt_call on the native stack. Every frame stays materialized in Wasm
+   memory, so a callee that suspends, yields or exceeds the nesting bound simply returns its continuation
+   and the scheduler resumes the innermost frame; nothing is speculated or replayed. */
+#define NATIVE_CALL_DEPTH 128
+static u32 native_depth;
+static int run_callee(Frame*f) {
+    // Deoptimized specializations can push a chain of frames, so run until control returns to f.
+    Execution*e=f->execution;
+    while(e->current!=f){
+        Frame*callee=e->current;
+        if(e->status||native_depth>=NATIVE_CALL_DEPTH)return 1;
+        native_depth++;int next=((int(*)(Frame*))(uintptr_t)callee->function->table)(callee);native_depth--;
+        if(e->status==3)return 1;
+        if(next>=0){callee->pc=(u32)next;return 1;}
+        complete_frame(e,callee);if(e->status)return 1;
+    }
+    return 0;
+}
+u32 aqua_execute(u32 p,u32 id,u32 s,u32 context) { Execution*e=allocate(sizeof(Execution),EXECUTIONS);e->next=executions;executions=e;e->poll=gc_armed;((Scope*)pointer(s))->captured=1;e->current=frame(e,0,pointer(p),id,pointer(s),context);return address(e); }
 u32 aqua_invoke(u32 closure,u32 arguments,u32 count) {
-    Closure*c=pointer(closure);Execution*e=pointer(aqua_execute(address(c->program),c->function,address(scope(c->scope)),c->context));
+    Closure*c=pointer(closure);Function*fn=c->program->functions+c->function;Value*a=pointer(arguments);
+    if(fn->flags&PROMOTED_SCOPE){Execution*e=pointer(aqua_execute(address(c->program),c->function,address(c->scope),c->context));
+        if(count!=fn->arity){failure(e->current,"Incorrect callback argument count.");return address(e);}
+        e->current->binding_cache=closure_cache(c,fn);for(u32 i=0;i<count;i++)e->current->values[i]=a[i];return address(e);}
+    Execution*e=pointer(aqua_execute(address(c->program),c->function,address(scope(c->scope)),c->context));
     e->current->scope->captured=0;
-    Function*fn=e->current->function;if(count!=fn->arity){failure(e->current,"Incorrect callback argument count.");return address(e);}
-    Value*a=pointer(arguments);for(u32 i=0;i<count;i++)declare(e->current->scope,fn->parameters[i],a[i]);return address(e);
+    if(count!=fn->arity){failure(e->current,"Incorrect callback argument count.");return address(e);}
+    for(u32 i=0;i<count;i++)declare(e->current->scope,fn->parameters[i],a[i]);return address(e);
 }
 u32 aqua_thread_enter(u32 closure,u32 arguments,u32 count) {
     executions=0;pins=0;memset(builtin_scopes,0,sizeof(builtin_scopes));builtin_context_count=0;
@@ -197,14 +251,16 @@ u32 aqua_run(u32 ptr,u32 budget) {
     Execution*e=pointer(ptr);if(e->status==2||e->status==3)return e->status;e->budget=budget;e->status=0;
     while(e->current){Frame*f=e->current;int next=((int(*)(Frame*))(uintptr_t)f->function->table)(f);
         if(e->status==3)return 3;
-        if(next<0){Value result=f->sp?pop(f):empty;Frame*parent=f->parent;dispose_scope(f->scope);release_frame(f);e->current=parent;if(!parent){e->result=result;e->status=4;return 4;}push(parent,result);}
+        if(next<0){Value result=f->sp>f->function->locals?pop(f):empty;Frame*parent=f->parent;if(!(f->function->flags&PROMOTED_SCOPE))dispose_scope(f->scope);release_frame(f);e->current=parent;if(!parent){e->result=result;e->status=4;return 4;}push(parent,result);}
         else f->pc=(u32)next;
         if(e->status==2)return 2;if(e->status==1)return 1;
     }e->status=4;return 4;
 }
 int rt_pc(Frame*f,int unused) { return (int)f->pc; }
 int rt_failed(Frame*f,int unused) { return f->execution->status==3; }
-int rt_checkpoint(Frame*f,int unused) { if(bytes_since_collection>=8u*1024*1024)aqua_collect();if(!f->execution->budget||!--f->execution->budget){f->execution->status=1;return 1;}return 0; }
+/* Fuel: a checkpoint consumes its static weight (see WasmFuel), saturating at zero, and yields only once the
+   budget is exhausted, so every quantum makes progress even when a weight exceeds the quantum. */
+int rt_checkpoint(Frame*f,int weight) { if(bytes_since_collection>=gc_threshold)aqua_collect();u32 w=weight>1?(u32)weight:1;Execution*e=f->execution;if(!e->budget){e->status=1;return 1;}e->budget=e->budget>w?e->budget-w:0;return 0; }
 int rt_constant(Frame*f,int n) { push(f,constant(f,n));return 0; }
 int rt_void(Frame*f,int n) { push(f,empty);return 0; }
 int rt_null(Frame*f,int n) { push(f,value(NULL_VALUE,0,0));return 0; }
@@ -233,6 +289,9 @@ BINARY(add,0) BINARY(subtract,1) BINARY(multiply,2) BINARY(divide,3) BINARY(less
 int rt_negate(Frame*f,int n) { Value v=pop(f);if(numeric(v))push(f,number(-v.number,v.tag));else named_failure(f,"Unknown operator: -",ascii(type_name(v.tag)));return 0; }
 int rt_not(Frame*f,int n) { Value v=pop(f);push(f,value(BOOL,0,v.tag==BOOL?!v.number:v.tag==NULL_VALUE));return 0; }
 static int increment(Frame*f,int n,int prefix) { Binding*b=cached_binding(f,n);if(!b){named_failure(f,"Identifier not found: ",name(f,n));return 0;}Value old=b->value;if(!numeric(old)){failure(f,"Increment requires a number.");return 0;}b->value=number(old.number+1,old.tag);push(f,prefix?b->value:old);return 0; }
+/* Promoted locals are frame slots rather than named bindings; these helpers receive the slot address. */
+int rt_incrementAt(Frame*f,int prefix,Value*b) { Value old=*b;if(!numeric(old)){failure(f,"Increment requires a number.");return 0;}*b=number(old.number+1,old.tag);push(f,prefix?*b:old);return 0; }
+int rt_compoundAt(Frame*f,int n,Value*b) { Value c=constant(f,n),r=pop(f);pop(f);*b=binary(f,(int)c.number,*b,r,1);push(f,empty);return 0; }
 int rt_incrementPrefix(Frame*f,int n){return increment(f,n,1);}int rt_incrementPostfix(Frame*f,int n){return increment(f,n,0);}
 int rt_truth(Frame*f,int n) { Value v=pop(f);return v.tag==BOOL?v.number!=0:v.tag!=NULL_VALUE; }
 int rt_isBreak(Frame*f,int n) { return peek(f,1).tag==BREAK_VALUE; }
@@ -261,37 +320,49 @@ static Value flood_fill(Frame*f,Value*args) {
     }}release(stack);if(a->exposed&&!a->dirty){a->dirty=1;a->dirty_next=dirty_arrays;dirty_arrays=a;}return number(changed,INT);
 }
 int rt_call(Frame*f,int n) {
-    if(n<0||(u32)n>=f->sp){failure(f,"Invalid compiled call.");return 0;}u32 base=f->sp-n-1;Value callee=f->values[base];Value*args=f->values+base+1;
+    if(n<0||(u32)n>=f->sp){failure(f,"Invalid compiled call.");return 1;}u32 base=f->sp-n-1;Value callee=f->values[base];Value*args=f->values+base+1;
     if(callee.tag==BUILTIN&&callee.ref>=100&&callee.ref<=107){
-        if(!thread_arguments(f,callee.ref,args,n))return 0;
+        if(!thread_arguments(f,callee.ref,args,n))return 1;
         Value out=empty;int pending=host_service(4,f->context,callee.ref,0,address(args),n,address(&out));f->sp=base;
         if(pending==1){f->pending_base=base;f->pending_count=n+1;f->execution->status=2;}else push(f,out);
     }
     else if(callee.tag==BUILTIN&&callee.ref>=6&&callee.ref<=45){Value out=callee.ref<=19?array_call(f,callee.ref,args,n):callee.ref<=29?hash_call(f,callee.ref,args,n):text_call(f,callee.ref,args,n);f->sp=base;push(f,out);}
-    else if(callee.tag==BUILTIN){Value out=empty;if(callee.ref<1||callee.ref>5||n!=(callee.ref==5?6:callee.ref==4?2:1)){failure(f,"Incorrect builtin argument count.");return 0;}Value a=args[0];
+    else if(callee.tag==BUILTIN){Value out=empty;if(callee.ref<1||callee.ref>5||n!=(callee.ref==5?6:callee.ref==4?2:1)){failure(f,"Incorrect builtin argument count.");return 1;}Value a=args[0];
         if(callee.ref==5)out=flood_fill(f,args);
         else if(callee.ref==1){if(a.tag==STRING)out=number(((Text*)pointer(a.ref))->length,INT);else if(a.tag==ARRAY)out=number(((Array*)pointer(a.ref))->count,INT);else if(a.tag==HASH)out=number(((Hash*)pointer(a.ref))->count,INT);else failure(f,"Length requires string, array or hash.");}
         else if(a.tag!=ARRAY)failure(f,"Builtin requires an array.");else{Array*x=pointer(a.ref);if(callee.ref==2)out=x->count?x->values[x->count-1]:value(NULL_VALUE,0,0);
             else if(callee.ref==3){if(!x->count)out=value(NULL_VALUE,0,0);else{Array*y=array(x->count-1);memcpy(y->values,x->values+1,y->count*sizeof(Value));out=value(ARRAY,address(y),0);}}
             else{Array*y=append_array(x,args[1]);out=value(ARRAY,address(y),0);}}
         f->sp=base;push(f,out);}
-    else if(callee.tag==CLOSURE){Closure*c=pointer(callee.ref);Function*fn=c->program->functions+c->function;if(fn->arity!=(u32)n){Text*t=concat(ascii("Function expects "),decimal(fn->arity));t=concat(t,ascii(" arguments, got "));t=concat(t,decimal(n));fail(f,concat(t,ascii(".")));return 0;}
+    else if(callee.tag==CLOSURE){Closure*c=pointer(callee.ref);Function*fn=c->program->functions+c->function;if(fn->arity!=(u32)n){Text*t=concat(ascii("Function expects "),decimal(fn->arity));t=concat(t,ascii(" arguments, got "));t=concat(t,decimal(n));fail(f,concat(t,ascii(".")));return 1;}
         // Closed scalar functions have no heap/capability/captured-write effects.
         // A failed fast attempt can therefore restart on the resumable path.
-        if(fn->numeric_table&&f->execution->numeric_depth_disabled!=fn){Binding*self=fn->recursive_name?find(c->scope,fn->recursive_name):0;
+        // Speculation that keeps failing its argument guards (e.g. always non-numeric arguments) is skipped.
+        if(fn->numeric_table&&f->execution->numeric_depth_disabled!=fn&&!(NUMERIC_MISSES(fn)>=64&&NUMERIC_HITS(fn)*4<NUMERIC_MISSES(fn))){Binding*self=fn->recursive_name?find(c->scope,fn->recursive_name):0;
             if(!fn->recursive_name||(self&&self->value.tag==CLOSURE&&self->value.ref==callee.ref)){
-                u32 saved_budget=f->execution->budget;Value out=empty;int status=((int(*)(Value*,Value*,Execution*))(uintptr_t)fn->numeric_table)(args,&out,f->execution);
-                if(status==1){numeric_fast_calls++;f->sp=base;push(f,out);return 0;}numeric_fallback_calls++;if(status==3){numeric_depth_fallbacks++;f->execution->numeric_depth_disabled=fn;}
+                u32 saved_budget=f->execution->budget;Value out=empty;f->execution->numeric_closure=c;f->execution->numeric_innermost=0;
+                int status=((int(*)(Value*,Value*,Execution*))(uintptr_t)fn->numeric_table)(args,&out,f->execution);
+                if(status==1||status==4){if(NUMERIC_HITS(fn)<255)fn->flags+=1u<<16;}else if(status==0&&NUMERIC_MISSES(fn)<255)fn->flags+=1u<<24;
+                if(status==1){numeric_fast_calls++;f->sp=base;push(f,out);return f->execution->status!=0;}
+                if(status==4){numeric_fast_calls++;numeric_deopts++;Frame*outer=pointer(out.ref);outer->parent=f;f->sp=base;f->execution->current=f->execution->numeric_innermost;return run_callee(f);}numeric_fallback_calls++;if(status==3){numeric_depth_fallbacks++;f->execution->numeric_depth_disabled=fn;}
                 // Discarded speculation must not cause an observable yield before
                 // the generic body reconstructs its actual execution state.
                 f->execution->budget=saved_budget;
             }
         }
-        Scope*s=scope(c->scope);for(int i=0;i<n;i++)declare(s,fn->parameters[i],args[i]);f->sp=base;f->execution->current=frame(f->execution,f,c->program,c->function,s,c->context);}
+        if(fn->flags&PROMOTED_SCOPE){Frame*callee=frame(f->execution,f,c->program,c->function,c->scope,c->context);callee->binding_cache=closure_cache(c,fn);for(int i=0;i<n;i++)callee->values[i]=args[i];f->sp=base;f->execution->current=callee;return run_callee(f);}
+        Scope*s=scope(c->scope);for(int i=0;i<n;i++)declare(s,fn->parameters[i],args[i]);f->sp=base;f->execution->current=frame(f->execution,f,c->program,c->function,s,c->context);return run_callee(f);}
     else if(callee.tag==NATIVE){Value out=empty;int pending=host_service(1,f->context,callee.ref,0,address(args),n,address(&out));f->sp=base;if(pending==1){f->pending_base=base;f->pending_count=n+1;f->execution->status=2;}else push(f,out);}
-    else named_failure(f,"Not a function: ",ascii(type_name(callee.tag)));return 0;
+    else named_failure(f,"Not a function: ",ascii(type_name(callee.tag)));return f->execution->status!=0;
 }
 int rt_returned(Frame*f,int n){f->returned=1;return 0;}
+/* Deoptimization of a proven integer specialization: a generic frame of the closure being specialized,
+   resuming at block pc with depth operands; the specialization writes its variables and operands. */
+int rt_numericFrame(Execution*e,int pc,int depth) {
+    Closure*c=e->numeric_closure;Function*fn=c->program->functions+c->function;
+    Frame*f=frame(e,0,c->program,c->function,c->scope,c->context);f->binding_cache=closure_cache(c,fn);
+    f->pc=(u32)pc;f->sp=fn->locals+(u32)depth;if(!e->numeric_innermost)e->numeric_innermost=f;return (int)address(f);
+}
 int rt_array(Frame*f,int n){Array*a=array(n);for(int i=n-1;i>=0;i--)a->values[i]=pop(f);push(f,value(ARRAY,address(a),0));return 0;}
 int rt_checkHashKey(Frame*f,int n){Value v=peek(f,1);if(!numeric(v)&&v.tag!=STRING&&v.tag!=BOOL)named_failure(f,"Unusable as hash key: ",ascii(type_name(v.tag)));return 0;}
 int rt_hash(Frame*f,int n){Hash*h=pointer(aqua_hash(n));u32 count=0,base=f->sp-n*2;for(int i=0;i<n;i++){Value k=f->values[base+i*2],v=f->values[base+i*2+1];u32 j=0;while(j<count&&!equal(h->pairs[j].key,k,1))j++;h->pairs[j]=(Pair){k,v};if(j==count)count++;}h->count=count;f->sp=base;push(f,value(HASH,address(h),0));return 0;}
@@ -312,15 +383,15 @@ int rt_error(Frame*f,int n){fail(f,name(f,n));return 0;}
 static void mark_ref(void*p){u32 addr=address(p);if(!p||addr<heap_start||addr>=heap_end)return;Block*b=(Block*)p-1;if(b->kind==FREE||b->marked)return;b->marked=mark_pending|1;mark_pending=addr;}
 static void mark_value(Value v){if(v.tag==NATIVE){if(v.ref<65536&&!native_live[v.ref]){native_live[v.ref]=1;marked_native_ids[marked_native_count++]=v.ref;}}else if(v.tag>=STRING&&v.tag<=MODULE||v.tag==ERROR)mark_ref(pointer(v.ref));}
 u32 aqua_collect(void){
-    bytes_since_collection=0;
-    for(Block*b=pointer(blocks);b;b=pointer(b->next))b->marked=0;
+    bytes_since_collection=0;gc_armed=0;for(Execution*e=executions;e;e=e->next)e->poll=0;
+    // Marks are clear here: allocation clears them and the sweep below resets every survivor.
     for(u32 i=0;i<marked_native_count;i++)native_live[marked_native_ids[i]]=0;marked_native_count=0;mark_pending=0;
     for(Execution*e=executions;e;e=e->next)mark_ref(e);for(Pin*p=pins;p;p=p->next)mark_ref(p);for(u32 i=0;i<builtin_context_count;i++)mark_ref(builtin_scopes[builtin_contexts[i]]);
     for(Array*a=dirty_arrays;a;a=a->dirty_next)mark_ref(a);
     for(Hash*h=dirty_hashes;h;h=h->dirty_next)mark_ref(h);
     while(mark_pending){void*p=pointer(mark_pending);Block*b=(Block*)p-1;mark_pending=b->marked&~1u;b->marked=1;switch(b->kind){
         case ENV:{Scope*s=p;mark_ref(s->outer);mark_ref(s->bindings);mark_ref(s->index);for(u32 i=0;i<s->count;i++){mark_ref(s->bindings[i].name);mark_value(s->bindings[i].value);}break;}
-        case CLOSURES:{Closure*c=p;mark_ref(c->scope);break;}
+        case CLOSURES:{Closure*c=p;mark_ref(c->scope);mark_ref(c->cache);break;}
         case ARRAYS:{Array*a=p;Block*storage=(Block*)a->storage-1;
             // Recompute ownership and the append frontier from live headers only.
             // Dead longer push snapshots must not force a surviving prefix to copy.
@@ -332,10 +403,15 @@ u32 aqua_collect(void){
         case LOOPS:{Loop*l=p;mark_ref(l->previous);mark_ref(l->outer);break;}
         case EXECUTIONS:{Execution*e=p;mark_ref(e->current);mark_value(e->result);break;}
         case PINS:mark_value(((Pin*)p)->value);break;
-    }}u32 reclaimed=0;
-    for(Block*b=pointer(blocks);b;b=pointer(b->next))if(b->kind!=FREE&&!b->marked){reclaimed+=b->size;b->kind=FREE;}
-    // Segregated free lists prevent tiny scopes from consuming reusable frames.
+    }}u32 reclaimed=0,live=0;
+    // One pass sweeps, clears survivor marks and rebuilds the segregated free lists, so tiny scopes
+    // cannot consume reusable frames.
     memset(free_heads,0,sizeof(free_heads));
-    for(Block*b=pointer(blocks);b;b=pointer(b->next))if(b->kind==FREE){u32 bucket=allocation_class(b->size);*(u32*)(b+1)=free_heads[bucket];free_heads[bucket]=address(b);}if(!++collection_generation)collection_generation=1;return reclaimed;
+    for(Block*b=pointer(blocks);b;b=pointer(b->next)){
+        if(b->kind!=FREE){if(b->marked){b->marked=0;live+=b->size;continue;}reclaimed+=b->size;b->kind=FREE;}
+        u32 bucket=allocation_class(b->size);*(u32*)(b+1)=free_heads[bucket];free_heads[bucket]=address(b);
+    }
+    gc_threshold=live>8u*1024*1024?live:8u*1024*1024;
+    if(!++collection_generation)collection_generation=1;return reclaimed;
 }
 u32 aqua_native_live(u32 id){return id<65536?native_live[id]:0;}

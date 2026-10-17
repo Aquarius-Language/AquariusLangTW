@@ -74,7 +74,10 @@ public class WasmNumericFunctionTest
     {
         var engine = new ObservedEngine(); using var runtime = new WasmRuntime(null, engine);
         Assert.Equal("20000", runtime.Execute(new WasmCompiler().Compile("變數 f=函式(n){如果(n==0){回傳 0;}回傳 f(n-1)+1;};f(20000);")).Inspect());
-        Assert.Equal(1, engine.Instance!.Invoke("aqua_numeric_depth_fallbacks"));
+        // The integer specialization deoptimizes its native activations into generic frames at the
+        // depth bound instead of abandoning the speculation, so no fallback restarts the recursion.
+        Assert.Equal(0, engine.Instance!.Invoke("aqua_numeric_depth_fallbacks"));
+        Assert.True(engine.Instance!.Invoke("aqua_numeric_deopts") > 0);
     }
 
     [Fact]

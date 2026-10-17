@@ -1,7 +1,10 @@
 param(
     [string]$Dotnet = 'dotnet', [string]$Configuration = 'Debug',
     [switch]$BuildApks, [switch]$Emulator, [switch]$DeviceServices, [string]$Adb = 'adb',
-    [string[]]$ProjectRoots = @(), [string[]]$CaseNames = @(), [switch]$SkipBuild
+    [string[]]$ProjectRoots = @(), [string[]]$CaseNames = @(), [switch]$SkipBuild,
+    [string]$ApplicationIdPrefix = 'org.aquariuslang.smoke.p',
+    [ValidateRange(1, 600)][int]$ExecutionTimeoutSeconds = 180,
+    [switch]$UninstallAfterRun
 )
 $ErrorActionPreference = 'Stop'
 $repository = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
@@ -72,7 +75,7 @@ foreach ($case in $cases) {
             $javaTested=$true
         }
         $apk = Join-Path $output ($case.name + '.apk')
-        $id = 'org.aquariuslang.smoke.p' + ($case.name -replace '[^A-Za-z0-9_]','_').ToLowerInvariant()
+        $id = $ApplicationIdPrefix + ($case.name -replace '[^A-Za-z0-9_]','_').ToLowerInvariant()
         Invoke-Aqua @('build',$wasm,'--target','android','--application-id',$id,'-o',$apk)
         if ($Emulator) {
             & $Adb install -r $apk
@@ -82,7 +85,7 @@ foreach ($case in $cases) {
             & $Adb shell am force-stop $id
             $frames=if($case.name -in @('processing','graphics')){3}elseif($case.name -eq 'input'){0}else{1}
             & $Adb shell am start -n "$id/org.aquariuslang.android.AquariusActivity" --ei frames $frames
-            $deadline = [DateTime]::UtcNow.AddSeconds(60)
+            $deadline = [DateTime]::UtcNow.AddSeconds($ExecutionTimeoutSeconds)
             $injected=$false
             do {
                 Start-Sleep -Milliseconds 500
@@ -100,6 +103,7 @@ foreach ($case in $cases) {
                     $injected=$true
                 }
             } while ($logs -notmatch 'AQUARIUS_ANDROID_OK' -and [DateTime]::UtcNow -lt $deadline)
+            $logs | Set-Content -LiteralPath (Join-Path $output ($case.name + '.log')) -Encoding utf8
             if ($logs -notmatch 'AQUARIUS_ANDROID_OK') { throw "Android execution timed out: $($case.name)" }
             if ($logs -notmatch 'AQUARIUS_ENGINE Wasmtime') { throw 'The Android application did not run with Wasmtime.' }
             if ($case.name -eq 'runtime' -and $logs -notmatch 'ANDROID_WASMTIME_CONTRACT_OK') { throw 'Wasmtime adapter contract was not exercised.' }
@@ -110,7 +114,10 @@ foreach ($case in $cases) {
                     if($logs -notmatch $marker){throw "Missing input smoke assertion: $marker"}
                 }
             }
-            $logs | Set-Content -LiteralPath (Join-Path $output ($case.name + '.log')) -Encoding utf8
+            if ($UninstallAfterRun) {
+                & $Adb uninstall $id
+                if ($LASTEXITCODE -ne 0) { throw "Test APK cleanup failed: $id" }
+            }
         }
     }
     Write-Host "PASS Android/$($case.name)"
