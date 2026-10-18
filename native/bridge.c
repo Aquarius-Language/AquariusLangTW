@@ -77,6 +77,8 @@ typedef struct ApplicationWindow {
     application_callback event;
     accessibility_callback accessible;
     GLFWcursor* cursor;
+    double pointer_x, pointer_y;
+    int has_pointer;
     struct ApplicationWindow* next;
 } ApplicationWindow;
 static ApplicationWindow* application_windows;
@@ -98,8 +100,17 @@ static void emit_application(GLFWwindow* w, int type, int a, int b, int c, doubl
 }
 static void on_scroll(GLFWwindow* window, double x, double y) { pending_scroll -= y; emit_application(window,4,0,0,0,x,y,NULL); }
 static void on_key(GLFWwindow* w,int key,int scan,int action,int mods) { emit_application(w,1,key,scan,mods,(double)action,0,glfwGetKeyName(key,scan)); }
-static void on_pointer(GLFWwindow* w,double x,double y) { emit_application(w,2,0,0,0,x,y,NULL); }
-static void on_button(GLFWwindow* w,int button,int action,int mods) { double x,y;glfwGetCursorPos(w,&x,&y);emit_application(w,3,button,action,mods,x,y,NULL); }
+static void on_pointer(GLFWwindow* w,double x,double y) {
+    ApplicationWindow* s=application_state(w);if(s){s->pointer_x=x;s->pointer_y=y;s->has_pointer=1;}
+    emit_application(w,2,0,0,0,x,y,NULL);
+}
+/* Report presses where the pointer was in event order. On X11 glfwGetCursorPos queries the live pointer,
+   which can already be past later queued motion events and would misplace fast click-and-drag gestures. */
+static void on_button(GLFWwindow* w,int button,int action,int mods) {
+    double x,y;ApplicationWindow* s=application_state(w);
+    if(s&&s->has_pointer){x=s->pointer_x;y=s->pointer_y;}else glfwGetCursorPos(w,&x,&y);
+    emit_application(w,3,button,action,mods,x,y,NULL);
+}
 static void on_focus(GLFWwindow* w,int focused) { emit_application(w,5,focused,0,0,0,0,NULL); }
 static void on_iconify(GLFWwindow* w,int value) { emit_application(w,6,!value,0,0,0,0,NULL); }
 static void on_enter(GLFWwindow* w,int value) { emit_application(w,7,value,0,0,0,0,NULL); }
