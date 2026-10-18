@@ -39,12 +39,25 @@ public sealed record WgpuTextureDescriptor(int Width, int Height, string Format,
     }
 }
 
-/// <summary>Group 2 has up to eight named textures and a filtering sampler at binding 8.</summary>
+/// <summary>Group 2 has up to eight named textures, a filtering sampler at binding 8 and
+/// up to seven read-only storage buffers at bindings 9..15.</summary>
 public sealed class WgpuTextureLayout {
     public readonly Dictionary<string, (int Binding, string Dimension)> Fields = new(StringComparer.Ordinal);
+    public readonly Dictionary<string, int> Buffers = new(StringComparer.Ordinal);
     public WgpuTextureLayout(string source) {
         source = Regex.Replace(source, @"/\*[\s\S]*?\*/|//[^\r\n]*", "");
         var used = new HashSet<int>();
+        foreach (Match m in Regex.Matches(source, @"@(?<a>group|binding)\s*\(\s*(?<x>\d+)\s*\)\s*@(?<b>group|binding)\s*\(\s*(?<y>\d+)\s*\)\s*var\s*<(?<space>[^>]*)>\s*(?<name>\w+)\s*:")) {
+            if (m.Groups["a"].Value == m.Groups["b"].Value) continue;
+            int group = int.Parse(m.Groups[m.Groups["a"].Value == "group" ? "x" : "y"].Value);
+            if (group != 2) continue;
+            int binding = int.Parse(m.Groups[m.Groups["a"].Value == "binding" ? "x" : "y"].Value);
+            string space = Regex.Replace(m.Groups["space"].Value, @"\s+", "");
+            if (binding is < 9 or > 15 || space is not ("storage" or "storage,read"))
+                throw new ArgumentException("Group 2 storage buffers must be var<storage, read> at bindings 9..15.");
+            if (!used.Add(binding)) throw new ArgumentException("Duplicate texture group binding.");
+            if (!Buffers.TryAdd(m.Groups["name"].Value, binding)) throw new ArgumentException("Duplicate storage buffer name.");
+        }
         foreach (Match m in Regex.Matches(source, @"@(?<a>group|binding)\s*\(\s*(?<x>\d+)\s*\)\s*@(?<b>group|binding)\s*\(\s*(?<y>\d+)\s*\)\s*var\s+(?<name>\w+)\s*:\s*(?<type>[^;]+);")) {
             if (m.Groups["a"].Value == m.Groups["b"].Value) continue;
             int group = int.Parse(m.Groups[m.Groups["a"].Value == "group" ? "x" : "y"].Value);

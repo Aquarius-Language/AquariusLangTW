@@ -11,6 +11,10 @@ internal unsafe sealed class WgpuBuffer : IDisposable {
     internal WgpuBuffer(WgpuDevice device,float[] values) {
         Device=device;Length=values.Length;Handle=device.Floats(values,BufferUsage.Storage|BufferUsage.CopySrc);device.Resources.Add(this);
     }
+    /// <summary>Zero-initialized storage buffer (WebGPU buffers start cleared).</summary>
+    internal WgpuBuffer(WgpuDevice device,int length) {
+        Device=device;Length=length;Handle=device.Buffer((ulong)length*4,BufferUsage.Storage|BufferUsage.CopySrc);device.Resources.Add(this);
+    }
     internal void RequireLive() {Device.RequireLive();if(Handle==null)throw new InvalidOperationException("wgpu buffer has been disposed.");}
     internal void Write(float[] values) {
         RequireLive();if(values.Length!=Length)throw new ArgumentException($"Buffer Write needs {Length} floats.");Device.Flush();
@@ -66,4 +70,26 @@ internal unsafe sealed partial class WgpuDevice {
             if(group!=null)Api.BindGroupRelease(group);
         }
     }
+}
+
+/// <summary>GPU-resident vertices in the shared 12-float layout, drawn without re-uploading.</summary>
+internal unsafe sealed class WgpuVertexBuffer : IDisposable {
+    internal readonly WgpuDevice Device;
+    internal GpuBuffer* Handle;
+    internal readonly int Length;
+    internal WgpuVertexBuffer(WgpuDevice device,float[] values) {
+        if(values.Length==0||values.Length%12!=0)throw new ArgumentException("Vertex buffers need a multiple of 12 floats.");
+        Device=device;Length=values.Length;Handle=device.Floats(values,BufferUsage.Vertex);device.Resources.Add(this);
+    }
+    internal bool Disposed=>Handle==null;
+    internal void RequireLive() {Device.RequireLive();if(Handle==null)throw new InvalidOperationException("wgpu vertex buffer has been disposed.");}
+    internal void Write(float[] values) {
+        RequireLive();if(values.Length!=Length)throw new ArgumentException($"Vertex buffer Write needs {Length} floats.");Device.Flush();
+        fixed(float* p=values)Device.Api.QueueWriteBuffer(Device.Queue,Handle,0,p,(nuint)Length*4);Device.Check();
+    }
+    internal void WriteRange(int offset,float[] values) {
+        RequireLive();AquariusLang.Graphics.WgpuBufferRange.Validate(Length,offset,values.Length);Device.Flush();
+        fixed(float* p=values)Device.Api.QueueWriteBuffer(Device.Queue,Handle,(ulong)offset*4,p,(nuint)values.Length*4);Device.Check();
+    }
+    public void Dispose() {if(Handle==null)return;Device.Flush();Device.Api.BufferRelease(Handle);Handle=null;Device.Resources.Remove(this);}
 }

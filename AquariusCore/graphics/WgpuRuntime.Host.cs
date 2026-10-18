@@ -43,5 +43,9 @@ public sealed partial class WgpuRuntime {
     private static ArrayObj Numbers(double[] n) => new(n.Select(v => (IObject)new DoubleObj(v)).ToArray());
     private static ArrayObj PixelArray(byte[] bytes) => new(Enumerable.Range(0, bytes.Length / 4).Select(i => (IObject)new DoubleObj((uint)(bytes[i*4+3]<<24 | bytes[i*4]<<16 | bytes[i*4+1]<<8 | bytes[i*4+2]))).ToArray());
     private static IObject Null() => RepeatedPrimitives.NULL;
-    public void Dispose() { if (disposed) return; foreach (var device in wgpuDevices.Values) device.Dispose(); wgpuDevices.Clear(); disposed = true; }
+    public void Dispose() {
+        if (disposed) return;
+        try { foreach (var device in wgpuDevices.Values) device.Dispose(); }
+        finally { foreach (var window in wgpuWindows.Values) window.Dispose(); wgpuDevices.Clear(); wgpuWindows.Clear(); disposed = true; }
+    }
 }
