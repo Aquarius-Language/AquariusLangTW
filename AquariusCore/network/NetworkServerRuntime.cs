@@ -92,8 +92,11 @@ public sealed partial class NetworkRuntime {
                 }
                 request.Status(matched.Length>0?405:404);if(matched.Length>0)Header("Allow",string.Join(", ",matched.Select(p=>p.Route.Method).Distinct()));Write(Encoding.UTF8.GetBytes(matched.Length>0?"Method Not Allowed / 方法不允許":"Not Found / 找不到資源"));return true;
             } catch(Exception) {
-                // A failed handler affects this response, not the server's request loop.
-                if(!request.HasStarted){request.Status(500);Header("Content-Type","text/plain; charset=utf-8");Write(Encoding.UTF8.GetBytes("Internal Server Error / 伺服器內部錯誤"));}return true;
+                // A failed handler affects this response, not the server's request loop. The client may already
+                // have disconnected (for example by cancelling a stream); then there is nobody left to answer.
+                try{if(!request.HasStarted){request.Status(500);Header("Content-Type","text/plain; charset=utf-8");Write(Encoding.UTF8.GetBytes("Internal Server Error / 伺服器內部錯誤"));}}
+                catch(Exception e) when(e is ObjectDisposedException or OperationCanceledException or System.IO.IOException){}
+                return true;
             } finally {active=false;handling=false;request.Dispose();if(closed)Close(server);}
         }
         return m;

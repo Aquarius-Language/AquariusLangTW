@@ -122,12 +122,18 @@ public sealed class LoweringCompiler {
         }
         Node(expression.Left);
         if (op == ".") {
-            if (expression.Right is Identifier member) Emit(IrOperation.Member, Name(member.Value));
-            else if (expression.Right is CallExpression call) {
+            // Indexing binds tighter than member access in the parser, so `模組.表["鍵"]` and
+            // `模組.函式()[0]` arrive as a member whose right side is an index chain. Lower them as
+            // indexing the member result, innermost index first.
+            var indices = new Stack<IExpression>(); var right = expression.Right;
+            while (right is IndexExpression indexed) { indices.Push(indexed.Index); right = indexed.Left; }
+            if (right is Identifier member) Emit(IrOperation.Member, Name(member.Value));
+            else if (right is CallExpression call) {
                 if (call.Function is Identifier function) Emit(IrOperation.MemberFunction, Name(function.Value));
                 else Emit(IrOperation.ResolveMemberFunction, Constant(new LoweringCompiler().Compile(call.Function)));
                 Arguments(call.Arguments); Emit(IrOperation.Call, call.Arguments.Length);
             } else throw new CompilationException("Unsupported module member expression.");
+            while (indices.Count > 0) { Node(indices.Pop()); Emit(IrOperation.Index); }
             return;
         }
         Node(expression.Right);

@@ -121,4 +121,14 @@ public class NetworkTest {
         var timedOut=Assert.IsType<ModuleObj>(Call(idle,"Wait"));Assert.Equal("Timeout",Text(Assert.IsType<ModuleObj>(timedOut._Environment.Get("Error",out _)),"Kind"));
         using var unsupported=new NetworkRuntime(new NetworkBackend());unsupported.TryImport("Network",out var core);Assert.IsType<ErrorObj>(Call(core,"StartStream",S("GET"),S("http://localhost/")));
     }
+    [Fact] public async Task ServerKeepsServingAfterAClientDisconnectsMidStream(){
+        using var runtime=new NetworkRuntime(new DesktopNetworkBackend());runtime.Invoke=(fn,args)=>Assert.IsType<BuiltinObj>(fn).Fn(args);runtime.TryImport("網路",out var net);
+        var server=Assert.IsType<ModuleObj>(Call(net,"監聽",S("http://127.0.0.1:0")));string address=Text(server,"位址");
+        Call(server,"處理",S("GET"),S("/sse"),Handler(a=>{var writer=(ModuleObj)a[1];for(int i=0;i<100;i++){var r=Call(writer,"事件",S("message"),S("chunk"+i));if(r is ErrorObj)return r;Thread.Sleep(20);}return writer;}));
+        Call(server,"處理",S("GET"),S("/ok"),Handler(a=>Call((ModuleObj)a[1],"文字",S("ok"))));
+        using var client=new HttpClient();using var cancel=new CancellationTokenSource();
+        var reader=Task.Run(async()=>{using var response=await client.GetAsync(address+"/sse",HttpCompletionOption.ResponseHeadersRead);await using var body=await response.Content.ReadAsStreamAsync();await body.ReadAsync(new byte[16]);});
+        Assert.True(Assert.IsType<BooleanObj>(Call(server,"處理下一筆",new IntegerObj(5000))).Value);await reader;
+        var ok=client.GetStringAsync(address+"/ok");Assert.True(Assert.IsType<BooleanObj>(Call(server,"處理下一筆",new IntegerObj(5000))).Value);Assert.Equal("ok",await ok);
+    }
 }
