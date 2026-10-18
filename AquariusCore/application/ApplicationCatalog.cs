@@ -11,7 +11,7 @@ public static class ApplicationCatalog {
         ["Normalize"]="正規化",["Join"]="組合",["Name"]="檔名",["Extension"]="副檔名",["Parent"]="父目錄",["Relative"]="相對路徑",["Formats"]="格式",["Create"]="建立",["Inspect"]="檢查",["Decode"]="解碼",["Load"]="載入",["Encode"]="編碼",["Save"]="儲存",["Pixels"]="像素",
         ["Json"]="JSON序列化",["ParseJson"]="解析JSON",["Binary"]="二進位序列化",["ParseBinary"]="解析二進位",["TryParseBinary"]="嘗試解析二進位",["Compress"]="壓縮",["Decompress"]="解壓縮",["Archive"]="封裝",["ReadArchive"]="讀取封裝",
         ["SettingsDirectory"]="設定目錄",["DataDirectory"]="資料目錄",["GetPreference"]="取得偏好",["SetPreference"]="設定偏好",["Recent"]="最近資源",["Remember"]="記錄最近資源",
-        ["ReadImage"]="讀取圖片",["WriteImage"]="寫入圖片",["WriteText"]="寫入文字",["Available"]="可用",["Measure"]="測量",["Selection"]="選取範圍",["State"]="狀態",["Select"]="選取",["Insert"]="插入",["Backspace"]="退格",["Convert"]="轉換位置",["Composition"]="組字",["CancelComposition"]="取消組字",["Commit"]="提交",["Cut"]="剪下",["Paste"]="貼上",["Shortcut"]="快速鍵",
+        ["ReadImage"]="讀取圖片",["WriteImage"]="寫入圖片",["WriteText"]="寫入文字",["Available"]="可用",["Measure"]="測量",["Selection"]="選取範圍",["State"]="狀態",["Select"]="選取",["Insert"]="插入",["Backspace"]="退格",["Convert"]="轉換位置",["Composition"]="組字",["CancelComposition"]="取消組字",["Commit"]="提交",["Cut"]="剪下",["Paste"]="貼上",["Shortcut"]="快速鍵",["Undo"]="復原",["Redo"]="重做",["CanUndo"]="可復原",["CanRedo"]="可重做",["DeleteWord"]="刪除字詞",
         ["LaunchFiles"]="啟動檔案",["OpenFiles"]="開啟檔案",["SaveFile"]="儲存檔案",["PickDirectory"]="選擇目錄",["Print"]="列印",["AcquireImage"]="取得圖片",["Accessibility"]="可及性",["RegisterFileAssociation"]="註冊檔案關聯",
         ["CreateCancellation"]="建立取消權杖",["UseCancellation"]="使用取消權杖",["Cancel"]="取消",["IsCancelled"]="已取消",["Dispose"]="釋放",
         ["Attach"]="附加",["Current"]="目前視窗",["FromProcessingImage"]="從Processing圖片",["ToProcessingImage"]="轉為Processing圖片",["SetTitle"]="設定標題",["SetCursor"]="設定游標",["SetCustomCursor"]="設定自訂游標",["CapturePointer"]="擷取指標",["ReleasePointer"]="釋放指標",["ResolveClose"]="決定關閉",["Poll"]="輪詢"
@@ -39,7 +39,7 @@ public static class ApplicationCatalog {
         Add("Clipboard", ("Capabilities",0,0),("Formats",0,0),("ReadText",0,0),("ReadImage",0,0),("WriteText",1,1),("WriteImage",1,2));
         Add("Fonts", ("Enumerate",0,0),("Available",1,1),("Measure",3,3),("Selection",5,5));
         Add("TextEdit", ("Create",1,1),("Convert",4,4));
-        Add("TextEdit.Editor", ("State",0,0),("Select",2,2),("Insert",1,1),("Backspace",0,0),("Delete",0,0),("Move",3,3),("Convert",3,3),("Composition",2,3),("CancelComposition",0,0),("Commit",1,1),("Copy",0,0),("Cut",0,0),("Paste",0,0),("Shortcut",2,2));
+        Add("TextEdit.Editor", ("State",0,0),("Select",2,2),("Insert",1,1),("Backspace",0,0),("Delete",0,0),("Move",3,3),("Convert",3,3),("Composition",2,3),("CancelComposition",0,0),("Commit",1,1),("Copy",0,0),("Cut",0,0),("Paste",0,0),("Shortcut",2,2),("Undo",0,0),("Redo",0,0),("CanUndo",0,0),("CanRedo",0,0),("DeleteWord",1,1));
         Add("Application", ("Capabilities",0,0),("LaunchFiles",0,0),("OpenFiles",1,1),("SaveFile",1,1),("PickDirectory",0,0),("Print",1,1),("AcquireImage",0,0),("Accessibility",1,1),("RegisterFileAssociation",1,1));
         Add("Tasks", ("CreateCancellation",0,0),("UseCancellation",1,1));
         Add("Tasks.Cancellation", ("Cancel",0,0),("IsCancelled",0,0),("Dispose",0,0));

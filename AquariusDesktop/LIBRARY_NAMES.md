@@ -552,6 +552,7 @@ see the [ONNX interface table](../docs/onnx.md#language-api).
 | `rectMode` | `矩形模式` | 1 |
 | `red` | `紅色分量` | 1 |
 | `redraw` | `重繪` | 0 |
+| `redrawAfter` | `延遲重繪` | 1 |
 | `resetMatrix` | `重設矩陣` | 0 |
 | `resetShader` | `重設著色器` | 0 |
 | `resize` | `調整尺寸` | 2 |

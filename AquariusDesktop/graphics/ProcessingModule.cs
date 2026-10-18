@@ -16,6 +16,8 @@ internal sealed partial class GraphicsRuntime {
     private readonly Dictionary<ModuleObj,ProcessingImage> images=new();
     private readonly Dictionary<string,IObject> events=new();
     private bool looping=true, redraw, running, exiting;
+    // Pending redrawAfter() deadline in Stopwatch ticks; -1 when no timer is scheduled.
+    private long redrawAt=-1;
     private double targetFps=60;
     private int frameCount;
     private readonly Stopwatch sketchClock=new();
@@ -91,6 +93,12 @@ internal sealed partial class GraphicsRuntime {
         PAction(processing,"beginFrame",0,0,_=>BeginFrame());
         PAction(processing,"endFrame",0,0,_=>EndFrame());
         PAction(processing,"noLoop",0,0,_=>looping=false); PAction(processing,"loop",0,0,_=>looping=true); PAction(processing,"redraw",0,0,_=>redraw=true);
+        PAction(processing,"redrawAfter",1,1,a=> {
+            double ms=a[0] switch {IntegerObj i=>i.Value,FloatObj f=>f.Value,DoubleObj d=>d.Value,_=>throw new ArgumentException("redrawAfter expects milliseconds.")};
+            if(!double.IsFinite(ms)||ms<0||ms>int.MaxValue)throw new ArgumentException("redrawAfter milliseconds must be 0..2147483647.");
+            // Several requests coalesce into the earliest deadline, like a one-shot UI timer.
+            long due=Stopwatch.GetTimestamp()+(long)(ms*Stopwatch.Frequency/1000);if(redrawAt<0||due<redrawAt)redrawAt=due;
+        });
         PAction(processing,"exit",0,0,_=>exiting=true); PAction(processing,"close",0,0,_=>CloseSketch());
         PAction(processing,"frameRate",1,1,a=> { double fps=Number(a[0]); if(fps<=0||fps>1000)throw new ArgumentException("Frame rate must be 0..1000 (exclusive zero).");targetFps=fps; });
         PBind(processing,"millis",0,0,_=>new DoubleObj(sketchClock.Elapsed.TotalMilliseconds));
@@ -185,13 +193,14 @@ internal sealed partial class GraphicsRuntime {
         ValidateCallback(setup); ValidateCallback(draw); if(running)throw new InvalidOperationException("run() cannot be nested.");
         int limit=0; string? frames=System.Environment.GetEnvironmentVariable("AQUARIUS_GRAPHICS_FRAMES");
         if(!string.IsNullOrEmpty(frames)&&(!int.TryParse(frames,out limit)||limit<0))throw new ArgumentException("AQUARIUS_GRAPHICS_FRAMES must be a nonnegative integer.");
-        running=true;exiting=false;frameCount=0;
+        running=true;exiting=false;frameCount=0;redrawAt=-1;
         try {
             Callback(setup);RequireSketch();
             while(!exiting&&Native.aqua_should_close(sketchWindow!.Handle)==0) {
                 var start=Stopwatch.GetTimestamp(); BeginFrame();
                 if(exiting)break;
                 if(screen.PixelWidth==0||screen.PixelHeight==0) { Thread.Sleep(10);continue; }
+                if(redrawAt>=0&&Stopwatch.GetTimestamp()>=redrawAt){redrawAt=-1;redraw=true;}
                 if(looping||redraw||frameCount==0) {
                     redraw=false;frameCount++;UpdateState();Callback(draw);
                     if(limit>0&&frameCount>=limit) {
@@ -218,7 +227,7 @@ internal sealed partial class GraphicsRuntime {
         if(resized) {redraw=true;if(w>0&&h>0)Event("windowResized");}
         PollInput();
     }
-    private void EndFrame() { RequireSketch();if(screen.ShapeMode!=-1)throw new InvalidOperationException("Unfinished beginShape() at end of frame.");if(screen.PixelWidth<=0||screen.PixelHeight<=0)return;screen.Bind();processingDevice!.Present(screen.Target);CollectProcessingResources(); }
+    private void EndFrame() { RequireSketch();if(screen.ShapeMode!=-1)throw new InvalidOperationException("Unfinished beginShape() at end of frame.");if(screen.PixelWidth<=0||screen.PixelHeight<=0)return;screen.Bind();processingDevice!.Present(screen.Target);textImages.EndFrame(screen);CollectProcessingResources(); }
     private void UpdateState() {
         processing.Create("width",N(screen.Width));processing.Create("height",N(screen.Height));
         processing.Create("寬度",N(screen.Width));processing.Create("高度",N(screen.Height));
@@ -271,7 +280,7 @@ internal sealed partial class GraphicsRuntime {
         if(sketchWindow==null)return;
         foreach(var canvas in canvases)canvas.Dispose();canvases.Clear();
         foreach(var program in processingShaders.Values)program.Dispose();processingShaders.Clear();
-        foreach(var image in images.Values.Distinct())image.Dispose(screen);images.Clear();screen.Dispose();
+        foreach(var image in images.Values.Distinct())image.Dispose(screen);images.Clear();textImages.Clear(screen);screen.Dispose();
         processingDevice?.Dispose();processingDevice=null;
     }
 }

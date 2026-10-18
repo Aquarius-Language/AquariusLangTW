@@ -32,6 +32,9 @@ public sealed partial class ApplicationRuntime {
         Action(m, "Composition", 2, 3, a => editor.SetComposition(Text(a[0]), Integer(a[1]), a.Length == 3 ? Enum.Parse<TextPositionUnit>(Text(a[2]), true) : TextPositionUnit.UnicodeScalar)); Action(m, "CancelComposition", 0, 0, _ => editor.CancelComposition());
         Action(m, "Commit", 1, 1, a => editor.Commit(Text(a[0]))); Action(m, "Copy", 0, 0, _ => Await(editor.Copy(host.Clipboard, cancellation: cancellation)));
         Action(m, "Cut", 0, 0, _ => Await(editor.Copy(host.Clipboard, true, cancellation))); Action(m, "Paste", 0, 0, _ => Await(editor.Paste(host.Clipboard, cancellation)));
+        Bind(m, "Undo", 0, 0, _ => new BooleanObj(editor.Undo())); Bind(m, "Redo", 0, 0, _ => new BooleanObj(editor.Redo()));
+        Bind(m, "CanUndo", 0, 0, _ => new BooleanObj(editor.CanUndo)); Bind(m, "CanRedo", 0, 0, _ => new BooleanObj(editor.CanRedo));
+        Action(m, "DeleteWord", 1, 1, a => editor.DeleteWord(Integer(a[0])));
         Bind(m, "Shortcut", 2, 2, a => new BooleanObj(Await(editor.Shortcut(Text(a[0]), (KeyModifiers)Integer(a[1]), host.Clipboard, cancellation))));
         return m;
     }

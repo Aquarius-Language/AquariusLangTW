@@ -446,11 +446,14 @@ export class ApplicationRuntime {
             { text: editor.selectedText, image: null },
             this.signal(),
           );
-          if (cut) editor.insert("");
+          if (cut) editor.replace("", "insert", false, { ...editor.selection });
         },
         paste = async () => {
           const { text } = await this.clipboard.read(this.signal());
-          if (text !== null) editor.commit(text);
+          if (text !== null) {
+            editor.composition = null;
+            editor.replace(text, "insert", false, { ...editor.selection });
+          }
         };
       bind("State", () => this.record(editor.state()));
       bind("Select", (a, c) => editor.select(integer(a), integer(c)));
@@ -469,6 +472,11 @@ export class ApplicationRuntime {
       bind("Copy", () => copy(false));
       bind("Cut", () => copy(true));
       bind("Paste", paste);
+      bind("Undo", () => editor.undo());
+      bind("Redo", () => editor.redo());
+      bind("CanUndo", () => editor.canUndo);
+      bind("CanRedo", () => editor.canRedo);
+      bind("DeleteWord", (d) => editor.deleteWord(integer(d)));
       bind("Shortcut", async (k, mods) => {
         k = text(k);
         mods = integer(mods);
@@ -489,6 +497,13 @@ export class ApplicationRuntime {
             case "v":
               await paste();
               return true;
+            case "z":
+              if (extend) editor.redo();
+              else editor.undo();
+              return true;
+            case "y":
+              editor.redo();
+              return true;
           }
         }
         switch (k) {
@@ -499,16 +514,18 @@ export class ApplicationRuntime {
             editor.move(1, command ? "word" : "grapheme", extend);
             return true;
           case "Home":
-            editor.move(-1, "line", extend);
+            editor.move(-1, command ? "document" : "line", extend);
             return true;
           case "End":
-            editor.move(1, "line", extend);
+            editor.move(1, command ? "document" : "line", extend);
             return true;
           case "Backspace":
-            editor.backspace();
+            if (command) editor.deleteWord(-1);
+            else editor.backspace();
             return true;
           case "Delete":
-            editor.delete();
+            if (command) editor.deleteWord(1);
+            else editor.delete();
             return true;
         }
         return false;

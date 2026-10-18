@@ -242,6 +242,7 @@ rect 矩形
 rectMode 矩形模式
 red 紅色分量
 redraw 重繪
+redrawAfter 延遲重繪
 resetMatrix 重設矩陣
 resetShader 重設著色器
 resize 調整尺寸

@@ -1,6 +1,6 @@
 import {num,numeric,wrap} from './values.mjs';
 
-export const networkFeatures={http:'超文字傳輸',cookies:'Cookie','cookie-control':'Cookie管理',websocket:'網頁通訊端',tcp:'傳輸控制協定',tls:'傳輸層安全',udp:'使用者資料報',dns:'網域名稱解析','tcp-listen':'監聽傳輸控制','http-server':'網頁伺服器'};
+export const networkFeatures={http:'超文字傳輸',cookies:'Cookie','cookie-control':'Cookie管理',websocket:'網頁通訊端',tcp:'傳輸控制協定',tls:'傳輸層安全',udp:'使用者資料報',dns:'網域名稱解析','tcp-listen':'監聽傳輸控制','http-server':'網頁伺服器','http-stream':'串流傳輸'};
 export const maxNetworkBody=16*1024*1024;
 export function networkPlain(v,depth=0){
   if(depth>64)throw new Error('InvalidArgument / 資料過深。');
@@ -49,6 +49,20 @@ export function registerNetwork(host,backend){
       const finish=()=>{close(operation);return response(result);};
       bind(m,'Network.Operation','IsDone',()=>done);bind(m,'Network.Operation','Cancel',()=>{controller.abort();return null;});bind(m,'Network.Operation','Poll',()=>done?finish():null);
       bind(m,'Network.Operation','Wait',async()=>{await task;return finish();});bind(m,'Network.Operation','Close',()=>close(operation));return m;
+    });
+    bind(m,lib,'StartStream',(method,url,value)=>{
+      requireFeature('http-stream');if(typeof method!=='string'||typeof url!=='string')throw new Error('InvalidArgument / 方法及網址必須是文字。');
+      const options=networkOptions(value,defaults),controller=new AbortController(),decoder=new TextDecoder();
+      let done=false,result,status=0,pending='';const cancel=()=>controller.abort(host.signal.reason);host.signal.addEventListener('abort',cancel,{once:true});
+      const sink={started(code){status=code;},chunk(bytes){pending+=decoder.decode(bytes,{stream:true});if(pending.length>maxNetworkBody)throw new Error('LimitExceeded / 尚未讀取的串流文字過多。');}};
+      const task=Promise.resolve().then(()=>client.stream(method,url,options,sink,controller.signal)).catch(e=>({status:0,url,headers:{},error:networkFailure(e)})).then(r=>{pending+=decoder.decode();result=r;done=true;host.signal.removeEventListener('abort',cancel);return r;});
+      const operation=track({dispose(){controller.abort();host.signal.removeEventListener('abort',cancel);}}),op=host.newModule();
+      const finish=()=>{close(operation);return response(result);};
+      bind(op,'Network.StreamOperation','Read',()=>{const text=pending;pending='';return text;});
+      bind(op,'Network.StreamOperation','ReadLines',()=>{const end=pending.lastIndexOf('\n');if(end<0&&!(done&&pending.length))return [];let complete=done?pending:pending.slice(0,end);pending=done?'':pending.slice(end+1);if(done&&complete.endsWith('\n'))complete=complete.slice(0,-1);return complete.split('\n').map(line=>line.endsWith('\r')?line.slice(0,-1):line);});
+      bind(op,'Network.StreamOperation','Status',()=>num(done?result.status:status,'int'));bind(op,'Network.StreamOperation','IsDone',()=>done);
+      bind(op,'Network.StreamOperation','Cancel',()=>{controller.abort();return null;});bind(op,'Network.StreamOperation','Poll',()=>done?finish():null);
+      bind(op,'Network.StreamOperation','Wait',async()=>{await task;return finish();});bind(op,'Network.StreamOperation','Close',()=>close(operation));return op;
     });
     const send=async(method,url,value,body)=>{try{if(typeof method!=='string'||typeof url!=='string')throw new Error('InvalidArgument / 方法及網址必須是文字。');const o=networkOptions(value,defaults);if(body!==undefined)o.body=typeof networkPlain(body)==='object'&&!Array.isArray(body)?new TextEncoder().encode(JSON.stringify(networkPlain(body))):networkBytes(body);return response(await client.send(method,url,o,host.signal));}catch(e){return response({status:0,url,headers:{},error:networkFailure(e)});}};
     bind(m,lib,'Request',(method,url,o)=>send(method,url,o));bind(m,lib,'Get',(url,o)=>send('GET',url,o));bind(m,lib,'Post',(url,body,o)=>send('POST',url,o,body));

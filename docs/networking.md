@@ -18,6 +18,7 @@
 | `dns` / `網域名稱解析` | IPv4 / IPv6 | HTTP 引擎內部解析 | IPv4 / IPv6 |
 | `tcp-listen` / `監聽傳輸控制` | TCP 監聽及接受 | 不支援 | 不提供後端 API |
 | `http-server` / `網頁伺服器` | HTTP、HTTPS、路由、靜態檔案、工作階段、SSE | 不支援 | 不提供後端 API |
+| `http-stream` / `串流傳輸` | 逐段讀取 HttpClient 回應 | Fetch `ReadableStream` | 不支援（回報 Unsupported） |
 
 ```text
 變數 網路 = 匯入("網路");
@@ -51,6 +52,7 @@ Wi-Fi 多點傳送是否能接收還取決於裝置／網路與應用程式的 m
 | `Get` | `取得` | `url, [options]` |
 | `Post` | `提交` | `url, body, [options]` |
 | `StartRequest` | `開始請求` | `method, url, [options]`，立即回傳操作物件 |
+| `StartStream` | `開始串流` | `method, url, [options]`，逐段讀取回應（`http-stream`，見下方串流回應） |
 | `ClearCookies` | `清除Cookie` | 用戶端方法；Web 無法直接清除 HTTP-only Cookie |
 | `Close` | `關閉` | 用戶端方法，可重複關閉 |
 | `ParseURL` | `解析網址` | `url` → Scheme/協定、Host/主機、Port/連接埠、Path/路徑、Query/查詢字串、Fragment/片段 |
@@ -82,6 +84,40 @@ GET/HEAD 不應附帶本文。Post 的本文可為字串、位元組陣列或 JS
 `Poll/輪詢()`（尚未完成回傳空值）、`Wait/等待()`（等待回應）、
 `Cancel/取消()`、`Close/關閉()` 控制生命週期。取消回報 Cancelled；
 範例前端使用這種方式，每個影格輪詢結果。
+
+## 串流回應 / Streaming responses
+
+`StartStream/開始串流(method,url,[options])` 與用戶端的同名方法需要 `http-stream`
+能力，適合 Server-Sent Events（SSE）、大型語言模型逐字輸出或長時間下載。請求立即回傳
+串流操作物件；UI 可在每個影格讀取已到達的文字，不必等待完整回應：
+
+```text
+變數 網路 = 匯入("網路");
+變數 串流 = 網路.開始串流("POST", 網址, {"JSON": 請求, "逾時": 60000});
+# 每個影格：
+迴圈 (變數 i = 0; i < 長度(串流.讀取行()); i++) { ... }   # 只回傳完整的行
+如果 (串流.已完成()) { 變數 回應 = 串流.輪詢(); 印出(回應.狀態碼); }
+```
+
+| English | 繁體中文 | 說明 |
+| --- | --- | --- |
+| `Read()` | `讀取()` | 取出目前已解碼、尚未讀取的全部文字（可能是不完整的一行）；沒有新資料時為空字串。 |
+| `ReadLines()` | `讀取行()` | 取出完整的行並移除 `\r\n`／`\n`；未完成的行保留到下次讀取，傳輸結束後連同最後一行一起回傳。 |
+| `Status()` | `狀態碼()` | 收到標頭前為 0，之後為 HTTP 狀態碼。 |
+| `IsDone()` / `Poll()` / `Wait()` | `已完成()` / `輪詢()` / `等待()` | 與 `開始請求` 相同；完成的回應 `本文` 仍包含完整內容（受 `本文上限` 限制）。 |
+| `Cancel()` / `Close()` | `取消()` / `關閉()` | 取消傳輸；已收到的文字仍可讀取。 |
+
+UTF-8 多位元組字元跨越網路分段時會在完整後才解碼。串流的 `timeout/逾時` 是**閒置**
+逾時：收到標頭及每一段資料都會重新計時，因此長時間但持續輸出的回應不會被截斷。
+`讀取` 與 `讀取行` 共用同一個緩衝區。尚未讀取的文字最多 16 MiB。不支援的平台
+（例如 Android）呼叫時回報 `Unsupported`；請先以 `網路.支援("串流傳輸")` 判斷，必要時改用
+`開始請求` 取得完整回應。
+
+English: `StartStream` returns an operation whose `ReadLines()` yields complete lines
+as they arrive (ideal for SSE), `Read()` drains all decoded text, and `Status()` reports
+the HTTP status once headers arrive. The timeout restarts after headers and each chunk.
+Adapters implement `INetworkClient.Stream(method,url,options,INetworkBodySink,...)`;
+the default interface implementation reports Unsupported, so existing adapters keep working.
 
 ## Socket / 通訊端
 

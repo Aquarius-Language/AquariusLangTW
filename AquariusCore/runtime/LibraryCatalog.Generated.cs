@@ -522,6 +522,7 @@ public static partial class LibraryCatalog {
         new("Processing", "rectMode", "矩形模式", 1, 1, null),
         new("Processing", "red", "紅色分量", 1, 1, null),
         new("Processing", "redraw", "重繪", 0, 0, null),
+        new("Processing", "redrawAfter", "延遲重繪", 1, 1, null),
         new("Processing", "resetMatrix", "重設矩陣", 0, 0, null),
         new("Processing", "resetShader", "重設著色器", 0, 0, null),
         new("Processing", "resize", "調整尺寸", 2, 2, null),

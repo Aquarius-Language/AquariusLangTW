@@ -152,3 +152,35 @@ test("image metadata validates resolution and requires explicit GIF loss", () =>
   image.metadata.orientation = 9;
   assert.throws(() => encodeImage(image, "Png"));
 });
+
+test("editor undo/redo coalesces typing and deletes words", () => {
+  const e = new TextEditor("");
+  for (const c of ["星", "泉", "夢", " ", "旅", "😀"]) e.insert(c);
+  assert.equal(e.text, "星泉夢 旅😀");
+  assert.equal(e.undo(), true);
+  assert.equal(e.text, "星泉夢 ");
+  e.undo();
+  assert.equal(e.text, "星泉夢");
+  e.undo();
+  assert.equal(e.text, "");
+  assert.equal(e.undo(), false);
+  e.redo();
+  assert.equal(e.text, "星泉夢");
+  assert.equal(e.selection.caret, 3);
+  e.backspace();
+  e.backspace();
+  assert.equal(e.text, "星");
+  e.undo();
+  assert.equal(e.text, "星泉夢");
+  e.insert("x");
+  assert.equal(e.canRedo, false);
+  const w = new TextEditor("hello brave world");
+  w.move(1, "document", false);
+  w.deleteWord(-1);
+  assert.equal(w.text, "hello brave ");
+  w.move(-1, "document", false);
+  w.deleteWord(1);
+  assert.equal(w.text, "brave ");
+  w.undo();
+  assert.equal(w.text, "hello brave ");
+});

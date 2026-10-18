@@ -210,9 +210,9 @@ internal sealed class ProcessingImage {
     internal void Upload(ProcessingCanvas canvas) {
         if(Disposed)throw new ArgumentException("Image has been disposed.");
         if(GpuTexture!=null&&(GpuTexture.Width!=Width||GpuTexture.Height!=Height)) {GpuTexture.Dispose();GpuTexture=null;}
-        GpuTexture??=new WgpuTexture(canvas.Device,Width,Height);
+        bool fresh=GpuTexture==null;GpuTexture??=new WgpuTexture(canvas.Device,Width,Height);
         if(!Dirty)return;
-        GpuTexture.Upload(Bytes);Dirty=false;
+        GpuTexture.Upload(Bytes,fresh);Dirty=false;
     }
     internal void Dispose(ProcessingCanvas canvas) {if(Disposed)return;Disposed=true;GpuTexture?.Dispose();GpuTexture=null;}
 }

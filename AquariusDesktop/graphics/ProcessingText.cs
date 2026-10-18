@@ -6,6 +6,7 @@ using AquaEnvironment=AquariusLang.Object.Environment;
 namespace AquariusLang.Desktop.Graphics;
 
 internal sealed partial class GraphicsRuntime {
+    private readonly TextImageCache textImages=new();
     private void RegisterCanvasText(AquaEnvironment env,ProcessingCanvas c) {
         PAction(env,"textSize",1,1,a=> {float size=Positive(a[0]);if(size>512)throw new ArgumentException("Text size must be <=512.");c.Style.TextSize=size;c.Style.Leading=size*1.2f;});
         PAction(env,"textLeading",1,1,a=>c.Style.Leading=Positive(a[0]));
@@ -35,10 +36,10 @@ internal sealed partial class GraphicsRuntime {
                 if(lines[line].Length==0)continue;
                 var logical=TextRaster.Measure(lines[line],c.Style.Font,c.Style.TextSize);
                 float density=TextRasterScale(c,x,top+line*c.Style.Leading);
-                var raster=TextRaster.Rasterize(lines[line],c.Style.Font,c.Style.TextSize*density);var image=ProcessingImage.Create(this,raster.w,raster.h);image.Bytes=raster.bytes;
+                var image=textImages.Get(this,lines[line],c.Style.Font,c.Style.TextSize*density);
                 var oldStyle=c.Style;c.Style=oldStyle.Copy();c.Style.Tint=oldStyle.Fill;c.Style.ImageMode=0;
                 float left=boxW!=null?x+(c.Style.TextAlign==2?(boxW.Value-logical.w)/2:c.Style.TextAlign==1?boxW.Value-logical.w:0):x-(c.Style.TextAlign==2?logical.w/2f:c.Style.TextAlign==1?logical.w:0);
-                try{c.Image(image,left,top+line*c.Style.Leading,logical.w,logical.h);}finally{c.Style=oldStyle;image.Dispose(c);}
+                try{c.Image(image,left,top+line*c.Style.Leading,logical.w,logical.h);}finally{c.Style=oldStyle;}
             }}finally{c.Model=oldModel;}
         });
     }
@@ -53,6 +54,34 @@ internal sealed partial class GraphicsRuntime {
         // Keep layout in logical coordinates while rasterizing at display resolution.
         return float.IsFinite(scale)?Math.Clamp(MathF.Round(scale,3),1,8):1;
     }
+}
+
+/// <summary>Keeps rasterized text lines as GPU images between frames. Static labels then cost one textured quad instead
+/// of a font rasterization, texture allocation and upload per call. Entries unused for <see cref="IdleFrames"/> frames,
+/// or beyond the entry/byte budgets, are released at frame boundaries when no draw can still reference them.</summary>
+internal sealed class TextImageCache {
+    internal const int MaximumEntries=4096,IdleFrames=600;
+    internal const long MaximumBytes=96L*1024*1024;
+    private sealed class Entry(ProcessingImage image) { internal readonly ProcessingImage Image=image; internal long LastFrame; }
+    private readonly Dictionary<(string Text,string Font,float Size),Entry> entries=new();
+    private long frame,bytes;
+    internal int Count=>entries.Count;
+    internal long Bytes=>bytes;
+    internal ProcessingImage Get(GraphicsRuntime owner,string text,string font,float size) {
+        var key=(text,font,size);
+        if(entries.TryGetValue(key,out var entry)&&!entry.Image.Disposed){entry.LastFrame=frame;return entry.Image;}
+        var raster=TextRaster.Rasterize(text,font,size);var image=ProcessingImage.Create(owner,raster.w,raster.h);image.Bytes=raster.bytes;
+        entries[key]=new(image){LastFrame=frame};bytes+=raster.bytes.Length;return image;
+    }
+    /// <summary>Call after presenting a frame. Entries drawn during the frame that just ended are never evicted.</summary>
+    internal void EndFrame(ProcessingCanvas canvas) {
+        foreach(var pair in entries.Where(p=>frame-p.Value.LastFrame>IdleFrames||p.Value.Image.Disposed).ToArray())Remove(pair.Key,pair.Value,canvas);
+        if(entries.Count>MaximumEntries||bytes>MaximumBytes)
+            foreach(var pair in entries.Where(p=>p.Value.LastFrame<frame).OrderBy(p=>p.Value.LastFrame).ToArray()){if(entries.Count<=MaximumEntries&&bytes<=MaximumBytes)break;Remove(pair.Key,pair.Value,canvas);}
+        frame++;
+    }
+    private void Remove((string,string,float) key,Entry entry,ProcessingCanvas canvas){entries.Remove(key);bytes-=entry.Image.Bytes.Length;entry.Image.Dispose(canvas);}
+    internal void Clear(ProcessingCanvas canvas){foreach(var entry in entries.Values)entry.Image.Dispose(canvas);entries.Clear();bytes=0;}
 }
 
 // Use OS fonts on Windows and Linux (including CJK fallback). Other hosts

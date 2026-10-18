@@ -260,6 +260,10 @@ export class TextEditor {
     return this.text.slice(this.offsets[this.start], this.offsets[this.end]);
   }
   select(anchor, caret) {
+    this.setSelection(anchor, caret);
+    this.editGroup = null;
+  }
+  setSelection(anchor, caret) {
     if (
       ![anchor, caret].every(
         (p) => Number.isInteger(p) && p >= 0 && p <= this.length,
@@ -268,7 +272,52 @@ export class TextEditor {
       throw new Error("Invalid grapheme selection");
     this.selection = { anchor, caret };
   }
+  // Undo snapshots are bounded; consecutive typing or deletion at the caret coalesces into one step.
+  get history() {
+    return (this._history ??= { undo: [], redo: [] });
+  }
+  get canUndo() {
+    return this.history.undo.length > 0;
+  }
+  get canRedo() {
+    return this.history.redo.length > 0;
+  }
+  mergeable(kind) {
+    return (
+      ["type", "backspace", "delete"].includes(kind) &&
+      kind === this.editGroup &&
+      this.start === this.end &&
+      this.selection.caret === this.editGroupCaret
+    );
+  }
+  restore(state) {
+    this.text = state.text;
+    this.boundaries();
+    this.composition = null;
+    this.setSelection(state.selection.anchor, state.selection.caret);
+    this.editGroup = null;
+  }
+  undo() {
+    if (this.composition || !this.history.undo.length) return false;
+    this.history.redo.push({ text: this.text, selection: { ...this.selection } });
+    this.restore(this.history.undo.pop());
+    return true;
+  }
+  redo() {
+    if (this.composition || !this.history.redo.length) return false;
+    this.history.undo.push({ text: this.text, selection: { ...this.selection } });
+    this.restore(this.history.redo.pop());
+    return true;
+  }
   insert(text) {
+    strictText(text, 1024 * 1024);
+    const graphemes = [
+      ...new Intl.Segmenter(undefined, { granularity: "grapheme" }).segment(text),
+    ].length;
+    const kind = graphemes === 1 && text.trim() !== "" ? "type" : "insert";
+    this.replace(text, kind, this.mergeable(kind), { ...this.selection });
+  }
+  replace(text, kind, merge, before) {
     strictText(text, 1024 * 1024);
     const start = this.offsets[this.start],
       updated =
@@ -276,22 +325,50 @@ export class TextEditor {
         text +
         this.text.slice(this.offsets[this.end]);
     strictText(updated, 1024 * 1024);
+    const changed = updated !== this.text;
+    if (changed) {
+      if (!merge) {
+        this.history.undo.push({ text: this.text, selection: before });
+        if (this.history.undo.length > 200) this.history.undo.shift();
+      }
+      this.history.redo.length = 0;
+      this.editGroup = kind;
+    }
     this.text = updated;
     this.boundaries();
     const caret = this.offsets.findIndex((p) => p >= start + text.length);
-    this.select(caret, caret);
+    this.setSelection(caret, caret);
+    if (changed) this.editGroupCaret = caret;
   }
   backspace() {
     if (this.composition) return;
-    if (this.start === this.end && this.selection.caret > 0)
-      this.select(this.selection.caret - 1, this.selection.caret);
-    this.insert("");
+    const before = { ...this.selection },
+      merge = this.mergeable("backspace");
+    if (this.start === this.end) {
+      if (this.selection.caret === 0) return;
+      this.setSelection(this.selection.caret - 1, this.selection.caret);
+    }
+    this.replace("", "backspace", merge, before);
   }
   delete() {
     if (this.composition) return;
-    if (this.start === this.end && this.selection.caret < this.length)
-      this.select(this.selection.caret, this.selection.caret + 1);
-    this.insert("");
+    const before = { ...this.selection },
+      merge = this.mergeable("delete");
+    if (this.start === this.end) {
+      if (this.selection.caret === this.length) return;
+      this.setSelection(this.selection.caret, this.selection.caret + 1);
+    }
+    this.replace("", "delete", merge, before);
+  }
+  deleteWord(direction) {
+    if (this.composition) return;
+    const before = { ...this.selection };
+    if (this.start === this.end) {
+      const caret = this.selection.caret;
+      this.move(direction, "word", true);
+      if (this.selection.caret === caret) return;
+    }
+    this.replace("", "insert", false, before);
   }
   convert(position, from, to) {
     from = from.toLowerCase();
@@ -355,7 +432,8 @@ export class TextEditor {
         while (next > 0 && !word(next - 1)) next--;
         while (next > 0 && word(next - 1)) next--;
       }
-    } else throw new Error("Invalid navigation unit");
+    } else if (unit === "document") next = direction < 0 ? 0 : this.length;
+    else throw new Error("Invalid navigation unit");
     this.select(extend ? this.selection.anchor : next, next);
   }
   setComposition(text, cursorScalar, unit = "UnicodeScalar") {

@@ -58,6 +58,7 @@ public sealed partial class NetworkRuntime : IDisposable {
         Bind(m,library,"Get",a => Response(Await(c.Send("GET",Text(a[0]),Options(a,1,defaults)))));
         Bind(m,library,"Post",a => Response(Await(c.Send("POST",Text(a[0]),Options(a,2,defaults) with { Body=Payload(a[1]) }))));
         Bind(m,library,"StartRequest",a => Operation(c,Text(a[0]),Text(a[1]),Options(a,2,defaults)));
+        Bind(m,library,"StartStream",a => { Require("http-stream"); return StreamOperation(c,Text(a[0]),Text(a[1]),Options(a,2,defaults)); });
     }
     private sealed class PendingRequest : IDisposable {
         internal readonly CancellationTokenSource Cancellation=new();
@@ -73,6 +74,52 @@ public sealed partial class NetworkRuntime : IDisposable {
         Bind(m,"Network.Operation","Cancel",_=>{if(resources.Contains(operation))operation.Cancellation.Cancel();return RepeatedPrimitives.NULL;});
         Bind(m,"Network.Operation","Poll",_=>operation.Task.IsCompleted?Result():RepeatedPrimitives.NULL);
         Bind(m,"Network.Operation","Wait",_=>Result());Bind(m,"Network.Operation","Close",_=>Close(operation));return m;
+    }
+    /// <summary>Buffers decoded text between script polls; adapters write from I/O threads.</summary>
+    private sealed class PendingStream : IDisposable, INetworkBodySink {
+        internal readonly CancellationTokenSource Cancellation=new();
+        internal Task<NetworkResponse> Task=null!;
+        private readonly object gate=new();
+        private readonly Decoder decoder=new UTF8Encoding(false,false).GetDecoder();
+        private readonly StringBuilder pending=new();
+        private bool flushed;
+        internal int Status { get { lock(gate) return status; } }
+        private int status;
+        public void Started(int code,string url,IReadOnlyDictionary<string,string> headers){lock(gate)status=code;}
+        public void Chunk(ReadOnlySpan<byte> bytes){
+            lock(gate){var chars=new char[decoder.GetCharCount(bytes,false)];int n=decoder.GetChars(bytes,chars,false);pending.Append(chars,0,n);
+                if(pending.Length>NetworkOptions.MaximumBodyBytes)throw new IOException("LimitExceeded / 尚未讀取的串流文字過多。");}
+        }
+        private void FlushIfDone(){
+            if(flushed||!Task.IsCompleted)return;flushed=true;var chars=new char[decoder.GetCharCount(ReadOnlySpan<byte>.Empty,true)];
+            int n=decoder.GetChars(ReadOnlySpan<byte>.Empty,chars,true);pending.Append(chars,0,n);
+        }
+        internal string TakeText(){lock(gate){FlushIfDone();var text=pending.ToString();pending.Clear();return text;}}
+        internal string[] TakeLines(){
+            lock(gate){
+                FlushIfDone();var text=pending.ToString();int end=text.LastIndexOf('\n');bool done=flushed;
+                if(end<0&&!(done&&text.Length>0))return Array.Empty<string>();
+                string complete=done?text:text[..end];pending.Clear();if(!done)pending.Append(text,end+1,text.Length-end-1);
+                if(done&&complete.EndsWith('\n'))complete=complete[..^1];
+                return complete.Split('\n').Select(line=>line.EndsWith('\r')?line[..^1]:line).ToArray();
+            }
+        }
+        public void Dispose(){Cancellation.Cancel();Cancellation.Dispose();}
+    }
+    private ModuleObj StreamOperation(INetworkClient client,string method,string url,NetworkOptions options) {
+        var operation=new PendingStream();Own(operation);
+        try{operation.Task=client.Stream(method,url,options,operation,operation.Cancellation.Token).AsTask();}catch{Close(operation);throw;}
+        var m=NewModule();NetworkResponse? result=null;
+        IObject Result(){result??=operation.Task.GetAwaiter().GetResult();Close(operation);return Response(result);}
+        Bind(m,"Network.StreamOperation","Read",_=>new StringObj(operation.TakeText()));
+        Bind(m,"Network.StreamOperation","ReadLines",_=>new ArrayObj(operation.TakeLines().Select(line=>(IObject)new StringObj(line)).ToArray()));
+        Bind(m,"Network.StreamOperation","Status",_=>new IntegerObj(operation.Task.IsCompleted?operation.Task.Result.Status:operation.Status));
+        Bind(m,"Network.StreamOperation","IsDone",_=>new BooleanObj(operation.Task.IsCompleted));
+        Bind(m,"Network.StreamOperation","Cancel",_=>{if(resources.Contains(operation))operation.Cancellation.Cancel();return RepeatedPrimitives.NULL;});
+        Bind(m,"Network.StreamOperation","Poll",_=>operation.Task.IsCompleted?Result():RepeatedPrimitives.NULL);
+        Bind(m,"Network.StreamOperation","Wait",_=>Result());
+        // Closing cancels a running transfer; buffered text stays readable.
+        Bind(m,"Network.StreamOperation","Close",_=>Close(operation));return m;
     }
     private ModuleObj Response(NetworkResponse r) {
         var m=NewModule(); Field(m,"Success","成功",new BooleanObj(r.Success)); Field(m,"Status","狀態碼",new IntegerObj(r.Status));

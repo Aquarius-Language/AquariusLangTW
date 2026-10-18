@@ -41,3 +41,12 @@ test('WebSocket 佇列有訊息數與位元組上限',async()=>{
   const backend=new BrowserNetworkBackend({WebSocket:FakeSocket}),s=await backend.connectWebSocket('ws://localhost',networkOptions({maxBodyBytes:2}),new AbortController().signal);s.send(new Uint8Array([1,2]),false);await new Promise(resolve=>setImmediate(resolve));
   const event=new Event('message');event.data=new Uint8Array([1,2,3]).buffer;s.socket.dispatchEvent(event);await assert.rejects(s.receive(),/LimitExceeded/);backend.dispose();
 });
+test('串流 HTTP 逐段回報、閒置逾時並保留完整本文',async()=>{
+  const encoder=new TextEncoder(),bytes=encoder.encode('data: 星泉\n\ndata: [DONE]\n'),parts=[bytes.slice(0,7),bytes.slice(7,9),bytes.slice(9)];
+  const backend=new BrowserNetworkBackend({fetch:async()=>new Response(new ReadableStream({async start(controller){for(const part of parts){controller.enqueue(part);await new Promise(resolve=>setTimeout(resolve,15));}controller.close();}}),{status:200}),WebSocket:null}),client=backend.createClient();
+  assert.equal(backend.features.has('http-stream'),true);const seen=[];let status=0;
+  const result=await client.stream('POST','http://localhost/',networkOptions({timeout:40}),{started(code){status=code;},chunk(value){seen.push(value.length);}},new AbortController().signal);
+  assert.equal(status,200);assert.deepEqual(seen,parts.map(p=>p.length));assert.equal(new TextDecoder().decode(result.body),'data: 星泉\n\ndata: [DONE]\n');
+  backend.fetch=async()=>new Response(new ReadableStream({start(controller){controller.enqueue(encoder.encode('a'));}}));
+  assert.equal((await client.stream('GET','http://localhost/',networkOptions({timeout:20}),{started(){},chunk(){}})).error.kind,'Timeout');backend.dispose();
+});

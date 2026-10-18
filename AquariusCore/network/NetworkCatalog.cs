@@ -24,6 +24,7 @@ public static class NetworkCatalog {
     private static readonly string[] All = { "windows", "linux", "macos", "web", "android" };
     private static readonly string[] Native = { "windows", "linux", "macos", "android" };
     private static readonly string[] Desktop = { "windows", "linux", "macos" };
+    private static readonly string[] Streaming = { "windows", "linux", "macos", "web" };
     public static IReadOnlyList<LibraryFeature> Features { get; } = Array.AsReadOnly(new[] {
         new LibraryFeature("http", "超文字傳輸", All, "HTTP(S), headers, bodies, timeouts / HTTP(S)、標頭、本文、逾時"),
         new("cookie-control", "Cookie管理", Native, "Explicit cookie jar control / 明確控制 Cookie 容器"),
@@ -35,12 +36,14 @@ public static class NetworkCatalog {
         new("dns", "網域名稱解析", Native, "Host address resolution / 主機位址解析"),
         new("tcp-listen", "監聽傳輸控制", Desktop, "TCP listeners / TCP 監聽器"),
         new("http-server", "網頁伺服器", Desktop, "HTTP(S), routes, files, sessions, SSE, WebSocket / 路由、靜態檔案、工作階段"),
+        new("http-stream", "串流傳輸", Streaming, "Incremental HTTP response bodies such as SSE / 逐段讀取 HTTP 回應，例如 SSE"),
     });
     public static IReadOnlyList<LibraryFunction> Functions { get; } = Array.AsReadOnly(new[] {
         F("Network","Try","嘗試",1,1,"Network.Result"), F("Network","Supports","支援",1,1), F("Network","Capabilities","能力",0,0),
         F("Network","CreateClient","建立用戶端",0,1,"Network.Client","http"),
         F("Network","Request","請求",2,3,"Network.Response","http"), F("Network","Get","取得",1,2,"Network.Response","http"), F("Network","Post","提交",2,3,"Network.Response","http"),
         F("Network","StartRequest","開始請求",2,3,"Network.Operation","http"),
+        F("Network","StartStream","開始串流",2,3,"Network.StreamOperation","http-stream"),
         F("Network","Resolve","解析主機",1,1,null,"dns"),
         F("Network","ConnectTCP","連接傳輸控制",2,3,"Network.Stream","tcp"), F("Network","ConnectTLS","連接安全傳輸",2,3,"Network.Stream","tls"),
         F("Network","ListenTCP","監聽傳輸控制",2,3,"Network.Listener","tcp-listen"), F("Network","OpenUDP","開啟資料報",2,3,"Network.Datagram","udp"),
@@ -48,6 +51,10 @@ public static class NetworkCatalog {
         F("Network","EncodeQuery","編碼查詢",1,1), F("Network","ParseURL","解析網址",1,1,"Network.URL"),
         F("Network.Client","Request","請求",2,3,"Network.Response"), F("Network.Client","Get","取得",1,2,"Network.Response"), F("Network.Client","Post","提交",2,3,"Network.Response"),
         F("Network.Client","StartRequest","開始請求",2,3,"Network.Operation"),
+        F("Network.Client","StartStream","開始串流",2,3,"Network.StreamOperation","http-stream"),
+        F("Network.StreamOperation","Read","讀取",0,0), F("Network.StreamOperation","ReadLines","讀取行",0,0), F("Network.StreamOperation","Status","狀態碼",0,0),
+        F("Network.StreamOperation","IsDone","已完成",0,0), F("Network.StreamOperation","Cancel","取消",0,0), F("Network.StreamOperation","Poll","輪詢",0,0,"Network.Response"),
+        F("Network.StreamOperation","Wait","等待",0,0,"Network.Response"), F("Network.StreamOperation","Close","關閉",0,0),
         F("Network.Operation","IsDone","已完成",0,0), F("Network.Operation","Cancel","取消",0,0), F("Network.Operation","Poll","輪詢",0,0,"Network.Response"), F("Network.Operation","Wait","等待",0,0,"Network.Response"), F("Network.Operation","Close","關閉",0,0),
         F("Network.Client","ClearCookies","清除Cookie",0,0,null,"cookie-control"), F("Network.Client","Close","關閉",0,0),
         F("Network.Response","JSON","解析JSON",0,0), F("Network.Response","Bytes","取得位元組",0,0), F("Network.Response","Header","取得標頭",1,1),

@@ -48,23 +48,33 @@ public sealed class DesktopNetworkBackend : INetworkBackend {
         private readonly CookieContainer cookies=new();
         private readonly Dictionary<(bool,int,bool),HttpClient> clients=new();
         private bool closed;
-        public async ValueTask<NetworkResponse> Send(string method,string url,NetworkOptions options,CancellationToken cancellation=default) {
+        public ValueTask<NetworkResponse> Send(string method,string url,NetworkOptions options,CancellationToken cancellation=default)=>Transfer(method,url,options,null,cancellation);
+        public ValueTask<NetworkResponse> Stream(string method,string url,NetworkOptions options,INetworkBodySink sink,CancellationToken cancellation=default)=>Transfer(method,url,options,sink??throw new ArgumentNullException(nameof(sink)),cancellation);
+        // Buffered requests use a total deadline; streams restart an inactivity deadline after headers and every chunk.
+        private async ValueTask<NetworkResponse> Transfer(string method,string url,NetworkOptions options,INetworkBodySink? sink,CancellationToken cancellation) {
             try {
                 ObjectDisposedException.ThrowIf(closed,this);options.Validate();var uri=new Uri(url,UriKind.Absolute);if(uri.Scheme is not("http" or "https"))throw new ArgumentException("Expected HTTP(S) URL / 需要 HTTP(S) 網址。");
                 var key=(options.FollowRedirects,options.MaxRedirects,options.Credentials!="omit");
-                if(!clients.TryGetValue(key,out var client)){client=new HttpClient(new SocketsHttpHandler{AllowAutoRedirect=key.Item1&&key.Item2>0,MaxAutomaticRedirections=Math.Max(1,key.Item2),UseCookies=key.Item3,CookieContainer=cookies,AutomaticDecompression=DecompressionMethods.All,PooledConnectionLifetime=TimeSpan.FromMinutes(5),ConnectTimeout=TimeSpan.FromMilliseconds(options.TimeoutMilliseconds)}){Timeout=System.Threading.Timeout.InfiniteTimeSpan};clients.Add(key,client);}
+                HttpClient? client;
+                lock(clients)if(!clients.TryGetValue(key,out client)){client=new HttpClient(new SocketsHttpHandler{AllowAutoRedirect=key.Item1&&key.Item2>0,MaxAutomaticRedirections=Math.Max(1,key.Item2),UseCookies=key.Item3,CookieContainer=cookies,AutomaticDecompression=DecompressionMethods.All,PooledConnectionLifetime=TimeSpan.FromMinutes(5),ConnectTimeout=TimeSpan.FromMilliseconds(options.TimeoutMilliseconds)}){Timeout=System.Threading.Timeout.InfiniteTimeSpan};clients.Add(key,client);}
                 using var request=new HttpRequestMessage(new HttpMethod(method),uri);
                 if(options.Body!=null)request.Content=new ByteArrayContent(options.Body);
                 foreach(var h in defaults.Headers.Concat(options.Headers).GroupBy(h=>h.Key,StringComparer.OrdinalIgnoreCase).Select(g=>g.Last())){if(!request.Headers.TryAddWithoutValidation(h.Key,h.Value)){request.Content??=new ByteArrayContent(Array.Empty<byte>());request.Content.Headers.Remove(h.Key);request.Content.Headers.TryAddWithoutValidation(h.Key,h.Value);}}
                 using var timeout=Timeout(options.TimeoutMilliseconds,cancellation);using var response=await client.SendAsync(request,HttpCompletionOption.ResponseHeadersRead,timeout.Token);
                 if(response.Content.Headers.ContentLength>options.MaxBodyBytes)throw new IOException("LimitExceeded / 回應本文過大。");
+                int status=(int)response.StatusCode;var headers=response.Headers.Concat(response.Content.Headers).ToDictionary(h=>h.Key,h=>string.Join(", ",h.Value),StringComparer.OrdinalIgnoreCase);
+                string finalUrl=response.RequestMessage?.RequestUri?.ToString()??url;
+                if(sink!=null){sink.Started(status,finalUrl,headers);timeout.CancelAfter(options.TimeoutMilliseconds);}
                 await using var input=await response.Content.ReadAsStreamAsync(timeout.Token);using var body=new MemoryStream();var buffer=new byte[16384];int n;
-                while((n=await input.ReadAsync(buffer,timeout.Token))>0){if(body.Length+n>options.MaxBodyBytes)throw new IOException("LimitExceeded / 回應本文過大。");body.Write(buffer,0,n);}
-                int status=(int)response.StatusCode;return new(status,response.RequestMessage?.RequestUri?.ToString()??url,response.Headers.Concat(response.Content.Headers).ToDictionary(h=>h.Key,h=>string.Join(", ",h.Value),StringComparer.OrdinalIgnoreCase),body.ToArray(),status>=400?new("HTTP",$"HTTP {status}",status is 408 or 429 or >=500):null);
+                while((n=await input.ReadAsync(buffer,timeout.Token))>0){
+                    if(body.Length+n>options.MaxBodyBytes)throw new IOException("LimitExceeded / 回應本文過大。");body.Write(buffer,0,n);
+                    if(sink!=null){sink.Chunk(buffer.AsSpan(0,n));timeout.CancelAfter(options.TimeoutMilliseconds);}
+                }
+                return new(status,finalUrl,headers,body.ToArray(),status>=400?new("HTTP",$"HTTP {status}",status is 408 or 429 or >=500):null);
             }catch(Exception e) when(e is HttpRequestException or IOException or OperationCanceledException or ArgumentException or InvalidOperationException){return new(0,url,new Dictionary<string,string>(),Array.Empty<byte>(),e is OperationCanceledException && cancellation.IsCancellationRequested?new("Cancelled","Request cancelled / 請求已取消。"):NetworkRuntime.Failure(e));}
         }
         public void ClearCookies(){ObjectDisposedException.ThrowIf(closed,this);foreach(Cookie cookie in cookies.GetAllCookies())cookie.Expired=true;}
-        public void Dispose(){if(closed)return;closed=true;foreach(var c in clients.Values)c.Dispose();clients.Clear();}
+        public void Dispose(){if(closed)return;closed=true;lock(clients){foreach(var c in clients.Values)c.Dispose();clients.Clear();}}
     }
     private sealed class StreamAdapter(TcpClient client,Stream stream,int timeout) : INetworkStream {
         public string LocalAddress {get;}=client.Client.LocalEndPoint!.ToString()!;

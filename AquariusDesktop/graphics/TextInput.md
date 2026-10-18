@@ -97,3 +97,14 @@ for committed text only; native preedit and caret positioning are unavailable.
 Existing Processing font rendering on those hosts uses a limited bitmap font.
 
 Try the [interactive example](../examples/multilingual_input/README.md).
+
+## Undo, redo and word deletion
+
+`TextEdit` editors keep a bounded undo history (200 steps). Consecutive typing,
+Backspace or Delete at the caret coalesce into one step; moving the caret or selecting
+starts a new one. `Undo()`/`復原()` and `Redo()`/`重做()` return whether anything changed,
+`CanUndo()`/`可復原()` and `CanRedo()`/`可重做()` report availability, and
+`DeleteWord(direction)`/`刪除字詞(方向)` removes the selection or the text to the previous
+(-1) or next (1) word boundary. `Move` also accepts the `"document"` unit.
+`Shortcut` now maps Ctrl/Cmd+Z, Ctrl/Cmd+Shift+Z and Ctrl/Cmd+Y to undo/redo,
+Ctrl/Cmd+Backspace/Delete to word deletion and Ctrl/Cmd+Home/End to the document edges.

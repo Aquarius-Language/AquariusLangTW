@@ -35,6 +35,17 @@ public class SharedApplicationTest {
         Assert.Equal(2,editor.Convert(1,TextPositionUnit.Grapheme,TextPositionUnit.Utf16)); Assert.Throws<ArgumentException>(()=>editor.Convert(1,TextPositionUnit.Utf16,TextPositionUnit.Grapheme));
         editor.Select(0,2); editor.Insert("甲"); Assert.Equal("甲字",editor.Text); editor.Move(-1,"word"); Assert.Equal(0,editor.Selection.Caret);
     }
+    [Fact]
+    public void EditorUndoRedoCoalescesTypingAndDeletesWords() {
+        var editor = new TextEditor(""); Assert.False(editor.CanUndo);
+        foreach (var c in new[] { "星", "泉", "夢" }) editor.Insert(c); editor.Insert(" "); foreach (var c in new[] { "旅", "😀" }) editor.Insert(c);
+        Assert.Equal("星泉夢 旅😀", editor.Text); Assert.True(editor.Undo()); Assert.Equal("星泉夢 ", editor.Text); Assert.True(editor.Undo()); Assert.Equal("星泉夢", editor.Text);
+        Assert.True(editor.Undo()); Assert.Equal("", editor.Text); Assert.False(editor.Undo()); Assert.True(editor.Redo()); Assert.Equal("星泉夢", editor.Text); Assert.Equal(3, editor.Selection.Caret);
+        editor.Backspace(); editor.Backspace(); Assert.Equal("星", editor.Text); Assert.True(editor.Undo()); Assert.Equal("星泉夢", editor.Text); Assert.True(editor.CanRedo);
+        editor.Insert("x"); Assert.False(editor.CanRedo); editor.Select(1, 1); editor.Insert("y"); Assert.True(editor.Undo()); Assert.Equal("星泉夢x", editor.Text);
+        var words = new TextEditor("hello brave world"); words.Move(1, "document", false); words.DeleteWord(-1); Assert.Equal("hello brave ", words.Text);
+        words.Move(-1, "document", false); words.DeleteWord(1); Assert.Equal("brave ", words.Text); Assert.True(words.Undo()); Assert.Equal("hello brave ", words.Text);
+    }
     [Theory] [InlineData("utf-8")] [InlineData("utf-16le")] [InlineData("utf-16be")]
     public void TextEncodingsRoundTripWithoutBom(string encoding) { var codec=TextEncoding.Get(encoding); Assert.Equal("繁😀",codec.GetString(codec.GetBytes("繁😀"))); Assert.Throws<EncoderFallbackException>(()=>codec.GetBytes("\ud800")); }
     [Fact] public void DocumentsRejectCorruptionAndUnknownVersions() {

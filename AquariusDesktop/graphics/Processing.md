@@ -56,7 +56,7 @@ Optional arguments are shown in brackets.
 
 | Area | Functions |
 | --- | --- |
-| Sketch control | `size(w,h[,renderer[,title]])`, `fullScreen([renderer[,title]])`, `run(setup,draw)`, `beginFrame()`, `endFrame()`, `frameRate(fps)`, `noLoop()`, `loop()`, `redraw()`, `exit()`, `close()`, `millis()` |
+| Sketch control | `size(w,h[,renderer[,title]])`, `fullScreen([renderer[,title]])`, `run(setup,draw)`, `beginFrame()`, `endFrame()`, `frameRate(fps)`, `noLoop()`, `loop()`, `redraw()`, `redrawAfter(ms)`, `exit()`, `close()`, `millis()` |
 | Input | `on(event,callback)`, `keyDown(GLFWkeyCode)`, `cursor()`, `noCursor()` |
 | Primitives | `point(x,y[,z])`, `line(x1,y1,x2,y2)` / six-coordinate 3D overload, `triangle(...)`, `quad(...)`, `rect(x,y,w,h[,radius])`, `square(x,y,size)`, `ellipse(x,y,w,h)`, `circle(x,y,d)`, `arc(x,y,w,h,start,stop[,mode])` |
 | Shape construction | `beginShape([kind])`, `vertex(x,y[,z][,u,v])`, `normal(x,y,z)`, `texture(image)`, `textureMode(mode)`, `beginContour()`, `endContour()`, `endShape([CLOSE])` |
@@ -149,6 +149,10 @@ For editable multilingual text, use `startTextInput()`, `stopTextInput()`, and
 [text input guide](TextInput.md) for fields, Windows IME support and platform
 limitations. While text input is enabled, automatic Esc exit is disabled.
 `noLoop()` keeps polling input and drawing after `redraw()`; `exit()` ends the loop.
+`redrawAfter(milliseconds)` / `延遲重繪(毫秒)` schedules one redraw after a delay, even under
+`noLoop()`. Use it for caret blinking, tooltips, toasts and other UI timers without drawing
+every frame. Pending requests coalesce into the earliest deadline; the request is one-shot,
+so call it again from `draw` while the timer should keep running. `loop()` sketches ignore it.
 
 ## PImage, PGraphics, PShape, PShader
 
@@ -243,6 +247,11 @@ PShape curves/textures/contours, asynchronous image requests, shader filter pass
 per-pixel blend functions, advanced stroke clipping at the camera plane, and
 Processing's Java data/network/media/third-party libraries. Multiple windows and
 multiple monitor selection are outside the current Aquarius GLFW backend.
+
+Rasterized text lines are cached as GPU images per text, font and raster size, so
+unchanged labels are drawn without re-rasterizing or uploading textures every frame.
+Entries unused for 600 frames, or beyond 4096 entries / 96 MiB, are released after
+presentation. Newly created images are filled without ending the current render pass.
 
 Windows text uses installed system fonts through GDI and supports Unicode/CJK.
 Other platforms currently use an embedded ASCII bitmap fallback with uppercase

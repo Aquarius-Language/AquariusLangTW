@@ -94,4 +94,31 @@ public class NetworkTest {
         var response=Assert.IsType<ModuleObj>(Call(pending,"等待"));var error=Assert.IsType<ModuleObj>(response._Environment.Get("錯誤",out _));Assert.Equal("Cancelled",Text(error,"種類"));
         Assert.True(Assert.IsType<BooleanObj>(Call(pending,"已完成")).Value);Call(pending,"關閉");Call(pending,"關閉");
     }
+    [Fact] public async Task StreamingRequestsDeliverLinesBeforeCompletion(){
+        using var backend=new DesktopNetworkBackend();using var server=backend.ListenHttp("http://127.0.0.1:0",new());
+        using var runtime=new NetworkRuntime(backend);runtime.TryImport("網路",out var net);
+        Assert.True(Assert.IsType<BooleanObj>(Call(net,"支援",S("串流傳輸"))).Value);
+        var options=new HashObj(new Dictionary<HashKey,HashPair>{[S("逾時").HashKey()]=new(S("逾時"),new IntegerObj(2000))});
+        var stream=Assert.IsType<ModuleObj>(Call(net,"開始串流",S("POST"),S(server.Address+"/sse"),options));
+        using var request=await server.Accept(5000);Assert.NotNull(request);request!.Header("Content-Type","text/event-stream");
+        // A multibyte character split across chunks must decode once it is complete.
+        var first=Encoding.UTF8.GetBytes("data: 星");await request.Write(first[..^1]);
+        for(int i=0;i<100&&Assert.IsType<IntegerObj>(Call(stream,"狀態碼")).Value==0;i++)await Task.Delay(20);
+        Assert.Equal(200,Assert.IsType<IntegerObj>(Call(stream,"狀態碼")).Value);
+        await request.Write(first[^1..].Concat(Encoding.UTF8.GetBytes("泉\r\n\ndata: 第二")).ToArray());
+        var lines=new List<string>();
+        for(int i=0;i<100&&lines.Count<2;i++){lines.AddRange(Assert.IsType<ArrayObj>(Call(stream,"讀取行")).Elements.Select(e=>((StringObj)e).Value));await Task.Delay(20);}
+        Assert.Equal(new[]{"data: 星泉",""},lines);Assert.False(Assert.IsType<BooleanObj>(Call(stream,"已完成")).Value);
+        await request.Write(Encoding.UTF8.GetBytes("段"));request.Dispose();
+        var response=Assert.IsType<ModuleObj>(Call(stream,"等待"));Assert.True(Assert.IsType<BooleanObj>(response._Environment.Get("成功",out _)).Value);
+        Assert.Equal(new[]{"data: 第二段"},Assert.IsType<ArrayObj>(Call(stream,"讀取行")).Elements.Select(e=>((StringObj)e).Value));
+        Assert.Equal("data: 星泉\r\n\ndata: 第二段",Text(response,"本文"));Assert.Equal("",Assert.IsType<StringObj>(Call(stream,"讀取")).Value);
+        // The inactivity deadline restarts per chunk: data keeps arriving, then silence ends the stream with Timeout.
+        var idle=Assert.IsType<ModuleObj>(Call(net,"開始串流",S("GET"),S(server.Address+"/idle"),new HashObj(new Dictionary<HashKey,HashPair>{[S("timeout").HashKey()]=new(S("timeout"),new IntegerObj(1500))})));
+        using var stalled=await server.Accept(5000);var received=new StringBuilder();
+        for(int i=0;i<4;i++){await stalled!.Write(Encoding.UTF8.GetBytes("p"+i));await Task.Delay(400);received.Append(Assert.IsType<StringObj>(Call(idle,"Read")).Value);}
+        Assert.False(Assert.IsType<BooleanObj>(Call(idle,"IsDone")).Value);Assert.Equal("p0p1p2p3",received.ToString());
+        var timedOut=Assert.IsType<ModuleObj>(Call(idle,"Wait"));Assert.Equal("Timeout",Text(Assert.IsType<ModuleObj>(timedOut._Environment.Get("Error",out _)),"Kind"));
+        using var unsupported=new NetworkRuntime(new NetworkBackend());unsupported.TryImport("Network",out var core);Assert.IsType<ErrorObj>(Call(core,"StartStream",S("GET"),S("http://localhost/")));
+    }
 }

@@ -21,7 +21,16 @@ public interface INetworkBackend : IDisposable {
 public sealed record NetworkFile(byte[] Bytes, string ContentType, string ETag);
 public interface INetworkClient : IDisposable {
     ValueTask<NetworkResponse> Send(string method, string url, NetworkOptions options, CancellationToken cancellation = default);
+    /// <summary>Optional `http-stream` feature: delivers body chunks before completion. The completed response still
+    /// carries the whole body (bounded by MaxBodyBytes). Its timeout limits inactivity: headers and each chunk restart it.</summary>
+    ValueTask<NetworkResponse> Stream(string method, string url, NetworkOptions options, INetworkBodySink sink, CancellationToken cancellation = default) =>
+        ValueTask.FromResult(new NetworkResponse(0, url, new Dictionary<string, string>(), Array.Empty<byte>(), new("Unsupported", "Unsupported / 此平台未提供串流 HTTP。")));
     void ClearCookies();
+}
+/// <summary>Receives a streaming response. Adapters may call it from I/O threads, never concurrently for one request.</summary>
+public interface INetworkBodySink {
+    void Started(int status, string url, IReadOnlyDictionary<string, string> headers);
+    void Chunk(ReadOnlySpan<byte> bytes);
 }
 public interface INetworkStream : IDisposable {
     string LocalAddress { get; }

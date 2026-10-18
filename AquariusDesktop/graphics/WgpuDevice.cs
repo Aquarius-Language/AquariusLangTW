@@ -264,10 +264,12 @@ internal unsafe sealed class WgpuTexture : IDisposable {
         Handle=device.Api.DeviceCreateTexture(device.Handle,&descriptor);device.Check();View=device.Api.TextureCreateView(Handle,(TextureViewDescriptor*)null);
         device.Resources.Add(this);
     }
-    internal void Upload(byte[] bytes) {
+    /// <summary>Queue writes run before the next submission. Flush recorded draws first unless this texture has never been bound,
+    /// so earlier draws keep sampling the old contents; a fresh texture can be filled without ending the current pass.</summary>
+    internal void Upload(byte[] bytes,bool unused=false) {
         if(Handle==null)throw new InvalidOperationException("wgpu texture has been disposed.");
         if(bytes.Length!=checked(Width*Height*4))throw new ArgumentException("Texture upload needs width*height*4 RGBA bytes.");
-        Device.Flush();var copy=new ImageCopyTexture {Texture=Handle,Aspect=TextureAspect.All};
+        if(!unused)Device.Flush();var copy=new ImageCopyTexture {Texture=Handle,Aspect=TextureAspect.All};
         var layout=new TextureDataLayout {BytesPerRow=(uint)Width*4,RowsPerImage=(uint)Height};var extent=new Extent3D((uint)Width,(uint)Height,1);
         fixed(byte* data=bytes)Device.Api.QueueWriteTexture(Device.Queue,&copy,data,(nuint)bytes.Length,&layout,&extent);Device.Check();
     }
