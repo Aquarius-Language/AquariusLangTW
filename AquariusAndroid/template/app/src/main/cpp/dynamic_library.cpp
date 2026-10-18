@@ -36,7 +36,10 @@ Java_org_aquariuslang_android_DynamicLibraries_invoke(JNIEnv* env, jclass, jlong
     env->ReleaseStringUTFChars(symbol, name);
     if (!function) { failure(env, "Missing library symbol / 找不到函式庫符號"); return nullptr; }
     try {
-        std::vector<uint8_t> source(length ? length : 1), output(maxBytes);
+        // Reused per thread: avoids zero-filling a fresh 1 MiB vector on every call.
+        thread_local std::vector<uint8_t> source, output;
+        if (source.size() < (size_t)(length ? length : 1)) source.resize(length ? length : 1);
+        if (output.size() < (size_t)maxBytes) output.resize(maxBytes);
         env->GetByteArrayRegion(input, 0, length, reinterpret_cast<jbyte*>(source.data()));
         if (env->ExceptionCheck()) return nullptr;
         int count = function(source.data(), length, output.data(), maxBytes);

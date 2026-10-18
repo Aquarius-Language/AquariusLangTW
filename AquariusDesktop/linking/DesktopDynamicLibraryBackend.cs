@@ -19,6 +19,11 @@ public sealed class DesktopDynamicLibraryBackend(Func<string, string>? resolvePa
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)] private delegate int Version();
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)] private delegate int Call(IntPtr input, int length, IntPtr output, int capacity);
         private readonly object gate = new();
+        // Calls are serialized by gate, so each handle keeps its resolved entry points and one reusable
+        // 1 MiB output buffer instead of a large-object-heap allocation and delegate marshal per call
+        // (libraries that are called every rendered frame or poll loop otherwise churn the GC).
+        private readonly Dictionary<string, Call> functions = new(StringComparer.Ordinal);
+        private byte[]? output;
         private IntPtr handle;
         internal NativeLibraryHandle(string path) {
             handle = NativeLibrary.Load(path);
@@ -32,14 +37,21 @@ public sealed class DesktopDynamicLibraryBackend(Func<string, string>? resolvePa
         public byte[] Invoke(string name, byte[] input) {
             DynamicLibraryAbi.Symbol(name); DynamicLibraryAbi.Buffer(input.Length);
             lock (gate) {
-                Live(); var fn = Marshal.GetDelegateForFunctionPointer<Call>(NativeLibrary.GetExport(handle, name));
-                var output = new byte[DynamicLibraryAbi.MaxBytes];
-                var i = GCHandle.Alloc(input, GCHandleType.Pinned); var o = GCHandle.Alloc(output, GCHandleType.Pinned);
-                try { int count = DynamicLibraryAbi.Result(fn(i.AddrOfPinnedObject(), input.Length, o.AddrOfPinnedObject(), output.Length)); return output[..count]; }
-                finally { o.Free(); i.Free(); }
+                Live();
+                if (!functions.TryGetValue(name, out var fn)) {
+                    fn = Marshal.GetDelegateForFunctionPointer<Call>(NativeLibrary.GetExport(handle, name));
+                    functions[name] = fn;
+                }
+                var buffer = output ??= GC.AllocateUninitializedArray<byte>(DynamicLibraryAbi.MaxBytes, pinned: true);
+                var i = GCHandle.Alloc(input, GCHandleType.Pinned);
+                try {
+                    int count = DynamicLibraryAbi.Result(fn(i.AddrOfPinnedObject(), input.Length, Marshal.UnsafeAddrOfPinnedArrayElement(buffer, 0), buffer.Length));
+                    return buffer[..count];
+                }
+                finally { i.Free(); }
             }
         }
-        public void Dispose() { lock (gate) { if (handle != IntPtr.Zero) NativeLibrary.Free(handle); handle = IntPtr.Zero; } }
+        public void Dispose() { lock (gate) { if (handle != IntPtr.Zero) NativeLibrary.Free(handle); handle = IntPtr.Zero; functions.Clear(); output = null; } }
     }
     private sealed class WasmLibrary : IDynamicLibrary {
         private readonly Engine engine;
