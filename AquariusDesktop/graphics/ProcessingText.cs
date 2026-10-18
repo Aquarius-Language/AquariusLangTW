@@ -39,9 +39,33 @@ internal sealed partial class GraphicsRuntime {
                 var image=textImages.Get(this,lines[line],c.Style.Font,c.Style.TextSize*density);
                 var oldStyle=c.Style;c.Style=oldStyle.Copy();c.Style.Tint=oldStyle.Fill;c.Style.ImageMode=0;
                 float left=boxW!=null?x+(c.Style.TextAlign==2?(boxW.Value-logical.w)/2:c.Style.TextAlign==1?boxW.Value-logical.w:0):x-(c.Style.TextAlign==2?logical.w/2f:c.Style.TextAlign==1?logical.w:0);
-                try{c.Image(image,left,top+line*c.Style.Leading,logical.w,logical.h);}finally{c.Style=oldStyle;}
+                var (drawX,drawY,drawW,drawH)=AlignToPixels(c,left,top+line*c.Style.Leading,logical.w,logical.h,image.Width,image.Height,density);
+                try{c.Image(image,drawX,drawY,drawW,drawH);}finally{c.Style=oldStyle;}
             }}finally{c.Model=oldModel;}
         });
+    }
+    /// <summary>Keeps rasterized text sharp: under 2D translate/scale transforms the line's corner is snapped to a whole
+    /// device pixel and, when the raster was made at the projected scale, its texels are mapped 1:1 to screen pixels.
+    /// Fractional layout positions or display scales (125 %, 250 %) would otherwise resample the glyphs and blur them.
+    /// Rotated, sheared or 3D text keeps the requested geometry.</summary>
+    internal static (float x,float y,float w,float h) AlignToPixels(ProcessingCanvas canvas,float x,float y,float w,float h,int pixelW,int pixelH,float density) {
+        if(canvas.Is3D||canvas.PixelWidth<=0||canvas.PixelHeight<=0)return (x,y,w,h);
+        var matrix=canvas.Model*canvas.View*canvas.Projection;
+        Vector2 Pixel(float px,float py) {
+            var p=Vector4.Transform(new Vector4(px,py,0,1),matrix);
+            return new Vector2((p.X/p.W+1)*canvas.PixelWidth/2,(1-p.Y/p.W)*canvas.PixelHeight/2);
+        }
+        var origin=Pixel(x,y); var ex=Pixel(x+1,y)-origin; var ey=Pixel(x,y+1)-origin;
+        if(!float.IsFinite(origin.X+origin.Y+ex.X+ex.Y+ey.X+ey.Y)||MathF.Abs(ex.Y)>1e-3f||MathF.Abs(ey.X)>1e-3f||MathF.Abs(ex.X)<1e-4f||MathF.Abs(ey.Y)<1e-4f)return (x,y,w,h);
+        float sx=ex.X,sy=ey.Y;
+        // Offsets and sizes within float noise of the request are kept exactly, so unscaled text is unchanged.
+        float dx=MathF.Round(origin.X)-origin.X,dy=MathF.Round(origin.Y)-origin.Y;
+        float snappedX=MathF.Abs(dx)<1e-3f?x:x+dx/sx,snappedY=MathF.Abs(dy)<1e-3f?y:y+dy/sy;
+        if(MathF.Abs(MathF.Abs(sx)-density)<0.01f&&MathF.Abs(MathF.Abs(sy)-density)<0.01f) {
+            float exactW=pixelW/MathF.Abs(sx),exactH=pixelH/MathF.Abs(sy);
+            return (snappedX,snappedY,MathF.Abs(exactW-w)*MathF.Abs(sx)<0.01f?w:exactW,MathF.Abs(exactH-h)*MathF.Abs(sy)<0.01f?h:exactH);
+        }
+        return (snappedX,snappedY,w,h);
     }
     internal static float TextRasterScale(ProcessingCanvas canvas,float x,float y) {
         var matrix=canvas.Model*canvas.View*canvas.Projection;

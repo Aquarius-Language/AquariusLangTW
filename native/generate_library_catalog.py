@@ -243,6 +243,9 @@ rectMode 矩形模式
 red 紅色分量
 redraw 重繪
 redrawAfter 延遲重繪
+displayDensity 顯示密度
+displayScale 顯示縮放
+windowMove 移動視窗
 resetMatrix 重設矩陣
 resetShader 重設著色器
 resize 調整尺寸

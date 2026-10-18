@@ -100,6 +100,21 @@ public class ProcessingTest {
         canvas.Model=Matrix4x4.CreateScale(3)*Matrix4x4.CreateTranslation(10,20,0);
         Assert.Equal(6d,GraphicsRuntime.TextRasterScale(canvas,20,30),3);
     }
+    [Fact] public void TextLinesSnapToDevicePixelsAndMapTexelsOneToOne() {
+        using var runtime=new GraphicsRuntime();
+        var canvas=new ProcessingCanvas(runtime,640,480,false);
+        // Integer positions at density 1 are unchanged.
+        Assert.Equal((20f,30f,50f,16f),GraphicsRuntime.AlignToPixels(canvas,20,30,50,16,50,16,1));
+        // A 2.5x UI scale (e.g. Windows at 250 %) with a fractional position: the corner lands on a whole pixel and
+        // the 125x40 raster covers exactly 125x40 device pixels.
+        canvas.Model=Matrix4x4.CreateScale(2.5f);
+        var (x,y,w,h)=GraphicsRuntime.AlignToPixels(canvas,10.3f,20.1f,50,16,125,40,2.5f);
+        Assert.Equal(26f,x*2.5f,0.001f);Assert.Equal(50f,y*2.5f,0.001f);
+        Assert.Equal(125f,w*2.5f,0.001f);Assert.Equal(40f,h*2.5f,0.001f);
+        // Sheared (italic) text keeps its requested geometry.
+        canvas.Model=new Matrix4x4(1,0,0,0, -0.2f,1,0,0, 0,0,1,0, 0,0,0,1);
+        Assert.Equal((10.3f,20.1f,50f,16f),GraphicsRuntime.AlignToPixels(canvas,10.3f,20.1f,50,16,50,16,1));
+    }
     [Fact] public void PngEncodingPreservesDimensionsAndPixelPayload() {
         string path=Path.Combine(Path.GetTempPath(),Guid.NewGuid()+".png");
         try{GraphicsRuntime.WriteImage(path,2,1,new byte[]{255,0,0,255,0,255,0,128});var bytes=File.ReadAllBytes(path);Assert.Equal(new byte[]{137,80,78,71,13,10,26,10},bytes.Take(8));Assert.Equal(2,bytes[19]);Assert.Equal(1,bytes[23]);Assert.True(bytes.Length>60);}finally{File.Delete(path);}
@@ -199,6 +214,20 @@ public class ProcessingIntegrationTest {
             變數 pg=p.createGraphics(16,16);pg.beginDraw();pg.clear();pg.noStroke();pg.fill(255,0,0,128);pg.rect(0,0,16,16);變數 rgba=pg.get(8,8);pg.endDraw();p.image(pg,0,0);變數 blended=p.get(8,8);
             p.loadPixels();p.updatePixels();變數 updated=p.get(8,8);p.close();[rgba,blended,updated];"));
         Assert.Equal(new double[]{0x80FF0000,0xFF80007F,0xFF80007F},result.Elements.Select(GraphicsRuntime.Number));
+    }
+    [WgpuFact] public void TranslucentPolylinesBlendOnceAtJoins() {
+        // A shallow bend: overlapping segment quads used to blend twice around the joint and leave a brighter wedge.
+        var result=Assert.IsType<ArrayObj>(ProcessingTest.Evaluate(@"
+            變數 p=匯入(""Processing"");p.size(64,64);p.noSmooth();p.background(0);p.noFill();p.stroke(255,255,255,128);p.strokeWeight(8);
+            p.beginShape();p.vertex(4,30);p.vertex(32,30);p.vertex(60,40);p.endShape();
+            p.strokeJoin(p.ROUND);p.beginShape();p.vertex(4,8);p.vertex(32,8);p.vertex(60,14);p.endShape();
+            變數 值們=[p.get(16,30)];
+            迴圈(變數 y=24;y<40;y++){迴圈(變數 x=26;x<40;x++){陣列.追加(值們,p.get(x,y));}}
+            迴圈(變數 y=2;y<16;y++){迴圈(變數 x=26;x<40;x++){陣列.追加(值們,p.get(x,y));}}
+            p.close();值們;"));
+        var red=result.Elements.Select(e=>((long)GraphicsRuntime.Number(e)>>16)&255).ToArray();
+        Assert.InRange(red[0],120,136);
+        Assert.True(red.Skip(1).Max()<=red[0]+4,$"joint is brighter than the stroke: {red.Skip(1).Max()} vs {red[0]}");
     }
     [WgpuFact] public void CanvasContoursImagesOffscreenShadersAndPixelOrientationRenderCorrectly() {
         var result=Assert.IsType<ArrayObj>(ProcessingTest.Evaluate(@"

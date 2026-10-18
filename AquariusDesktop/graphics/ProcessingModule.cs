@@ -80,9 +80,21 @@ internal sealed partial class GraphicsRuntime {
             RequireSketch();int w=Dimension(a[0]),h=Dimension(a[1]);
             Native.aqua_set_window_size(sketchWindow!.Handle,w,h);
         });
+        PAction(processing,"windowMove",2,2,a=> {
+            RequireSketch();double x=Number(a[0]),y=Number(a[1]);
+            if(!double.IsFinite(x)||!double.IsFinite(y)||Math.Abs(x)>100000||Math.Abs(y)>100000)throw new ArgumentException("windowMove expects screen coordinates.");
+            Native.aqua_set_window_pos(sketchWindow!.Handle,(int)Math.Round(x),(int)Math.Round(y));
+        });
         PAction(processing,"fullScreen",0,2,a=> {if(sketchWindow!=null)throw new InvalidOperationException("fullScreen() must be called before size().");CallModule("GLFW","Init");
             try{if(Native.aqua_monitor_size(out int w,out int h)==0)throw new InvalidOperationException("Primary monitor is unavailable.");Size(w,h,a.Length>0?Text(a[0]):"P2D",a.Length>1?Text(a[1]):"Aquarius Processing");if(Native.aqua_fullscreen(sketchWindow!.Handle)==0)throw new InvalidOperationException("Fullscreen monitor is unavailable.");}
             catch{CloseSketch();Terminate();throw;}});
+        // HiDPI: displayDensity() is the monitor content scale; displayScale() is how much larger UI drawn in
+        // width/height units must be to match the OS size (Windows/X11 report pixels, macOS/Wayland report points).
+        PBind(processing,"displayDensity",0,0,_=>new DoubleObj(ContentScale()));
+        PBind(processing,"displayScale",0,0,_=> {
+            RequireSketch();if(screen.PixelWidth<=0||screen.Width<=0)return new DoubleObj(ContentScale());
+            return new DoubleObj(Math.Round(ContentScale()*screen.Width/screen.PixelWidth,4));
+        });
         PAction(processing,"noCursor",0,0,_=>{RequireSketch();Native.aqua_input(sketchWindow!.Handle,0x33001,0x34002);});
         PAction(processing,"cursor",0,0,_=>{RequireSketch();Native.aqua_input(sketchWindow!.Handle,0x33001,0x34001);});
         PAction(processing,"run",2,2,a=>Run(a[0],a[1]));
@@ -161,6 +173,11 @@ internal sealed partial class GraphicsRuntime {
             screen.Initialize(processingDevice); sketchClock.Restart();System.Array.Clear(keys,0,keys.Length);previousMouse=false;previousX=previousY=0;UpdateState();
         } catch { CloseSketch();Terminate();throw; }
     }
+    private double ContentScale() {
+        if(sketchWindow==null)return 1;
+        Native.aqua_content_scale(sketchWindow.Handle,out float x,out float y);
+        double scale=Math.Max(x,y);return double.IsFinite(scale)&&scale>0?scale:1;
+    }
     private void RequireSketch() { if(sketchWindow==null||screen.Disposed||processingDevice==null)throw new InvalidOperationException("Call Processing.size() first."); RequireInit();processingDevice.RequireLive(); }
     private static void UpdateCanvasResolution(ProcessingCanvas canvas) {
         var env=canvas.Module!._Environment;
@@ -232,6 +249,10 @@ internal sealed partial class GraphicsRuntime {
         processing.Create("width",N(screen.Width));processing.Create("height",N(screen.Height));
         processing.Create("寬度",N(screen.Width));processing.Create("高度",N(screen.Height));
         processing.Create("pixelWidth",N(screen.PixelWidth));processing.Create("pixelHeight",N(screen.PixelHeight)); processing.Create("frameCount",N(frameCount));
+        if(sketchWindow!=null&&Native.aqua_monitor_size(out int displayW,out int displayH)!=0) {
+            processing.Create("displayWidth",N(displayW));processing.Create("displayHeight",N(displayH));
+            processing.Create("顯示寬度",N(displayW));processing.Create("顯示高度",N(displayH));
+        }
         foreach(string s in new[]{"mouseX","mouseY","pmouseX","pmouseY","keyCode","mouseButton","wheelCount"}) if(processing.Get(s,out _)==null)processing.Create(s,N(0));
         foreach(string s in new[]{"isMousePressed","isKeyPressed"})if(processing.Get(s,out _)==null)processing.Create(s,new BooleanObj(false));
         if(processing.Get("key",out _)==null)processing.Create("key",new StringObj(""));

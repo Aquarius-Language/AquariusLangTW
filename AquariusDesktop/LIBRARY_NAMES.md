@@ -477,6 +477,8 @@ see the [ONNX interface table](../docs/onnx.md#language-api).
 | `curveVertex` | `曲線頂點` | 2..3 |
 | `degrees` | `角度` | 1 |
 | `directionalLight` | `方向光` | 6 |
+| `displayDensity` | `顯示密度` | 0 |
+| `displayScale` | `顯示縮放` | 0 |
 | `dist` | `距離` | 4..6 |
 | `ellipse` | `橢圓` | 4 |
 | `ellipseMode` | `橢圓模式` | 1 |
@@ -608,6 +610,7 @@ see the [ONNX interface table](../docs/onnx.md#language-api).
 | `triangle` | `三角形` | 6 |
 | `updatePixels` | `更新像素` | 0 |
 | `vertex` | `頂點` | 2..5 |
+| `windowMove` | `移動視窗` | 2 |
 
 ## Processing.Canvas
 

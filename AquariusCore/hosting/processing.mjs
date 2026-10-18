@@ -27,7 +27,7 @@ export class Processing {
     b('on',(name,fn)=>{if(fn?.type!=='closure'&&typeof fn!=='function')throw new Error('Expected a function callback');this.events.set(name,fn);});
     b('beginFrame',()=>this.beginFrame());b('endFrame',()=>this.endFrame());
     b('noLoop',()=>this.looping=false);b('loop',()=>this.looping=true);b('redraw',()=>this.redraw=true);b('redrawAfter',ms=>{ms=Number(ms);if(!Number.isFinite(ms)||ms<0||ms>2147483647)throw new Error('redrawAfter milliseconds must be 0..2147483647.');const due=performance.now()+ms;if(this.redrawAt===undefined||due<this.redrawAt)this.redrawAt=due;});b('exit',()=>this.exiting=true);b('close',()=>this.exiting=true);
-    b('frameRate',fps=>{if(fps<=0||fps>1000)throw new Error('Invalid frame rate');this.fps=fps;});b('millis',()=>performance.now()-this.clock);b('keyDown',code=>this.keys.has(code));
+    b('frameRate',fps=>{if(fps<=0||fps>1000)throw new Error('Invalid frame rate');this.fps=fps;});b('millis',()=>performance.now()-this.clock);b('displayDensity',()=>Number(globalThis.devicePixelRatio)>0?Number(globalThis.devicePixelRatio):1);b('displayScale',()=>1);b('windowMove',()=>{});b('keyDown',code=>this.keys.has(code));
     b('createGraphics',(w,hh,renderer='P2D',format='rgba8unorm')=>{if(!this.device)throw new Error('Call size() first');const c=new Canvas(this,w,hh,renderer==='P3D',null,format);c.resize(w,hh,w,hh);this.canvases.add(c);return c.module;});
     b('createImage',(w,hh,format=2)=>this.image(w,hh,null,format).module);b('loadImage',async path=>{const data=await h.imageBytes(path);return this.image(data.width,data.height,data.bytes).module;});
     b('createFont',(name,size)=>{const font=h.newModule();h.set(font,'name',name);h.set(font,'size',size);return font;});

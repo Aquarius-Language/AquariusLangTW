@@ -125,6 +125,7 @@ internal sealed partial class ProcessingCanvas : IDisposable {
         Batched(()=>PolylineGeometry(points,close));
     }
     private void PolylineGeometry(IReadOnlyList<Vector3> points,bool close) {
+        if(!Is3D&&MiterStrip(points,close))return;
         int cap=Style.Cap;Style.Cap=0;
         try{for(int i=0;i<points.Count-(close?0:1);i++) Segment(points[i],points[(i+1)%points.Count]);}finally{Style.Cap=cap;}
         Vector2 Direction(Vector3 a,Vector3 b) {
@@ -149,6 +150,47 @@ internal sealed partial class ProcessingCanvas : IDisposable {
             if(first.LengthSquared()>0)Segment(points[0],Offset(points[0],-Vector2.Normalize(first)*Style.Weight/2));
             if(last.LengthSquared()>0)Segment(points[^1],Offset(points[^1],Vector2.Normalize(last)*Style.Weight/2));
         }
+    }
+    /// <summary>Builds a 2D polyline as one non-overlapping mitered strip. Separate segment quads and join
+    /// triangles overlap at every vertex, so translucent strokes (hairline borders, rounded-rectangle outlines) showed
+    /// darker dots there. Returns false for sharp corners beyond the miter limit; the caller then uses the general path.</summary>
+    private bool MiterStrip(IReadOnlyList<Vector3> source,bool close) {
+        var points=new List<Vector2>(source.Count);
+        foreach(var p in source){var q=new Vector2(p.X,p.Y);if(points.Count==0||Vector2.DistanceSquared(points[^1],q)>1e-4f)points.Add(q);}
+        if(close&&points.Count>2&&Vector2.DistanceSquared(points[0],points[^1])<=1e-4f)points.RemoveAt(points.Count-1);
+        int n=points.Count;if(n<2||(close&&n<3))return false;
+        int segments=close?n:n-1;float half=Style.Weight/2;
+        var directions=new Vector2[segments];
+        for(int k=0;k<segments;k++)directions[k]=Vector2.Normalize(points[(k+1)%n]-points[k]);
+        static Vector2 Perp(Vector2 d)=>new(-d.Y,d.X);
+        var left=new Vector2[n];var right=new Vector2[n];
+        for(int i=0;i<n;i++) {
+            bool hasPrev=close||i>0,hasNext=close||i<n-1;
+            Vector2 offset;
+            if(hasPrev&&hasNext) {
+                var n1=Perp(directions[(i-1+segments)%segments]);var n2=Perp(directions[i%segments]);
+                var middle=n1+n2;if(middle.LengthSquared()<1e-8f)return false;middle=Vector2.Normalize(middle);
+                // Miter longer than 2x the weight, or a round join at a visible corner: use the general path.
+                // Round joins on gentle bends (curves, arcs, rounded rectangles) are indistinguishable from miters.
+                float denom=Vector2.Dot(middle,n2);if(denom<(Style.Join==1?0.966f:0.5f))return false;
+                offset=middle*half/denom;
+            } else offset=Perp(directions[hasNext?i:segments-1])*half;
+            var point=points[i];
+            if(!close&&Style.Cap==2) {
+                if(i==0)point-=directions[0]*half;
+                if(i==n-1)point+=directions[segments-1]*half;
+            }
+            left[i]=point+offset;right[i]=point-offset;
+        }
+        var vertices=new List<ProcessingVertex>(segments*6);
+        for(int k=0;k<segments;k++) {
+            int j=(k+1)%n;
+            Vector3 l0=new(left[k],0),r0=new(right[k],0),l1=new(left[j],0),r1=new(right[j],0);
+            vertices.AddRange(new[]{V(l0,Style.Stroke),V(r0,Style.Stroke),V(l1,Style.Stroke),V(l1,Style.Stroke),V(r0,Style.Stroke),V(r1,Style.Stroke)});
+        }
+        Draw(vertices,lit:false);
+        if(!close&&Style.Cap==1){Disk(source[0],half,Style.Stroke);Disk(source[^1],half,Style.Stroke);}
+        return true;
     }
     internal void Segment(Vector3 a,Vector3 b) {
         if(!Style.HasStroke||Style.Weight<=0) return;

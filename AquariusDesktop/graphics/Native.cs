@@ -40,6 +40,8 @@ internal static class Native {
     [DllImport(Library, CallingConvention = CallingConvention.Cdecl)] internal static extern void aqua_framebuffer(IntPtr window, out int w, out int h);
     [DllImport(Library, CallingConvention = CallingConvention.Cdecl)] internal static extern void aqua_window_size(IntPtr window, out int w, out int h);
     [DllImport(Library, CallingConvention = CallingConvention.Cdecl)] internal static extern void aqua_set_window_size(IntPtr window, int w, int h);
+    [DllImport(Library, CallingConvention = CallingConvention.Cdecl)] internal static extern void aqua_content_scale(IntPtr window, out float x, out float y);
+    [DllImport(Library, CallingConvention = CallingConvention.Cdecl)] internal static extern void aqua_set_window_pos(IntPtr window, int x, int y);
     [DllImport(Library, CallingConvention = CallingConvention.Cdecl)] internal static extern double aqua_scroll();
     [DllImport(Library, CallingConvention = CallingConvention.Cdecl)] internal static extern int aqua_character();
     [DllImport(Library, CallingConvention = CallingConvention.Cdecl)] internal static extern void aqua_text_input(IntPtr window, int enabled);

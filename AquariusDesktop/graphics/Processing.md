@@ -56,7 +56,7 @@ Optional arguments are shown in brackets.
 
 | Area | Functions |
 | --- | --- |
-| Sketch control | `size(w,h[,renderer[,title]])`, `fullScreen([renderer[,title]])`, `run(setup,draw)`, `beginFrame()`, `endFrame()`, `frameRate(fps)`, `noLoop()`, `loop()`, `redraw()`, `redrawAfter(ms)`, `exit()`, `close()`, `millis()` |
+| Sketch control | `size(w,h[,renderer[,title]])`, `fullScreen([renderer[,title]])`, `run(setup,draw)`, `beginFrame()`, `endFrame()`, `frameRate(fps)`, `noLoop()`, `loop()`, `redraw()`, `redrawAfter(ms)`, `displayDensity()`, `displayScale()`, `windowMove(x,y)`, `exit()`, `close()`, `millis()` |
 | Input | `on(event,callback)`, `keyDown(GLFWkeyCode)`, `cursor()`, `noCursor()` |
 | Primitives | `point(x,y[,z])`, `line(x1,y1,x2,y2)` / six-coordinate 3D overload, `triangle(...)`, `quad(...)`, `rect(x,y,w,h[,radius])`, `square(x,y,size)`, `ellipse(x,y,w,h)`, `circle(x,y,d)`, `arc(x,y,w,h,start,stop[,mode])` |
 | Shape construction | `beginShape([kind])`, `vertex(x,y[,z][,u,v])`, `normal(x,y,z)`, `texture(image)`, `textureMode(mode)`, `beginContour()`, `endContour()`, `endShape([CLOSE])` |
@@ -126,8 +126,27 @@ coordinates are logical pixels; `pixels` contains physical framebuffer pixels.
 Resizing the window or changing display density recreates the render attachments,
 updates these fields before `windowResized`, and requests a draw even under
 `noLoop()`. Minimized windows skip rendering and redraw when restored. Text
-rasterization follows the current transform and framebuffer density.
+rasterization follows the current transform and framebuffer density. Under 2D
+translate/scale transforms each text line is snapped to a whole device pixel and its
+raster is mapped 1:1 to screen pixels, so text stays sharp at fractional positions and
+display scales; rotated, sheared and 3D text keeps the requested geometry.
 `resize(width,height)` requests a new logical window size; the next frame applies it.
+
+HiDPI: `displayDensity()` / `顯示密度()` returns the monitor content scale (1.0 at 96 DPI,
+2.5 at Windows 250 %, 2.0 on Retina). Windows and X11 report window sizes in physical
+pixels while macOS and Wayland report points, so use `displayScale()` / `顯示縮放()` to
+size UI portably: it is how much larger shapes drawn in `width`/`height` units must be to
+match the operating system's preferred size (2.5 on Windows at 250 %, 1.0 on Retina because
+`width` is already in points, always 1.0 in the browser). After `size()`,
+`displayWidth`/`displayHeight` (`顯示寬度`/`顯示高度`) hold the primary monitor size in window units,
+and `windowMove(x,y)` / `移動視窗(x,y)` places the window (a no-op in the browser).
+
+```text
+變數 縮放 = p.顯示縮放();
+p.縮放(縮放);                         # draw the UI in OS-sized units
+變數 版面寬 = p.寬度 / 縮放;           # layout width; divide pointer coordinates by 縮放 as well
+如果 (縮放 > 1) { p.調整尺寸(p.四捨五入(p.寬度 * 縮放), p.四捨五入(p.高度 * 縮放)); }   # same physical size
+```
 
 Events: `mousePressed`, `mouseReleased`, `mouseClicked`, `mouseMoved`,
 `mouseDragged`, `mouseWheel`, `keyPressed`, `keyReleased`, `keyTyped`,

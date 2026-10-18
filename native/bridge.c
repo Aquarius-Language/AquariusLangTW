@@ -177,6 +177,9 @@ AQUA void aqua_input(GLFWwindow* window, int mode, int value) { glfwSetInputMode
 AQUA void aqua_framebuffer(GLFWwindow* window, int* w, int* h) { glfwGetFramebufferSize(window, w, h); }
 AQUA void aqua_window_size(GLFWwindow* window, int* w, int* h) { glfwGetWindowSize(window, w, h); }
 AQUA void aqua_set_window_size(GLFWwindow* window, int w, int h) { glfwSetWindowSize(window, w, h); }
+AQUA void aqua_set_window_pos(GLFWwindow* window, int x, int y) { glfwSetWindowPos(window, x, y); }
+/* Ratio between the monitor DPI and the platform default (1 at 96 DPI on Windows/X11, 2 on Retina). */
+AQUA void aqua_content_scale(GLFWwindow* window, float* x, float* y) { *x = *y = 1; glfwGetWindowContentScale(window, x, y); }
 AQUA double aqua_scroll(void) { double value = pending_scroll; pending_scroll = 0; return value; }
 AQUA unsigned int aqua_character(void) { return char_read == char_write ? 0 : pending_chars[char_read++ % 256]; }
 AQUA int aqua_monitor_size(int* w, int* h) {
