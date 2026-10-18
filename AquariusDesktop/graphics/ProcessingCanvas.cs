@@ -90,8 +90,19 @@ internal sealed partial class ProcessingCanvas : IDisposable {
         float f=1/MathF.Tan(fov/2); return new(f/aspect,0,0,0,0,f,0,0,0,0,(far+near)/(near-far),-1,0,0,2*far*near/(near-far),0);
     }
     internal void Background(Vector4 c) {Bind();Target.Clear(c);}
+    // Stroke tessellation emits many small triangle lists (segments, joins and round caps). While a stroke is being
+    // built they share one pipeline state, so they are collected and submitted as a single draw call.
+    private List<ProcessingVertex>? strokeBatch;
+    private void Batched(Action build) {
+        if(strokeBatch!=null){build();return;}
+        strokeBatch=new List<ProcessingVertex>();
+        List<ProcessingVertex> batch;
+        try{build();}finally{batch=strokeBatch;strokeBatch=null;}
+        if(batch.Count>0)Draw(batch,lit:false);
+    }
     internal void Draw(IReadOnlyList<ProcessingVertex> vertices,int mode=4,ProcessingImage? image=null,bool lit=true,int stencilMode=0) {
         if(vertices.Count==0)return;
+        if(strokeBatch!=null&&mode==4&&image==null&&!lit&&stencilMode==0){strokeBatch.AddRange(vertices);return;}
         Bind();image?.Upload(this);
         var floats=new float[vertices.Count*12];int i=0;
         foreach(var v in vertices) {
@@ -111,6 +122,9 @@ internal sealed partial class ProcessingCanvas : IDisposable {
     }
     internal void Polyline(IReadOnlyList<Vector3> points,bool close=false) {
         if(!Style.HasStroke||points.Count<2) return;
+        Batched(()=>PolylineGeometry(points,close));
+    }
+    private void PolylineGeometry(IReadOnlyList<Vector3> points,bool close) {
         int cap=Style.Cap;Style.Cap=0;
         try{for(int i=0;i<points.Count-(close?0:1);i++) Segment(points[i],points[(i+1)%points.Count]);}finally{Style.Cap=cap;}
         Vector2 Direction(Vector3 a,Vector3 b) {
@@ -138,6 +152,9 @@ internal sealed partial class ProcessingCanvas : IDisposable {
     }
     internal void Segment(Vector3 a,Vector3 b) {
         if(!Style.HasStroke||Style.Weight<=0) return;
+        Batched(()=>SegmentGeometry(a,b));
+    }
+    private void SegmentGeometry(Vector3 a,Vector3 b) {
         if(Is3D) {
             var m=Model*View*Projection;var ca=Vector4.Transform(new Vector4(a,1),m);var cb=Vector4.Transform(new Vector4(b,1),m);
             if(ca.W<=0||cb.W<=0)return;

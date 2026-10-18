@@ -252,6 +252,8 @@ Rasterized text lines are cached as GPU images per text, font and raster size, s
 unchanged labels are drawn without re-rasterizing or uploading textures every frame.
 Entries unused for 600 frames, or beyond 4096 entries / 96 MiB, are released after
 presentation. Newly created images are filled without ending the current render pass.
+Stroke tessellation (segments, joins and round caps of one line, outline or shape)
+is submitted as a single draw call instead of one call per piece.
 
 Windows text uses installed system fonts through GDI and supports Unicode/CJK.
 Other platforms currently use an embedded ASCII bitmap fallback with uppercase
