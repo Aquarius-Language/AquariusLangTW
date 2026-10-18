@@ -44,6 +44,7 @@ public static partial class LibraryCatalog {
         new("", "print", "印出", 0, int.MaxValue), new("", "import", "匯入", 1, 1),
         new("", "currentTime", "目前時間", 0, 0),
         new("", "currentDate", "目前日期", 0, 0),
+        new("", "typeOf", "型別", 1, 1),
         new("", "isOSWindows", "是Windows", 0, 0), new("", "isOSLinux", "是Linux", 0, 0),
         new("", "isOSMacOS", "是MacOS", 0, 0), new("", "execFile", "執行檔案", 2, 2),
         new("", "isOSAndroid", "是Android", 0, 0), new("", "isWeb", "是網頁", 0, 0)

@@ -242,6 +242,8 @@ Jolt 的 Emscripten glue、Wasm 與綁定由獨立 `Aqua_JoltPhysics` Bottle 函
 ```
 
 除以 `1000.0d` 可換算成秒。時鐘起點由執行平台決定，不是日期或 Unix 時間戳記。
+`型別(值)`／`typeOf(value)` 回傳 `integer`、`double`、`string`、`array`、`hash`、`null` 等型別標記，
+方便處理 JSON 等動態資料，例如 `如果 (型別(資料["錯誤"]) == "hash") { ... }`。
 詳細語意見 [語言核心指南](AquariusCore/LANGUAGE.md)，名稱對照見
 [函式庫雙語名稱](AquariusDesktop/LIBRARY_NAMES.md)。
 

@@ -105,6 +105,22 @@ The clock is unaffected by wall-clock corrections; precision depends on the host
 local calendar date as `yyyy-MM-dd`. Use it for due dates and calendar comparisons;
 use `目前時間()` for elapsed durations. It is available on desktop and browser hosts.
 
+## Inspecting value types
+
+`型別(值)` / `typeOf(value)` is a core global available on every host. Both names
+return the same stable English tag: `integer`, `float`, `double`, `string`, `boolean`,
+`null`, `array`, `hash`, `function`, `module` or `error`. Use it for JSON documents and
+other dynamic data whose fields may hold different kinds of values:
+
+```aquarius
+變數 錯誤 = 回應.解析JSON()["error"];
+如果 (型別(錯誤) == "hash") { 印出(錯誤["message"]); } 否則如果 (型別(錯誤) == "string") { 印出(錯誤); }
+```
+
+Builtin and compiled functions both report `function`. Missing hash entries and
+out-of-range array reads produce `null`, so `型別(表["鍵"]) == "null"` tests absence
+without a separate null literal.
+
 ## Extending the language
 
 When introducing syntax, update tokens, lexer rules, parser callbacks and operator
