@@ -23,7 +23,7 @@ The four delivered ONNX CUDA EXEs were rebuilt without sidecar DLL folders. Ordi
 
 ## Existing project coverage
 
-Every row below passed the stated checks unless a browser limitation is explicitly recorded. “Web export” means a successful build; actual browser execution is stated separately.
+Every row below passed the stated checks. “Web export” means a successful build; actual browser execution is stated separately. Filament received an additional shared-library fix and browser validation on October 21.
 
 | Existing project | Checks performed |
 | --- | --- |
@@ -41,7 +41,7 @@ Every row below passed the stated checks unless a browser limitation is explicit
 | OpenCV showcase | 45 feature checks and bilingual checks in Wasm and separate EXEs; desktop UI; web export |
 | Java/FastCSV bridge | Real in-process Java calls, Unicode, arrays, exceptions and CSV round trip in Wasm and EXE |
 | ImageJ ColorInspector3D | Original relative JDK/JAR deployment; validation and 36-stage native WGPU GUI scenario, including ROI, TIFF, AVI, DICOM and large-image paths |
-| Filament showcase | All five native scenes in Wasm and EXE; all five browser scene captures with software WebGL; default Intel WebGL failure recorded below |
+| Filament showcase | All five native scenes in Wasm and EXE; all five scenes in default Chrome (Intel Direct3D), default Edge (NVIDIA Direct3D), Vulkan and software WebGL; see the October 21 fix report |
 | Dynamic linking | Real native DLL and portable Wasm plugin calls in Wasm and EXE; web export |
 | AquariusDreamer | Main application compilation; 289 offline Markdown/layout assertions |
 | CRDT/WebRTC canvas | Real standalone server and three concurrent native clients: edits, convergence, presence and P2P; standalone client UI; web export |
@@ -65,6 +65,7 @@ Evidence is retained under `.web-build/`:
 - `compatibility/extended-results.json` and `compatibility/network/results.json`
 - `compatibility/mineclone/results.json`, `source-results.json`, `survival.txt`, and `cap-*.png`
 - `compatibility/browser-results.json` and `compatibility/filament/browser-captures/`
+- `filament-intel/matrix/` for the final default Chrome/Edge, Vulkan and software WebGL scene and uniform-buffer checks
 - `cuda-packaging-proof/results.json`
 - `onnx-showcase/cuda-fix/` for compiler publishing and complete test logs
 
@@ -84,14 +85,13 @@ node --test AquariusAndroid/tests/*.test.mjs
 ./scripts/test-network-showcases.ps1
 ./scripts/test-mineclone.ps1
 node AquariusWebCompiler/tests/project-smoke.mjs
-$env:WEBGL_ANGLE='swiftshader'
 node scripts/test-compatibility-browser.mjs
 ```
 
-Finish exports before running browsers against those directories. Browser tests require localhost access. To reproduce the Intel limitation, omit `WEBGL_ANGLE`; do not change system GPU or security settings.
+Finish exports before running browsers against those directories. Browser tests require localhost access. Leave `WEBGL_ANGLE` unset to test the default browser backend. Filament projects must use Aqua_Filament >=1.0.2 and update their bottle lock before rebuilding. See [the Filament fix and reproduction details](filament-webgl-fix-2026-10-21.md).
 
 ## Observed limits
 
-The default Chrome WebGL renderer here is Intel Iris Xe through ANGLE/D3D11. Filament's `base_lit_masked` shader fails linking and loses the context on that path. The identical exported application rendered all five scenes with SwiftShader, and native Filament passed. This remains an unresolved driver/rendering-library compatibility issue; software rendering in the validation harness is not an automatic application fallback and does not prove the default Intel browser path works.
+The earlier Intel Iris Xe ANGLE/D3D11 context loss is resolved in the shared Aqua_Filament 1.0.2 web runtime. A native GPU-process bounds failure in ANGLE's optimized uniform-buffer resource binding caused the later `base_lit_masked` link error. The library now preserves the original std140 layout while avoiding that optimization on Direct3D. All five scenes pass using the default Intel backend; the launcher no longer forces Vulkan. [The October 21 report](filament-webgl-fix-2026-10-21.md) records the browser matrix, shader-layout verification and remaining hardware coverage limits.
 
-Windows testing used an RTX 4070 Laptop GPU with driver 616.92. The ONNX apps' Android provider/UI and synthetic-camera evidence comes from the API 35 x86_64 emulator runs during this work; the later shared JavaScript checks passed as stated above. Existing desktop showcases were not all ported to Android. Physical ARM Android, vendor NNAPI, Linux/macOS CUDA runtime execution, other browsers and every GPU/driver combination were not validated. Linux CUDA payload preparation is implemented, but only Windows CUDA embedding was executed here.
+Windows testing used an RTX 4070 Laptop GPU with driver 616.92. The ONNX apps' Android provider/UI and synthetic-camera evidence comes from the API 35 x86_64 emulator runs during this work; the later shared JavaScript checks passed as stated above. Existing desktop showcases were not all ported to Android. Physical ARM Android, vendor NNAPI, Linux/macOS CUDA runtime execution, ONNX browsers beyond Chrome and every GPU/driver combination were not validated. Linux CUDA payload preparation is implemented, but only Windows CUDA embedding was executed here.

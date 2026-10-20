@@ -30,24 +30,32 @@ try{
     page.on('pageerror',e=>errors.push(e.message));
     page.on('console',m=>{if(m.type()==='error')errors.push(m.text());});
     try{
+      await page.addInitScript(()=>{
+        globalThis.compatibilityContextLosses=0;
+        document.addEventListener('webglcontextlost',event=>{
+          if(event.target.parentElement?.id==='surfaces')globalThis.compatibilityContextLosses++;
+        },true);
+      });
       await page.goto(`http://127.0.0.1:${server.address().port}/${project}/web/?autorun=0`);
       await page.waitForFunction(()=>window.aquarius,null,{timeout:120000});
-      const gpu=await page.evaluate(()=>{
-        const gl=document.createElement('canvas').getContext('webgl2');
-        const debug=gl?.getExtension('WEBGL_debug_renderer_info');
-        const renderer=debug?gl.getParameter(debug.UNMASKED_RENDERER_WEBGL):null;
-        gl?.getExtension('WEBGL_lose_context')?.loseContext();return renderer;
-      });
-      console.log(project+' renderer: '+gpu);
+      let gpu;
       if(project==='filament'){
         await page.evaluate(()=>{window.compatibilityRun=window.aquarius.run('tests/capture_web.aqua').catch(e=>window.compatibilityError=e.message);});
+        await page.waitForSelector('#surfaces canvas',{timeout:120000});
+        gpu=await page.evaluate(()=>{
+          const gl=document.querySelector('#surfaces canvas').getContext('webgl2');
+          const debug=gl?.getExtension('WEBGL_debug_renderer_info');
+          return debug?gl.getParameter(debug.UNMASKED_RENDERER_WEBGL):null;
+        });
+        console.log(project+' renderer: '+gpu);
       }else{
         await page.evaluate(()=>{window.compatibilityRun=window.aquarius.run('main.aqua').catch(e=>window.compatibilityError=e.message);});
       }
       await page.waitForFunction(()=>window.compatibilityError||['finished','error'].includes(window.aquarius.state),null,{timeout:300000});
-      const result=await page.evaluate(()=>({state:window.aquarius.state,error:window.compatibilityError??document.querySelector('#error')?.textContent??'',output:window.aquarius.output,shots:globalThis.__aquaFilamentScreenshots??[]}));
+      const result=await page.evaluate(()=>({state:window.aquarius.state,error:window.compatibilityError??document.querySelector('#error')?.textContent??'',output:document.querySelector('#output').textContent,shots:globalThis.__aquaFilamentScreenshots??[],contextLosses:globalThis.compatibilityContextLosses}));
       assert.equal(result.state,'finished',result.error);assert.equal(result.error,'');assert.deepEqual(errors,[]);
       if(project==='filament'){
+        assert.equal(result.contextLosses,0);assert.match(result.output,/SHOWCASE_WEB_CAPTURE_OK/);
         assert.equal(result.shots.length,5);
         await mkdir(path.join(root,'filament/browser-captures'),{recursive:true});
         for(const shot of result.shots){
@@ -61,7 +69,7 @@ try{
         assert.match(output,/savecheck inventory match (?:真|true)/);assert.match(output,/debug step quit/);
         result.output=output;
       }
-      results.push({project,passed:true,state:result.state,captures:result.shots.length,output:result.output,renderer:gpu});
+      results.push({project,passed:true,state:result.state,captures:result.shots.length,output:result.output,renderer:gpu,contextLosses:result.contextLosses});
       console.log(`PASS ${project}/browser`);
     }catch(error){
       const output=await page.locator('#output').textContent().catch(()=>null);
