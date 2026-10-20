@@ -38,9 +38,9 @@ try {
   const cpu=await page.evaluate(()=>window.aquarius.run('姿態驗證.aqua'));assert.match(cpu.output,/姿態模型推論驗證通過/);
   const gpu=await page.evaluate(()=>window.aquarius.run('圖形加速驗證.aqua'));assert.match(gpu.output,/圖形加速姿態推論驗證通過/);
   const parity=await page.evaluate(async()=>{
-    const {BrowserOnnxBackend,createTensor}=await import('./onnx.mjs');
+    const {BrowserOnnxBackend,createTensor,openSession}=await import('./onnx.mjs');
     const backend=new BrowserOnnxBackend(),bytes=window.aquarius.host.asset('/模型/姿態.onnx');
-    const cpu=await backend.createSession(bytes,'CPU'),gpu=await backend.createSession(bytes,'WebGPU');
+    const cpu=await openSession(backend,bytes,'CPU'),gpu=await openSession(backend,bytes,'WebGPU');
     try {
       const input=cpu.inputs[0],outputs=cpu.outputs.filter(m=>[1,195].includes(m.shape.reduce((a,b)=>a*b,1))).map(m=>m.name);
       const feeds=new Map([[input.name,createTensor('float32',input.shape,Array(256*256*3).fill(0.25))]]);

@@ -4,7 +4,7 @@ Networking contracts, optional platform capabilities, bilingual client/socket AP
 the desktop HTTP(S) server are documented in [Network / 網路](docs/networking.md).
 
 攝影機的核心抽象、桌面與網頁配接器、生命週期及驗證方式見 [攝影機架構指南](docs/webcam.md)。
-ONNX Runtime 的雙語契約、WebGPU 配接器、模型封裝及擴充方式見 [推論架構指南](docs/onnx.md)。
+ONNX Runtime 的雙語契約、執行提供者目錄與選擇策略、各平台配接器（CUDA、TensorRT、Core ML、WebGPU、WebNN、NNAPI、XNNPACK）、模型封裝及擴充方式見 [推論架構指南](docs/onnx.md)。
 
 The [Thread / 執行緒 library](docs/threading.md) runs snapshot-isolated functions on desktop OS threads, browser Web Workers and Android native Wasmtime workers, with cancellation, joins and portable result graphs.
 

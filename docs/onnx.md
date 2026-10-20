@@ -1,37 +1,159 @@
 # ONNX Runtime
 
-Core defines `IOnnxBackend`, `IOnnxSession`, owned `OnnxTensor` snapshots, immutable
-value metadata, provider options, limits, error kinds and the bilingual catalog.
-It references no ONNX Runtime package, GPU API, JavaScript engine or platform library.
-New hosts implement contract version 1 and register the same language surface;
-compiler lowering and application scripts do not branch on platform.
+Aquarius exposes ONNX Runtime (ORT) through one bilingual library that selects the best
+execution provider (EP) on every supported platform: CUDA and TensorRT on NVIDIA GPUs,
+Core ML on Apple silicon, WebGPU on any GPU (native Dawn or the browser), WebNN in
+browsers, NNAPI/XNNPACK on Android, optional OpenVINO/QNN plugins, and CPU everywhere.
+Scripts are identical on all hosts; compiler lowering and applications never branch on
+platform.
 
-Desktop uses Microsoft.ML.OnnxRuntime **1.30.0** with the official
-Microsoft.ML.OnnxRuntime.EP.WebGpu **0.4.0** plugin. The process registers the plugin
-once, selects a WebGPU device and explicitly appends it to session options. ORT's
-Dawn device is independent of the graphics host's wgpu-native device; their native
-handles must never be interchanged. Supported plugin RIDs are win-x64, win-arm64,
-linux-x64, linux-arm64 and osx-arm64. Unsupported systems can explicitly select CPU.
-Windows executable hosts embed a UTF-8 active-code-page manifest, avoiding the native
-plugin bridge's code-page conversion failure for Traditional Chinese deployment
-paths. This requires Windows 10 version 1903 or later. Custom embedding hosts need
-the same manifest when native library paths contain Unicode characters; use the
-manifested `aqua.exe` in such deployments. `AQUARIUS_ONNX_DIAGNOSTICS=1` enables native
-initialization exception details on stderr for development.
+## Architecture
 
-Browser uses onnxruntime-web **1.30.0**, its WebGPU module and matching Asyncify
-Wasm/glue, packaged locally from pinned npm dependencies by `npm run prepare:browser`.
-Core owns the deployment descriptor, runtime version, embedded browser assets and
-license notices. Exports include hashes and need no CDN. CPU selects the Wasm EP;
-one Wasm thread avoids cross-origin isolation requirements. WebGPU requires a
-compatible browser, driver and secure context (HTTPS or localhost).
+The design follows ORT's own layering:
 
-ONNX is a documented native integration under the host-capability profile: desktop
-executes ORT kernels in the native runtime and Dawn, whereas browser kernels execute
-in ORT Wasm/WebGPU. This specific integration is an exception to the general future
-computational-library Wasm rule; it must not be labelled `CoreWasm`. Portable demo
-preprocessing and postprocessing remain compiled Aquarius Wasm. The profile does
-not grant a general exception to other computational libraries.
+* **Execution providers and EP devices.** ORT executes a graph through an ordered provider
+  list; the graph partitioner assigns each node to the first provider that claims it and
+  always keeps the CPU provider as the implicit final fallback. Since ORT 1.22 the unit of
+  selection is an *EP device* (`OrtEpDevice`: a provider bound to a CPU, GPU or NPU), chosen
+  by policies such as `PREFER_GPU`. Aquarius models exactly this.
+* **Core (AquariusCore/onnx, contract version 2)** owns everything platform independent:
+  * `OnnxProviders` — the single provider catalog (identity, bilingual constant, hardware
+    classes). `OnnxProvider` is an extensible value (`"CUDA"`, `"WebGPU"`…), not a closed enum.
+  * `OnnxDevice` — one provider on one hardware class with availability, an
+    `Automatic` flag and a human-readable reason when unavailable.
+  * `OnnxSelection` — a device preference (`Auto`, `GPU`, `NPU`) or an explicit, ordered
+    provider list, parsed from either language.
+  * `OnnxPlanner` / `OnnxSessionFactory` — ranking and fallback policy (below).
+  * `OnnxTensor` snapshots, metadata, limits, failure kinds and the bilingual binding.
+  * `OnnxProbeModel` — a 129-byte 1×1 convolution used by hosts to verify a provider
+    really runs on this machine (driver, runtime libraries such as cuDNN, device, kernels).
+* **Hosts implement only two members** (`IOnnxBackend` in C#, the same shape in JavaScript):
+  `GetDevices()` — ranked best-first, unavailable entries kept with a reason — and
+  `CreateSession(model, plan)` — strict: open exactly that provider chain or fail.
+* The JavaScript mirror of the core lives in `AquariusCore/hosting/onnx-providers.mjs`
+  (catalog, planner, `openSession`) and `onnx-registration.mjs` (binding, tensors); it is
+  shipped unchanged to browsers and Android.
+
+```mermaid
+flowchart LR
+    Script[Aquarius script] --> Binding[Core bilingual binding]
+    Binding --> Factory[OnnxSessionFactory: plan + fallback]
+    Factory --> Catalog[OnnxProviders catalog]
+    Factory -->|GetDevices / CreateSession plan| Desktop[DesktopOnnxBackend]
+    Factory --> Browser[BrowserOnnxBackend]
+    Factory --> Android[AndroidOnnxBackend + OnnxBackend.java]
+    Desktop --> Strategies[Provider strategies: CUDA, TensorRT, CoreML, plugin EPs, CPU]
+    Strategies --> Plugins[ORT plugin libraries: WebGPU, OpenVINO, QNN]
+    Browser --> Web[ORT web: WebGPU, WebNN, Wasm]
+    Android --> Aar[ORT Android: WebGPU, NNAPI, XNNPACK, CPU]
+```
+
+### Selection rules
+
+* **Explicit providers are strict.** `"CUDA"` or `["TensorRT", "CUDA"]` must all be declared
+  and available on this host, otherwise the call fails with the host's reason (for example
+  `libcublasLt.so.13: cannot open shared object file`). A provider that fails to initialize
+  never becomes a different session.
+* **Preferences fall back.** `Auto` tries every available automatic device in host rank order
+  and always ends with CPU. `GPU` / `NPU` try only devices of that class and never silently
+  become CPU. A candidate is skipped only when it fails to initialize (engine/unsupported
+  errors); invalid models, cancellation and closed runtimes stop immediately.
+* **Automatic = false** marks devices used only on explicit request: TensorRT (first-run
+  engine builds take seconds to minutes), software GPU adapters (llvmpipe, WARP, SwiftShader,
+  browser fallback adapters) and accelerators on the Android emulator.
+* Sessions report `Backend/後端` (primary provider), `Device/裝置` (`CPU`/`GPU`/`NPU`) and
+  `Providers/後端清單`, the effective chain including companions and the CPU fallback. ORT can
+  still execute individual unsupported operators on CPU; the backend field does not claim
+  every node ran on the accelerator.
+* The MediaPipe pose tracker resolves the selection for its detector and opens the landmark
+  model on the same chain, so both stages always share one device.
+
+## Platform providers
+
+Order is the `Auto` ranking. "Plugin" means an ORT plugin EP library registered at runtime
+with `RegisterExecutionProviderLibrary`; optional plugins are discovered side by side.
+
+| Platform | Ranked devices | Engine |
+| --- | --- | --- |
+| Windows x64 | CUDA (GPU) · OpenVINO GPU¹ · WebGPU (D3D12) · OpenVINO NPU¹ · TensorRT² · CPU | `Microsoft.ML.OnnxRuntime.Gpu.Windows` 1.30.0 + WebGPU plugin 0.4.0 |
+| Linux x64 | CUDA · OpenVINO GPU¹ · WebGPU (Vulkan) · OpenVINO NPU¹ · TensorRT² · CPU | `Microsoft.ML.OnnxRuntime.Gpu.Linux` 1.30.0 + WebGPU plugin |
+| Windows arm64 | QNN NPU¹ (Snapdragon HTP) · WebGPU · CPU | `Microsoft.ML.OnnxRuntime` 1.30.0 + WebGPU plugin |
+| Linux arm64 | WebGPU · CPU | `Microsoft.ML.OnnxRuntime` 1.30.0 + WebGPU plugin |
+| macOS arm64 | Core ML NPU (Neural Engine + GPU) · Core ML GPU (Metal) · WebGPU (Metal) · CPU | `Microsoft.ML.OnnxRuntime` 1.30.0 (Core ML built in) + WebGPU plugin |
+| Web | WebGPU · WebNN GPU · WebNN NPU · Wasm SIMD CPU | `onnxruntime-web` 1.30.0 (`ort.webgpu` bundle, local assets) |
+| Android | WebGPU (Vulkan) · NNAPI · XNNPACK · CPU | `onnxruntime-android` 1.30.0 |
+
+¹ Optional plugin, used when present. ² Explicit only.
+
+### Tuning applied per provider
+
+All sessions use `ORT_ENABLE_ALL` graph optimization, sequential execution and disabled
+idle spinning so camera capture and drawing keep CPU time. Accelerated sessions run CPU
+fallback nodes on one thread.
+
+* **CUDA:** `arena_extend_strategy=kSameAsRequested`, exhaustive cuDNN convolution search,
+  maximum cuDNN workspace, copies in the default stream. `AQUARIUS_ONNX_CUDA_DEVICE` selects
+  the GPU index (default 0).
+* **TensorRT:** FP16, persistent engine and timing caches under
+  `%LOCALAPPDATA%/AquariusLang/onnx/tensorrt` (or `$AQUARIUS_ONNX_CACHE/tensorrt`); CUDA is
+  appended as a companion for nodes TensorRT does not claim.
+* **Core ML:** ML Program format; `MLComputeUnits=ALL` for the NPU device, `CPUAndGPU` for
+  the GPU device; dynamic input shapes allowed.
+* **WebGPU (desktop):** Dawn device from ORT's device discovery; independent of the
+  graphics host's wgpu-native device, so native handles are never interchanged. Dawn
+  state is process-wide, so WebGPU session creation, runs and disposal share one gate;
+  CPU and CUDA sessions stay concurrent.
+* **QNN:** HTP burst performance mode with FP16 precision for float models.
+* **Browser:** `high-performance` WebGPU adapter; WebNN contexts request the matching
+  `deviceType`; Wasm uses ORT's automatic multi-threading when the page is cross-origin
+  isolated and one thread otherwise (no isolation requirement for deployments).
+* **Android:** NNAPI with `CPU_DISABLED` (NNAPI's reference CPU path is slower than ORT's);
+  XNNPACK owns the thread pool (`intra_op_num_threads`, ORT intra-op threads = 1); CPU uses
+  half the cores up to four.
+
+Data paths avoid redundant copies: desktop binds immutable input snapshots directly as ORT
+values and copies each output once; browsers adopt ORT's downloaded output arrays;
+Android binds direct native-order buffers and serializes outputs in bulk.
+
+### Desktop requirements and packaging
+
+* **CUDA:** an NVIDIA GPU supported by CUDA 13 (Turing or newer) with a current driver, plus
+  the CUDA 13 runtime (cudart, cuBLAS) and cuDNN 9 for CUDA 13 on the library search path
+  (`PATH` on Windows, `LD_LIBRARY_PATH` or the system linker path on Linux). They are not
+  redistributed. When they are missing, CUDA is listed as unavailable with the loader's
+  exact message and `Auto` continues with the next device.
+* **TensorRT:** TensorRT 10 libraries in addition to CUDA.
+* The CUDA build of ORT is a superset of the CPU build: CPU and plugin EPs behave the same,
+  and the CUDA/TensorRT provider libraries load only when requested. They add about 190 MB
+  (Windows) / 270 MB (Linux) to runtime packs. Set the environment variable or MSBuild
+  property `AquariusOnnxCuda=false` before `scripts/publish-apphost.*` (or pass
+  `-p:AquariusOnnxCuda=false`) to build a CPU-flavour pack instead.
+* DirectML is deliberately not used: its ORT build is in sustained engineering, cannot coexist
+  with the CUDA build in one process, and the WebGPU plugin covers AMD/Intel/Qualcomm GPUs
+  through D3D12.
+* **Optional plugins:** copy the native folder of `Intel.ML.OnnxRuntime.EP.OpenVINO`
+  (`onnxruntime_providers_openvino_plugin.dll` / `.so` with its OpenVINO libraries) or
+  `Qualcomm.ML.OnnxRuntime.QNN` (`onnxruntime_providers_qnn.dll` with the QNN libraries) next
+  to the program, into an `onnx-providers` subfolder, or into a directory listed in
+  `AQUARIUS_ONNX_PROVIDER_PATH`.
+* Supported WebGPU plugin RIDs are win-x64, win-arm64, linux-x64, linux-arm64 and osx-arm64;
+  Linux needs a Vulkan loader. Windows executable hosts embed a UTF-8 active-code-page
+  manifest, avoiding the native plugin bridge's code-page conversion failure for Traditional
+  Chinese deployment paths (Windows 10 version 1903 or later). Custom embedding hosts need the
+  same manifest when native library paths contain Unicode characters.
+* `AQUARIUS_ONNX_DIAGNOSTICS=1` prints the probed device table, selection attempts and native
+  exception details on stderr.
+
+Browser assets are packaged locally from pinned npm dependencies by `npm run prepare:browser`.
+Core owns the deployment descriptor, runtime version, embedded assets and license notices.
+Exports include hashes and need no CDN. WebGPU requires a compatible browser, driver and secure
+context (HTTPS or localhost).
+
+ONNX is a documented native integration under the host-capability profile: native hosts execute
+ORT kernels in native providers, whereas browser kernels execute in ORT Wasm/WebGPU/WebNN. This
+specific integration is an exception to the general future computational-library Wasm rule; it
+must not be labelled `CoreWasm`. Portable demo preprocessing and postprocessing remain compiled
+Aquarius Wasm. The profile does not grant a general exception to other computational libraries.
 
 ## Language API
 
@@ -40,8 +162,9 @@ callable. Metadata fields and constants also have both spellings.
 
 | Object | English / 繁體中文 | Arguments and result |
 | --- | --- | --- |
-| ONNX | IsSupported / 是否支援 | provider → capability availability |
-| ONNX | CreateSession / 建立工作階段 | bundled model path, provider → session |
+| ONNX | IsSupported / 是否支援 | provider, preference or provider array → availability |
+| ONNX | GetProviders / 取得後端清單 | → ranked device records |
+| ONNX | CreateSession / 建立工作階段 | bundled model path [, provider, preference or provider array; default `Auto`] → session |
 | ONNX | CreateTensor / 建立張量 | type, shape, flat values → tensor |
 | Session | GetInputs / 取得輸入資訊 | → array of Name/名稱, Type/型別, Shape/形狀 records |
 | Session | GetOutputs / 取得輸出資訊 | → same metadata |
@@ -51,66 +174,103 @@ callable. Metadata fields and constants also have both spellings.
 | Tensor | GetShape / 取得形狀 | → dimension array |
 | Tensor | GetData / 取得資料 | → independent flat array |
 
-Session `Backend/後端` reports the selected EP (`WebGPU` or `CPU`); output tensors
-have `Name/名稱`. Provider constants: `WebGPU/網頁圖形加速`, `CPU/中央處理器`.
-Type constants: `Float32/浮點32`, `Float64/浮點64`, `Int32/整數32`,
-`UInt8/無號整數8`, `Bool/布林`. Version 1 deliberately admits only those five types;
-int64, float16, strings, sequences, maps and optional inputs require future contract
-extensions. Unsupported metadata is visible as `unsupported` and cannot be supplied
-or materialized as a tensor. Dynamic dimensions appear as -1.
+Device records have `Provider/後端`, `Device/裝置`, `Name/名稱`, `Available/可用`,
+`Automatic/自動選用` and `Reason/原因`. Sessions have `Backend/後端`, `Device/裝置` and
+`Providers/後端清單`; output tensors have `Name/名稱`.
+
+Preference constants: `Auto/自動`, `GPU/圖形處理器`, `NPU/神經處理器`. Provider constants
+(values are the English identifiers, matched case-insensitively):
+
+| Provider | 繁體中文 | Hardware |
+| --- | --- | --- |
+| `CPU` | `中央處理器` | CPU |
+| `CUDA` | `輝達CUDA` | NVIDIA GPU |
+| `TensorRT` | `輝達TensorRT` | NVIDIA GPU |
+| `CoreML` | `蘋果CoreML` | Apple Neural Engine / GPU |
+| `WebGPU` | `網頁圖形加速` | any GPU |
+| `WebNN` | `網頁神經網路` | browser GPU / NPU |
+| `NNAPI` | `安卓神經網路` | Android NPU / DSP |
+| `XNNPACK` | `行動處理器加速` | optimized mobile CPU |
+| `OpenVINO` | `英特爾OpenVINO` | Intel GPU / NPU / CPU |
+| `QNN` | `高通QNN` | Snapdragon NPU / GPU |
+
+Type constants: `Float32/浮點32`, `Float64/浮點64`, `Int32/整數32`, `UInt8/無號整數8`,
+`Bool/布林`. The tensor contract deliberately admits only those five types; int64, float16,
+strings, sequences, maps and optional inputs require future contract extensions. Unsupported
+metadata is visible as `unsupported` and cannot be supplied or materialized as a tensor.
+Dynamic dimensions appear as -1.
 
 ```text
 變數 引擎 = 匯入("推論引擎");
-變數 工作 = 引擎.建立工作階段(目前工作目錄 + "/模型.onnx", 引擎.網頁圖形加速);
+// 自動選擇此裝置最快的後端（例如 Windows 的 CUDA、Mac 的 CoreML、網頁的 WebGPU）
+變數 工作 = 引擎.建立工作階段(目前工作目錄 + "/模型.onnx");
+印出(工作.後端, 工作.裝置, 工作.後端清單);
+// 只用圖形處理器；或依序指定後端清單
+變數 加速 = 引擎.建立工作階段(目前工作目錄 + "/模型.onnx", 引擎.圖形處理器);
+變數 指定 = 引擎.建立工作階段(目前工作目錄 + "/模型.onnx", [引擎.輝達TensorRT, 引擎.輝達CUDA]);
 變數 資料 = 引擎.建立張量(引擎.浮點32, [2], [1, 2]);
 變數 輸出 = 工作.推論(["input"], [資料], ["output"]);
-變數 張量 = 輸出[0];
-印出(張量.取得資料());
+印出(輸出[0].取得資料());
+變數 清單 = 引擎.取得後端清單();
+迴圈 (變數 i = 0; i < len(清單); i++) { 變數 項 = 清單[i]; 印出(項.後端, 項.裝置, 項.可用, 項.原因); }
 工作.釋放();
 ```
 
 Include models with CLI `--assets`; website source-directory builds also recognize
-`.onnx`. Model external-data sidecars are not supported in version 1: use a single
-self-contained ONNX file. Model input and output names are case-sensitive.
+`.onnx`. Model external-data sidecars are not supported: use a single self-contained ONNX
+file. Model input and output names are case-sensitive.
 
 ## Execution, ownership and extension rules
 
-* WebGPU is the only admitted GPU provider. CPU is explicit. Failure to initialize
-  the selected EP never opens a replacement CPU session. ORT can still execute
-  individual unsupported WebGPU operators on its CPU EP, as upstream ORT does;
-  the backend field does not claim every node ran on GPU.
 * All required inputs must appear exactly once, with matching type, rank and static
   dimensions. Requested outputs must be known, unique and nonempty. Ordering follows
   the request, independent of provider dictionary order.
 * Tensors belong to their binding runtime. Keys use module scope identity so guest
   reprojection and garbage collection preserve ownership. Weak tables avoid rooting
-  dead tensors; extracted methods retain their data. Copies prevent caller mutation
-  or disposed native results from invalidating existing tensors.
+  dead tensors; extracted methods retain their data. Engines read inputs in place but
+  never write them; outputs are copied out of engine memory before upstream tensors are
+  released, so disposed native results never invalidate existing tensors.
 * Sessions own native resources until explicit release or host disposal. Maximum
   eight live sessions, sixteen tensor axes, 16,777,216 elements per tensor and
-  256 MiB per model. GPU outputs are downloaded and copied before releasing upstream
-  tensors. Limits apply at the boundary; ORT's own internal allocations depend on
-  model graph and device. Sessions cannot mix tensors from other binding runtimes.
-* Native GPU discovery, session creation, runs and disposal share a process-wide
-  gate around Dawn provider state; CPU runs on separate sessions remain concurrent.
-  GPU sessions use one CPU thread for fallback operations, and idle native thread
-  pools do not spin, leaving CPU time for camera capture and drawing.
-  Native runs are serialized with disposal. Cancellation terminates native run
-  options; native model creation can only observe cancellation before/after the
-  synchronous engine call. Browser runs reject overlap. Browser cancellation is
-  observed at async boundaries; upstream cannot forcibly abort an in-flight run.
-  Disposal waits for the complete run/download/cleanup before releasing the session.
-  Late session creation after cancellation/disposal releases its native resources.
-* New providers require a deliberate contract/catalog update and parity tests;
-  new platforms only need a host adapter and composition. GPU buffer interoperability,
-  external model data and additional element types need explicit ownership/version
-  designs before extending this CPU-snapshot contract.
+  256 MiB per model. GPU outputs are downloaded before releasing upstream tensors. Limits
+  apply at the boundary; ORT's own internal allocations depend on model graph and device.
+  Sessions cannot mix tensors from other binding runtimes.
+* Native runs are serialized with disposal. Cancellation terminates native run options;
+  native model creation can only observe cancellation before/after the synchronous engine
+  call. Browser runs reject overlap. Browser cancellation is observed at async boundaries;
+  upstream cannot forcibly abort an in-flight run. Disposal waits for the complete
+  run/download/cleanup before releasing the session. Late session creation after
+  cancellation/disposal releases its native resources.
+* Device probing happens once per process (desktop and Android) or page (browser), on the
+  first query, and is cached.
+
+### Adding a provider
+
+1. Add it once to the catalog in `OnnxProviders.cs` and `onnx-providers.mjs` (identity,
+   bilingual constant, hardware classes); the language constants appear automatically.
+2. Declare it on each host that supports it, at its rank: a `DesktopExecutionProvider`
+   subclass (or a `PluginExecutionProvider` over a new `OrtPluginLibrary`) placed in
+   `DesktopProviderCatalog`, a `Provider` entry in `OnnxBackend.java`, or an entry in
+   `BrowserOnnxBackend.probe/executionProvider`. Put provider-specific options and session
+   adjustments in that strategy; never in the core.
+3. Add a parity test against CPU (`AQUARIUS_ONNX_REQUIRE=<provider>` runs the desktop
+   checks on real hardware).
+
+### Adding a platform
+
+Implement `IOnnxBackend` (C#) or the `devices()/createSession(model, plan, signal)` pair
+(JavaScript) and register the language surface with `OnnxRuntime` or `registerOnnx`.
+Selection, fallback, validation, the bilingual surface and the pose pipeline then work
+unchanged. GPU buffer interoperability (IO binding of device tensors), external model data
+and additional element types need explicit ownership/version designs before extending this
+CPU-snapshot contract.
 
 ## MediaPipe pose pipeline
 
 `MediaPipe` / `姿態追蹤` is a separate, model-specific library composed over the
 generic ONNX contract. `CreatePoseTracker` / `建立姿態追蹤器` takes the detector
-path, landmark path and explicit `CPU` or `WebGPU` provider. A tracker owns both
+path, landmark path and an optional provider, preference or provider array (default `Auto`);
+the tracker exposes the selected `Backend/後端`. A tracker owns both
 sessions and one isolated 16 MiB Wasm instance; at most four trackers per runtime.
 `Analyze` / `分析` takes an application image handle and a nonnegative, monotonic
 timestamp in milliseconds since capture started. Input limits are 1920 × 1080.
@@ -144,15 +304,18 @@ and [BlazePose ROI configuration](https://github.com/tensorflow/tfjs-models/blob
 ## Validation
 
 `dotnet test AquariusTests/AquariusTests.csproj --filter FullyQualifiedName~AquariusTests.Onnx`
-tests real native CPU inference, bilingual Wasm binding, metadata, shapes and lifetime.
-Set `AQUARIUS_ONNX_WEBGPU=1` to require native GPU inference. Set
+tests real native CPU inference, the provider planner and fallback policy, device probing
+(for example CUDA reported unavailable with the loader's message), bilingual Wasm binding,
+metadata, shapes and lifetime. Set `AQUARIUS_ONNX_WEBGPU=1` to require native WebGPU
+inference and `AQUARIUS_ONNX_REQUIRE=CUDA` (or `TensorRT`, `CoreML`, `OpenVINO`, `QNN`,
+or a comma-separated chain) to require real inference on that accelerator. Set
 `AQUARIUS_ONNX_POSE_MODEL` to a MediaPipe model path to require real pose CPU/GPU
 output comparison (absolute tolerance 0.05 plus relative 1%, for floating-point EP
 differences). The tiny checked-in Add fixture is an ONNX IR 8/opset 13 model with
 two float32 vectors; it contains no external model data.
 
-`npm test --prefix AquariusWebCompiler` includes browser contract, cancellation,
-disposal and real Aquarius Wasm binding tests. `node AquariusWebCompiler/tests/onnx-browser.mjs`
+`npm test --prefix AquariusWebCompiler` includes browser contract, device ranking,
+preference fallback, cancellation, disposal and real Aquarius Wasm binding tests. `node AquariusWebCompiler/tests/onnx-browser.mjs`
 checks a built MediaPipe project in Chromium: real CPU/WebGPU inference, nested
 deployment URLs, numerical parity, camera preview and cleanup. See
 [the Traditional Chinese demo](../examples/mediapipe/README.md).
@@ -166,6 +329,10 @@ simulated camera, saves a screenshot and verifies shutdown and >20 fps. The
 browser test optionally consumes `pose.y4m`, the native JSON results and a
 `closeup.png` fixture to test real camera display and sustained frame rate.
 
-Upstream references: [native WebGPU EP](https://onnxruntime.ai/docs/execution-providers/WebGPU-ExecutionProvider.html),
+Upstream references: [execution providers](https://onnxruntime.ai/docs/execution-providers/),
+[EP device selection](https://onnxruntime.ai/docs/execution-providers/plugin-ep-libraries.html),
+[CUDA EP](https://onnxruntime.ai/docs/execution-providers/CUDA-ExecutionProvider.html),
+[Core ML EP](https://onnxruntime.ai/docs/execution-providers/CoreML-ExecutionProvider.html),
+[native WebGPU EP](https://onnxruntime.ai/docs/execution-providers/WebGPU-ExecutionProvider.html),
 [ORT WebGPU](https://onnxruntime.ai/docs/tutorials/web/ep-webgpu.html),
 [session API](https://onnxruntime.ai/docs/api/js/interfaces/InferenceSession.html).

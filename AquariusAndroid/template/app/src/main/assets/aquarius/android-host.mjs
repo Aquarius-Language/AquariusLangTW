@@ -8,17 +8,34 @@ import {frameDelay} from './frame-timing.mjs';
 import {num,inspect,unwrap} from './values.mjs';
 import {resizeSurfaceSize} from './surface-size.mjs';
 import {lookupPath} from './package-paths.mjs';
-import {registerOnnx,validateRun} from './onnx-registration.mjs';
+import {registerOnnx,validateRun,adoptTensor,device,OnnxFailure} from './onnx-registration.mjs';
 import {registerMediaPipe} from './mediapipe.mjs';
 import {registerApplication} from './android-application.mjs';
 import {registerAudio} from './audio-registration.mjs';
 import {MiniaudioEngine} from './audio-core.mjs';
 
+// ONNX contract version 2 adapter. Ranked, probed devices and provider-specific tuning (WebGPU, NNAPI, XNNPACK,
+// CPU) live in OnnxBackend.java; selection policy and validation are the shared core in onnx-providers.mjs.
+const ONNX_TYPES={float32:Float32Array,float64:Float64Array,int32:Int32Array,uint8:Uint8Array,bool:Uint8Array};
+function onnxFailure(error){const text=String(error?.message??error),match=/^(?:[\w.$]+Exception: )?(InvalidArgument|Unsupported|Closed|Cancelled|Engine): ?([\s\S]*)$/.exec(text);return new OnnxFailure(match?.[1]??'Engine',match?.[2]??text,error);}
+function onnxCall(operation,args){try{return JSON.parse(native.inference(operation,JSON.stringify(args)));}catch(error){throw onnxFailure(error);}}
 class AndroidOnnxBackend {
   constructor(){this.sessions=new Set();this.disposed=false;}
-  isSupported(provider){return !this.disposed&&provider==='CPU';}
-  async createSession(model,provider,signal){signal?.throwIfAborted();if(!this.isSupported(provider))throw new Error('Unsupported: Android ONNX provider '+provider);const descriptor=JSON.parse(native.inference('create',JSON.stringify(model.asset?{asset:model.asset}:{model:encode64(model)}))),session={...descriptor,provider,disposed:false,live(){if(this.disposed)throw new Error('ONNX session disposed');},async run(inputs,outputs,signal){this.live();signal?.throwIfAborted();validateRun(this.inputs,this.outputs,inputs,outputs);const feeds=Object.fromEntries([...inputs].map(([name,t])=>[name,{type:t.type,shape:t.shape,data:encode64(t.data)}]));const result=JSON.parse(native.inference('run',JSON.stringify({id:this.id,inputs:feeds,outputs})));const types={float32:Float32Array,float64:Float64Array,int32:Int32Array,uint8:Uint8Array,bool:Uint8Array};return new Map(Object.entries(result).map(([name,t])=>[name,{...t,data:new types[t.type](decode64(t.data).buffer)}]));},async dispose(){if(this.disposed)return;native.inference('dispose',JSON.stringify({id:this.id}));this.disposed=true;}};this.sessions.add(session);return session;}
-  async dispose(){this.disposed=true;for(const s of this.sessions)await s.dispose();this.sessions.clear();}
+  async devices(){return this.probed??=Object.freeze(onnxCall('devices',{}).devices.map(d=>device(d.id,d.provider,d.kind,d.name,d.available,{automatic:d.automatic,reason:d.reason})));}
+  async createSession(model,plan,signal){
+    if(this.disposed)throw new OnnxFailure('Closed','推論執行環境已關閉。');if(signal?.aborted)throw new OnnxFailure('Cancelled','推論操作已取消。');
+    const descriptor=onnxCall('create',{...(model.asset?{asset:model.asset}:{model:encode64(model)}),plan:plan.map(d=>d.id)}),owner=this;
+    const session={id:descriptor.id,inputs:descriptor.inputs,outputs:descriptor.outputs,providers:Object.freeze(descriptor.providers),disposed:false,
+      live(){if(this.disposed)throw new OnnxFailure('Closed','推論工作階段已關閉。');},
+      async run(inputs,outputs,signal){this.live();if(signal?.aborted)throw new OnnxFailure('Cancelled','推論操作已取消。');validateRun(this.inputs,this.outputs,inputs,outputs);
+        const feeds=Object.fromEntries([...inputs].map(([name,t])=>[name,{type:t.type,shape:t.shape,data:encode64(t.data)}]));
+        const result=onnxCall('run',{id:this.id,inputs:feeds,outputs});
+        return new Map(Object.entries(result).map(([name,t])=>{const bytes=decode64(t.data),Type=ONNX_TYPES[t.type];if(!Type)throw new OnnxFailure('Unsupported','此版本不支援模型輸出的張量型別。');
+          return [name,adoptTensor(t.type,t.shape,new Type(bytes.buffer.slice(bytes.byteOffset,bytes.byteOffset+bytes.byteLength)))];}));},
+      async dispose(){if(this.disposed)return;this.disposed=true;owner.sessions.delete(this);onnxCall('dispose',{id:this.id});}};
+    this.sessions.add(session);return session;
+  }
+  async dispose(){this.disposed=true;for(const s of [...this.sessions])await s.dispose();this.sessions.clear();}
 }
 class AndroidAudioBackend {
   constructor(host){this.host=host;this.devices=new Set();this.disposed=false;}

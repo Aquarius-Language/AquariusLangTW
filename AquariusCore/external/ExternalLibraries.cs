@@ -22,8 +22,8 @@ public static class ExternalLibraries
         new Dictionary<string,string> { ["audio.wasm"]="audio.wasm", ["audio-core.mjs"]="audio-core.mjs", ["MINIAUDIO-LICENSE.txt"]="MINIAUDIO-LICENSE.txt", ["AUDIO-THIRD-PARTY-NOTICES.txt"]="AUDIO-THIRD-PARTY-NOTICES.txt" });
     public static ExternalLibraryDescriptor Network { get; } = new("network", "1", 1, ExternalLibraryProfile.HostCapability, typeof(AquariusLang.Network.INetworkBackend), System.Array.Empty<string>());
     public static ExternalLibraryDescriptor Webcam { get; } = new("webcam", "1", 1, ExternalLibraryProfile.HostCapability, typeof(AquariusLang.Webcam.IWebcamBackend), System.Array.Empty<string>());
-    // Explicit native integration: desktop WebGPU requires ORT's native Dawn plugin; browser kernels use ORT Wasm/WebGPU.
-    public static ExternalLibraryDescriptor Onnx { get; } = new("onnx", "1.30.0", 1, ExternalLibraryProfile.HostCapability, typeof(AquariusLang.Onnx.IOnnxBackend),
+    // Explicit native integration: desktop/Android execute native ORT providers (CUDA, CoreML, WebGPU/Dawn, NNAPI...); browser kernels use ORT Wasm/WebGPU/WebNN.
+    public static ExternalLibraryDescriptor Onnx { get; } = new("onnx", "1.30.0", AquariusLang.Onnx.OnnxContract.Version, ExternalLibraryProfile.HostCapability, typeof(AquariusLang.Onnx.IOnnxBackend),
         new[] { "ort.webgpu.min.mjs", "ort-wasm-simd-threaded.asyncify.mjs", "ort-wasm-simd-threaded.asyncify.wasm", "LICENSE.txt", "ThirdPartyNotices.txt" },
         new Dictionary<string,string> { ["ort.webgpu.min.mjs"]="ort.webgpu.min.mjs", ["ort-wasm-simd-threaded.asyncify.mjs"]="ort-wasm-simd-threaded.asyncify.mjs", ["ort-wasm-simd-threaded.asyncify.wasm"]="ort-wasm-simd-threaded.asyncify.wasm", ["LICENSE.txt"]="ONNX-LICENSE.txt", ["ThirdPartyNotices.txt"]="ONNX-THIRD-PARTY-NOTICES.txt" });
     public static ExternalLibraryDescriptor MediaPipe { get; } = new("mediapipe", "1", 1, ExternalLibraryProfile.CoreWasm, typeof(AquariusLang.MediaPipe.PoseTracker),

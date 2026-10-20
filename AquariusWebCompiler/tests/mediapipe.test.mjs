@@ -16,7 +16,7 @@ function fixture(){
   const detector={inputs:[info('input',[1,3,224,224])],outputs:[info('boxes',[1,2254,12]),info('scores',[1,2254,1])],
     async run(){runs++;return new Map([['boxes',{data:new Float32Array(2254*12)}],['scores',{data:new Float32Array(2254).fill(-100)}]]);},async dispose(){releases++;}};
   const landmark={inputs:[info('input',[1,256,256,3])],outputs:[info('points',[1,195]),info('flag',[1,1]),info('heatmap',[1,64,64,39])],async dispose(){releases++;}};
-  let created=0;const backend={async createSession(){return ++created===1?detector:landmark;}};
+  let created=0;const backend={plans:[],async devices(){return [{id:'CPU',provider:'CPU',kind:'CPU',name:'cpu',available:true,automatic:true}];},async createSession(model,plan){this.plans.push(plan.map(d=>d.provider));return ++created===1?detector:landmark;}};
   return {backend,detector,landmark,releases:()=>releases,runs:()=>runs,create:()=>BrowserPoseTracker.create(backend,new Uint8Array([1]),new Uint8Array([2]),'CPU',undefined,wasm)};
 }
 test('blank frames have no stale skeleton, validate dimensions, reset and close',async()=>{
@@ -26,6 +26,9 @@ test('blank frames have no stale skeleton, validate dimensions, reset and close'
   t.reset();await t.analyze(image,34);assert.equal(f.runs(),2);
   await assert.rejects(t.analyze({...image,width:1921},40));await t.dispose();await t.dispose();assert.equal(f.releases(),2);
   await assert.rejects(t.analyze(image,50));assert.throws(()=>t.reset());
+});
+test('both pose stages share the provider chain resolved for the detector',async()=>{
+  const f=fixture(),t=await f.create();assert.deepEqual(f.backend.plans,[['CPU'],['CPU']]);assert.equal(t.detector.provider,'CPU');await t.dispose();
 });
 test('metadata initialization failure releases both owned sessions',async()=>{
   const f=fixture();f.landmark.outputs=[];await assert.rejects(f.create(),/輸出介面/);assert.equal(f.releases(),2);

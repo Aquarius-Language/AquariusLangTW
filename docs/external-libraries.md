@@ -25,8 +25,10 @@ linking, packaging and existing-library migration work.
 ## Current implementation
 
 ONNX Runtime is the explicitly documented native inference integration described in
-[the ONNX guide](onnx.md): desktop uses the official native WebGPU/Dawn plugin,
-browser uses ORT Wasm/WebGPU, and core owns contract version 1 and browser assets.
+[the ONNX guide](onnx.md): core owns contract version 2 (provider catalog, device
+selection policy, tensor contract) and browser assets; desktop executes native ORT
+providers (CUDA, TensorRT, Core ML, the WebGPU/Dawn plugin and optional OpenVINO/QNN
+plugins), Android uses NNAPI/WebGPU/XNNPACK and browsers use ORT WebGPU/WebNN/Wasm.
 It uses `HostCapability` and is a narrow exception to the future-library Wasm rule.
 
 MediaPipe pose preprocessing and postprocessing use `CoreWasm` ABI 1 and the

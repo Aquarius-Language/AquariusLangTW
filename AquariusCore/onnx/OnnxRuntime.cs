@@ -17,20 +17,25 @@ public sealed class OnnxRuntime : IDisposable {
     private readonly HashSet<IOnnxSession> sessions = new();
     private readonly ConditionalWeakTable<AquaEnvironment, OnnxTensor> tensors = new();
     private bool disposed;
+    /// <summary>Optional observer for selection attempts (diagnostics).</summary>
+    public Action<OnnxSelectionAttempt>? SelectionObserver { get; init; }
     public OnnxRuntime(IOnnxBackend backend, Func<string, byte[]> readModel) {
         this.backend = backend; this.readModel = readModel;
-        Field(module, "WebGPU", "網頁圖形加速", new StringObj("WebGPU"));
-        Field(module, "CPU", "中央處理器", new StringObj("CPU"));
+        foreach (var provider in OnnxProviders.All) Field(module, provider.EnglishName, provider.ChineseName, new StringObj(provider.Provider.Id));
+        foreach (var (_, english, chinese) in OnnxProviders.Preferences) Field(module, english, chinese, new StringObj(english));
         foreach (var (english, chinese, type) in new[] { ("Float32", "浮點32", "float32"), ("Float64", "浮點64", "float64"), ("Int32", "整數32", "int32"), ("UInt8", "無號整數8", "uint8"), ("Bool", "布林", "bool") })
             Field(module, english, chinese, new StringObj(type));
-        Bind(module, "ONNX", "IsSupported", a => new BooleanObj(backend.IsSupported(Provider(Text(a[0])))));
+        Bind(module, "ONNX", "IsSupported", a => new BooleanObj(backend.IsSupported(Selection(a[0]))));
+        Bind(module, "ONNX", "GetProviders", _ => new ArrayObj(backend.GetDevices().Select(d => (IObject)Device(d)).ToArray()));
         Bind(module, "ONNX", "CreateTensor", a => Tensor(new OnnxTensor(Text(a[0]), Numbers(a[1]).Select(Dimension).ToArray(), Data(Text(a[0]), a[2]))));
         Bind(module, "ONNX", "CreateSession", a => {
-            var provider = Provider(Text(a[1])); string path = Text(a[0]);
+            var selection = a.Length > 1 ? Selection(a[1]) : OnnxSelection.Auto; string path = Text(a[0]);
             if (sessions.Count >= OnnxTensor.MaxSessions) throw new OnnxFailure(OnnxFailureKind.InvalidArgument, "最多只能同時建立八個推論工作階段。");
             byte[] bytes = readModel(path); OnnxTensor.ValidateModel(bytes);
-            var session = backend.CreateSession(bytes, new(provider)).AsTask().GetAwaiter().GetResult(); sessions.Add(session);
-            var m = Record(); Field(m, "Backend", "後端", new StringObj(session.Provider.ToString()));
+            var session = OnnxSessionFactory.Create(backend, bytes, selection, observe: SelectionObserver).AsTask().GetAwaiter().GetResult(); sessions.Add(session);
+            var m = Record(); Field(m, "Backend", "後端", new StringObj(session.Provider.Id));
+            Field(m, "Device", "裝置", new StringObj(OnnxProviders.DeviceName(session.Device)));
+            Field(m, "Providers", "後端清單", new ArrayObj(session.Providers.Select(p => (IObject)new StringObj(p.Id)).ToArray()));
             void Live() { if (!sessions.Contains(session)) throw new OnnxFailure(OnnxFailureKind.Closed, "推論工作階段已關閉。"); }
             Bind(m, "ONNX.Session", "GetInputs", _ => { Live(); return Metadata(session.Inputs); });
             Bind(m, "ONNX.Session", "GetOutputs", _ => { Live(); return Metadata(session.Outputs); });
@@ -52,6 +57,18 @@ public sealed class OnnxRuntime : IDisposable {
         });
     }
     public bool TryImport(string name, out ModuleObj result) { result = module; return name is "ONNX" or "ONNXRuntime" or "推論引擎"; }
+    /// <summary>Accepts a provider/preference string or an ordered array of provider strings.</summary>
+    internal static OnnxSelection Selection(IObject value) => value switch {
+        StringObj s => OnnxSelection.Parse(s.Value),
+        ArrayObj a => OnnxSelection.Parse(a.Elements.Select(Text).ToArray()),
+        _ => throw new OnnxFailure(OnnxFailureKind.InvalidArgument, "推論後端必須是字串或字串陣列。")
+    };
+    private static ModuleObj Device(OnnxDevice device) {
+        var m = Record(); Field(m, "Provider", "後端", new StringObj(device.Provider.Id));
+        Field(m, "Device", "裝置", new StringObj(OnnxProviders.DeviceName(device.Kind))); Field(m, "Name", "名稱", new StringObj(device.Name));
+        Field(m, "Available", "可用", new BooleanObj(device.Available)); Field(m, "Automatic", "自動選用", new BooleanObj(device.Available && device.Automatic));
+        Field(m, "Reason", "原因", new StringObj(device.Reason ?? "")); return m;
+    }
     private ModuleObj Tensor(OnnxTensor tensor, string name = "") {
         var m = Record(); tensors.Add(m._Environment, tensor); Field(m, "Name", "名稱", new StringObj(name));
         Bind(m, "ONNX.Tensor", "GetType", _ => new StringObj(tensor.Type));
@@ -70,7 +87,9 @@ public sealed class OnnxRuntime : IDisposable {
         var fn = new BuiltinObj(args => {
             try {
                 if (disposed) throw new OnnxFailure(OnnxFailureKind.Closed, "推論執行環境已關閉。");
-                if (args.Length != spec.MinimumArguments) throw new OnnxFailure(OnnxFailureKind.InvalidArgument, $"需要 {spec.MinimumArguments} 個參數。");
+                if (args.Length < spec.MinimumArguments || args.Length > spec.MaximumArguments)
+                    throw new OnnxFailure(OnnxFailureKind.InvalidArgument, spec.MinimumArguments == spec.MaximumArguments
+                        ? $"需要 {spec.MinimumArguments} 個參數。" : $"需要 {spec.MinimumArguments} 至 {spec.MaximumArguments} 個參數。");
                 return action(args);
             } catch (Exception e) when (e is OnnxFailure or OperationCanceledException or IOException or UnauthorizedAccessException or OverflowException) {
                 return new ErrorObj($"推論引擎.{spec.TraditionalChineseName}：{e.Message}");
@@ -79,12 +98,11 @@ public sealed class OnnxRuntime : IDisposable {
         FunctionRegistration.Define(target._Environment, fn, spec.TraditionalChineseName, name);
     }
     private static ModuleObj Record() => new(AquaEnvironment.NewEnvironment());
-    private static void Field(ModuleObj m, string english, string chinese, IObject value) { m._Environment.Create(english, value); m._Environment.Create(chinese, value); }
+    private static void Field(ModuleObj m, string english, string chinese, IObject value) { m._Environment.Create(english, value); if (chinese != english) m._Environment.Create(chinese, value); }
     private static string Text(IObject o) => o is StringObj s ? s.Value : throw new OnnxFailure(OnnxFailureKind.InvalidArgument, "預期字串參數。");
     private static IObject[] Array(IObject o) => o is ArrayObj a ? a.Elements : throw new OnnxFailure(OnnxFailureKind.InvalidArgument, "預期陣列參數。");
     private static double[] Numbers(IObject o) => Array(o).Select(v => v is INumberObj n ? n.GetNumValue() : throw new OnnxFailure(OnnxFailureKind.InvalidArgument, "預期數字陣列。")).ToArray();
     private static long Dimension(double d) => double.IsFinite(d) && d == Math.Truncate(d) && d >= 0 && d <= OnnxTensor.MaxElements ? (long)d : throw new OnnxFailure(OnnxFailureKind.InvalidArgument, "張量維度必須是非負整數。");
-    private static OnnxProvider Provider(string name) => name switch { "WebGPU" => OnnxProvider.WebGPU, "CPU" => OnnxProvider.CPU, _ => throw new OnnxFailure(OnnxFailureKind.InvalidArgument, "後端必須是 WebGPU 或 CPU。") };
     private static System.Array Data(string type, IObject o) {
         var values = Array(o); if (values.Length > OnnxTensor.MaxElements) throw new OnnxFailure(OnnxFailureKind.InvalidArgument, "張量資料超過上限。");
         if (type == "bool") return values.Select(v => v is BooleanObj b ? b.Value : throw new OnnxFailure(OnnxFailureKind.InvalidArgument, "布林張量必須使用布林值。")).ToArray();

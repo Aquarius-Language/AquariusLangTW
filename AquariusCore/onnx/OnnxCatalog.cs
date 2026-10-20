@@ -6,7 +6,8 @@ namespace AquariusLang.Onnx;
 public static class OnnxCatalog {
     public static IReadOnlyList<LibraryFunction> Functions { get; } = System.Array.AsReadOnly(new[] {
         new LibraryFunction("ONNX", "IsSupported", "是否支援", 1, 1),
-        new("ONNX", "CreateSession", "建立工作階段", 2, 2, "ONNX.Session"),
+        new("ONNX", "GetProviders", "取得後端清單", 0, 0),
+        new("ONNX", "CreateSession", "建立工作階段", 1, 2, "ONNX.Session"),
         new("ONNX", "CreateTensor", "建立張量", 3, 3, "ONNX.Tensor"),
         new("ONNX.Session", "GetInputs", "取得輸入資訊", 0, 0),
         new("ONNX.Session", "GetOutputs", "取得輸出資訊", 0, 0),

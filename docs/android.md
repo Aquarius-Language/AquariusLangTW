@@ -56,7 +56,7 @@ Core 不參考 Android、桌面或瀏覽器部署專案；Android 建置專案�
 | Aqua_JoltPhysics（第三方 Bottle） | 共用 Jolt Wasm，透過動態函式庫介面載入 |
 | Terminal / 終端機 | 原生 ProcessBuilder，支援引數、輸出擷取及逾時 |
 | Audio | 共用 miniaudio Wasm，原生 AudioTrack 輸出 |
-| ONNX、MediaPipe | 原生 ONNX CPU 推論與共用 MediaPipe Wasm；以 `IsSupported` 查詢提供者 |
+| ONNX、MediaPipe | 原生 ONNX Runtime 1.30：WebGPU（Vulkan）、NNAPI、XNNPACK 與 CPU，共用 MediaPipe Wasm；以 `取得後端清單` / `IsSupported` 查詢提供者 |
 | Files、Paths、Storage | 封裝資源、私有持久儲存、Android Storage Access Framework 文件與目錄 |
 | Images、Serialization | 共用 ImageMagick Wasm、JSON、二進位、壓縮及封裝 |
 | Clipboard、Fonts、TextEdit、TextInput | 原生文字與影像剪貼簿、字型量測、Unicode 及 IME 組字 |
@@ -65,7 +65,7 @@ Core 不參考 Android、桌面或瀏覽器部署專案；Android 建置專案�
 | AndroidInput / Android輸入 | 觸控、筆壓、歷史樣本、安全邊界、方向、鍵盤、震動、返回事件 |
 | Webcam / 網路攝影機 / 攝影機、OpenGL / GLFW、execFile | 平台特定能力；Android 使用 Camera、Processing 與 WGPU |
 
-Android ONNX AAR 使用 CPU，WebGPU 推論能力回報 `false`；圖學與一般 GPU 計算仍使用原生 WebGPU。
+Android ONNX AAR（1.30.0）依序提供 WebGPU（Vulkan GPU）、NNAPI（廠商 NPU／DSP 驅動）、XNNPACK 與 CPU；每個提供者在程序首次查詢時以小型卷積模型實際驗證。`自動` 依此順序選擇並在初始化失敗時退回；模擬器上 WebGPU 與 NNAPI 只在明確指定時使用。詳見 [推論架構指南](onnx.md#platform-providers)。
 應用程式應查詢個別 capability，而不是假定所有主機都有印表機、相機、游標或檔案關聯。
 Android 的檔案存取以使用者選取的文件 URI 與私有儲存為邊界。
 

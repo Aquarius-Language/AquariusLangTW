@@ -1,4 +1,5 @@
 import {num} from './values.mjs';
+import {openSession} from './onnx-providers.mjs';
 
 const count = m => m.shape.reduce((a,b)=>a*b,1);
 const output = (s,n) => {const matches=s.outputs.filter(m=>m.type==='float32'&&count(m)===n);if(matches.length!==1)throw new Error('姿態模型的輸出介面不相容。');return matches[0].name;};
@@ -6,12 +7,13 @@ let code;
 // Only bulk transport and ONNX calls belong here. The same pose.wasm performs
 // detector decoding, affine resampling, projection and filtering on every host.
 export class BrowserPoseTracker {
-  static async create(backend, detectorBytes, landmarkBytes, provider, signal, wasmBytes) {
+  static async create(backend, detectorBytes, landmarkBytes, provider='Auto', signal, wasmBytes) {
     const compiled=wasmBytes?await WebAssembly.compile(wasmBytes):await(code??=fetch(new URL('./pose.wasm',import.meta.url)).then(r=>{if(!r.ok)throw new Error('無法載入姿態處理程式。');return r.arrayBuffer();}).then(WebAssembly.compile).catch(e=>{code=null;throw e;}));
     const instance=await WebAssembly.instantiate(compiled), wasm=instance.exports;let d,l;
     try {
       if(wasm.pose_abi()!==1)throw new Error('姿態處理介面版本不相容。');
-      d=await backend.createSession(detectorBytes,provider,signal);l=await backend.createSession(landmarkBytes,provider,signal);
+      // The detector resolves the selection; landmarks reuse its exact provider chain so both stages share one device.
+      d=await openSession(backend,detectorBytes,provider,signal);l=await openSession(backend,landmarkBytes,d.plan.map(x=>x.provider),signal);
       if(d.inputs.length!==1||l.inputs.length!==1||d.inputs[0].type!=='float32'||l.inputs[0].type!=='float32'||String(d.inputs[0].shape)!=='1,3,224,224'||String(l.inputs[0].shape)!=='1,256,256,3')throw new Error('必須使用相容的 MediaPipe 人物偵測與姿態模型。');
       return new BrowserPoseTracker(wasm,d,l,signal);
     }catch(e){await l?.dispose();await d?.dispose();throw e;}
@@ -59,7 +61,7 @@ export function registerMediaPipe(host){
   host.bind(m,'MediaPipe','CreatePoseTracker',async(detector,landmark,provider)=>{
     if(trackers.size>=4)throw new Error('最多只能同時建立四個姿態追蹤器。');
     const model=path=>host.modelAsset?.(path)??host.asset(path);
-    const tracker=await BrowserPoseTracker.create(host.onnx,model(detector),model(landmark),provider,host.signal);trackers.add(tracker);const t=host.newModule();
+    const tracker=await BrowserPoseTracker.create(host.onnx,model(detector),model(landmark),provider??'Auto',host.signal);trackers.add(tracker);const t=host.newModule();field(t,'Backend','後端',tracker.detector.provider);
     host.bind(t,'MediaPipe.PoseTracker','Analyze',async(image,time)=>{
       const r=await tracker.analyze(host.application.own(image),time),out=host.newModule();
       for(const [en,zh,v]of [['HasPose','有人物',r.hasPose],['Confidence','信心',r.confidence],['Landmarks','關鍵點',r.landmarks.map(v=>num(v,'double'))],['TotalMilliseconds','總耗時',r.totalMilliseconds],['InferenceMilliseconds','模型耗時',r.inferenceMilliseconds],['DetectionRan','執行人物偵測',r.detectionRan]])field(out,en,zh,v);

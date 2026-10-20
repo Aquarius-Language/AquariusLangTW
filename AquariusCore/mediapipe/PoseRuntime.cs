@@ -13,7 +13,7 @@ namespace AquariusLang.MediaPipe;
 
 public static class PoseCatalog {
     public static IReadOnlyList<LibraryFunction> Functions {get;} = Array.AsReadOnly(new[] {
-        new LibraryFunction("MediaPipe","CreatePoseTracker","建立姿態追蹤器",3,3,"MediaPipe.PoseTracker"),
+        new LibraryFunction("MediaPipe","CreatePoseTracker","建立姿態追蹤器",2,3,"MediaPipe.PoseTracker"),
         new("MediaPipe.PoseTracker","Analyze","分析",2,2),
         new("MediaPipe.PoseTracker","Reset","重設",0,0),
         new("MediaPipe.PoseTracker","Dispose","釋放",0,0)
@@ -26,9 +26,10 @@ public sealed class PoseRuntime : IDisposable {
     public PoseRuntime(IWasmEngine engine,IOnnxBackend backend,Func<string,byte[]> readModel,Func<IObject,PixelImage> image) {
         Bind(module,"MediaPipe","CreatePoseTracker",args=>{
             if(trackers.Count>=4)throw new ArgumentException("最多只能同時建立四個姿態追蹤器。");
-            var provider=Text(args[2]) switch {"CPU"=>OnnxProvider.CPU,"WebGPU"=>OnnxProvider.WebGPU,_=>throw new ArgumentException("後端必須是 WebGPU 或 CPU。")};
-            var tracker=new PoseTracker(engine,backend,readModel(Text(args[0])),readModel(Text(args[1])),provider);trackers.Add(tracker);
+            var selection=args.Length>2?OnnxRuntime.Selection(args[2]):OnnxSelection.Auto;
+            var tracker=new PoseTracker(engine,backend,readModel(Text(args[0])),readModel(Text(args[1])),selection);trackers.Add(tracker);
             var m=new ModuleObj(AquaEnvironment.NewEnvironment());
+            Field(m,"Backend","後端",new StringObj(tracker.Provider.Id));
             Bind(m,"MediaPipe.PoseTracker","Analyze",a=>{
                 var r=tracker.Analyze(image(a[0]),a[1] is INumberObj n?n.GetNumValue():throw new ArgumentException("時間必須是毫秒數。"));
                 var result=new ModuleObj(AquaEnvironment.NewEnvironment());
@@ -45,7 +46,7 @@ public sealed class PoseRuntime : IDisposable {
     public bool TryImport(string name,out ModuleObj result){result=module;return name is "MediaPipe" or "姿態追蹤";}
     private void Bind(ModuleObj m,string library,string name,Func<IObject[],IObject> action){
         var spec=PoseCatalog.Functions.Single(f=>f.Library==library&&f.EnglishName==name);
-        var fn=new BuiltinObj(args=>{try {ObjectDisposedException.ThrowIf(disposed,this);if(args.Length!=spec.MinimumArguments)throw new ArgumentException("參數數量無效。");return action(args);}
+        var fn=new BuiltinObj(args=>{try {ObjectDisposedException.ThrowIf(disposed,this);if(args.Length<spec.MinimumArguments||args.Length>spec.MaximumArguments)throw new ArgumentException("參數數量無效。");return action(args);}
             catch(Exception e) when(e is ArgumentException or InvalidOperationException or OnnxFailure or IOException or ApplicationFailure){return new ErrorObj($"姿態追蹤.{spec.TraditionalChineseName}：{e.Message}");}})
             {RetainedEnvironment=m._Environment,PreservesArguments=true};
         FunctionRegistration.Define(m._Environment,fn,spec.TraditionalChineseName,name);

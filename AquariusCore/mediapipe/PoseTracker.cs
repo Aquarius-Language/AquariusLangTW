@@ -21,13 +21,17 @@ public sealed class PoseTracker : IDisposable {
     private readonly string boxes, scores, points, confidence, heatmap;
     private readonly object gate = new();
     private bool disposed;
-    public PoseTracker(IWasmEngine engine, IOnnxBackend backend, byte[] detectorModel, byte[] landmarkModel, OnnxProvider provider) {
+    /// <summary>The provider actually selected for both pose models.</summary>
+    public OnnxProvider Provider => detector.Provider;
+    public PoseTracker(IWasmEngine engine, IOnnxBackend backend, byte[] detectorModel, byte[] landmarkModel, OnnxSelection selection) {
         wasm = engine.Instantiate(Code.Value, new Dictionary<string, Delegate>());
         IOnnxSession? d = null, l = null;
         try {
             if (wasm.Invoke("pose_abi") != 1) throw new NotSupportedException("姿態處理介面版本不相容。");
-            d = backend.CreateSession(detectorModel, new(provider)).AsTask().GetAwaiter().GetResult();
-            l = backend.CreateSession(landmarkModel, new(provider)).AsTask().GetAwaiter().GetResult();
+            // The detector resolves the selection; the landmark model then runs on the same provider chain so both
+            // stages share one device and never mix e.g. CUDA detection with CPU landmarks after a fallback.
+            d = OnnxSessionFactory.Create(backend, detectorModel, selection).AsTask().GetAwaiter().GetResult();
+            l = OnnxSessionFactory.Create(backend, landmarkModel, OnnxSelection.Explicit(d.Plan.Devices.Select(x => x.Provider).ToArray())).AsTask().GetAwaiter().GetResult();
             if (d.Inputs.Count != 1 || l.Inputs.Count != 1 || d.Inputs[0].Type != "float32" || l.Inputs[0].Type != "float32" ||
                 !d.Inputs[0].Shape.SequenceEqual(new long[] {1,3,224,224}) || !l.Inputs[0].Shape.SequenceEqual(new long[] {1,256,256,3}))
                 throw new ArgumentException("必須使用相容的 MediaPipe 人物偵測與姿態模型。");

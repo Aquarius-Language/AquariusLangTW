@@ -8,9 +8,26 @@
     <RootNamespace>AquariusLang.Desktop</RootNamespace>
     <ApplicationManifest Condition="'$(OS)' == 'Windows_NT'">application.manifest</ApplicationManifest>
   </PropertyGroup>
+  <!--
+    ONNX Runtime native flavour per target RID (see docs/onnx.md#desktop-providers).
+    win-x64/linux-x64 use the CUDA build: the same onnxruntime library plus the CUDA/TensorRT provider-bridge
+    libraries, loaded only when CUDA or TensorRT is requested, so CPU and plugin EPs behave exactly as with the
+    CPU-only build. Other RIDs (win-arm64, linux-arm64, osx-arm64 with CoreML) use the standard package.
+    Publish with -p:AquariusOnnxCuda=false for a smaller runtime pack without the CUDA provider libraries.
+  -->
+  <PropertyGroup>
+    <AquariusOnnxVersion>1.30.0</AquariusOnnxVersion>
+    <AquariusOnnxRid Condition="'$(AquariusOnnxRid)' == ''">$(RuntimeIdentifier)</AquariusOnnxRid>
+    <AquariusOnnxRid Condition="'$(AquariusOnnxRid)' == ''">$(NETCoreSdkRuntimeIdentifier)</AquariusOnnxRid>
+    <AquariusOnnxCuda Condition="'$(AquariusOnnxCuda)' == '' And ('$(AquariusOnnxRid)' == 'win-x64' Or '$(AquariusOnnxRid)' == 'linux-x64')">true</AquariusOnnxCuda>
+    <AquariusOnnxPackage Condition="'$(AquariusOnnxCuda)' == 'true' And '$(AquariusOnnxRid)' == 'win-x64'">Microsoft.ML.OnnxRuntime.Gpu.Windows</AquariusOnnxPackage>
+    <AquariusOnnxPackage Condition="'$(AquariusOnnxCuda)' == 'true' And '$(AquariusOnnxRid)' == 'linux-x64'">Microsoft.ML.OnnxRuntime.Gpu.Linux</AquariusOnnxPackage>
+    <AquariusOnnxPackage Condition="'$(AquariusOnnxPackage)' == ''">Microsoft.ML.OnnxRuntime</AquariusOnnxPackage>
+  </PropertyGroup>
   <ItemGroup>
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
-    <PackageReference Include="Microsoft.ML.OnnxRuntime" Version="1.30.0" />
+    <PackageReference Include="$(AquariusOnnxPackage)" Version="$(AquariusOnnxVersion)" />
+    <!-- Dawn-based WebGPU plugin EP: vendor-neutral GPU path (D3D12, Vulkan, Metal) on every desktop RID. -->
     <PackageReference Include="Microsoft.ML.OnnxRuntime.EP.WebGpu" Version="0.4.0" />
     <PackageReference Include="Magick.NET-Q8-AnyCPU" Version="14.17.2" />
     <PackageReference Include="Wasmtime" Version="48.0.2" />
