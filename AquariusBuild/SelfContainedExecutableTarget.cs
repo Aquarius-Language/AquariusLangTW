@@ -10,8 +10,21 @@ namespace AquariusLang.Build;
 public sealed class SelfContainedExecutableTarget(string name, string runtimeIdentifier, string extension, string? runtimePacksDirectory = null) : IWasmBuildTarget {
     public string Name => name;
     public string ArtifactDescription => "Executable";
+    /// <summary>"true" selects the opt-in NVIDIA CUDA/TensorRT runtime pack (<c>RID-cuda</c>); projects set it with
+    /// <c>[onnx] cuda = true</c> in aqua.toml. Only RIDs with an ONNX Runtime CUDA build accept it.</summary>
+    public const string OnnxCudaOption = "--onnx-cuda";
+    public IReadOnlyCollection<string> OptionNames => SupportsOnnxCuda ? new[] { OnnxCudaOption } : Array.Empty<string>();
+    public bool SupportsOnnxCuda => runtimeIdentifier is "win-x64" or "linux-x64";
     private sealed record RuntimeManifest(string Format, int Version, string RuntimeIdentifier, int BundleVersion,
-        int WasmAbiVersion, string TemplateSha256);
+        int WasmAbiVersion, string TemplateSha256, bool OnnxCuda = false, bool OnnxCudaRuntime = false);
+    /// <summary>Parses the option; absent means the standard pack.</summary>
+    public static bool OnnxCudaRequested(IReadOnlyDictionary<string, string>? options) {
+        if (options == null || !options.TryGetValue(OnnxCudaOption, out var value)) return false;
+        return value.ToLowerInvariant() switch {
+            "true" or "on" or "yes" or "1" => true, "false" or "off" or "no" or "0" => false,
+            _ => throw new ArgumentException($"{OnnxCudaOption} expects true or false.")
+        };
+    }
 
     public void Build(WasmBuildRequest request) {
         string input = Path.GetFullPath(request.Input), output = Path.GetFullPath(request.Output);
@@ -25,11 +38,18 @@ public sealed class SelfContainedExecutableTarget(string name, string runtimeIde
         var package = WasmApplication.Load(wasm);
         package.CheckPlatform(Name);
         package.ResolveScript(request.EntryPoint ?? package.EntryPoint);
+        bool onnxCuda = OnnxCudaRequested(request.Options);
+        if (onnxCuda && !SupportsOnnxCuda) throw new ArgumentException($"{Name} executables do not support ONNX CUDA; it is available for win-x64 and linux-x64.");
         string root = runtimePacksDirectory ?? System.Environment.GetEnvironmentVariable("AQUARIUS_BUILD_TARGETS") ?? Path.Combine(AppContext.BaseDirectory, "build-targets");
-        string pack = Path.Combine(root, runtimeIdentifier);
+        // CUDA is opt-in: its provider libraries add ~190-270 MB, so it lives in a separate pack flavour.
+        string packName = runtimeIdentifier + (onnxCuda ? "-cuda" : "");
+        string pack = Path.Combine(root, packName);
         string manifestPath = Path.Combine(pack, "runtime.json"), templatePath = Path.Combine(pack, "host" + extension);
+        string script = runtimeIdentifier.StartsWith("linux-") ? "sh" + (onnxCuda ? " --onnx-cuda" : "") : "ps1" + (onnxCuda ? " -OnnxCuda" : "");
         if (!File.Exists(manifestPath) || !File.Exists(templatePath))
-            throw new IOException($"Runtime pack {runtimeIdentifier} is missing from {Path.GetFullPath(pack)}. Install the complete aqua distribution, or run scripts/publish-apphost.{(runtimeIdentifier.StartsWith("linux-") ? "sh" : "ps1")} when building from source.");
+            throw new IOException($"Runtime pack {packName} is missing from {Path.GetFullPath(pack)}. " + (onnxCuda
+                ? $"ONNX CUDA was requested ([onnx] cuda = true or {OnnxCudaOption} true); install an aqua distribution that includes the CUDA pack, or run scripts/publish-apphost.{script} when building from source."
+                : $"Install the complete aqua distribution, or run scripts/publish-apphost.{script} when building from source."));
         RuntimeManifest? manifest;
         if (new FileInfo(manifestPath).Length > 64 * 1024) throw new InvalidDataException("Executable runtime manifest exceeds the size limit.");
         try { manifest = JsonSerializer.Deserialize<RuntimeManifest>(File.ReadAllText(manifestPath), new JsonSerializerOptions(JsonSerializerDefaults.Web)); }
@@ -38,6 +58,11 @@ public sealed class SelfContainedExecutableTarget(string name, string runtimeIde
             manifest.RuntimeIdentifier != runtimeIdentifier || manifest.BundleVersion != ExecutableBundle.FormatVersion ||
             manifest.WasmAbiVersion != WasmAbi.Version)
             throw new InvalidDataException("Incompatible executable runtime pack. Rebuild or reinstall the pack with this compiler version.");
+        if (manifest.OnnxCuda != onnxCuda)
+            throw new InvalidDataException(onnxCuda ? $"Runtime pack {packName} does not contain the ONNX CUDA providers. Republish it with scripts/publish-apphost.{script}."
+                : $"Runtime pack {packName} is a CUDA flavour; publish the standard pack with scripts/publish-apphost.{script}.");
+        if (onnxCuda && !manifest.OnnxCudaRuntime)
+            throw new InvalidDataException($"Runtime pack {packName} lacks the bundled NVIDIA CUDA runtime libraries. Republish it with scripts/publish-apphost.{script}; CUDA executables must include their runtime dependencies.");
         using var template = File.OpenRead(templatePath);
         string checksum = Convert.ToHexString(SHA256.HashData(template));
         if (!checksum.Equals(manifest.TemplateSha256, StringComparison.OrdinalIgnoreCase))

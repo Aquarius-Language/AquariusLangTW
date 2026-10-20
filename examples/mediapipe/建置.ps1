@@ -1,5 +1,6 @@
 ﻿#requires -Version 5.1
-param([switch]$略過桌面, [switch]$驗證圖形加速, [switch]$Android, [switch]$APK)
+# -CUDA：桌面執行檔加入選用的 NVIDIA CUDA／TensorRT 推論提供者（需 build-targets/win-x64-cuda 執行環境套件）。
+param([switch]$略過桌面, [switch]$驗證圖形加速, [switch]$Android, [switch]$APK, [switch]$CUDA)
 $ErrorActionPreference = 'Stop'
 $命令 = Get-Command aqua -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
 if (-not $命令) { throw '找不到 aqua；請將支援姿態推論的星泉編譯器加入 PATH。' }
@@ -67,7 +68,7 @@ try {
     $首頁 = Join-Path $PSScriptRoot 'web/index.html'
     $內容 = [IO.File]::ReadAllText($首頁).Replace('lang="en"','lang="zh-Hant"').Replace('<title>Aquarius WebAssembly</title>','<title>星泉姿態觀測站</title>')
     [IO.File]::WriteAllText($首頁, $內容, [Text.UTF8Encoding]::new($false))
-    if (-not $略過桌面) { 執行編譯器 @('build','dist/星泉姿態觀測站.wasm','--target','windows','-o','dist/星泉姿態觀測站.exe') | Out-Null }
+    if (-not $略過桌面) { 執行編譯器 (@('build','dist/星泉姿態觀測站.wasm','--target','windows','-o','dist/星泉姿態觀測站.exe') + $(if ($CUDA) { @('--onnx-cuda','true') } else { @() })) | Out-Null }
     Write-Host '完成：星泉姿態觀測站與網頁版本，姿態模型推論驗證通過。'
     if ($Android -or $APK) {
         $AndroidOutput = if ($APK) { 'dist/android.apk' } else { 'dist/android-project-' + [Guid]::NewGuid().ToString('N').Substring(0,8) }

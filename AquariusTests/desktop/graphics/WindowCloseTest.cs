@@ -46,7 +46,9 @@ public class WindowCloseTest {
         using var process = Process.Start(start)!;
         var errors = process.StandardError.ReadToEndAsync();
         try {
-            await ReadUntil(process, "READY");
+            // The first native GPU/JIT initialization can be cold while the full suite
+            // compiles shaders in parallel. Keep close-response deadlines separate.
+            await ReadUntil(process, "READY", timeoutSeconds: 30);
             // Let the first frame finish so the close arrives while noLoop is idle.
             await Task.Delay(150);
             Assert.True(process.CloseMainWindow());
@@ -66,10 +68,10 @@ public class WindowCloseTest {
         }
     }
 
-    private static async Task ReadUntil(Process process, string expected) {
+    private static async Task ReadUntil(Process process, string expected, int timeoutSeconds = 10) {
         var received = new StringBuilder();
         while (true) {
-            string? line = await process.StandardOutput.ReadLineAsync().WaitAsync(TimeSpan.FromSeconds(10));
+            string? line = await process.StandardOutput.ReadLineAsync().WaitAsync(TimeSpan.FromSeconds(timeoutSeconds));
             Assert.True(line != null, $"Application exited before {expected}. Output: {received}");
             received.AppendLine(line);
             if (line == expected) return;

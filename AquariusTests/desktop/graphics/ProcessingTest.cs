@@ -11,6 +11,25 @@ namespace AquariusLang.Desktop.Graphics;
 
 [Collection("Starship console output")]
 public class ProcessingTest {
+    [Fact] public void ApplicationImageConversionReusesTheSameProcessingImageAndReplacesPixels() {
+        var result = Assert.IsType<ArrayObj>(Evaluate("""
+            變數 images=匯入("Images");變數 window=匯入("Window");
+            變數 picture=window.ToProcessingImage(images.Create(1,1,[255,0,0,255]));
+            變數 updated=window.ToProcessingImage(images.Create(1,1,[0,255,0,128]),picture);
+            變數 pixels=window.FromProcessingImage(updated).Pixels();
+            [picture==updated,pixels[0],pixels[1],pixels[3],picture.width,picture.height];
+            """));
+        Assert.True(Assert.IsType<BooleanObj>(result.Elements[0]).Value);
+        Assert.Equal(new double[] {0,255,128,1,1}, result.Elements.Skip(1).Select(GraphicsRuntime.Number));
+    }
+    [Fact] public void ApplicationImageReuseRejectsIncompatibleDimensions() {
+        var result=Assert.IsType<ErrorObj>(Evaluate("""
+            變數 images=匯入("Images");變數 window=匯入("Window");
+            變數 picture=window.ToProcessingImage(images.Create(1,1,[0,0,0,255]));
+            window.ToProcessingImage(images.Create(2,1,[0,0,0,255,0,0,0,255]),picture);
+            """));
+        Assert.Contains("matching dimensions",result.Message);
+    }
     [WgpuFact] public void EventErrorHandlerRecoversAnOffscreenDrawAndContinuesRendering() {
         var evaluated=Evaluate("""
             變數 p=匯入("Processing");變數 recovered=假;變數 failedEvent="";變數 canvas=0;

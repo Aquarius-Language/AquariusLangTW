@@ -8,6 +8,13 @@ Windows builds link the bridge and GLFW against the static MSVC C runtime.
 Standalone application publishing bundles wgpu-native's release VC runtime
 DLLs separately, so recipients do not need a Visual C++ redistributable installer.
 
+On Windows, `glfw_win32_window.c` wraps the pinned GLFW implementation so active
+window queries accept only windows owned by that GLFW instance. Input queues can
+be shared across processes during Windows automation; interpreting another
+process's `GLFW` window property as a local pointer otherwise crashes event polling.
+The upstream downloaded sources remain unchanged. Processing also enables sticky
+mouse button polling so a short click is retained between frames.
+
 The desktop VM host supports a complete **OpenGL 3.3 core** function surface:
 344 entry points and the constants from the vendored GLAD header. This includes
 VAO/VBO/EBOs, GLSL, uniforms, textures, samplers, depth/stencil/blending, FBOs,

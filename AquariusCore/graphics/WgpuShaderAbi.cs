@@ -91,6 +91,8 @@ struct Output { @builtin(position) position: vec4<f32>, @location(0) uv: vec2<f3
 public sealed class WgpuUniformLayout {
     public readonly Dictionary<string,(int Offset,int Count,string Type)> Fields=new();
     public readonly byte[] Bytes=new byte[1024];
+    /// <summary>Incremented by every successful Set, so hosts can reuse an uploaded uniform buffer.</summary>
+    public int Version { get; private set; }
     public WgpuUniformLayout(string source) {
         source=Regex.Replace(source,@"/\*[\s\S]*?\*/|//[^\r\n]*", "");
         var declaration=Regex.Match(source,@"struct\s+UserUniforms\s*\{([^}]*)\}");
@@ -114,5 +116,6 @@ public sealed class WgpuUniformLayout {
             if(field.Type=="u32"&&intValue<0)throw new ArgumentException("u32 uniform must be nonnegative.");
             BitConverter.GetBytes(intValue).CopyTo(Bytes,field.Offset);
         } else for(int i=0;i<values.Length;i++)BitConverter.GetBytes(values[i]).CopyTo(Bytes,field.Offset+i*4);
+        Version++;
     }
 }

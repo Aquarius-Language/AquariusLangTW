@@ -23,9 +23,12 @@ try {
         };
         string[] missing = required.Where(file => !File.Exists(Path.Combine(AppContext.BaseDirectory, file))).ToArray();
         if (missing.Length != 0) throw new IOException("Application runtime dependencies are missing: " + string.Join(", ", missing));
+        // Packs published with AquariusOnnxCuda=true carry ORT's CUDA/TensorRT provider libraries.
+        bool onnxCuda = File.Exists(Path.Combine(AppContext.BaseDirectory, OperatingSystem.IsLinux() ? "libonnxruntime_providers_cuda.so" : "onnxruntime_providers_cuda.dll"));
+        if (onnxCuda) CudaRuntimeBundle.Validate(AppContext.BaseDirectory, rid);
         Console.WriteLine(JsonSerializer.Serialize(new {
             format = "aquarius-runtime-pack", version = 1, runtimeIdentifier = RuntimeInformation.RuntimeIdentifier,
-            bundleVersion = ExecutableBundle.FormatVersion, wasmAbiVersion = WasmAbi.Version
+            bundleVersion = ExecutableBundle.FormatVersion, wasmAbiVersion = WasmAbi.Version, onnxCuda, onnxCudaRuntime = onnxCuda
         }));
         return;
     }

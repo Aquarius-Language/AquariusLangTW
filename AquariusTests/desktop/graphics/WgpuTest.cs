@@ -56,8 +56,9 @@ public class WgpuTest {
         foreach(string name in new[]{"WGPU","wgpu","Processing","GL","GLAD","GLFW","GLM","STBImage"})Assert.True(runtime.TryImport(name,out _));
         runtime.TryImport("WGPU",out var gpu);runtime.TryImport("wgpu",out var alias);Assert.Same(gpu,alias);
         Assert.IsType<BuiltinObj>(gpu._Environment.Get("CreateDevice",out _));
+        Assert.IsType<BuiltinObj>(gpu._Environment.Get("CreateWindow",out _));
         runtime.TryImport("Processing",out var processing);Assert.Equal("wgpu",Assert.IsType<StringObj>(processing._Environment.Get("backend",out _)).Value);
-        Assert.Contains("Expected 0",Assert.IsType<ErrorObj>(ProcessingTest.Evaluate("變數 gpu=匯入(\"WGPU\");gpu.CreateDevice(1);")).Message);
+        Assert.Contains("Expected a live WGPU window",Assert.IsType<ErrorObj>(ProcessingTest.Evaluate("變數 gpu=匯入(\"WGPU\");gpu.CreateDevice(1);")).Message);
     }
     [Fact] public void CustomUniformLayoutRespectsWgslAlignmentAndValueTypes() {
         var layout=new WgpuUniformLayout("struct UserUniforms { time: f32, uv: vec2<f32>, color: vec3<f32>, mode: i32, matrix: mat4x4<f32>, };");

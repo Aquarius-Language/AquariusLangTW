@@ -12,6 +12,9 @@ public sealed class ManifestException(string path, IReadOnlyList<ManifestIssue> 
 }
 public sealed record BottleDependency(string Name, string Version, string? Path = null, string? Git = null, string? Rev = null, string? Subdirectory = null);
 public sealed record BottleAsset(string Source, string? Target, IReadOnlyList<string> Platforms);
+/// <summary>[onnx] build options. Cuda selects the opt-in NVIDIA CUDA/TensorRT runtime pack for windows/linux
+/// executables; other targets are unaffected. Only the root project's settings apply, never a dependency's.</summary>
+public sealed record OnnxSettings(bool Cuda = false) { public static OnnxSettings Default { get; } = new(); }
 
 /// <summary>The shared compiler/editor manifest contract. Parsing never fetches or executes dependencies.</summary>
 public sealed class ProjectManifest {
@@ -29,6 +32,7 @@ public sealed class ProjectManifest {
     public IReadOnlyList<string> Platforms { get; }
     public IReadOnlyList<BottleAsset> Assets { get; } = [];
     public IReadOnlyDictionary<string, BottleDependency> Dependencies { get; } = new Dictionary<string, BottleDependency>();
+    public OnnxSettings Onnx { get; } = OnnxSettings.Default;
     internal TomlTable Model { get; }
 
     private ProjectManifest(string file, string text, TomlTable model) {
@@ -57,7 +61,7 @@ public sealed class ProjectManifest {
             try { SafeFiles.Relative(value); } catch (InvalidDataException e) { Fail(key, e.Message); }
             return value.Replace('\\', '/');
         }
-        Keys(model, "manifest", "manifest_version", "project", "dependencies", "assets", "tool");
+        Keys(model, "manifest", "manifest_version", "project", "dependencies", "assets", "onnx", "tool");
         if (model.TryGetValue("manifest_version", out var schema) && schema is not (long and 1)) Fail("manifest_version", "Only manifest_version = 1 is supported.");
         if (!model.TryGetValue("project", out var projectValue) || projectValue is not TomlTable) Fail("project", "Missing [project] table.");
         var project = (TomlTable)model["project"];
@@ -105,6 +109,13 @@ public sealed class ProjectManifest {
             } else Fail("assets", "Use assets = ['relative/path'] before [project], or [[assets]] tables with source, optional target and platforms.");
         }
         Assets = assets;
+        if (model.TryGetValue("onnx", out var onnxValue)) {
+            if (onnxValue is not TomlTable onnx) { Fail("onnx", "[onnx] must be a table, e.g. [onnx] cuda = true."); return; }
+            Keys(onnx, "onnx", "cuda");
+            bool cuda = false;
+            if (onnx.TryGetValue("cuda", out var cudaValue)) { if (cudaValue is bool flag) cuda = flag; else Fail("cuda", "'cuda' must be true or false."); }
+            Onnx = new(cuda);
+        }
     }
     public static bool ValidName(string name) => name.Length <= 100 && Regex.IsMatch(name, @"^[\p{L}\p{Nd}][\p{L}\p{Nd}_-]*$") && !Regex.IsMatch(name, "^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])$", RegexOptions.IgnoreCase);
     public static string Resolve(string path) => System.IO.Path.GetFullPath(Directory.Exists(path) ? System.IO.Path.Combine(path, FileName) : path);

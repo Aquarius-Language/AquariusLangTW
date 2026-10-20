@@ -65,7 +65,7 @@ Core 不參考 Android、桌面或瀏覽器部署專案；Android 建置專案�
 | AndroidInput / Android輸入 | 觸控、筆壓、歷史樣本、安全邊界、方向、鍵盤、震動、返回事件 |
 | Webcam / 網路攝影機 / 攝影機、OpenGL / GLFW、execFile | 平台特定能力；Android 使用 Camera、Processing 與 WGPU |
 
-Android ONNX AAR（1.30.0）依序提供 WebGPU（Vulkan GPU）、NNAPI（廠商 NPU／DSP 驅動）、XNNPACK 與 CPU；每個提供者在程序首次查詢時以小型卷積模型實際驗證。`自動` 依此順序選擇並在初始化失敗時退回；模擬器上 WebGPU 與 NNAPI 只在明確指定時使用。詳見 [推論架構指南](onnx.md#platform-providers)。
+Android ONNX AAR（1.30.0）依序提供 WebGPU（Vulkan GPU）、NNAPI（廠商 NPU／DSP 驅動）、XNNPACK 與 CPU；每個提供者在程序首次查詢時以小型卷積模型實際驗證。`自動` 依此順序選擇並在初始化失敗時退回；模擬器上 WebGPU、NNAPI 與 XNNPACK 只在明確指定時使用。XNNPACK 在 API 37 x86_64 模擬器上雖通過小型探測，建立 MediaPipe 姿態模型時仍可能直接終止原生程序，無法交由例外處理退回，因此模擬器的自動選擇使用 CPU。實體裝置仍保留 XNNPACK 的自動排序。詳見 [推論架構指南](onnx.md#platform-providers)。
 應用程式應查詢個別 capability，而不是假定所有主機都有印表機、相機、游標或檔案關聯。
 Android 的檔案存取以使用者選取的文件 URI 與私有儲存為邊界。
 

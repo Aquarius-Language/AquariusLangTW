@@ -37,7 +37,12 @@ rejects publish output with external files, queries format versions from the
 published host, records the template checksum, then commits the pack directory.
 Compiler distributions copy these packs alongside `aqua`.
 
-Each pack contains `host.exe` and `runtime.json`:
+Each pack contains `host.exe` and `runtime.json`. Windows and Linux x64 also have an optional
+NVIDIA CUDA flavour, `build-targets/<rid>-cuda`, published with `-OnnxCuda` / `--onnx-cuda`
+(ONNX Runtime's CUDA/TensorRT providers plus pinned NVIDIA CUDA/cuBLAS/NVRTC/cuDNN
+inference libraries and license notices). Exports select it only when the
+project sets `[onnx] cuda = true` or the CLI passes `--onnx-cuda true`; `SelfContainedExecutableTarget`
+checks that the pack's `onnxCuda` matches the request.
 
 ```json
 {
@@ -46,6 +51,7 @@ Each pack contains `host.exe` and `runtime.json`:
   "runtimeIdentifier": "win-x64",
   "bundleVersion": 2,
   "wasmAbiVersion": 1,
+  "onnxCuda": false,
   "templateSha256": "<SHA-256 of host.exe>"
 }
 ```

@@ -86,6 +86,45 @@ public class ExecutableBundleTest {
         Assert.Single(Directory.GetFiles(t.FilePath("dist")));
     }
 
+    /// <summary>Writes a synthetic runtime pack; the CUDA flavour lives in RID-cuda and records onnxCuda.</summary>
+    internal static void Pack(ApplicationTestDirectory t, string directory, string rid, bool onnxCuda, string extension = ".exe", bool? cudaRuntime = null) {
+        string template = t.Write($"{directory}/host{extension}", "synthetic runtime template " + directory);
+        t.Write($"{directory}/runtime.json", JsonSerializer.Serialize(new {
+            format = "aquarius-runtime-pack", version = 1, runtimeIdentifier = rid, bundleVersion = ExecutableBundle.FormatVersion,
+            wasmAbiVersion = AquariusLang.Wasm.WasmAbi.Version, templateSha256 = Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(template))), onnxCuda, onnxCudaRuntime = cudaRuntime ?? onnxCuda
+        }));
+    }
+    private static Dictionary<string, string> Cuda(string value) => new() { [SelfContainedExecutableTarget.OnnxCudaOption] = value };
+    [Fact] public void OnnxCudaIsOptInAndSelectsTheCudaRuntimePackFlavour() {
+        using var t = new ApplicationTestDirectory(); string wasm = Wasm(t);
+        Pack(t, "packs/win-x64", "win-x64", false); Pack(t, "packs/win-x64-cuda", "win-x64", true);
+        var target = new SelfContainedExecutableTarget("windows", "win-x64", ".exe", t.FilePath("packs"));
+        Assert.Equal(new[] { SelfContainedExecutableTarget.OnnxCudaOption }, target.OptionNames);
+        string standard = t.FilePath("dist/standard.exe"), cuda = t.FilePath("dist/cuda.exe");
+        target.Build(new WasmBuildRequest(wasm, standard));
+        target.Build(new WasmBuildRequest(wasm, cuda, null, Cuda("true")));
+        Assert.StartsWith("synthetic runtime template packs/win-x64-cuda", File.ReadAllText(cuda));
+        Assert.DoesNotContain("-cuda", File.ReadAllText(standard)[..40]);
+        target.Build(new WasmBuildRequest(wasm, standard, null, Cuda("false")));
+        Assert.Throws<ArgumentException>(() => target.Build(new WasmBuildRequest(wasm, cuda, null, Cuda("maybe"))));
+        Assert.Empty(new SelfContainedExecutableTarget("macos", "osx-arm64", "", t.FilePath("packs")).OptionNames);
+    }
+    [Fact] public void OnnxCudaPackProblemsAreExplainedAndPreserveOutput() {
+        using var t = new ApplicationTestDirectory(); string wasm = Wasm(t);
+        Pack(t, "packs/win-x64", "win-x64", false);
+        var target = new SelfContainedExecutableTarget("windows", "win-x64", ".exe", t.FilePath("packs"));
+        string output = t.Write("dist/app.exe", "previous output");
+        var missing = Assert.Throws<IOException>(() => target.Build(new WasmBuildRequest(wasm, output, null, Cuda("true"))));
+        Assert.Contains("win-x64-cuda", missing.Message); Assert.Contains("-OnnxCuda", missing.Message); Assert.Contains("[onnx] cuda = true", missing.Message);
+        Pack(t, "packs/win-x64-cuda", "win-x64", false);
+        Assert.Contains("does not contain", Assert.Throws<InvalidDataException>(() => target.Build(new WasmBuildRequest(wasm, output, null, Cuda("true")))).Message);
+        Pack(t, "packs/win-x64-cuda", "win-x64", true, cudaRuntime: false);
+        Assert.Contains("bundled NVIDIA", Assert.Throws<InvalidDataException>(() => target.Build(new WasmBuildRequest(wasm, output, null, Cuda("true")))).Message);
+        Pack(t, "packs/win-x64", "win-x64", true);
+        Assert.Contains("CUDA flavour", Assert.Throws<InvalidDataException>(() => target.Build(new WasmBuildRequest(wasm, output))).Message);
+        Assert.Equal("previous output", File.ReadAllText(output));
+    }
+
     [Fact] public void TargetRegistryReportsSupportedTargetsAndRejectsDuplicateRegistration() {
         Assert.Equal("windows", CompilerBuildTargets.Default.Resolve("windows").Name);
         Assert.Equal("linux", CompilerBuildTargets.Default.Resolve("linux").Name);

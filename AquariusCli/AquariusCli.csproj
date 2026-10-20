@@ -17,7 +17,7 @@
   </ItemGroup>
   <ItemGroup>
     <Content Include="../AquariusCore/linking/aquarius_library.h" Link="include/aquarius_library.h" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
-    <Content Include="../build-targets/**/*" Exclude="../build-targets/.aquarius-*/**/*" Link="build-targets/%(RecursiveDir)%(Filename)%(Extension)"
+    <Content Include="../build-targets/**/*" Exclude="../build-targets/.aquarius-*/**/*;../build-targets/cuda-runtime/**/*" Link="build-targets/%(RecursiveDir)%(Filename)%(Extension)"
              CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

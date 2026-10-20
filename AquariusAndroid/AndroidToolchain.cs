@@ -19,15 +19,26 @@ public static class AndroidToolchain
             FileName = OperatingSystem.IsWindows() && gradle.EndsWith(".bat", StringComparison.OrdinalIgnoreCase) ? "cmd.exe" : gradle,
             WorkingDirectory = project,
             UseShellExecute = false,
-            CreateNoWindow = true
+            CreateNoWindow = true,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true
         };
         if (start.FileName == "cmd.exe") { start.ArgumentList.Add("/d"); start.ArgumentList.Add("/c"); start.ArgumentList.Add(gradle); }
         start.ArgumentList.Add("--no-daemon"); start.ArgumentList.Add("--console=plain"); start.ArgumentList.Add(":app:assembleDebug");
         try
         {
             using var process = Process.Start(start) ?? throw new IOException("Unable to start Gradle.");
+            // Drain both pipes while Gradle runs: compiler callers may not have an attached
+            // console, and dependency downloads can otherwise fill a redirected pipe.
+            var stdout = process.StandardOutput.ReadToEndAsync();
+            var stderr = process.StandardError.ReadToEndAsync();
             if (!process.WaitForExit(600000)) { process.Kill(entireProcessTree: true); throw new IOException("Android build timed out."); }
-            if (process.ExitCode != 0) throw new IOException($"Android APK build failed (Gradle exit {process.ExitCode}). Check JAVA_HOME and ANDROID_HOME.");
+            string diagnostics = stdout.GetAwaiter().GetResult() + "\n" + stderr.GetAwaiter().GetResult();
+            if (process.ExitCode != 0) {
+                const int maximumDiagnosticCharacters = 16384;
+                if (diagnostics.Length > maximumDiagnosticCharacters) diagnostics = diagnostics[^maximumDiagnosticCharacters..];
+                throw new IOException($"Android APK build failed (Gradle exit {process.ExitCode}). Check JAVA_HOME (JDK 17 or 21) and ANDROID_HOME.\n{diagnostics.Trim()}");
+            }
         }
         catch (System.ComponentModel.Win32Exception e) { throw new IOException("Android APK builds require JDK 17+, Android SDK, and Gradle. Project generation requires no Android tools.", e); }
     }

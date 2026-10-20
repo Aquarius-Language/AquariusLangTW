@@ -10,8 +10,9 @@ namespace AquariusLang.Cli;
 public static class CompilerCommandLine {
     public const string Usage = "aqua build main.aqua [more.aqua ...] [--root directory] [--assets path ...] [-o app.wasm]\n" +
         "aqua build app.wasm --target web -o output-directory [--entry main.aqua]\n" +
-        "aqua build app.wasm --target windows -o app.exe [--entry main.aqua]\n" +
-        "aqua build app.wasm --target linux -o app [--entry main.aqua]\n" +
+        "aqua build app.wasm --target windows -o app.exe [--entry main.aqua] [--onnx-cuda true|false]\n" +
+        "aqua build app.wasm --target linux -o app [--entry main.aqua] [--onnx-cuda true|false]\n" +
+        "--onnx-cuda true bundles ONNX CUDA providers and NVIDIA inference runtime libraries (opt-in; projects use [onnx] cuda = true).\n" +
         "aqua build main.aqua --target android -o android-project [--root directory] [--assets path]\n" +
         "aqua build app.wasm --target android -o app.apk [--entry main.aqua]\n" +
         "Android options: [--application-id org.example.app] [--app-name DisplayName]\n" +
@@ -75,6 +76,9 @@ public static class CompilerCommandLine {
                 var projectBackend = CompilerBuildTargets.Default.Resolve(target);
                 if (options.Keys.Any(k => k is not ("-o" or "--target") && !projectBackend.OptionNames.Contains(k))) throw new ArgumentException($"Option does not apply to {target}.");
                 string projectOutput = Value("-o") ?? throw new ArgumentException($"{target} builds require -o output.");
+                // Manifest build settings become target options; an explicit command-line value overrides them.
+                if (project.Onnx.Cuda && projectBackend.OptionNames.Contains(SelfContainedExecutableTarget.OnnxCudaOption))
+                    options.TryAdd(SelfContainedExecutableTarget.OnnxCudaOption, "true");
                 string intermediate = Path.Combine(Path.GetTempPath(), "aquarius-project-build-" + Guid.NewGuid().ToString("N") + ".wasm");
                 try {
                     ProjectBuilder.Compile(manifest, intermediate, target, flags.Contains("--locked"), flags.Contains("--offline"));

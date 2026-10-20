@@ -14,6 +14,13 @@
     <DebugType>None</DebugType>
     <DebugSymbols>false</DebugSymbols>
   </PropertyGroup>
+  <PropertyGroup Condition="'$(AquariusOnnxCuda)' == 'true'">
+    <AquariusCudaRuntimeDirectory Condition="'$(AquariusCudaRuntimeDirectory)' == ''">$(MSBuildThisFileDirectory)../build-targets/cuda-runtime/$(RuntimeIdentifier)</AquariusCudaRuntimeDirectory>
+    <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
+  </PropertyGroup>
+  <Target Name="RequireCudaRuntimePayload" BeforeTargets="PrepareForPublish" Condition="'$(AquariusOnnxCuda)' == 'true'">
+    <Error Condition="!Exists('$(AquariusCudaRuntimeDirectory)/aquarius-cuda-runtime.json')" Text="CUDA runtime payload is missing. Use scripts/publish-apphost to prepare the pinned NVIDIA redistributables, or supply AquariusCudaRuntimeDirectory." />
+  </Target>
   <ItemGroup>
     <ProjectReference Include="../AquariusDesktop/AquariusDesktop.csproj" />
     <Content Include="../LICENSE" Link="licenses/AQUARIUS-LICENSE.txt" CopyToPublishDirectory="PreserveNewest" />

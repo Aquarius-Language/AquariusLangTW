@@ -15,7 +15,14 @@ internal sealed partial class GraphicsRuntime {
         Bind(env, "Attach", 1, a => AttachApplicationWindow(a[0]));
         Bind(env, "Current", 0, _ => sketchWindow == null ? throw new InvalidOperationException("Create a Processing window first.") : AttachApplicationWindow(sketchWindow));
         Bind(env, "FromProcessingImage", 1, a => { var image = ImageObject(a[0]); return Application.Image(new(image.Width, image.Height, ImagePixels(image))); });
-        Bind(env, "ToProcessingImage", 1, a => { var image = Application.GetImage(a[0]); var p = ProcessingImage.Create(this, image.Width, image.Height); p.Bytes = image.StraightPixels(); return RegisterImage(p).Module; });
+        PBind(env, "ToProcessingImage", 1, 2, a => {
+            var image = Application.GetImage(a[0]);
+            var p = a.Length == 2 ? ImageObject(a[1]) : ProcessingImage.Create(this, image.Width, image.Height);
+            if (p.Canvas != null || p.Width != image.Width || p.Height != image.Height)
+                throw new ArgumentException("The reusable Processing image must be a regular image with matching dimensions.");
+            p.Bytes = image.StraightPixels(); p.Dirty = true;
+            return a.Length == 2 ? p.Module : RegisterImage(p).Module;
+        });
     }
     private ModuleObj AttachApplicationWindow(IObject value) {
         _ = Window(value); var window = (WindowObject)value;

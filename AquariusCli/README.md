@@ -11,6 +11,7 @@ aqua build main.aqua lib/tools.aqua --root . --assets assets --target windows -o
 aqua build app.wasm --target web -o web
 aqua build app.wasm --target windows -o app.exe --entry lib/tools.aqua
 aqua build app.wasm --target linux -o app
+aqua build app.wasm --target windows -o app.exe --onnx-cuda true
 aqua new MyApp
 aqua new MyLibrary --type library
 aqua bottle install ../MyLibrary --project MyApp --version ">= 0.1, < 0.2"
@@ -39,9 +40,18 @@ process-launch API.
 Builds do not execute application code. Failed compilation or export preserves
 previous artifacts. Web output needs localhost/HTTPS, with WebGPU for graphics.
 Windows output uses the prepublished self-contained runtime pack; rebuild it with
-`scripts/publish-apphost.ps1` after runtime or ABI changes.
+`scripts/publish-apphost.ps1` after runtime or ABI changes. NVIDIA CUDA for ONNX is opt-in:
+`[onnx] cuda = true` in `aqua.toml` (or `--onnx-cuda true`, which also overrides the manifest)
+selects the `build-targets/<rid>-cuda` pack published with `-OnnxCuda`; see
+[the ONNX guide](../docs/onnx.md#nvidia-cuda-opt-in).
 
 Exit codes: 0 success, 1 compiler/runtime/IO failure, 2 invalid command/options.
+
+CUDA-enabled executable packs include the NVIDIA inference runtime libraries and
+license notices inside the EXE. `[onnx] cuda = true` is sufficient for project
+exports; no project-specific copy script, Python, or CUDA toolkit is required.
+Recipients need compatible NVIDIA hardware/drivers. Old provider-only CUDA packs
+are rejected and must be republished; standard CPU packs remain compatible.
 REPL compiles each input into Wasm and preserves the session environment.
 
 Build with the .NET 8 SDK after preparing core vendor assets:

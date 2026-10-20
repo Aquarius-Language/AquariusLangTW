@@ -56,3 +56,17 @@ export function textureLayout(source) {
   }
   return fields;
 }
+// Group 2 bindings 9..15 hold read-only storage buffers (`var<storage, read>`),
+// shared by vertex pulling and fragment lookups. Mirrors WgpuTextureLayout.Buffers.
+export function storageLayout(source) {
+  source=source.replace(/\/\*[\s\S]*?\*\/|\/\/[^\r\n]*/g,'');
+  const fields=new Map(),used=new Set();
+  for(const m of source.matchAll(/@(group|binding)\s*\(\s*(\d+)\s*\)\s*@(group|binding)\s*\(\s*(\d+)\s*\)\s*var\s*<([^>]*)>\s*([\p{L}\p{N}_]+)\s*:/gu)) {
+    if(m[1]===m[3]||Number(m[m[1]==='group'?2:4])!==2)continue;
+    const binding=Number(m[m[1]==='binding'?2:4]),space=m[5].replace(/\s+/g,'');
+    if(binding<9||binding>15||!['storage','storage,read'].includes(space))throw new Error('Group 2 storage buffers must be var<storage, read> at bindings 9..15');
+    if(used.has(binding))throw new Error('Duplicate texture group binding');used.add(binding);
+    if(fields.has(m[6]))throw new Error('Duplicate storage buffer name');fields.set(m[6],binding);
+  }
+  return fields;
+}

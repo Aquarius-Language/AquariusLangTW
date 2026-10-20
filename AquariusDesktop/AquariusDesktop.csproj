@@ -9,21 +9,31 @@
     <ApplicationManifest Condition="'$(OS)' == 'Windows_NT'">application.manifest</ApplicationManifest>
   </PropertyGroup>
   <!--
-    ONNX Runtime native flavour per target RID (see docs/onnx.md#desktop-providers).
-    win-x64/linux-x64 use the CUDA build: the same onnxruntime library plus the CUDA/TensorRT provider-bridge
-    libraries, loaded only when CUDA or TensorRT is requested, so CPU and plugin EPs behave exactly as with the
-    CPU-only build. Other RIDs (win-arm64, linux-arm64, osx-arm64 with CoreML) use the standard package.
-    Publish with -p:AquariusOnnxCuda=false for a smaller runtime pack without the CUDA provider libraries.
+    ONNX Runtime native flavour (see docs/onnx.md#nvidia-cuda-opt-in).
+    Default: the standard package on every RID (CPU, Core ML on macOS, plugin EPs such as WebGPU).
+    Opt in with -p:AquariusOnnxCuda=true (or the AquariusOnnxCuda=true environment variable) on win-x64/linux-x64
+    to use ORT's CUDA build instead: the same onnxruntime library plus the CUDA/TensorRT provider-bridge libraries
+    (~190 MB Windows, ~270 MB Linux), loaded only when CUDA or TensorRT is requested. Runtime packs built this way
+    are published as build-targets/<rid>-cuda and selected per project with [onnx] cuda = true in aqua.toml (or the CLI onnx-cuda option).
   -->
   <PropertyGroup>
     <AquariusOnnxVersion>1.30.0</AquariusOnnxVersion>
     <AquariusOnnxRid Condition="'$(AquariusOnnxRid)' == ''">$(RuntimeIdentifier)</AquariusOnnxRid>
     <AquariusOnnxRid Condition="'$(AquariusOnnxRid)' == ''">$(NETCoreSdkRuntimeIdentifier)</AquariusOnnxRid>
-    <AquariusOnnxCuda Condition="'$(AquariusOnnxCuda)' == '' And ('$(AquariusOnnxRid)' == 'win-x64' Or '$(AquariusOnnxRid)' == 'linux-x64')">true</AquariusOnnxCuda>
+    <AquariusOnnxCuda Condition="'$(AquariusOnnxCuda)' != 'true'">false</AquariusOnnxCuda>
     <AquariusOnnxPackage Condition="'$(AquariusOnnxCuda)' == 'true' And '$(AquariusOnnxRid)' == 'win-x64'">Microsoft.ML.OnnxRuntime.Gpu.Windows</AquariusOnnxPackage>
     <AquariusOnnxPackage Condition="'$(AquariusOnnxCuda)' == 'true' And '$(AquariusOnnxRid)' == 'linux-x64'">Microsoft.ML.OnnxRuntime.Gpu.Linux</AquariusOnnxPackage>
     <AquariusOnnxPackage Condition="'$(AquariusOnnxPackage)' == ''">Microsoft.ML.OnnxRuntime</AquariusOnnxPackage>
+    <AquariusCudaRuntimeDirectory Condition="'$(AquariusOnnxCuda)' == 'true' And '$(AquariusCudaRuntimeDirectory)' == ''">$(MSBuildThisFileDirectory)../build-targets/cuda-runtime/$(AquariusOnnxRid)</AquariusCudaRuntimeDirectory>
   </PropertyGroup>
+  <!-- CUDA compiler distributions and app hosts carry the same pinned inference runtime.
+       Ordinary CPU builds never copy these large files. -->
+  <ItemGroup Condition="'$(AquariusOnnxCuda)' == 'true' And Exists('$(AquariusCudaRuntimeDirectory)/aquarius-cuda-runtime.json')">
+    <Content Include="$(AquariusCudaRuntimeDirectory)/**/*" Link="%(RecursiveDir)%(Filename)%(Extension)" CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
+  <Target Name="AquariusValidateOnnxCuda" BeforeTargets="CollectPackageReferences" Condition="'$(AquariusOnnxCuda)' == 'true' And '$(AquariusOnnxPackage)' == 'Microsoft.ML.OnnxRuntime'">
+    <Error Text="AquariusOnnxCuda=true requires the win-x64 or linux-x64 runtime identifier (current: $(AquariusOnnxRid)). ONNX Runtime publishes CUDA builds only for those RIDs." />
+  </Target>
   <ItemGroup>
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
     <PackageReference Include="$(AquariusOnnxPackage)" Version="$(AquariusOnnxVersion)" />

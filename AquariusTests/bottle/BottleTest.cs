@@ -51,6 +51,28 @@ public class BottleTest {
         Assert.Contains(error.ToLowerInvariant(), failure.Message.ToLowerInvariant()); Assert.NotEmpty(failure.Issues);
         Assert.All(failure.Issues, issue => Assert.InRange(issue.Offset, 0, text.Length));
     }
+    [Fact] public void OnnxCudaIsOffByDefaultAndOptInThroughTheManifest() {
+        string Text(string onnx) => "[project]\nname = 'app'\ntype = 'executable'\n" + onnx;
+        Assert.False(ProjectManifest.Parse(Path.GetFullPath("aqua.toml"), Text("")).Onnx.Cuda);
+        Assert.True(ProjectManifest.Parse(Path.GetFullPath("aqua.toml"), Text("[onnx]\ncuda = true\n")).Onnx.Cuda);
+        Assert.False(ProjectManifest.Parse(Path.GetFullPath("aqua.toml"), Text("[onnx]\ncuda = false\n")).Onnx.Cuda);
+        Assert.Contains("true or false", Assert.Throws<ManifestException>(() => ProjectManifest.Parse(Path.GetFullPath("aqua.toml"), Text("[onnx]\ncuda = 'yes'\n"))).Message);
+        Assert.Contains("Unknown onnx key", Assert.Throws<ManifestException>(() => ProjectManifest.Parse(Path.GetFullPath("aqua.toml"), Text("[onnx]\ncudaa = true\n"))).Message);
+        Assert.Contains("table", Assert.Throws<ManifestException>(() => ProjectManifest.Parse(Path.GetFullPath("aqua.toml"), "onnx = true\n" + Text(""))).Message);
+    }
+    [Fact] public void CliExportsUseTheManifestOnnxCudaSettingUnlessTheCommandLineOverridesIt() {
+        using var t = new ApplicationTestDirectory();
+        string app = Project(t, "app", "app", "executable", assets: "[onnx]\ncuda = true");
+        AquariusTests.Packaging.ExecutableBundleTest.Pack(t, "packs/win-x64-cuda", "win-x64", true);
+        var environment = new Dictionary<string, string> { ["AQUARIUS_BUILD_TARGETS"] = t.FilePath("packs") };
+        AssertSuccess(Run(t, environment, "build", app, "--target", "windows", "-o", "cuda.exe"));
+        Assert.StartsWith("synthetic runtime template packs/win-x64-cuda", File.ReadAllText(t.FilePath("cuda.exe")));
+        var standard = Run(t, environment, "build", app, "--target", "windows", "-o", "standard.exe", "--onnx-cuda", "false");
+        Assert.Equal(1, standard.Code); Assert.Contains("win-x64 is missing", standard.Error);
+        Assert.Equal(2, Run(t, environment, "build", app, "--target", "web", "-o", "site", "--onnx-cuda", "true").Code);
+        // Web exports of the same project ignore the desktop-only setting.
+        AssertSuccess(Run(t, environment, "build", app, "--target", "web", "-o", "site"));
+    }
     [Fact] public void ExecutablesCanOmitVersionAndTomlSupportsMultilineArraysAndComments() {
         var project = ProjectManifest.Parse(Path.GetFullPath("aqua.toml"), "# project\n[project]\nname = '我的應用'\ntype = 'executable'\nsources = [\n 'main.aqua', # file\n]\n");
         Assert.Null(project.Version); Assert.Equal("我的應用", project.Name);
@@ -185,9 +207,11 @@ public class BottleTest {
         Assert.Equal("lib", ProjectManifest.Load(manager.Cache.ContentRoot(manager.Cache.List().Single())).Name);
     }
     private static void AssertSuccess((int Code, string Output, string Error) result) => Assert.True(result.Code == 0, result.Error);
-    private static (int Code, string Output, string Error) Run(ApplicationTestDirectory directory, params string[] args) {
+    private static (int Code, string Output, string Error) Run(ApplicationTestDirectory directory, params string[] args) => Run(directory, new Dictionary<string, string>(), args);
+    private static (int Code, string Output, string Error) Run(ApplicationTestDirectory directory, IReadOnlyDictionary<string, string> environment, params string[] args) {
         var start = new ProcessStartInfo(System.Environment.GetEnvironmentVariable("DOTNET_HOST_PATH") ?? "dotnet") { WorkingDirectory = directory.Path, UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true, RedirectStandardError = true };
         start.Environment["AQUA_BOTTLE_HOME"] = directory.FilePath("cache"); start.ArgumentList.Add(typeof(CompilerCommandLine).Assembly.Location);
+        foreach (var (name, value) in environment) start.Environment[name] = value;
         foreach (string arg in args) start.ArgumentList.Add(arg);
         using var process = Process.Start(start)!; var output = process.StandardOutput.ReadToEndAsync(); var error = process.StandardError.ReadToEndAsync();
         if (!process.WaitForExit(60000)) { process.Kill(true); throw new TimeoutException("Bottle CLI timed out."); }

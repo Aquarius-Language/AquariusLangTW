@@ -1,5 +1,8 @@
 #requires -Version 5.1
-param([string]$Dotnet = 'dotnet', [string]$Runtime = 'win-x64', [string]$Output = 'build-targets/win-x64', [string]$VCRuntimeDirectory = '')
+# -OnnxCuda publishes the optional NVIDIA CUDA/TensorRT flavour of the pack (default output build-targets/win-x64-cuda).
+# Projects select it with [onnx] cuda = true in aqua.toml or 'aqua build ... --onnx-cuda true'.
+param([string]$Dotnet = 'dotnet', [string]$Runtime = 'win-x64', [string]$Output = '', [string]$VCRuntimeDirectory = '', [switch]$OnnxCuda,
+    [string]$Python = 'python', [string]$CudaRuntimeDirectory = '')
 $ErrorActionPreference = 'Stop'
 $repository = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 Push-Location $repository
@@ -7,7 +10,17 @@ $stage = $null
 $backup = $null
 $committed = $false
 try {
+    if (-not $Output) { $Output = 'build-targets/' + $Runtime + $(if ($OnnxCuda) { '-cuda' } else { '' }) }
+    $onnxCudaProperty = if ($OnnxCuda) { 'true' } else { 'false' }
     if ($Runtime -ne 'win-x64' -or [Environment]::OSVersion.Platform -ne 'Win32NT') { throw 'The current application runtime pack supports Windows x64 and must be published on Windows.' }
+    if ($OnnxCuda) {
+        if (-not $CudaRuntimeDirectory) {
+            $CudaRuntimeDirectory = Join-Path $repository "build-targets/cuda-runtime/$Runtime"
+            & $Python (Join-Path $PSScriptRoot 'prepare-cuda-runtime.py') --runtime $Runtime --output $CudaRuntimeDirectory
+            if ($LASTEXITCODE -ne 0) { throw 'CUDA runtime payload preparation failed.' }
+        }
+        $CudaRuntimeDirectory = [IO.Path]::GetFullPath($CudaRuntimeDirectory)
+    }
     $bridge = Join-Path $repository "AquariusDesktop/runtimes/$Runtime/native/aquarius_graphics.dll"
     if (-not (Test-Path -LiteralPath $bridge -PathType Leaf)) { throw 'Build the native graphics bridge with ./native/build.ps1 before publishing the application runtime.' }
     if (-not (Test-Path -LiteralPath (Join-Path $repository "AquariusDesktop/runtimes/$Runtime/native/aquarius_audio.dll") -PathType Leaf)) { throw 'Build the native audio bridge with ./native/build.ps1 before publishing the application runtime.' }
@@ -47,7 +60,7 @@ try {
     $backup = Join-Path $parent ('.aquarius-runtime-backup-' + [Guid]::NewGuid().ToString('N'))
     $publish = Join-Path $stage 'publish'
     $dotnetLicenseRoot = [IO.Path]::GetDirectoryName((Get-Command $Dotnet -CommandType Application -ErrorAction Stop | Select-Object -First 1).Source)
-    & $Dotnet publish AquariusAppHost/AquariusAppHost.csproj -c Release -r $Runtime --self-contained true -m:1 -p:PublishSingleFile=true -p:PublishTrimmed=false -p:IncludeAllContentForSelfExtract=true -p:DebugType=None -p:DebugSymbols=false "-p:AquariusDotnetLicenseRoot=$dotnetLicenseRoot" "-p:AquariusVCRuntimeDirectory=$VCRuntimeDirectory" -o $publish
+    & $Dotnet publish AquariusAppHost/AquariusAppHost.csproj -c Release -r $Runtime --self-contained true -m:1 -p:PublishSingleFile=true -p:PublishTrimmed=false -p:IncludeAllContentForSelfExtract=true -p:DebugType=None -p:DebugSymbols=false "-p:AquariusDotnetLicenseRoot=$dotnetLicenseRoot" "-p:AquariusVCRuntimeDirectory=$VCRuntimeDirectory" "-p:AquariusOnnxCuda=$onnxCudaProperty" "-p:AquariusCudaRuntimeDirectory=$CudaRuntimeDirectory" -o $publish
     if ($LASTEXITCODE -ne 0) { throw 'Application host publishing failed.' }
     $hostPath = Join-Path $publish 'AquariusAppHost.exe'
     if (-not (Test-Path -LiteralPath $hostPath -PathType Leaf)) { throw 'Published application host is missing.' }
@@ -72,6 +85,8 @@ try {
     } finally { $process.Dispose() }
     $manifest = $info | ConvertFrom-Json
     if ($manifest.runtimeIdentifier -ne $Runtime) { throw 'Published runtime architecture does not match the requested runtime.' }
+    if ([bool]$manifest.onnxCuda -ne [bool]$OnnxCuda) { throw 'Published runtime ONNX CUDA flavour does not match the request. Run dotnet restore and publish again.' }
+    if ($OnnxCuda -and -not $manifest.onnxCudaRuntime) { throw 'Published CUDA runtime is missing its NVIDIA redistributables.' }
     $hash = (Get-FileHash -LiteralPath $hostPath -Algorithm SHA256).Hash.ToLowerInvariant()
     $manifest | Add-Member -NotePropertyName templateSha256 -NotePropertyValue $hash
     Move-Item -LiteralPath $hostPath -Destination (Join-Path $stage 'host.exe')

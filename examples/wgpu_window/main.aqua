@@ -1,0 +1,90 @@
+# WGPU 視窗示範：視窗、輸入、指標鎖定、常駐頂點緩衝區、程序化繪製與深度狀態。
+# WGPU window demo: window, input, pointer lock, retained vertex buffers, procedural draws and depth state.
+# 點擊視窗鎖定滑鼠並以滑鼠環視；Esc 解除鎖定；再按一次 Esc 或關閉視窗離開。
+變數 GPU = 匯入("WGPU");
+變數 數學 = 匯入("GLM");
+變數 窗 = GPU.CreateWindow(960, 600, "Aquarius WGPU Window");
+變數 裝置 = GPU.CreateDevice(窗);
+印出("backend", 裝置.Backend);
+
+# 立方體：程序化頂點從儲存緩衝區讀取每個面的顏色（vertex pulling）。
+變數 立方體著色 = 裝置.CreateShader("
+struct UserUniforms { viewProjection: mat4x4<f32>, time: f32, };
+@group(1) @binding(0) var<uniform> user: UserUniforms;
+@group(2) @binding(9) var<storage, read> faceColors: array<f32>;
+@vertex fn vs_main(@builtin(vertex_index) index: u32) -> VertexOutput {
+    let face = index / 6u; var corners = array<u32,6>(0u,1u,2u,0u,2u,3u); let corner = corners[index % 6u];
+    let a = select(-1.0, 1.0, (corner == 1u) || (corner == 2u)); let b = select(-1.0, 1.0, corner >= 2u);
+    let s = select(-1.0, 1.0, (face & 1u) == 0u); let axis = face / 2u;
+    var p = vec3<f32>(0.0); var n = vec3<f32>(0.0);
+    if (axis == 0u) { p = vec3<f32>(s, a*s, b); n = vec3<f32>(s,0.0,0.0); }
+    else if (axis == 1u) { p = vec3<f32>(b, s, a*s); n = vec3<f32>(0.0,s,0.0); }
+    else { p = vec3<f32>(a*s, b, s); n = vec3<f32>(0.0,0.0,s); }
+    var o: VertexOutput;
+    var clip = user.viewProjection * vec4<f32>(p, 1.0); clip.z = (clip.z + clip.w) * 0.5;
+    o.position = clip; o.normal = n; o.uv = vec2<f32>(a, b) * 0.5 + 0.5;
+    o.vertexColor = vec4<f32>(faceColors[face*3u], faceColors[face*3u+1u], faceColors[face*3u+2u], 1.0);
+    o.eyePosition = p; return o;
+}", "
+struct UserUniforms { viewProjection: mat4x4<f32>, time: f32, };
+@group(1) @binding(0) var<uniform> user: UserUniforms;
+@fragment fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
+    let light = max(dot(normalize(input.normal), normalize(vec3<f32>(0.4, 0.8, 0.3))), 0.0) * 0.8 + 0.2;
+    let edge = min(min(input.uv.x, 1.0 - input.uv.x), min(input.uv.y, 1.0 - input.uv.y));
+    return vec4<f32>(input.vertexColor.rgb * light * select(0.35, 1.0, edge > 0.04), 1.0);
+}");
+變數 顏色 = 裝置.CreateBuffer([0.9d,0.3d,0.3d, 0.5d,0.15d,0.15d, 0.3d,0.9d,0.4d, 0.15d,0.45d,0.2d, 0.3d,0.5d,0.95d, 0.15d,0.25d,0.5d]);
+立方體著色.SetBuffer("faceColors", 顏色);
+
+# 地板：常駐頂點緩衝區（12 個浮點數／頂點）。
+變數 地板頂點 = [];
+變數 角 = [[-6,-6],[6,6],[6,-6],[-6,-6],[-6,6],[6,6]];   # 由上方看為逆時針（正面）。 Counter-clockwise seen from above.
+迴圈 (變數 i = 0; i < 6; i++) { 地板頂點 = 加入(地板頂點, 角[i][0]); 地板頂點 = 加入(地板頂點, -1.5d); 地板頂點 = 加入(地板頂點, 角[i][1]);
+    地板頂點 = 加入(地板頂點, 0); 地板頂點 = 加入(地板頂點, 1); 地板頂點 = 加入(地板頂點, 0); 地板頂點 = 加入(地板頂點, 角[i][0] * 0.5d); 地板頂點 = 加入(地板頂點, 角[i][1] * 0.5d);
+    地板頂點 = 加入(地板頂點, 0.45d); 地板頂點 = 加入(地板頂點, 0.47d); 地板頂點 = 加入(地板頂點, 0.5d); 地板頂點 = 加入(地板頂點, 1); }
+變數 地板 = 裝置.CreateVertexBuffer(地板頂點);
+變數 地板著色 = 裝置.CreateShader("
+struct UserUniforms { viewProjection: mat4x4<f32>, time: f32, };
+@group(1) @binding(0) var<uniform> user: UserUniforms;
+@vertex fn vs_main(input: VertexInput) -> VertexOutput {
+    var o: VertexOutput; var clip = user.viewProjection * vec4<f32>(input.position, 1.0); clip.z = (clip.z + clip.w) * 0.5;
+    o.position = clip; o.uv = input.texcoord; o.vertexColor = input.color; o.normal = input.normal; o.eyePosition = input.position; return o;
+}", "
+@fragment fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
+    let checker = (i32(floor(input.uv.x)) + i32(floor(input.uv.y))) % 2;
+    return vec4<f32>(input.vertexColor.rgb * select(0.8, 1.1, checker == 0), 1.0);
+}");
+
+變數 建立畫面 = 函式() { 變數 t = 裝置.CreateRenderTarget(窗.PixelWidth, 窗.PixelHeight); t.SetState({"depth":"less","cull":"back","blend":"replace"}); 回傳 t; };
+變數 畫面 = 建立畫面();
+變數 偏航 = 0.6d; 變數 俯仰 = 0.35d; 變數 影格 = 0; 變數 開始 = 目前時間();
+迴圈 (變數 執行中 = 真; !窗.ShouldClose; 執行中 = 真) {
+    窗.Poll();
+    如果 (窗.PixelWidth == 0 || 窗.PixelHeight == 0) { 窗.SetPointerLock(假); }
+    如果 (窗.Resized && 窗.PixelWidth > 0 && 窗.PixelHeight > 0) { 畫面.Dispose(); 畫面 = 建立畫面(); 印出("resized", 窗.Width, 窗.Height, 窗.PixelWidth, 窗.PixelHeight); }
+    如果 (窗.MousePressed(0) && !窗.PointerLocked) { 窗.SetPointerLock(真); }
+    如果 (窗.KeyPressed(256)) { 如果 (窗.PointerLocked) { 窗.SetPointerLock(假); } 否則 { 窗.Close(); } }
+    如果 (窗.KeyPressed(32)) { 印出("space pressed, wheel", 窗.Wheel); }
+    如果 (窗.PointerLocked) { 偏航 += 窗.MouseDeltaX * 0.004d; 俯仰 += 窗.MouseDeltaY * 0.004d; }
+    如果 (窗.KeyDown(65)) { 偏航 -= 0.02d; } 如果 (窗.KeyDown(68)) { 偏航 += 0.02d; }
+    變數 可見 = 窗.PixelWidth > 0 && 窗.PixelHeight > 0;
+    變數 寬高比 = 1.0d;
+    如果 (可見) { 寬高比 = 窗.PixelWidth * 1.0d / 窗.PixelHeight; }
+    變數 距離 = 6.0d; 變數 cp = 數學.Cos(俯仰);
+    變數 眼 = [數學.Sin(偏航) * cp * 距離, 數學.Sin(俯仰) * 距離, 數學.Cos(偏航) * cp * 距離];
+    變數 視圖 = 數學.LookAt(眼, [0, 0, 0], [0, 1, 0]);
+    變數 投影 = 數學.Perspective(1.0d, 寬高比, 0.1d, 100.0d);
+    變數 vp = 數學.Multiply(投影, 視圖);
+    立方體著色.Set("viewProjection", vp); 地板著色.Set("viewProjection", vp);
+    如果 (可見) {
+        畫面.Clear([0.08d, 0.1d, 0.16d, 1]);
+        畫面.DrawBuffer(地板著色, 地板);
+        畫面.DrawProcedural(立方體著色, 36);
+        裝置.Present(畫面);
+    }
+    如果 (影格 == 30) { 畫面.Save(目前工作目錄 + "/capture.png"); }
+    影格++;
+    如果 (影格 % 120 == 0) { 印出("fps", 影格 * 1000.0d / (目前時間() - 開始), "locked", 窗.PointerLocked, "focused", 窗.Focused); }
+}
+畫面.Dispose(); 裝置.Dispose(); 窗.Dispose();
+印出("closed after", 影格, "frames");

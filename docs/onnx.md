@@ -60,7 +60,9 @@ flowchart LR
   errors); invalid models, cancellation and closed runtimes stop immediately.
 * **Automatic = false** marks devices used only on explicit request: TensorRT (first-run
   engine builds take seconds to minutes), software GPU adapters (llvmpipe, WARP, SwiftShader,
-  browser fallback adapters) and accelerators on the Android emulator.
+  browser fallback adapters) and WebGPU/NNAPI/XNNPACK on the Android emulator. ORT 1.30's
+  XNNPACK model optimizer can abort the native process on emulator MediaPipe graphs even
+  when the small probe passes; Auto uses CPU there, while real devices retain XNNPACK's rank.
 * Sessions report `Backend/後端` (primary provider), `Device/裝置` (`CPU`/`GPU`/`NPU`) and
   `Providers/後端清單`, the effective chain including companions and the CPU fallback. ORT can
   still execute individual unsupported operators on CPU; the backend field does not claim
@@ -70,20 +72,34 @@ flowchart LR
 
 ## Platform providers
 
+CUDA-enabled executable packs embed the NVIDIA CUDA 13 runtime, cuBLAS, NVRTC,
+cuDNN 9 and their license notices. Normal application builds need no download,
+toolkit installation, Python, or custom packaging script. On Windows, source
+hosts can also discover external NVIDIA runtime DLLs in
+`onnx-providers/cuda/` beside the original executable (including single-file EXEs),
+or in the absolute directories listed in `AQUARIUS_ONNX_CUDA_PATH`. Flat DLL folders,
+CUDA toolkit `bin` / `bin/x86_64`, and NVIDIA Python package `cu13/bin/x86_64` plus
+`cudnn/bin` layouts are supported; `CUDA_PATH` is also checked. These directories
+are added only to the running process's PATH before the CUDA probe. Ship the
+required CUDA 13, cuBLAS and cuDNN 9 DLLs with their NVIDIA license notices when
+deploying a custom host instead of the standard self-contained executable pack.
+
 Order is the `Auto` ranking. "Plugin" means an ORT plugin EP library registered at runtime
 with `RegisterExecutionProviderLibrary`; optional plugins are discovered side by side.
 
 | Platform | Ranked devices | Engine |
 | --- | --- | --- |
-| Windows x64 | CUDA (GPU) · OpenVINO GPU¹ · WebGPU (D3D12) · OpenVINO NPU¹ · TensorRT² · CPU | `Microsoft.ML.OnnxRuntime.Gpu.Windows` 1.30.0 + WebGPU plugin 0.4.0 |
-| Linux x64 | CUDA · OpenVINO GPU¹ · WebGPU (Vulkan) · OpenVINO NPU¹ · TensorRT² · CPU | `Microsoft.ML.OnnxRuntime.Gpu.Linux` 1.30.0 + WebGPU plugin |
+| Windows x64 | CUDA³ (GPU) · OpenVINO GPU¹ · WebGPU (D3D12) · OpenVINO NPU¹ · TensorRT²³ · CPU | `Microsoft.ML.OnnxRuntime` 1.30.0 + WebGPU plugin 0.4.0; `…Gpu.Windows` with CUDA³ |
+| Linux x64 | CUDA³ · OpenVINO GPU¹ · WebGPU (Vulkan) · OpenVINO NPU¹ · TensorRT²³ · CPU | `Microsoft.ML.OnnxRuntime` 1.30.0 + WebGPU plugin; `…Gpu.Linux` with CUDA³ |
 | Windows arm64 | QNN NPU¹ (Snapdragon HTP) · WebGPU · CPU | `Microsoft.ML.OnnxRuntime` 1.30.0 + WebGPU plugin |
 | Linux arm64 | WebGPU · CPU | `Microsoft.ML.OnnxRuntime` 1.30.0 + WebGPU plugin |
 | macOS arm64 | Core ML NPU (Neural Engine + GPU) · Core ML GPU (Metal) · WebGPU (Metal) · CPU | `Microsoft.ML.OnnxRuntime` 1.30.0 (Core ML built in) + WebGPU plugin |
 | Web | WebGPU · WebNN GPU · WebNN NPU · Wasm SIMD CPU | `onnxruntime-web` 1.30.0 (`ort.webgpu` bundle, local assets) |
 | Android | WebGPU (Vulkan) · NNAPI · XNNPACK · CPU | `onnxruntime-android` 1.30.0 |
 
-¹ Optional plugin, used when present. ² Explicit only.
+¹ Optional plugin, used when present. ² Explicit only. ³ Opt-in, see
+[NVIDIA CUDA (opt-in)](#nvidia-cuda-opt-in); without it CUDA/TensorRT are listed as
+unavailable with instructions.
 
 ### Tuning applied per provider
 
@@ -115,19 +131,62 @@ Data paths avoid redundant copies: desktop binds immutable input snapshots direc
 values and copies each output once; browsers adopt ORT's downloaded output arrays;
 Android binds direct native-order buffers and serializes outputs in bulk.
 
+### NVIDIA CUDA (opt-in)
+
+CUDA inference runtimes are large, so they are **not included by default**. The CUDA pack
+contains ONNX's CUDA/TensorRT provider bridges plus pinned NVIDIA CUDA 13, cuBLAS, NVRTC,
+cuDNN 9 and license notices. Without it CUDA and TensorRT are listed
+as unavailable (with the steps below as the reason) and `Auto`/`GPU` use WebGPU instead. Enable
+CUDA per project in `aqua.toml`, so every export of that project includes it without CLI flags:
+
+```toml
+[onnx]
+cuda = true   # executable exports include ONNX CUDA and all CUDA inference runtime dependencies
+```
+
+| Where | How to opt in | Effect |
+| --- | --- | --- |
+| Project exports | `[onnx] cuda = true` in the root `aqua.toml` | `aqua build . --target windows\|linux -o …` uses the `build-targets/<rid>-cuda` runtime pack |
+| One-off exports | `--onnx-cuda true` (overrides the manifest; `false` forces the standard pack) | same, for `.wasm`/source inputs or to override a project |
+| Runtime packs | `scripts/publish-apphost.ps1 -OnnxCuda` / `bash scripts/publish-apphost.sh --onnx-cuda` | publishes `build-targets/win-x64-cuda` / `linux-x64-cuda` beside the standard pack |
+| Compiler distribution | `scripts/publish-cli.ps1 -OnnxCuda`, `publish-cli.sh --onnx-cuda`, `build-release.bat -OnnxCuda` | ships both packs; `aqua run` itself can use CUDA |
+| Source builds / tests | `-p:AquariusOnnxCuda=true` (or the `AquariusOnnxCuda=true` environment variable) | AquariusDesktop restores `Microsoft.ML.OnnxRuntime.Gpu.Windows/Linux` |
+
+The setting only affects windows and linux executables (the RIDs with an ORT CUDA build);
+web and Android exports of the same project ignore it, and `--onnx-cuda` is rejected for
+them. Only the root project's `[onnx]` table applies; dependency manifests cannot add CUDA.
+Each pack's `runtime.json` records `"onnxCuda"` and `"onnxCudaRuntime"`, and exports verify that the selected pack has
+the requested flavour, so a missing or mismatched pack fails with the command that fixes it.
+The CUDA build of ORT is a superset of the standard build: CPU and plugin EPs behave the same
+and the CUDA/TensorRT libraries load only when requested.
+
+For example, `aqua build . --target windows -o MyApp.exe` with the manifest above
+produces one EXE containing the required NVIDIA inference libraries. Copying the
+EXE to another PC is sufficient; .NET extracts its private libraries automatically.
+The recipient supplies the compatible NVIDIA GPU and driver. CPU remains usable
+without CUDA hardware. Older CUDA packs containing only ORT's provider bridge are
+rejected instead of silently producing an EXE with missing dependencies.
+
+Toolchain maintainers run `publish-apphost -OnnxCuda` (or `--onnx-cuda` on Linux).
+It prepares SHA-256-pinned NVIDIA wheels from `scripts/cuda-runtime.lock.json`,
+copies only runtime binaries and licenses, and embeds them in the runtime pack.
+Python is needed only for this source publishing step; it is not used by normal
+`aqua build` or deployed applications. Prepared payloads are verified and reused
+offline. Windows source publishers can pass `-Python` or `-CudaRuntimeDirectory`.
+`aqua run` in a CUDA-enabled compiler distribution carries the same libraries.
+TensorRT's own SDK is an additional optional dependency; the CUDA setting does
+not bundle the separate TensorRT SDK. The full CUDA compiler toolkit is unnecessary
+for running ONNX inference.
+
 ### Desktop requirements and packaging
 
-* **CUDA:** an NVIDIA GPU supported by CUDA 13 (Turing or newer) with a current driver, plus
-  the CUDA 13 runtime (cudart, cuBLAS) and cuDNN 9 for CUDA 13 on the library search path
-  (`PATH` on Windows, `LD_LIBRARY_PATH` or the system linker path on Linux). They are not
-  redistributed. When they are missing, CUDA is listed as unavailable with the loader's
-  exact message and `Auto` continues with the next device.
+* **CUDA:** an NVIDIA GPU supported by CUDA 13 (Turing or newer) and a compatible driver.
+  Standard CUDA-enabled executable packs include the runtime libraries privately.
+  Custom source hosts can instead supply their own CUDA 13/cuBLAS/cuDNN 9 library
+  paths. Unsupported hardware/drivers make CUDA unavailable; `Auto` continues with
+  the next device, and explicit CUDA selection reports the initialization failure.
 * **TensorRT:** TensorRT 10 libraries in addition to CUDA.
-* The CUDA build of ORT is a superset of the CPU build: CPU and plugin EPs behave the same,
-  and the CUDA/TensorRT provider libraries load only when requested. They add about 190 MB
-  (Windows) / 270 MB (Linux) to runtime packs. Set the environment variable or MSBuild
-  property `AquariusOnnxCuda=false` before `scripts/publish-apphost.*` (or pass
-  `-p:AquariusOnnxCuda=false`) to build a CPU-flavour pack instead.
+* CUDA and TensorRT are **opt-in** (below); every other provider ships by default.
 * DirectML is deliberately not used: its ORT build is in sustained engineering, cannot coexist
   with the CUDA build in one process, and the WebGPU plugin covers AMD/Intel/Qualcomm GPUs
   through D3D12.
@@ -307,7 +366,7 @@ and [BlazePose ROI configuration](https://github.com/tensorflow/tfjs-models/blob
 tests real native CPU inference, the provider planner and fallback policy, device probing
 (for example CUDA reported unavailable with the loader's message), bilingual Wasm binding,
 metadata, shapes and lifetime. Set `AQUARIUS_ONNX_WEBGPU=1` to require native WebGPU
-inference and `AQUARIUS_ONNX_REQUIRE=CUDA` (or `TensorRT`, `CoreML`, `OpenVINO`, `QNN`,
+inference and `AQUARIUS_ONNX_REQUIRE=CUDA` (build with `-p:AquariusOnnxCuda=true`; or `TensorRT`, `CoreML`, `OpenVINO`, `QNN`,
 or a comma-separated chain) to require real inference on that accelerator. Set
 `AQUARIUS_ONNX_POSE_MODEL` to a MediaPipe model path to require real pose CPU/GPU
 output comparison (absolute tolerance 0.05 plus relative 1%, for floating-point EP

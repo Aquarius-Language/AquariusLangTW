@@ -1,12 +1,14 @@
 # 星泉姿態觀測站
 
-以繁體中文星泉程式，在桌面與網頁執行相同的 MediaPipe 姿態 ONNX 模型，呈現三十三個人體關鍵點與骨架。選擇「使用圖形加速」時，推論引擎以 `圖形處理器` 偏好自動選用此平台最快的 GPU 後端：Windows／Linux 有 NVIDIA 顯示卡及 CUDA 13 與 cuDNN 9 時使用 CUDA，Mac 使用 Core ML，其他情況（含網頁）使用 WebGPU；狀態列會顯示實際使用的後端。也可明確選擇中央處理器。影像與模型推論都在本機執行。
+以繁體中文星泉程式，在桌面與網頁執行相同的 MediaPipe 姿態 ONNX 模型，呈現三十三個人體關鍵點與骨架。選擇「使用圖形加速」時，推論引擎以 `圖形處理器` 偏好自動選用此平台最快的 GPU 後端：Windows／Linux 以 CUDA 版執行環境建置（預設不含；可用 `aqua build ... --onnx-cuda true` 或專案 `aqua.toml` 的 `[onnx] cuda = true` 加入）且有 NVIDIA 顯示卡及 CUDA 13 與 cuDNN 9 時使用 CUDA，Mac 使用 Core ML，其他情況（含網頁）使用 WebGPU；狀態列會顯示實際使用的後端。也可明確選擇中央處理器。影像與模型推論都在本機執行。
 
 將支援姿態推論的最新星泉編譯器完整發佈套件加入 `PATH`，確認可直接執行 `aqua`，再使用 Windows PowerShell 5.1 或更新版本執行：
 
 ```powershell
 ./建置.ps1
 ./建置.ps1 -驗證圖形加速
+# 桌面執行檔加入選用的 NVIDIA CUDA（需含 CUDA 執行環境套件的編譯器）：
+./建置.ps1 -CUDA
 # 僅建置網頁：
 ./建置.ps1 -略過桌面
 ```

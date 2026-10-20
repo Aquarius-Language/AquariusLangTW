@@ -64,6 +64,9 @@ source = "native/windows/helper.dll"
 target = "native/helper.dll" # explicit application-root destination
 platforms = ["windows"]
 
+[onnx]
+cuda = true # opt in to NVIDIA CUDA/TensorRT ONNX providers in windows/linux executables
+
 [tool.my_tool]
 enabled = true
 ```
@@ -74,7 +77,10 @@ and contain only letters, digits, `_` and `-`. Whitespace and portable reserved
 device names are rejected by both the compiler and LSP. Dependency names are case
 insensitive and must match the source library's declared name. Self dependencies,
 duplicate names and unknown manifest keys are errors. `[tool.*]` is reserved for
-other tools and does not affect compilation.
+other tools and does not affect compilation. `[onnx] cuda` (default `false`) selects the
+CUDA runtime pack (including NVIDIA inference libraries and license notices) for windows/linux exports of the root project; dependencies' settings are
+ignored and `--onnx-cuda` on the command line overrides it. See
+[the ONNX guide](../docs/onnx.md#nvidia-cuda-opt-in).
 
 Library versions require `major.minor.patch`, with optional SemVer prerelease and
 build metadata. Supported requirement operators are `=`, `==`, `>`, `>=`, `<`,

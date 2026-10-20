@@ -62,6 +62,16 @@ try {
       };
     const encoded = await a.images.encode(source, "Png", {}, signal);
     const processingImage = h.processing.image(2, 1, source.pixels.slice());
+    const toProcessing = h.modules.get("Window").scope.get("ToProcessingImage");
+    const imageCount = h.processing.images.size;
+    const reuseSource = a.image({...source, pixels: new Uint8Array([1,2,3,255,4,5,6,255])});
+    for (let i=0;i<20;i++) {
+      if (await toProcessing(reuseSource, processingImage.module) !== processingImage.module)
+        throw new Error("Processing image reuse changed identity");
+    }
+    if (h.processing.images.size !== imageCount || processingImage.bytes[0] !== 1 || !processingImage.dirty)
+      throw new Error("Processing image reuse allocated or failed to update pixels");
+    processingImage.bytes = source.pixels.slice();
     const convert = h.modules.get("Window").scope.get("FromProcessingImage");
     const snapshot = a.own(await convert(processingImage.module));
     processingImage.bytes[7] = 0;

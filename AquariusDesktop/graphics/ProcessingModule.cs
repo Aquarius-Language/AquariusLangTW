@@ -163,9 +163,13 @@ internal sealed partial class GraphicsRuntime {
         }
         w=Dimension(N(w));h=Dimension(N(h));bool threeD=Renderer(new StringObj(renderer));
         if(windows.Count!=0)throw new InvalidOperationException("Close raw GLFW windows before starting a Processing sketch.");
+        if(HasWgpuWindows)throw new InvalidOperationException("Dispose WGPU windows before starting a Processing sketch.");
         try {
             CallModule("GLFW","Init"); CallModule("GLFW","WindowHint",N(0x22001),N(0));
             sketchWindow=(WindowObject)CallModule("GLFW","CreateWindow",N(w),N(h),new StringObj(title));
+            // PollInput runs once per frame. Retain a short press/release until it is polled,
+            // including while model initialization or inference delays the next frame.
+            Native.aqua_input(sketchWindow.Handle,0x33003,1); // GLFW_STICKY_MOUSE_BUTTONS
             processingDevice=new WgpuDevice(sketchWindow.Handle);
             screen.Is3D=threeD;screen.Drawing=true;
             Native.aqua_framebuffer(sketchWindow.Handle,out int pw,out int ph);

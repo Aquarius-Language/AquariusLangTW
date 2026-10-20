@@ -24,7 +24,7 @@ values are arrays of integers in 0..255. Failures never report successful no-ops
 | `Images` | `Formats()`, `Inspect(bytes)`, `Create(width,height,rgbaBytes)`, `Decode(bytes,frame)`, `Load(resource,frame)`, `Encode(image,format,options)`, `Save(resource,image,format,options)` |
 | image | `width`, `height`, `pixelFormat`, `alpha`, `metadata`, `Pixels()` |
 | `Clipboard` | `Capabilities()`, `Formats()`, `ReadText()`, `ReadImage()`, `WriteText(text)`, `WriteImage(image[,textRepresentation])` |
-| `Window` | `Attach(glfwWindow)`, `Current()` for Processing, `FromProcessingImage(image)`, `ToProcessingImage(image)` |
+| `Window` | `Attach(glfwWindow)`, `Current()` for Processing, `FromProcessingImage(image)`, `ToProcessingImage(image [, reusableImage])` |
 | window integration | `Capabilities()`, `Poll()`, `SetTitle(title)`, `SetCursor(shape)`, `SetCustomCursor(image,x,y)`, `CapturePointer(id)`, `ReleasePointer(id)`, `ResolveClose("Accept"/"Defer"/"Cancel")` |
 | `TextEdit` | `Create(text)`, `Convert(text,position,fromUnit,toUnit)` |
 | editor | `State()`, `Select(anchor,caret)`, `Insert(text)`, `Backspace()`, `Delete()`, `Move(direction,unit,extendSelection)`, `Convert(position,fromUnit,toUnit)` |

@@ -826,7 +826,8 @@ see the [ONNX interface table](../docs/onnx.md#language-api).
 
 | English | 繁體中文 | Arguments |
 | --- | --- | --- |
-| `CreateDevice` | `建立裝置` | 0 |
+| `CreateDevice` | `建立裝置` | 0..1 |
+| `CreateWindow` | `建立視窗` | 3 |
 
 ## WGPU.Buffer
 
@@ -834,18 +835,23 @@ see the [ONNX interface table](../docs/onnx.md#language-api).
 | --- | --- | --- |
 | `Dispose` | `釋放` | 0 |
 | `Read` | `讀取` | 0 |
+| `ReadRange` | `讀取範圍` | 2 |
 | `Write` | `寫入` | 1 |
+| `WriteRange` | `寫入範圍` | 2 |
 
 ## WGPU.Device
 
 | English | 繁體中文 | Arguments |
 | --- | --- | --- |
 | `CreateBuffer` | `建立緩衝區` | 1 |
-| `CreateRenderTarget` | `建立繪圖目標` | 2 |
+| `CreateRenderTarget` | `建立繪圖目標` | 2..3 |
 | `CreateShader` | `建立著色器` | 2 |
+| `CreateVertexBuffer` | `建立頂點緩衝區` | 1 |
 | `Dispatch` | `派送` | 3 |
 | `Dispose` | `釋放` | 0 |
+| `LoadTexture` | `載入紋理` | 6 |
 | `Poll` | `輪詢` | 0 |
+| `Present` | `呈現` | 1 |
 
 ## WGPU.Shader
 
@@ -853,7 +859,9 @@ see the [ONNX interface table](../docs/onnx.md#language-api).
 | --- | --- | --- |
 | `Dispose` | `釋放` | 0 |
 | `Set` | `設定` | 2 |
+| `SetBuffer` | `設定緩衝區` | 2 |
 | `SetInt` | `設定整數` | 2 |
+| `SetTexture` | `設定紋理` | 2 |
 
 ## WGPU.Target
 
@@ -862,5 +870,39 @@ see the [ONNX interface table](../docs/onnx.md#language-api).
 | `Clear` | `清除` | 1 |
 | `Dispose` | `釋放` | 0 |
 | `Draw` | `繪製` | 2 |
+| `DrawBuffer` | `繪製緩衝區` | 2..4 |
+| `DrawProcedural` | `程序化繪製` | 2..3 |
+| `GetTexture` | `取得紋理` | 0 |
 | `ReadPixels` | `讀取像素` | 0 |
 | `Save` | `儲存` | 1 |
+| `SetState` | `設定狀態` | 1 |
+
+## WGPU.Texture
+
+| English | 繁體中文 | Arguments |
+| --- | --- | --- |
+| `Dispose` | `釋放` | 0 |
+
+## WGPU.VertexBuffer
+
+| English | 繁體中文 | Arguments |
+| --- | --- | --- |
+| `Dispose` | `釋放` | 0 |
+| `Write` | `寫入` | 1 |
+| `WriteRange` | `寫入範圍` | 2 |
+
+## WGPU.Window
+
+| English | 繁體中文 | Arguments |
+| --- | --- | --- |
+| `Close` | `關閉` | 0 |
+| `Dispose` | `釋放` | 0 |
+| `KeyDown` | `按鍵按住` | 1 |
+| `KeyPressed` | `按鍵按下` | 1 |
+| `KeyReleased` | `按鍵放開` | 1 |
+| `MouseDown` | `滑鼠按住` | 1 |
+| `MousePressed` | `滑鼠按下` | 1 |
+| `MouseReleased` | `滑鼠放開` | 1 |
+| `Poll` | `輪詢` | 0 |
+| `SetPointerLock` | `設定指標鎖定` | 1 |
+| `SetTitle` | `設定標題` | 1 |

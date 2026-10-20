@@ -69,7 +69,10 @@ final class OnnxBackend implements AutoCloseable {
               options.addNnapi(EnumSet.of(NNAPIFlags.CPU_DISABLED));
             }
           },
-          new Provider("XNNPACK", "CPU", "XNNPACK (" + THREADS + " threads)", true, OrtProvider.XNNPACK) {
+          // ORT 1.30's XNNPACK optimizer can abort natively on MediaPipe graphs on
+          // x86_64 emulators, after its small convolution probe succeeds. Native
+          // aborts cannot participate in the managed Auto fallback policy.
+          new Provider("XNNPACK", "CPU", "XNNPACK (" + THREADS + " threads)", !EMULATOR, OrtProvider.XNNPACK) {
             @Override
             void configure(OrtSession.SessionOptions options) throws OrtException {
               // ORT guidance: XNNPACK owns the thread pool; ORT's intra-op pool stays at one thread.

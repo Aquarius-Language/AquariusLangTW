@@ -71,6 +71,8 @@ internal sealed class CpuExecutionProvider : DesktopExecutionProvider {
 internal sealed class CudaExecutionProvider : DesktopExecutionProvider {
     public override OnnxProvider Provider => OnnxProvider.CUDA;
     public override OnnxDeviceKind Kind => OnnxDeviceKind.GPU;
+    /// <summary>CUDA is opt-in: the standard runtime omits ORT's 190-270 MB CUDA/TensorRT provider libraries.</summary>
+    internal const string CudaOptIn = "此執行環境未包含 CUDA 提供者（預設不含）。請在 aqua.toml 加入 [onnx] cuda = true，或以 --onnx-cuda true 建置執行檔；開發時以 -p:AquariusOnnxCuda=true 建置。";
     internal static string DeviceId => System.Environment.GetEnvironmentVariable("AQUARIUS_ONNX_CUDA_DEVICE") is { Length: > 0 } id && int.TryParse(id, out int n) && n >= 0 ? n.ToString() : "0";
     protected override string DisplayName => $"NVIDIA CUDA GPU {DeviceId}";
     private static readonly object ProbeGate = new();
@@ -78,8 +80,9 @@ internal sealed class CudaExecutionProvider : DesktopExecutionProvider {
     /// <summary>CUDA context creation is costly; the probe result is shared with TensorRT's companion check.</summary>
     public override ProviderStatus Probe() { lock (ProbeGate) return probed ??= base.Probe(); }
     protected override string? Precondition() => Rid is not ("win-x64" or "linux-x64") ? "此平台的 ONNX Runtime 不含 CUDA。"
-        : !EngineHas("CUDAExecutionProvider") ? "目前的 ONNX Runtime 為 CPU 版本（以 AquariusOnnxCuda=false 建置）。" : null;
+        : !EngineHas("CUDAExecutionProvider") ? CudaOptIn : null;
     public override void Append(SessionOptions options) {
+        WindowsCudaLibraries.EnsureSearchPath();
         using var cuda = new OrtCUDAProviderOptions();
         cuda.UpdateOptions(new Dictionary<string, string> {
             ["device_id"] = DeviceId,
@@ -105,7 +108,7 @@ internal sealed class TensorRtExecutionProvider : DesktopExecutionProvider {
     public override IReadOnlyList<DesktopExecutionProvider> Companions { get; } = new[] { Cuda };
     protected override string DisplayName => $"NVIDIA TensorRT GPU {CudaExecutionProvider.DeviceId}";
     protected override string? Precondition() => Rid is not ("win-x64" or "linux-x64") ? "此平台的 ONNX Runtime 不含 TensorRT。"
-        : !EngineHas("TensorrtExecutionProvider") ? "目前的 ONNX Runtime 為 CPU 版本（以 AquariusOnnxCuda=false 建置）。" : null;
+        : !EngineHas("TensorrtExecutionProvider") ? CudaExecutionProvider.CudaOptIn : null;
     internal static string CacheDirectory {
         get {
             string root = System.Environment.GetEnvironmentVariable("AQUARIUS_ONNX_CACHE") is { Length: > 0 } custom ? custom

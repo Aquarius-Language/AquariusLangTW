@@ -34,6 +34,20 @@ public class AndroidBuildTest
         Assert.Contains("prepare-android.ps1", error.Message);
     }
     [Fact]
+    public void FailedGradleBuildIncludesBothOutputStreams()
+    {
+        if (!OperatingSystem.IsWindows() || Environment.GetEnvironmentVariable("AQUARIUS_GRADLE") != null) return;
+        using var t = new ApplicationTestDirectory();
+        foreach (string abi in new[] { "arm64-v8a", "x86_64" })
+            foreach (string name in new[] { "libaquarius_android.so", "libaquarius_runtime.so", "libwasmtime.so", "libwgpu_native.so", "libc++_shared.so" })
+                t.Write($"app/src/main/jniLibs/{abi}/{name}", "fixture");
+        t.Write("gradlew.bat", "@echo off\r\necho GRADLE_STDOUT_DETAIL\r\necho GRADLE_STDERR_DETAIL 1>&2\r\nexit /b 7\r\n");
+        var error = Assert.Throws<IOException>(() => AndroidToolchain.Build(t.Path));
+        Assert.Contains("Gradle exit 7", error.Message);
+        Assert.Contains("GRADLE_STDOUT_DETAIL", error.Message);
+        Assert.Contains("GRADLE_STDERR_DETAIL", error.Message);
+    }
+    [Fact]
     public void ExportPreservesWasmModulesAssetsAndNativeProject()
     {
         using var t = new ApplicationTestDirectory(); string main = t.Write("src/main.aqua", "印出(\"DO_NOT_EXECUTE\");變數 m=匯入(\"lib/中文.aqua\");m.值;");

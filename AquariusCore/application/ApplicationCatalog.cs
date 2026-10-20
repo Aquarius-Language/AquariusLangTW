@@ -43,7 +43,7 @@ public static class ApplicationCatalog {
         Add("Application", ("Capabilities",0,0),("LaunchFiles",0,0),("OpenFiles",1,1),("SaveFile",1,1),("PickDirectory",0,0),("Print",1,1),("AcquireImage",0,0),("Accessibility",1,1),("RegisterFileAssociation",1,1));
         Add("Tasks", ("CreateCancellation",0,0),("UseCancellation",1,1));
         Add("Tasks.Cancellation", ("Cancel",0,0),("IsCancelled",0,0),("Dispose",0,0));
-        Add("Window", ("Attach",1,1),("Current",0,0),("FromProcessingImage",1,1),("ToProcessingImage",1,1));
+        Add("Window", ("Attach",1,1),("Current",0,0),("FromProcessingImage",1,1),("ToProcessingImage",1,2));
         Add("Window.Integration", ("Capabilities",0,0),("SetTitle",1,1),("SetCursor",1,1),("SetCustomCursor",3,3),("CapturePointer",1,1),("ReleasePointer",1,1),("ResolveClose",1,1),("Poll",0,0));
         return functions.ToArray();
     }

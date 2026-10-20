@@ -605,8 +605,15 @@ export class ApplicationRuntime {
         alpha: "Straight",
       });
     });
-    b(windows, "Window", "ToProcessingImage", (image) => {
+    b(windows, "Window", "ToProcessingImage", (image, reuse) => {
       const i = this.own(image);
+      if (reuse !== undefined) {
+        const target = this.host.objects.get(reuse);
+        if (!target || target.disposed || !target.bytes || target.target || target.width !== i.width || target.height !== i.height)
+          throw new Error("The reusable Processing image must be a regular image with matching dimensions.");
+        target.bytes = i.pixels.slice(); target.dirty = true;
+        return reuse;
+      }
       return this.host.processing.image(i.width, i.height, i.pixels.slice())
         .module;
     });

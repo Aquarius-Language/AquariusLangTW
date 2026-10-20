@@ -119,7 +119,9 @@ public class OnnxTest {
         Assert.Equal(devices.Count, devices.Select(d => d.Id).Distinct().Count());
         if (OperatingSystem.IsWindows() || OperatingSystem.IsLinux() && System.Runtime.InteropServices.RuntimeInformation.ProcessArchitecture == System.Runtime.InteropServices.Architecture.X64) {
             Assert.Equal(OnnxProvider.CUDA, devices[0].Provider);
-            Assert.Contains("CUDAExecutionProvider", OrtEnv.Instance().GetAvailableProviders());
+            // CUDA is opt-in: the standard runtime lists it as unavailable and explains how to enable it.
+            if (!OrtEnv.Instance().GetAvailableProviders().Contains("CUDAExecutionProvider"))
+                Assert.Contains("[onnx] cuda = true", devices[0].Reason);
         }
         if (OperatingSystem.IsMacOS()) Assert.Equal(OnnxProvider.CoreML, devices[0].Provider);
     }
