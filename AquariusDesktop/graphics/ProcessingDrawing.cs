@@ -167,7 +167,8 @@ internal sealed partial class ProcessingCanvas {
         if(kind==6)for(int i=2;i<Vertices.Count;i++)Tri(0,i-1,i);
         if(kind==7){if(Vertices.Count%4!=0)throw new ArgumentException("QUADS requires groups of four vertices.");for(int i=0;i<Vertices.Count;i+=4){Tri(i,i+1,i+2);Tri(i,i+2,i+3);}}
         if(kind==8){if(Vertices.Count%2!=0)throw new ArgumentException("QUAD_STRIP requires pairs of vertices.");for(int i=2;i+1<Vertices.Count;i+=2){Tri(i-2,i-1,i+1);Tri(i-2,i+1,i);}}
-        if(kind==9&&Vertices.Count>=3)foreach(int i in ProcessingGeometry.Triangulate(Vertices.Select(v=>v.Position).ToArray()))triangles.Add(Vertices[i]);
+        // Unfilled paths only need stroke geometry; they may cross themselves or have zero area.
+        if(kind==9&&Style.HasFill&&Vertices.Count>=3)foreach(int i in ProcessingGeometry.Triangulate(Vertices.Select(v=>v.Position).ToArray()))triangles.Add(Vertices[i]);
         if(Style.HasFill&&Contours.Count>0) {
             Bind();Target.ClearStencil();Draw(triangles,lit:false,stencilMode:1);
             foreach(var contour in Contours){var mesh=ProcessingGeometry.Triangulate(contour.Select(v=>v.Position).ToArray()).Select(i=>contour[i]).ToArray();Draw(mesh,lit:false,stencilMode:2);}

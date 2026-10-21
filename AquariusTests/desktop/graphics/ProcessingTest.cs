@@ -234,6 +234,27 @@ public class ProcessingIntegrationTest {
             p.loadPixels();p.updatePixels();變數 updated=p.get(8,8);p.close();[rgba,blended,updated];"));
         Assert.Equal(new double[]{0x80FF0000,0xFF80007F,0xFF80007F},result.Elements.Select(GraphicsRuntime.Number));
     }
+    [WgpuTheory, InlineData(false), InlineData(true)] public void UnfilledPathsRenderWithoutPolygonTriangulation(bool retained) {
+        string draw=retained?"p.shape(path);":"";
+        string begin=retained?"變數 path=p.createShape();":"";
+        string target=retained?"path":"p";
+        string source=$$"""
+            變數 p=匯入("Processing");p.size(64,64);p.noSmooth();p.background(0);
+            {{begin}}
+            {{target}}.noFill();{{target}}.stroke(255);{{target}}.strokeWeight(4);
+            {{target}}.beginShape();{{target}}.vertex(4,8);{{target}}.vertex(32,8);{{target}}.vertex(60,8);{{target}}.endShape();
+            {{draw}}
+            變數 horizontal=p.get(32,8);
+            {{target}}.beginShape();{{target}}.vertex(4,32);{{target}}.vertex(20,48);{{target}}.vertex(36,32);{{target}}.vertex(52,48);{{target}}.endShape();
+            {{draw}}
+            變數 peak=p.get(20,47);變數 open=p.get(16,36);
+            {{target}}.beginShape();{{target}}.vertex(4,32);{{target}}.vertex(20,48);{{target}}.vertex(36,32);{{target}}.vertex(52,48);{{target}}.endShape(p.CLOSE);
+            {{draw}}
+            變數 closed=p.get(16,36);p.close();[horizontal,peak,open,closed];
+            """;
+        var result=Assert.IsType<ArrayObj>(ProcessingTest.Evaluate(source));
+        Assert.Equal(new double[]{0xFFFFFFFF,0xFFFFFFFF,0xFF000000,0xFFFFFFFF},result.Elements.Select(GraphicsRuntime.Number));
+    }
     [WgpuFact] public void TranslucentPolylinesBlendOnceAtJoins() {
         // A shallow bend: overlapping segment quads used to blend twice around the joint and leave a brighter wedge.
         var result=Assert.IsType<ArrayObj>(ProcessingTest.Evaluate(@"

@@ -83,8 +83,11 @@ ARGB colors returned by `color()`. Channel readers use the current color maxima.
 Packed colors use exactly represented unsigned numeric values, not signed Java
 integers. Alpha blending and transparent offscreen canvases are supported.
 
-Polygon boundaries must be simple and planar. Concave polygons and multiple
-holes work; put each hole inside `beginContour` / `endContour`. Contours need not
+Filled polygon boundaries must be simple, planar and have nonzero area. With
+`noFill()`, paths can cross themselves or be collinear; `endShape()` leaves the
+stroke open, while `endShape(CLOSE)` connects its last vertex to its first.
+Concave polygons and multiple holes work; put each hole inside
+`beginContour` / `endContour`. Contours need not
 use an opposite winding. Shape modes are `POINTS`, `LINES`, `TRIANGLES`,
 `TRIANGLE_STRIP`, `TRIANGLE_FAN`, `QUADS`, `QUAD_STRIP`, `POLYGON`.
 `textureMode(NORMAL)` uses 0..1 UVs; `IMAGE` uses image pixel coordinates.
