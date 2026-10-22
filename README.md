@@ -1,8 +1,8 @@
-# 星泉（AquariusLang）
+﻿# 星泉（AquariusLang）
 
 <p><strong>繁體中文</strong> | <a href="README.en.md">English</a></p>
 
-以 C# 實作的**繁體中文／英文雙語編譯式程式語言**，支援 Unicode 變數與函式名稱。
+史上第一個**繁體中文 + 英文雙語編譯式程式語言**。
 可使用全繁體中文、全英文語法，或在同一份 `.aqua` 檔案中自由混用；不需切換模式或設定。
 原始碼經詞法分析、語法分析與編譯後，產生標準 **WebAssembly（`.wasm`）**；
 桌面與 Android 由 **Wasmtime** 執行，瀏覽器由內建 WebAssembly 引擎執行，Android 使用原生 Java 能力主機；同一份編譯成果可輸出網站、獨立 EXE 與原生 APK。

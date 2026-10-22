@@ -2,8 +2,7 @@
 
 <p><a href="README.md">繁體中文</a> | <strong>English</strong></p>
 
-A **bilingual Traditional Chinese / English compiled programming language**
-implemented in C#, with Unicode variable and function names. Write entirely in
+World's first **bilingual Traditional Chinese + English compiled programming language**. Write entirely in
 Traditional Chinese, entirely in English, or mix both in the same `.aqua` file.
 No language mode or configuration is needed.
 
