@@ -1,7 +1,7 @@
 {
   "name": "aquariuslang-tw",
-  "displayName": "Aquarius Language (繁體中文)",
-  "description": "Traditional Chinese Aquarius language support: highlighting, snippets, diagnostics, completion, hover, and definitions.",
+  "displayName": "Aquarius Language (繁體中文 / English)",
+  "description": "Bilingual Traditional Chinese and English Aquarius language support: highlighting, snippets, diagnostics, completion, hover, and definitions.",
   "version": "0.1.0",
   "publisher": "aquariuslang",
   "engines": { "vscode": "^1.85.0" },
@@ -12,7 +12,7 @@
   "capabilities": { "untrustedWorkspaces": { "supported": "limited", "description": "Syntax highlighting and snippets are available. The language server starts after trusting the workspace." }, "virtualWorkspaces": false },
   "activationEvents": ["onLanguage:aquarius", "workspaceContains:**/aqua.toml", "onLanguage:toml"],
   "contributes": {
-    "languages": [{ "id": "aquarius", "aliases": ["Aquarius (繁體中文)", "Aquarius"], "extensions": [".aqua"], "configuration": "./language-configuration.json" }],
+    "languages": [{ "id": "aquarius", "aliases": ["Aquarius (繁體中文 / English)", "Aquarius", "Aquarius (繁體中文)"], "extensions": [".aqua"], "configuration": "./language-configuration.json" }],
     "grammars": [{ "language": "aquarius", "scopeName": "source.aquarius", "path": "./syntaxes/aquarius.tmLanguage.json" }],
     "snippets": [{ "language": "aquarius", "path": "./snippets/aquarius.json" }],
     "commands": [{ "command": "aquarius.restartServer", "title": "Aquarius: Restart Language Server" }],

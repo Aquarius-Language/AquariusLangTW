@@ -10,4 +10,5 @@ aqua build english.aqua -o arrays-en.wasm
 aqua run arrays-en.wasm
 ```
 
-兩份範例使用相同核心 Wasm 實作；英文範例採用英文函式名稱與 Aquarius 的繁體中文語法。
+兩份範例使用相同核心 Wasm 實作；繁體中文範例使用中文語法與函式名稱，英文範例使用英文語法與函式名稱。
+AquariusLang 也允許在同一份 `.aqua` 檔案中混用兩種語法。

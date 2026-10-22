@@ -2,6 +2,9 @@
 
 A standalone .NET 8 LSP server using the lexer, parser and AST owned by
 `AquariusCore`. It references the portable VM library for the language frontend.
+Chinese, English and mixed syntax receive the same diagnostics, source ranges,
+keyword completion and hover help. Keywords include `變數` / `var`, `函式` /
+`function`, `回傳` / `return`, and `否則如果` / `else if` / `elif`.
 Build with `dotnet build AquariusLanguageServer/AquariusLanguageServer.csproj -c Release`
 from the repository root, then configure an LSP editor to launch:
 
@@ -34,7 +37,8 @@ read only and never downloads dependencies. Unsaved manifest changes, `didSave`
 and `workspace/didChangeWatchedFiles` refresh project diagnostics. The VS Code
 client automatically selects `aqua.toml` and watches sources, manifests and locks.
 
-Functions declared as `變數 加法, add = 函式(...) { ... };` expose both aliases in
+Functions declared as `變數 加法, add = 函式(...) { ... };` or
+`var 加法, add = function(...) { ... };` expose both aliases in
 completion, hover, definition and document symbols. Builtins and all desktop
 native libraries offer Chinese and English completion/hover from the portable
 `LibraryCatalog`; the server never initializes graphics or physics. Member

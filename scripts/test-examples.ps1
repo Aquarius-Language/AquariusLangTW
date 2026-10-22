@@ -54,6 +54,16 @@ try {
         if ($ProjectNames.Count -and $name -notin $ProjectNames) { continue }
         $inputDirectory = Join-Path $build ("example-inputs-" + [Guid]::NewGuid().ToString('N'))
         Copy-Item -LiteralPath (Join-Path $repository $project.source) -Destination $inputDirectory -Recurse
+        # The raw WGPU demo normally waits for an explicit window close. Bound
+        # only the disposable test copy so both source and Wasm runs finish.
+        $windowDemo = Join-Path $inputDirectory 'wgpu_window/main.aqua'
+        if (Test-Path -LiteralPath $windowDemo) {
+            $windowSource = [IO.File]::ReadAllText($windowDemo)
+            $frameAdvance = '    影格++;'
+            if (-not $windowSource.Contains($frameAdvance)) { throw 'WGPU window demo frame marker changed; update its bounded test copy.' }
+            $windowSource = $windowSource.Replace($frameAdvance, $frameAdvance + ' 如果 (影格 >= 2) { 窗.Close(); }')
+            [IO.File]::WriteAllText($windowDemo, $windowSource, [Text.UTF8Encoding]::new($false))
+        }
         # Reuse prepared models in the disposable example copy; no download is needed.
         $models = Join-Path $inputDirectory 'mediapipe/模型'
         if (Test-Path -LiteralPath $models) {
@@ -95,6 +105,7 @@ try {
                 $run = Invoke-Aqua $desktop @((Join-Path $inputDirectory $entry)) $capture (Split-Path (Join-Path $inputDirectory $entry))
                 $expectedError = $entry.StartsWith('generate_errors/')
                 $passed = if ($expectedError) { $run.code -eq 1 -and $run.output.Contains('Identifier not found: array') } else { $run.code -eq 0 -and -not $run.error }
+                if ($entry -eq 'wgpu_window/main.aqua') { $passed = $passed -and $run.output.Contains('closed after 2 frames') }
                 if ($capture) { $passed = $passed -and (Test-Path -LiteralPath $capture) }
                 $results.Add(@{ project = $name; mode = 'source'; entry = $entry; passed = $passed; expectedFailure = $expectedError; output = $run.output; error = $run.error })
                 Write-Host "$(if ($passed) {'PASS'} else {'FAIL'}) $name/source/$entry"
@@ -112,6 +123,7 @@ try {
                 $run = Invoke-Aqua $cli @('run', $wasm, '--entry', $entry) $capture
                 $expectedError = $entry.StartsWith('generate_errors/')
                 $passed = if ($expectedError) { $run.code -eq 1 -and $run.output.Contains('Identifier not found: array') } else { $run.code -eq 0 -and -not $run.error }
+                if ($entry -eq 'wgpu_window/main.aqua') { $passed = $passed -and $run.output.Contains('closed after 2 frames') }
                 if ($entry -eq 'smoke.aqua') { $passed = $passed -and $run.output.Contains('整合驗證通過') }
                 if ($capture) { $passed = $passed -and (Test-Path -LiteralPath $capture) }
                 $results.Add(@{ project = $name; mode = 'wasm'; entry = $entry; passed = $passed; expectedFailure = $expectedError; output = $run.output; error = $run.error })

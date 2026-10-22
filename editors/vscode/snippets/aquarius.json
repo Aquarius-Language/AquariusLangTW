@@ -2,7 +2,13 @@
   "Variable": { "prefix": ["變數", "let"], "body": "變數 ${1:名稱} = ${2:0};", "description": "Declare a variable" },
   "Function": { "prefix": ["函式", "fn"], "body": ["變數 ${1:名稱} = 函式(${2:參數}) {", "\t$0", "};"], "description": "Declare a function" },
   "Bilingual function": { "prefix": ["雙語函式", "bilingual-fn"], "body": ["變數 ${1:中文名稱}, ${2:englishName} = 函式(${3:參數}) {", "\t$0", "};"], "description": "Declare one function with Chinese and English names" },
-  "Conditional": { "prefix": ["如果", "if"], "body": ["如果 (${1:條件}) {", "\t$2", "} 否則 {", "\t$0", "}"], "description": "Conditional branches" },
-  "For loop": { "prefix": ["迴圈", "for"], "body": ["迴圈 (變數 ${1:索引} = 0; $1 < ${2:10}; $1++) {", "\t$0", "}"], "description": "For loop" },
-  "Print": { "prefix": ["印出", "print"], "body": "印出($0);", "description": "Print values" }
+  "Conditional": { "prefix": "如果", "body": ["如果 (${1:條件}) {", "\t$2", "} 否則 {", "\t$0", "}"], "description": "Conditional branches" },
+  "For loop": { "prefix": "迴圈", "body": ["迴圈 (變數 ${1:索引} = 0; $1 < ${2:10}; $1++) {", "\t$0", "}"], "description": "For loop" },
+  "Print": { "prefix": "印出", "body": "印出($0);", "description": "Print values" },
+  "English variable": { "prefix": "var", "body": "var ${1:name} = ${2:0};", "description": "Declare a variable with English syntax" },
+  "English function": { "prefix": "function", "body": ["var ${1:name} = function(${2:parameters}) {", "\t$0", "};"], "description": "Declare a function with English syntax" },
+  "English bilingual function": { "prefix": "bilingual-function", "body": ["var ${1:englishName}, ${2:中文名稱} = function(${3:parameters}) {", "\t$0", "};"], "description": "Declare one function with English and Chinese names" },
+  "English conditional": { "prefix": "if", "body": ["if (${1:condition}) {", "\t$2", "} else {", "\t$0", "}"], "description": "Conditional branches with English syntax" },
+  "English for loop": { "prefix": "for", "body": ["for (var ${1:i} = 0; $1 < ${2:10}; $1++) {", "\t$0", "}"], "description": "For loop with English syntax" },
+  "English print": { "prefix": "print", "body": "print($0);", "description": "Print values with English syntax" }
 }

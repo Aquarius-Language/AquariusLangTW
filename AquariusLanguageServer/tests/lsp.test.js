@@ -11,6 +11,24 @@ const os = require('node:os');
 const server = process.env.AQUARIUS_SERVER || path.resolve(__dirname, '../bin/Release/net8.0/AquariusLanguageServer.dll');
 const uri = 'file:///test/example.aqua';
 
+test('Chinese, English and mixed syntax provide diagnostics, keywords and source definitions', async t => {
+  const s = new Session(t); await s.initialize();
+  const text = 'var 加法, add = function(甲, b) {\n  if (false) { return 0; } else 如果 (真) { 回傳 甲 + b; } else { return 1; }\n};\n變數 result = add(1, 2);';
+  assert.deepEqual(await s.open(text), []);
+  const completion = await s.feature('completion', 0, 0);
+  for (const name of ['變數','函式','回傳','如果','否則如果','否則','迴圈','中斷','真','假','var','function','return','if','elif','else','for','break','true','false']) {
+    assert.ok(completion.some(item => item.label === name && item.kind === 14), name);
+  }
+  assert.match((await s.feature('hover', 0, 1)).contents.value, /Declare a variable/);
+  assert.match((await s.feature('hover', 0, 15)).contents.value, /function.*closure/);
+  const definition = await s.feature('definition', 3, 12);
+  assert.deepEqual(definition.range, { start: { line: 0, character: 8 }, end: { line: 0, character: 11 } });
+  const symbols = await s.request('textDocument/documentSymbol', { textDocument: { uri } });
+  for (const name of ['加法', 'add']) assert.ok(symbols.some(symbol => symbol.name === name && symbol.kind === 12));
+  assert.deepEqual(await s.open('var f = function(n) { if (n < 0) { return -1; } elif (n == 0) { return 0; } else { return 1; } };\nfor (var i = 0; i < 2; i++) { if (true) { break; } }'), []);
+  assert.ok((await s.open('var function = 1;')).length > 0);
+});
+
 test('Thread and 執行緒 provide bilingual completion, import aliases and shadowing', async t => {
   const s = new Session(t); await s.initialize();
   for (const [source,line,column] of [['Thread.',0,7],['執行緒.',0,4],['變數 t=匯入("執行緒");\nt.',1,2]]) {

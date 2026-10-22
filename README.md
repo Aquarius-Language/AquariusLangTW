@@ -1,6 +1,9 @@
 # 星泉（AquariusLang）
 
-以 C# 實作的編譯式程式語言，支援繁體中文關鍵字、Unicode 變數與函式名稱。
+<p><strong>繁體中文</strong> | <a href="README.en.md">English</a></p>
+
+以 C# 實作的**繁體中文／英文雙語編譯式程式語言**，支援 Unicode 變數與函式名稱。
+可使用全繁體中文、全英文語法，或在同一份 `.aqua` 檔案中自由混用；不需切換模式或設定。
 原始碼經詞法分析、語法分析與編譯後，產生標準 **WebAssembly（`.wasm`）**；
 桌面與 Android 由 **Wasmtime** 執行，瀏覽器由內建 WebAssembly 引擎執行，Android 使用原生 Java 能力主機；同一份編譯成果可輸出網站、獨立 EXE 與原生 APK。
 
@@ -10,6 +13,7 @@ Linux x86_64／WSL2 的建置、測試與獨立執行檔輸出：見 [Linux 桌�
 
 - **多執行緒**：[Thread／執行緒](docs/threading.md)以函式啟動獨立工作，提供逾時等待、結果、取消與安全關閉，支援桌面、網頁及 Android；見[雙語範例](examples/threading/README.md)。
 - **統一入口**：`aqua` 提供編譯、桌面執行、網頁輸出與互動模式（REPL）。
+- **雙語語法**：`變數`／`var`、`函式`／`function`、`回傳`／`return` 等關鍵字完全等價，中文與英文腳本可互相匯入。
 - **跨平台網路**：[Network／網路](docs/networking.md)提供雙語 HTTP(S)、Cookie、可取消請求、WebSocket、原生 TCP／TLS／UDP，以及桌面的路由、HTTPS、公開前端、SSE 和工作階段；見[繁體中文前後端範例](examples/network_lab/README.md)。
 - **專案與第三方套件**：[Bottle / TOML 專案管理](AquariusBottle/README.md)提供 `aqua new`、`aqua bottle install/restore/uninstall`、本機／GitHub 安裝、版本鎖定、全域快取與相依資產封裝；見 [可執行範例](examples/bottle_showcase/README.md)。
 - **可攜編譯成果**：將模組、圖片與著色器等資源一起封裝，執行與網頁輸出不需原始碼。
@@ -201,24 +205,51 @@ Jolt 的 Emscripten glue、Wasm 與綁定由獨立 `Aqua_JoltPhysics` Bottle 函
 `aqua` 結束碼：**0** 成功、**1** 編譯／執行／檔案錯誤、**2** 指令或選項錯誤。
 ## 語法
 
-| 常見關鍵字 | 星泉關鍵字 |
-| --- | --- |
-| `let` / `fn` | `變數` / `函式` |
-| `if` / `elif` / `else` | `如果` / `否則如果` / `否則` |
-| `return` | `回傳` |
-| `for` / `break` | `迴圈` / `中斷` |
-| `true` / `false` | `真` / `假` |
+兩種語法使用相同的編譯器、作用域與執行語意，關鍵字可逐一選用繁體中文或英文：
 
-```text
-變數 加法, add = 函式(甲, 乙) { 回傳 甲 + 乙; };
+| 繁體中文 | English | 用途 |
+| --- | --- | --- |
+| `變數` | `var` | 宣告可變變數 |
+| `函式` | `function` | 函式運算式與閉包 |
+| `回傳` | `return` | 回傳函式結果 |
+| `如果` | `if` | 條件分支 |
+| `否則如果` | `else if` 或 `elif` | 後續條件分支 |
+| `否則` | `else` | 預設分支 |
+| `迴圈` | `for` | 迴圈 |
+| `中斷` | `break` | 離開迴圈 |
+| `真` / `假` | `true` / `false` | 布林值 |
+
+繁體中文：
+
+```aquarius
+變數 加法 = 函式(甲, 乙) { 回傳 甲 + 乙; };
+印出(加法(3, 5));
+```
+
+English：
+
+```aquarius
+var add = function(a, b) { return a + b; };
+print(add(3, 5));
+```
+
+同檔混用，也可讓同一個函式擁有雙語名稱：
+
+```aquarius
+var 加法, add = function(甲, b) { 回傳 甲 + b; };
 變數 計數 = 0;
 
-迴圈 (變數 索引 = 0; 索引 < 5; 索引++) {
+for (變數 索引 = 0; 索引 < 5; 索引++) {
     計數++;
-    如果 (計數 == 3) { 中斷; }
+    if (計數 == 3) { 中斷; }
 }
 印出(計數, 加法(3, 5), add(3, 5));
 ```
+
+分支也能混用：`if (假) { ... } else 如果 (true) { ... } 否則 { ... }`。
+英文關鍵字區分大小寫，以上中英文關鍵字都是保留字；例如 `returnValue`、`如果成立` 仍可作為識別字。
+函式以 `var add = function(...) { ... };` 宣告；`var` 沿用星泉既有的詞法作用域與可變變數語意。
+`let`、`fn` 不是語法關鍵字。字串、註解與自訂名稱保留原文；布林值的預設顯示仍為 `真`／`假`。
 
 運算子包含 `+ - * / %`（餘數，整數向零截斷）及對應的複合指派 `+= -= *= /= %=`。
 核心內建 [`陣列`、`雜湊`與`字串`函式庫](docs/hash-and-string.md)：例如 `雜湊.鍵列表(表)` 列舉雜湊表的鍵、
@@ -259,7 +290,7 @@ Jolt 的 Emscripten glue、Wasm 與綁定由獨立 `Aqua_JoltPhysics` Bottle 函
 | OpenGL | [GLFW、GLAD、OpenGL 3.3 core、GLM 與 STBImage](native/README.md)；完整保留桌面 OpenGL 函式庫。 | [旋轉材質立方體](examples/opengl_cube/README.md) |
 | Aqua_JoltPhysics | 第三方 TOML 函式庫，提供世界、剛體、重力、力與衝量；使用 DynamicLibrary 載入同一份 Jolt Wasm。 | [物理驗證](examples/jolt_physics/README.md) |
 | 文字輸入 | [Unicode 字素編輯、輸入事件與 Windows IME](AquariusDesktop/graphics/TextInput.md)。 | [多語輸入](examples/multilingual_input/README.md) |
-| 語言與雙語函式 | 閉包、遞迴、控制流程與中文／英文函式名稱。 | [星艦遠征](examples/starship_expedition/README.md)、[雙語函式庫](examples/bilingual_library/README.md) |
+| 雙語語法與函式 | 繁體中文／英文／混合語法、閉包、遞迴、控制流程與雙名稱函式。 | [星艦遠征](examples/starship_expedition/README.md)、[雙語函式庫](examples/bilingual_library/README.md) |
 
 桌面視窗功能需先建置原生橋接。Jolt 請透過 Bottle 安裝；核心的 `Terminal`／`終端機` 提供跨平台腳本執行介面。
 瀏覽器支援範圍以目前範例與測試為準，各平台差異請見對應指南。

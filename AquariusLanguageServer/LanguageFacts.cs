@@ -11,7 +11,17 @@ internal static class LanguageFacts
         ["否則"] = "否則 { ... } — Fallback branch.",
         ["回傳"] = "回傳 運算式; — Return a value from a function.",
         ["迴圈"] = "迴圈 (變數 索引 = 0; 條件; 索引++) { ... } — For loop.",
-        ["中斷"] = "中斷; — Exit a loop.", ["真"] = "Boolean true.", ["假"] = "Boolean false."
+        ["中斷"] = "中斷; — Exit a loop.", ["真"] = "Boolean true.", ["假"] = "Boolean false.",
+        ["var"] = "var name = expression; — Declare a variable. Alias: 變數.",
+        ["function"] = "function(parameters, ...) { ... } — Create a function and closure. Alias: 函式.",
+        ["if"] = "if (condition) { ... } — Conditional expression. Alias: 如果.",
+        ["elif"] = "elif (condition) { ... } — Additional conditional branch; also else if. Alias: 否則如果.",
+        ["else"] = "else { ... } / else if (condition) { ... } — Fallback or additional branch. Alias: 否則.",
+        ["return"] = "return expression; — Return a value from a function. Alias: 回傳.",
+        ["for"] = "for (var i = 0; condition; i++) { ... } — For loop. Alias: 迴圈.",
+        ["break"] = "break; — Exit a loop. Alias: 中斷.",
+        ["true"] = "Boolean true. Alias: 真.",
+        ["false"] = "Boolean false. Alias: 假."
     };
 
     public static readonly IReadOnlyDictionary<string, string> Builtins = CreateBuiltins();

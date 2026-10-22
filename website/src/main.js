@@ -22,17 +22,17 @@ document.querySelector("#app").innerHTML = `
     <section class="hero" aria-labelledby="hero-title">
       <div class="hero-grain"></div>
       <div class="hero-copy">
-        <div class="eyebrow hero-eyebrow"><span class="live-dot"></span>繁體中文，寫出你的世界<span class="tiny-cross">＋</span></div>
+        <div class="eyebrow hero-eyebrow"><span class="live-dot"></span>繁體中文與英文，寫出你的世界<span class="tiny-cross">＋</span></div>
         <h1 id="hero-title">讓靈感，<br><span>湧成作品。</span></h1>
-        <p class="hero-description">一門用熟悉的文字，探索未知的程式語言。<br>從第一行中文程式，到光影、圖形與互動創作。<br>星泉，讓想法自由流動。</p>
+        <p class="hero-description">一門用熟悉的文字，探索未知的程式語言。<br>從第一行雙語程式，到光影、圖形與互動創作。<br>星泉，讓想法自由流動。</p>
         <div class="hero-cta"><a class="button primary" href="#syntax">探索星泉 ${arrow}</a><a class="text-link" href="${repo}#執行與測試" target="_blank" rel="noopener noreferrer">開始寫程式 ${outward}</a></div>
-        <div class="hero-tags"><span>開源</span><i></i><span>中文語法</span><i></i><span>為創作而生</span></div>
+        <div class="hero-tags"><span>開源</span><i></i><span>雙語語法</span><i></i><span>為創作而生</span></div>
       </div>
       <div class="observatory" aria-label="可拖曳旋轉的水瓶與星泉粒子 3D 場景">
         <canvas id="space-canvas" aria-label="互動水瓶 3D 視覺"></canvas>
         <div class="scene-caption"><span class="scene-cross">＋</span> AQUARIUS / 水瓶座<span class="caption-coordinate">22h 20m · −10°</span></div>
         <svg class="constellation" viewBox="0 0 700 700" aria-hidden="true"><path d="m500 87-58 62 67 45 59-18 42 74-29 86"/><g><circle cx="500" cy="87" r="3"/><circle cx="442" cy="149" r="4"/><circle cx="509" cy="194" r="3"/><circle cx="568" cy="176" r="3"/><circle cx="610" cy="250" r="4"/><circle cx="581" cy="336" r="3"/></g></svg>
-        <a class="space-label label-code" href="#syntax"><span class="node-dot"></span><span>中文語法<small>LANGUAGE</small></span></a>
+        <a class="space-label label-code" href="#syntax"><span class="node-dot"></span><span>雙語語法<small>LANGUAGE</small></span></a>
         <a class="space-label label-graphics" href="#capabilities"><span class="node-dot"></span><span>圖形與互動<small>CREATIVE CODING</small></span></a>
         <a class="space-label label-future" href="#future"><span class="node-dot"></span><span>更多可能<small>WHAT'S NEXT</small></span></a>
         <div class="scene-controls"><span class="drag-hint"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M8 11V6a2 2 0 0 1 4 0v5m0-2a2 2 0 0 1 4 0v3m0-1a2 2 0 0 1 4 0v4c0 4-3 6-6 6h-2c-2 0-3-1-4-3l-3-5a2 2 0 0 1 3-2l2 2v-2" stroke="currentColor" stroke-width="1.3"/></svg>拖曳旋轉 · 探索這片星空</span><button id="motion-toggle" class="icon-button" aria-label="暫停星空動畫" aria-pressed="false"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M9 7v10m6-10v10" stroke="currentColor" stroke-width="1.5"/></svg></button><button id="scene-reset" class="icon-button" aria-label="重設水瓶視角"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M5 9a7 7 0 1 1 0 7M5 4v5h5" stroke="currentColor" stroke-width="1.5"/></svg></button></div>
@@ -40,7 +40,7 @@ document.querySelector("#app").innerHTML = `
       <div class="hero-bottom"><a href="#about" class="scroll-link"><span>向下探索</span><span>↓</span></a><span class="hero-footnote">A LANGUAGE. A SPRING. A UNIVERSE.</span><span class="edition">01 — 無限可能</span></div>
     </section>
 
-    <div class="feature-ribbon"><span>熟悉的文字，新的可能</span><div><span>繁體中文語法</span><span class="ribbon-star">✧</span><span>WebAssembly + Wasmtime</span><span class="ribbon-star">✧</span><span>OpenGL 3.3</span><span class="ribbon-star">✧</span><span>Processing</span><span class="ribbon-star">✧</span><span>VS Code + LSP</span></div></div>
+    <div class="feature-ribbon"><span>熟悉的文字，新的可能</span><div><span>繁體中文／英文雙語語法</span><span class="ribbon-star">✧</span><span>WebAssembly + Wasmtime</span><span class="ribbon-star">✧</span><span>OpenGL 3.3</span><span class="ribbon-star">✧</span><span>Processing</span><span class="ribbon-star">✧</span><span>VS Code + LSP</span></div></div>
 
     <section id="about" class="section about-section reveal">
       <div class="section-marker"><span>01 / ORIGIN</span><span>名字裡的宇宙</span></div>
@@ -49,8 +49,8 @@ document.querySelector("#app").innerHTML = `
 
     <section id="syntax" class="section syntax-section reveal">
       <div class="section-marker"><span>02 / EXPRESSION</span><span>用自己的語言思考</span></div>
-      <div class="section-heading"><h2>讀得懂，<br>就從這一行開始。</h2><p>關鍵字、變數、函式與參數，都能以中文命名。<br>保留熟悉的括號與運算符號，讓邏輯清楚可讀。</p></div>
-      <div class="syntax-layout"><div class="syntax-notes"><span class="small-overline">AQUARIUS IN PRACTICE</span><h3 id="example-heading">一句問候，<br>就是一個開始。</h3><p id="example-description">用「變數」保存想法，再用「印出」讓它出現在終端機。中文名稱可以直接成為程式的一部分。</p><div class="keyword-pair"><code id="keyword-english">let → 變數</code><span>熟悉的概念，熟悉的文字</span></div><a class="text-link" href="${repo}#語法" target="_blank" rel="noopener noreferrer">查看完整語法 ${outward}</a></div>
+      <div class="section-heading"><h2>讀得懂，<br>就從這一行開始。</h2><p>關鍵字可用繁體中文或英文，並在同檔混用。<br>保留熟悉的括號與運算符號，讓邏輯清楚可讀。</p></div>
+      <div class="syntax-layout"><div class="syntax-notes"><span class="small-overline">AQUARIUS IN PRACTICE</span><h3 id="example-heading">一句問候，<br>就是一個開始。</h3><p id="example-description">用「變數」保存想法，再用「印出」讓它出現在終端機。中文名稱可以直接成為程式的一部分。</p><div class="keyword-pair"><code id="keyword-english">var ↔ 變數</code><span>熟悉的概念，熟悉的文字</span></div><a class="text-link" href="${repo}#語法" target="_blank" rel="noopener noreferrer">查看完整語法 ${outward}</a></div>
       <div class="code-window"><div class="editor-top"><div class="window-dots"><i></i><i></i><i></i></div><span id="code-filename">hello.aqua</span><span class="editor-language">星泉</span></div><div class="code-tabs" role="tablist" aria-label="語法範例"><button class="active" role="tab" aria-selected="true" aria-controls="code-panel" id="tab-hello" data-example="hello">初次見面</button><button role="tab" aria-selected="false" aria-controls="code-panel" id="tab-function" data-example="function" tabindex="-1">函式與判斷</button><button role="tab" aria-selected="false" aria-controls="code-panel" id="tab-loop" data-example="loop" tabindex="-1">迴圈與陣列</button></div><div id="code-panel" role="tabpanel" aria-labelledby="tab-hello" tabindex="0"><pre id="code-content"></pre></div><div class="code-output"><span>預期輸出</span><pre id="code-result" aria-live="polite"></pre><span class="output-note">星泉語法示例 · 預期執行結果</span></div><button id="copy-code" class="copy-code" aria-label="複製目前程式碼"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="8" y="8" width="11" height="12" rx="2" stroke="currentColor" stroke-width="1.4"/><path d="M15 8V4H4v12h4" stroke="currentColor" stroke-width="1.4"/></svg><span>複製</span></button></div></div>
       <div class="syntax-footer"><span><i>01</i> Unicode 中文識別字</span><span><i>02</i> 全域與區域變數、閉包</span><span><i>03</i> 陣列、雜湊表與模組</span><span><i>04</i> 前置與後置 ++ 運算</span></div>
     </section>
@@ -80,7 +80,7 @@ const examples = {
     heading: "一句問候，\n就是一個開始。",
     description:
       "用「變數」保存想法，再用「印出」讓它出現在終端機。中文名稱可以直接成為程式的一部分。",
-    keyword: "let → 變數",
+    keyword: "var ↔ 變數",
     code: '# 用熟悉的文字，寫下第一個想法\n\n變數 名字 = "世界";\n變數 問候 = "你好，" + 名字;\n\n印出(問候);\n印出("讓靈感，湧成作品。");',
     output: "你好，世界\n讓靈感，湧成作品。",
   },
@@ -89,7 +89,7 @@ const examples = {
     heading: "把想法，\n寫成可以重用的邏輯。",
     description:
       "以「函式」組織運算，用「如果」選擇分支，再用「回傳」交出結果。函式的參數也能以中文命名。",
-    keyword: "fn → 函式 · return → 回傳",
+    keyword: "function ↔ 函式 · return ↔ 回傳",
     code: '# 判斷一顆星的亮度\n變數 描述星光 = 函式(亮度) {\n    如果 (亮度 > 5) {\n        回傳 "星光閃耀";\n    } 否則 {\n        回傳 "微光，也有自己的位置";\n    }\n};\n\n印出(描述星光(8));',
     output: "星光閃耀",
   },
@@ -197,9 +197,9 @@ const nodes = {
     title: "語言核心",
     status: "已支援",
     description:
-      "繁體中文是表達邏輯的起點。以 C# 實作的編譯器，將熟悉的文字編譯成跨平台 WebAssembly 程式。",
+      "繁體中文與英文都能表達邏輯，也可在同一檔案混用。以 C# 實作的編譯器，將雙語語法編譯成跨平台 WebAssembly 程式。",
     features: [
-      "中文關鍵字與 Unicode 識別字",
+      "繁體中文／英文關鍵字與 Unicode 識別字",
       "函式、閉包、陣列與雜湊表",
       "模組匯入與桌面 REPL",
     ],

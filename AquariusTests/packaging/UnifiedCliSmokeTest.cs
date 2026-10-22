@@ -7,6 +7,22 @@ using AquariusLang.Desktop.runtime;
 namespace AquariusTests.Packaging;
 
 public class UnifiedCliSmokeTest {
+    [Theory]
+    [InlineData("變數 工具=匯入(\"tools.aqua\");印出(工具.add(20,22));工具.加法(1,2);", "var add, 加法 = function(a,b) { return a+b; };")]
+    [InlineData("var tools=import(\"tools.aqua\");print(tools.加法(20,22));tools.add(1,2);", "變數 加法, add = 函式(甲,乙) { 回傳 甲+乙; };")]
+    [InlineData("var 工具=匯入(\"tools.aqua\");印出(工具.add(20,22));工具.加法(1,2);", "變數 add, 加法 = function(a,乙) { 回傳 a+乙; };")]
+    public void DifferentSyntaxesInteroperateAcrossModulesAndSourceFreeCliExecution(string main, string library) {
+        using var temp = new ApplicationTestDirectory();
+        string entry = temp.Write("main.aqua", main);
+        string module = temp.Write("tools.aqua", library);
+        var built = Run(temp.Path, "build", entry, module, "--root", temp.Path, "-o", "app.wasm");
+        Assert.True(built.Code == 0, built.Error);
+        File.Delete(entry); File.Delete(module);
+        var run = Run(temp.Path, "run", "app.wasm");
+        Assert.Equal(0, run.Code); Assert.Empty(run.Error);
+        Assert.Equal("42\n3\n", run.Output);
+    }
+
     [Fact]
     public void SourceModulesAndAssetsBuildDirectlyIntoAWebsiteWithoutAnIntermediateArtifact() {
         using var t=new ApplicationTestDirectory();

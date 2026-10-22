@@ -1,10 +1,14 @@
-# Aquarius Language (繁體中文) for Visual Studio Code
+# Aquarius Language (繁體中文 / English) for Visual Studio Code
 
-Edit `.aqua` files with Traditional Chinese syntax highlighting, bracket pairing,
+Edit `.aqua` files with bilingual Traditional Chinese / English syntax highlighting, bracket pairing,
 comment toggling, snippets, and a bundled Language Server Protocol server.
 The server provides live syntax diagnostics, keyword/builtin/local completion,
 hover documentation, same-document definitions, and an outline of variables,
-functions, and parameters. Chinese and other Unicode names are supported.
+functions, and parameters. Chinese, English and mixed syntax work in the same
+file, including `var`, `function`, `return` and `else if` / `elif`. Chinese and
+other Unicode names are supported. English snippet triggers emit English syntax;
+Chinese triggers emit Chinese syntax. The legacy `let` / `fn` snippet triggers
+also expand to Chinese declarations; they are not Aquarius keywords.
 
 ## Install the packaged extension
 
@@ -21,7 +25,7 @@ functions, and parameters. Chinese and other Unicode names are supported.
    ```
 
 4. Open a folder you trust and open or create a UTF-8 `.aqua` file. The status bar
-   should show **Aquarius (繁體中文)**. If needed, click the language name and select it.
+   should show **Aquarius (繁體中文 / English)**. If needed, click the language name and select it.
    For other folders, the installed extension activates automatically for `.aqua` files.
 5. Try the example below. **Ctrl+Space** offers completion, hovering over `加法`
    shows its parameters, **F12** goes to its declaration, and deleting the `0` in

@@ -1,5 +1,11 @@
 # WebAssembly compiler and cross-platform hosts
 
+AquariusLang is a bilingual Traditional Chinese / English programming language.
+Chinese and English keywords map to the same frontend tokens and AST; a file or
+module can mix both freely. `else if` and `否則如果` share the same conditional
+branch representation. All hosts therefore execute the same Wasm semantics.
+See [bilingual syntax and language behavior](AquariusCore/LANGUAGE.md#bilingual-syntax).
+
 Networking contracts, optional platform capabilities, bilingual client/socket APIs and
 the desktop HTTP(S) server are documented in [Network / 網路](docs/networking.md).
 

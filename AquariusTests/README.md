@@ -14,11 +14,29 @@ dotnet test AquariusTests -m:1
 npm test --prefix AquariusWebCompiler
 ```
 
-The suite covers syntax, numeric semantics, lexical closures, bilingual alias
+The suite covers Traditional Chinese, English and mixed syntax, numeric semantics, lexical closures, bilingual alias
 identity, arrays/hashes, error propagation, deep recursion, native callbacks,
 Wasm artifact validation/round trips, source-free module and asset deployment,
 CLI usage and standalone executable overlays. Wasmtime is the test execution
 engine; cross-engine tests execute identical bytes in Node WebAssembly.
+
+`BilingualSyntaxTest.cs` exercises every keyword, Unicode identifier boundaries,
+source ranges, all declaration/function/return spelling combinations, mixed
+conditional branches, loops, closures, recursion, values, errors and REPL state.
+It checks both compiled execution and reloaded Wasm. Run it with
+`dotnet test AquariusTests --filter FullyQualifiedName~BilingualSyntaxTest`.
+`packaging/UnifiedCliSmokeTest.cs` also compiles modules written in different
+syntaxes and executes the result after removing the sources.
+`AquariusWebCompiler/tests/bilingual-syntax.test.mjs` verifies the same language
+features on Node's WebAssembly engine. LSP integration and VS Code grammar/snippet
+tests cover bilingual diagnostics, completion, definitions and highlighting:
+
+```powershell
+node --test AquariusWebCompiler/tests/bilingual-syntax.test.mjs
+dotnet build AquariusLanguageServer -c Release
+node --test AquariusLanguageServer/tests/lsp.test.js
+npm run --prefix editors/vscode check
+```
 
 `threading/ThreadTest.cs` and `AquariusWebCompiler/tests/threads.test.mjs` cover
 function parameters, captured snapshots, isolated mutation, graph results, worker

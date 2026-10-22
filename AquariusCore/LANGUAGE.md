@@ -1,5 +1,6 @@
 # Language core and WebAssembly development
 
+AquariusLang is a bilingual Traditional Chinese / English programming language.
 The portable language implementation lives entirely in `AquariusCore`.
 The desktop host and language server use the same frontend and object model.
 The language server analyzes source without running it; the desktop host compiles
@@ -30,9 +31,51 @@ ancestor slots avoid name lookup while intervening scopes remain uncaptured. The
 optimizations preserve the language behavior below; see
 [portable numeric compilation](../docs/portable-numeric-architecture.md).
 
+## Bilingual syntax
+
+Traditional Chinese, English and mixed syntax are accepted in every `.aqua`
+file, imported module and REPL session, with no language setting. Both spellings
+map to the same token types, AST nodes and WebAssembly semantics.
+
+| Traditional Chinese | English | Meaning |
+| --- | --- | --- |
+| `變數` | `var` | Mutable variable declaration |
+| `函式` | `function` | Function expression / closure |
+| `回傳` | `return` | Return a function result |
+| `如果` | `if` | Conditional expression |
+| `否則如果` | `else if` or `elif` | Additional conditional branch |
+| `否則` | `else` | Fallback branch |
+| `迴圈` | `for` | Loop |
+| `中斷` | `break` | Exit the innermost loop |
+| `真` / `假` | `true` / `false` | Boolean literals |
+
+```aquarius
+var 加法, add = function(甲, b) { 回傳 甲 + b; };
+變數 result = add(20, 22);
+if (result < 0) { print("negative"); }
+else 如果 (result == 42) { 印出("答案", result); }
+否則 { print("other"); }
+```
+
+`else if` consists of two tokens; whitespace, line breaks and comments may
+separate them. Either token can use its Chinese spelling (`否則 if`,
+`else 如果` or `否則 如果`). Single-token `elif` and `否則如果` can occur
+in the same branch chain. A final `else` / `否則` is optional.
+
+Keywords are case-sensitive reserved words in both languages. They only match
+whole identifiers: `returnValue`, `if成立` and `真值` remain valid names.
+Code that previously used an English keyword as a variable, parameter or host
+function name must rename it. Keywords inside strings and comments remain text.
+`let` and `fn` remain ordinary identifiers; use `var` and `function` for English
+syntax. Functions are declared as `var name = function(...) { ... };`.
+`var` preserves Aquarius lexical scope and mutation rules; changing spelling
+does not introduce JavaScript hoisting or change closure capture behavior.
+User-defined names, module paths, property names and strings are never translated.
+Default value inspection still prints booleans as `真` / `假` and null as `null`.
+
 ## Language behavior
 
-- Keywords include `變數`, `函式`, `如果`, `否則如果`, `否則`, `回傳`, `迴圈`, `中斷`, `真` and `假`.
+- Each keyword accepts either spelling from the bilingual syntax table above.
 - Arithmetic promotes mixed numeric operands to double, then float, then integer.
   Compound numeric assignments preserve the left variable's numeric type by
   converting the result back to that type. Prefix/postfix `++` also preserve it.
@@ -42,7 +85,7 @@ optimizations preserve the language behavior below; see
 - `++值` returns the updated number; `值++` returns the original number.
   Both require an existing numeric variable.
 - Boolean `&&` and `||` evaluate both operands. They do not short-circuit.
-- Functions support explicit `回傳`, a final expression as an implicit result,
+- Functions support explicit `回傳` / `return`, a final expression as an implicit result,
   recursion and lexical closures. Assignments update the scope owning a variable.
 - `變數 加法, add = 函式(甲, 乙) { 甲 + 乙; };` gives one function two public
   names, in either order. A single name continues to work. Two-name declarations
@@ -123,7 +166,8 @@ without a separate null literal.
 
 ## Extending the language
 
-When introducing syntax, update tokens, lexer rules, parser callbacks and operator
+When introducing syntax, keep Chinese and English keyword spellings equivalent.
+Update tokens, lexer rules, parser callbacks and operator
 precedences, then the AST and `LoweringCompiler`. Add an opcode or `ValueOperations` behavior
 when needed, and update language-server facts and editor highlighting/snippets.
 

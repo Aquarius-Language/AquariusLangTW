@@ -571,8 +571,19 @@ namespace AquariusLang.parser {
             List<IExpression> alternativeConditions = new List<IExpression>();
             List<BlockStatement> alternatives = new List<BlockStatement>();
 
-            while (peekTokenIs(TokenType.ELSE_IF)) { // "elif"s are optional.
+            // Both spellings share the same branch representation. Keeping "else"
+            // and "if" as separate tokens preserves source ranges and allows comments
+            // or mixed-language keywords between them.
+            while (peekTokenIs(TokenType.ELSE_IF) || peekTokenIs(TokenType.ELSE)) {
                 nextToken();
+                if (currTokenIs(TokenType.ELSE)) {
+                    if (peekTokenIs(TokenType.LBRACE)) {
+                        nextToken();
+                        expression.LastResort = parseBlockStatement();
+                        break;
+                    }
+                    if (!expectPeek(TokenType.IF)) return null;
+                }
                 if (!expectPeek(TokenType.LPAREN)) {
                     return null;
                 }
@@ -593,15 +604,6 @@ namespace AquariusLang.parser {
             if (alternatives.Count > 0) {
                 expression.AlternativeConditions = alternativeConditions.ToArray();
                 expression.Alternatives = alternatives.ToArray();
-            }
-
-            if (peekTokenIs(TokenType.ELSE)) { // "else" is optional.
-                nextToken();
-                if (!expectPeek(TokenType.LBRACE)) {
-                    return null;
-                }
-
-                expression.LastResort = parseBlockStatement();
             }
 
             return expression;

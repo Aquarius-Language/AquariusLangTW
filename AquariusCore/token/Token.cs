@@ -71,17 +71,27 @@ namespace AquariusLang.token {
         /// <summary>
         /// keywords table maps corresponded to keywords constants above.
         /// </summary>
-        private static readonly Dictionary<string, string> Keywords = new Dictionary<string, string>() {
+        private static readonly Dictionary<string, string> Keywords = new Dictionary<string, string>(System.StringComparer.Ordinal) {
             { "函式", TokenType.FUNCTION },
+            { "function", TokenType.FUNCTION },
             { "變數", TokenType.LET },
+            { "var", TokenType.LET },
             { "真", TokenType.TRUE },
+            { "true", TokenType.TRUE },
             { "假", TokenType.FALSE },
+            { "false", TokenType.FALSE },
             { "如果", TokenType.IF },
+            { "if", TokenType.IF },
             { "否則", TokenType.ELSE },
+            { "else", TokenType.ELSE },
             { "否則如果", TokenType.ELSE_IF },
+            { "elif", TokenType.ELSE_IF },
             { "回傳", TokenType.RETURN },
+            { "return", TokenType.RETURN },
             { "迴圈", TokenType.FOR },
+            { "for", TokenType.FOR },
             { "中斷", TokenType.BREAK },
+            { "break", TokenType.BREAK },
         };
 
         /// <summary>
@@ -91,7 +101,7 @@ namespace AquariusLang.token {
         /// </summary>
         /// <param name="literal"></param>
         public static string LookupIdentifier(string literal) {
-            return Keywords.ContainsKey(literal) ? Keywords[literal] : TokenType.IDENT;
+            return Keywords.TryGetValue(literal, out string? type) ? type : TokenType.IDENT;
         }
     }
 

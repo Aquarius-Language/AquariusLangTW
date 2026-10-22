@@ -1,6 +1,9 @@
 # AquariusCore
 
-Portable compiler and runtime contracts targeting .NET 8. Core has no native engine,
+Portable compiler and runtime contracts for the bilingual Traditional Chinese /
+English AquariusLang language, targeting .NET 8. Chinese, English and mixed syntax
+share one lexer, parser and Wasm compiler; see [the keyword table](LANGUAGE.md#bilingual-syntax).
+Core has no native engine,
 graphics or physics package dependencies.
 
 Core also owns [audio contracts and the miniaudio Wasm library](audio/README.md).
