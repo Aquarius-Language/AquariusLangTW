@@ -31,3 +31,4 @@ AquariusCore/external/onnx/ort*
 .build-validation
 .performance/
 .performance-*.log
+/宣傳影片
