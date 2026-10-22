@@ -12,6 +12,7 @@ aqua build app.wasm --target web -o web
 aqua build app.wasm --target windows -o app.exe --entry lib/tools.aqua
 aqua build app.wasm --target linux -o app
 aqua build app.wasm --target windows -o app.exe --onnx-cuda true
+aqua build app.wasm --target windows -o app.exe --hide-terminal true
 aqua new MyApp
 aqua new MyLibrary --type library
 aqua bottle install ../MyLibrary --project MyApp --version ">= 0.1, < 0.2"
@@ -44,6 +45,24 @@ Windows output uses the prepublished self-contained runtime pack; rebuild it wit
 `[onnx] cuda = true` in `aqua.toml` (or `--onnx-cuda true`, which also overrides the manifest)
 selects the `build-targets/<rid>-cuda` pack published with `-OnnxCuda`; see
 [the ONNX guide](../docs/onnx.md#nvidia-cuda-opt-in).
+
+Windows desktop apps show a terminal by default. To build a GUI executable that
+opens without a terminal, pass `--hide-terminal true`, or add this to `aqua.toml`:
+
+```toml
+[desktop]
+hide_terminal = true
+```
+
+Build that project with `aqua build . --target windows -o app.exe`. An explicit
+`--hide-terminal false` overrides the manifest for console debugging. Omitted or
+false settings preserve console behavior for existing projects. The option applies
+to Windows exports from sources, Wasm, or TOML projects; only the root project's
+desktop settings apply. Other targets ignore the TOML setting. Linux executables
+do not allocate a terminal window themselves and do not accept this Windows option.
+GUI exports require an updated Windows runtime pack; when building from source,
+republish it with `scripts/publish-apphost.ps1`. Old packs remain usable for console
+exports and produce a clear rebuild instruction if terminal hiding is requested.
 
 Exit codes: 0 success, 1 compiler/runtime/IO failure, 2 invalid command/options.
 

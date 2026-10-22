@@ -67,6 +67,9 @@ platforms = ["windows"]
 [onnx]
 cuda = true # opt in to NVIDIA CUDA/TensorRT ONNX providers in windows/linux executables
 
+[desktop]
+hide_terminal = true # optional Windows GUI executable; default false keeps the terminal
+
 [tool.my_tool]
 enabled = true
 ```
@@ -81,6 +84,13 @@ other tools and does not affect compilation. `[onnx] cuda` (default `false`) sel
 CUDA runtime pack (including NVIDIA inference libraries and license notices) for windows/linux exports of the root project; dependencies' settings are
 ignored and `--onnx-cuda` on the command line overrides it. See
 [the ONNX guide](../docs/onnx.md#nvidia-cuda-opt-in).
+
+`[desktop] hide_terminal` defaults to `false`, preserving console behavior for
+existing projects. Set it to `true` to export a Windows GUI executable without a
+terminal window. `--hide-terminal true|false` overrides the root manifest's value;
+dependencies' desktop settings and other export targets are unaffected. Use a
+project build (`aqua build . --target windows -o app.exe`) to apply this setting;
+exporting a standalone `.wasm` requires the CLI option.
 
 Library versions require `major.minor.patch`, with optional SemVer prerelease and
 build metadata. Supported requirement operators are `=`, `==`, `>`, `>=`, `<`,

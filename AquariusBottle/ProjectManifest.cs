@@ -15,6 +15,8 @@ public sealed record BottleAsset(string Source, string? Target, IReadOnlyList<st
 /// <summary>[onnx] build options. Cuda selects the opt-in NVIDIA CUDA/TensorRT runtime pack for windows/linux
 /// executables; other targets are unaffected. Only the root project's settings apply, never a dependency's.</summary>
 public sealed record OnnxSettings(bool Cuda = false) { public static OnnxSettings Default { get; } = new(); }
+/// <summary>[desktop] build options for the root project's executable exports.</summary>
+public sealed record DesktopSettings(bool HideTerminal = false) { public static DesktopSettings Default { get; } = new(); }
 
 /// <summary>The shared compiler/editor manifest contract. Parsing never fetches or executes dependencies.</summary>
 public sealed class ProjectManifest {
@@ -33,6 +35,7 @@ public sealed class ProjectManifest {
     public IReadOnlyList<BottleAsset> Assets { get; } = [];
     public IReadOnlyDictionary<string, BottleDependency> Dependencies { get; } = new Dictionary<string, BottleDependency>();
     public OnnxSettings Onnx { get; } = OnnxSettings.Default;
+    public DesktopSettings Desktop { get; } = DesktopSettings.Default;
     internal TomlTable Model { get; }
 
     private ProjectManifest(string file, string text, TomlTable model) {
@@ -61,7 +64,7 @@ public sealed class ProjectManifest {
             try { SafeFiles.Relative(value); } catch (InvalidDataException e) { Fail(key, e.Message); }
             return value.Replace('\\', '/');
         }
-        Keys(model, "manifest", "manifest_version", "project", "dependencies", "assets", "onnx", "tool");
+        Keys(model, "manifest", "manifest_version", "project", "dependencies", "assets", "onnx", "desktop", "tool");
         if (model.TryGetValue("manifest_version", out var schema) && schema is not (long and 1)) Fail("manifest_version", "Only manifest_version = 1 is supported.");
         if (!model.TryGetValue("project", out var projectValue) || projectValue is not TomlTable) Fail("project", "Missing [project] table.");
         var project = (TomlTable)model["project"];
@@ -109,6 +112,13 @@ public sealed class ProjectManifest {
             } else Fail("assets", "Use assets = ['relative/path'] before [project], or [[assets]] tables with source, optional target and platforms.");
         }
         Assets = assets;
+        if (model.TryGetValue("desktop", out var desktopValue)) {
+            if (desktopValue is not TomlTable desktop) { Fail("desktop", "[desktop] must be a table, e.g. [desktop] hide_terminal = true."); return; }
+            Keys(desktop, "desktop", "hide_terminal");
+            bool hideTerminal = false;
+            if (desktop.TryGetValue("hide_terminal", out var hideValue)) { if (hideValue is bool flag) hideTerminal = flag; else Fail("hide_terminal", "'hide_terminal' must be true or false."); }
+            Desktop = new(hideTerminal);
+        }
         if (model.TryGetValue("onnx", out var onnxValue)) {
             if (onnxValue is not TomlTable onnx) { Fail("onnx", "[onnx] must be a table, e.g. [onnx] cuda = true."); return; }
             Keys(onnx, "onnx", "cuda");

@@ -10,7 +10,8 @@ namespace AquariusLang.Cli;
 public static class CompilerCommandLine {
     public const string Usage = "aqua build main.aqua [more.aqua ...] [--root directory] [--assets path ...] [-o app.wasm]\n" +
         "aqua build app.wasm --target web -o output-directory [--entry main.aqua]\n" +
-        "aqua build app.wasm --target windows -o app.exe [--entry main.aqua] [--onnx-cuda true|false]\n" +
+        "aqua build app.wasm --target windows -o app.exe [--entry main.aqua] [--onnx-cuda true|false] [--hide-terminal true|false]\n" +
+        "--hide-terminal true builds a Windows GUI executable without a console (projects use [desktop] hide_terminal = true; default false).\n" +
         "aqua build app.wasm --target linux -o app [--entry main.aqua] [--onnx-cuda true|false]\n" +
         "--onnx-cuda true bundles ONNX CUDA providers and NVIDIA inference runtime libraries (opt-in; projects use [onnx] cuda = true).\n" +
         "aqua build main.aqua --target android -o android-project [--root directory] [--assets path]\n" +
@@ -79,6 +80,8 @@ public static class CompilerCommandLine {
                 // Manifest build settings become target options; an explicit command-line value overrides them.
                 if (project.Onnx.Cuda && projectBackend.OptionNames.Contains(SelfContainedExecutableTarget.OnnxCudaOption))
                     options.TryAdd(SelfContainedExecutableTarget.OnnxCudaOption, "true");
+                if (project.Desktop.HideTerminal && projectBackend.OptionNames.Contains(SelfContainedExecutableTarget.HideTerminalOption))
+                    options.TryAdd(SelfContainedExecutableTarget.HideTerminalOption, "true");
                 string intermediate = Path.Combine(Path.GetTempPath(), "aquarius-project-build-" + Guid.NewGuid().ToString("N") + ".wasm");
                 try {
                     ProjectBuilder.Compile(manifest, intermediate, target, flags.Contains("--locked"), flags.Contains("--offline"));

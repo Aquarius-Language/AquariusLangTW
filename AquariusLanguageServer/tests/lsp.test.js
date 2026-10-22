@@ -395,7 +395,8 @@ test('TOML manifests diagnose names and versions and refresh source diagnostics 
   let errors = await s.open(invalid, f.manifestUri);
   assert.ok(errors.some(d => /whitespace/.test(d.message) && d.range.start.line === 1));
   errors = await s.diagnostics(1, f.mainUri); assert.ok(errors.some(d => /whitespace/.test(d.message)));
-  const items = await s.feature('completion', 1, 0, f.manifestUri); assert.ok(items.some(i => i.label === 'platforms'));
+  const items = await s.feature('completion', 1, 0, f.manifestUri);
+  for (const name of ['platforms', 'desktop', 'hide_terminal']) assert.ok(items.some(i => i.label === name), name);
   s.send('textDocument/didChange', { textDocument: { uri: f.manifestUri, version: 2 }, contentChanges: [{ text: f.manifest }] });
   assert.deepEqual(await s.diagnostics(2, f.manifestUri), []); assert.deepEqual(await s.diagnostics(1, f.mainUri), []);
   const libManifest = pathToFileURL(path.join(f.folder, 'vendor/greeter/aqua.toml')).href;

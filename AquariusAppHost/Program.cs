@@ -6,7 +6,14 @@ using System.Runtime.InteropServices;
 using System.Text.Json;
 using AquariusLang.Desktop.runtime;
 
-Console.OutputEncoding = new System.Text.UTF8Encoding(false);
+var outputEncoding = new System.Text.UTF8Encoding(false);
+try { Console.OutputEncoding = outputEncoding; }
+catch (IOException) when (OperatingSystem.IsWindows()) {
+    // A GUI-subsystem process has no console code page. Standard handles can
+    // still be redirected by a launcher, so configure their UTF-8 writers directly.
+    Console.SetOut(new StreamWriter(Console.OpenStandardOutput(), outputEncoding) { AutoFlush = true });
+    Console.SetError(new StreamWriter(Console.OpenStandardError(), outputEncoding) { AutoFlush = true });
+}
 try {
     string path = System.Environment.ProcessPath ?? throw new IOException("Cannot locate the application executable.");
     using var stream = File.OpenRead(path);
@@ -28,7 +35,8 @@ try {
         if (onnxCuda) CudaRuntimeBundle.Validate(AppContext.BaseDirectory, rid);
         Console.WriteLine(JsonSerializer.Serialize(new {
             format = "aquarius-runtime-pack", version = 1, runtimeIdentifier = RuntimeInformation.RuntimeIdentifier,
-            bundleVersion = ExecutableBundle.FormatVersion, wasmAbiVersion = WasmAbi.Version, onnxCuda, onnxCudaRuntime = onnxCuda
+            bundleVersion = ExecutableBundle.FormatVersion, wasmAbiVersion = WasmAbi.Version, onnxCuda, onnxCudaRuntime = onnxCuda,
+            hideTerminal = OperatingSystem.IsWindows()
         }));
         return;
     }

@@ -76,6 +76,11 @@ public class UnifiedCliSmokeTest {
     [InlineData("build", "main.aqua", "-o", "a.wasm", "-o", "b.wasm")]
     [InlineData("run", "main.wasm", "--assets", "assets")]
     [InlineData("repl", "extra")][InlineData("build", "--unknown")]
+    [InlineData("build", "main.aqua", "--hide-terminal", "true")]
+    [InlineData("build", "main.wasm", "--target", "web", "-o", "web", "--hide-terminal", "true")]
+    [InlineData("build", "main.wasm", "--target", "linux", "-o", "app", "--hide-terminal", "true")]
+    [InlineData("build", "main.wasm", "--target", "windows", "-o", "app.exe", "--hide-terminal")]
+    [InlineData("build", "main.wasm", "--target", "windows", "-o", "app.exe", "--hide-terminal", "true", "--hide-terminal", "false")]
     public void InvalidArgumentsHaveUsageExitCodeAndNoArtifacts(params string[] args) {
         using var t = new ApplicationTestDirectory(); t.Write("main.aqua", "42;");
         var result = Run(t.Path, args); Assert.Equal(2, result.Code); Assert.Contains("aqua build", result.Error);

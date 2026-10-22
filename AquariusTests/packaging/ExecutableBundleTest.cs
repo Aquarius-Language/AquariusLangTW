@@ -87,11 +87,12 @@ public class ExecutableBundleTest {
     }
 
     /// <summary>Writes a synthetic runtime pack; the CUDA flavour lives in RID-cuda and records onnxCuda.</summary>
-    internal static void Pack(ApplicationTestDirectory t, string directory, string rid, bool onnxCuda, string extension = ".exe", bool? cudaRuntime = null) {
+    internal static void Pack(ApplicationTestDirectory t, string directory, string rid, bool onnxCuda, string extension = ".exe", bool? cudaRuntime = null, byte[]? templateBytes = null, bool hideTerminal = true) {
         string template = t.Write($"{directory}/host{extension}", "synthetic runtime template " + directory);
+        if (templateBytes != null) File.WriteAllBytes(template, templateBytes);
         t.Write($"{directory}/runtime.json", JsonSerializer.Serialize(new {
             format = "aquarius-runtime-pack", version = 1, runtimeIdentifier = rid, bundleVersion = ExecutableBundle.FormatVersion,
-            wasmAbiVersion = AquariusLang.Wasm.WasmAbi.Version, templateSha256 = Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(template))), onnxCuda, onnxCudaRuntime = cudaRuntime ?? onnxCuda
+            wasmAbiVersion = AquariusLang.Wasm.WasmAbi.Version, templateSha256 = Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(template))), onnxCuda, onnxCudaRuntime = cudaRuntime ?? onnxCuda, hideTerminal
         }));
     }
     private static Dictionary<string, string> Cuda(string value) => new() { [SelfContainedExecutableTarget.OnnxCudaOption] = value };
@@ -99,7 +100,7 @@ public class ExecutableBundleTest {
         using var t = new ApplicationTestDirectory(); string wasm = Wasm(t);
         Pack(t, "packs/win-x64", "win-x64", false); Pack(t, "packs/win-x64-cuda", "win-x64", true);
         var target = new SelfContainedExecutableTarget("windows", "win-x64", ".exe", t.FilePath("packs"));
-        Assert.Equal(new[] { SelfContainedExecutableTarget.OnnxCudaOption }, target.OptionNames);
+        Assert.Equal(new[] { SelfContainedExecutableTarget.OnnxCudaOption, SelfContainedExecutableTarget.HideTerminalOption }, target.OptionNames);
         string standard = t.FilePath("dist/standard.exe"), cuda = t.FilePath("dist/cuda.exe");
         target.Build(new WasmBuildRequest(wasm, standard));
         target.Build(new WasmBuildRequest(wasm, cuda, null, Cuda("true")));

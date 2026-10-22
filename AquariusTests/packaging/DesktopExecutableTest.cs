@@ -21,6 +21,17 @@ public sealed class DesktopExecutableCollection { }
 public class DesktopExecutableTest {
     private static string Target => OperatingSystem.IsWindows() ? "windows" : "linux";
     private static string Extension => OperatingSystem.IsWindows() ? ".exe" : "";
+    [DesktopExecutableFact] public void HiddenTerminalExecutableStillRunsTheEmbeddedApplication() {
+        if (!OperatingSystem.IsWindows()) return;
+        using var t = new ApplicationTestDirectory();
+        t.Write("main.aqua", "印出(\"無終端視窗 42\");");
+        var build = UnifiedCliSmokeTest.Run(t.Path, "build", "main.aqua", "--target", "windows", "-o", "app.exe", "--hide-terminal", "true");
+        Assert.True(build.Code == 0, build.Output + build.Error);
+        Assert.Equal(System.Reflection.PortableExecutable.Subsystem.WindowsGui, DesktopBuildOptionsTest.ReadSubsystem(t.FilePath("app.exe")));
+        var run = Run(t.FilePath("app.exe"), t.Path);
+        Assert.True(run.Code == 0, run.Output + run.Error);
+        Assert.Equal("無終端視窗 42\n", run.Output); Assert.Empty(run.Error);
+    }
     private static (int Code, string Output, string Error) Run(string executable, string directory, params string[] args) {
         var start = new ProcessStartInfo(executable) {
             WorkingDirectory = directory, UseShellExecute = false, CreateNoWindow = true,

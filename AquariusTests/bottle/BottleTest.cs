@@ -60,6 +60,38 @@ public class BottleTest {
         Assert.Contains("Unknown onnx key", Assert.Throws<ManifestException>(() => ProjectManifest.Parse(Path.GetFullPath("aqua.toml"), Text("[onnx]\ncudaa = true\n"))).Message);
         Assert.Contains("table", Assert.Throws<ManifestException>(() => ProjectManifest.Parse(Path.GetFullPath("aqua.toml"), "onnx = true\n" + Text(""))).Message);
     }
+    [Fact] public void DesktopTerminalRemainsVisibleUnlessTheManifestOptsIn() {
+        string Text(string desktop) => "[project]\nname = 'app'\ntype = 'executable'\n" + desktop;
+        ProjectManifest Parse(string text) => ProjectManifest.Parse(Path.GetFullPath("aqua.toml"), text);
+        Assert.False(Parse(Text("")).Desktop.HideTerminal);
+        Assert.False(Parse(Text("[desktop]\n")).Desktop.HideTerminal);
+        Assert.True(Parse(Text("[desktop]\nhide_terminal = true\n")).Desktop.HideTerminal);
+        Assert.False(Parse(Text("[desktop]\nhide_terminal = false\n")).Desktop.HideTerminal);
+        Assert.Contains("true or false", Assert.Throws<ManifestException>(() => Parse(Text("[desktop]\nhide_terminal = 'true'\n"))).Message);
+        Assert.Contains("Unknown desktop key", Assert.Throws<ManifestException>(() => Parse(Text("[desktop]\nhide_termnal = true\n"))).Message);
+        Assert.Contains("table", Assert.Throws<ManifestException>(() => Parse("desktop = true\n" + Text(""))).Message);
+    }
+
+    [Theory]
+    [InlineData("", null, false)]
+    [InlineData("[desktop]\nhide_terminal = true", null, true)]
+    [InlineData("[desktop]\nhide_terminal = true", "false", false)]
+    [InlineData("[desktop]\nhide_terminal = false", "true", true)]
+    public void CliWindowsBuildsUseDesktopSettingsWithExplicitCliPrecedence(string settings, string? cli, bool hidden) {
+        using var t = new ApplicationTestDirectory();
+        string app = Project(t, "app", "app", "executable", assets: settings);
+        AquariusTests.Packaging.ExecutableBundleTest.Pack(t, "packs/win-x64", "win-x64", false,
+            templateBytes: AquariusTests.Packaging.DesktopBuildOptionsTest.Template);
+        var environment = new Dictionary<string, string> { ["AQUARIUS_BUILD_TARGETS"] = t.FilePath("packs") };
+        var args = new List<string> { "build", app, "--target", "windows", "-o", "app.exe" };
+        if (cli != null) args.AddRange(["--hide-terminal", cli]);
+        AssertSuccess(Run(t, environment, args.ToArray()));
+        Assert.Equal(hidden ? System.Reflection.PortableExecutable.Subsystem.WindowsGui : System.Reflection.PortableExecutable.Subsystem.WindowsCui,
+            AquariusTests.Packaging.DesktopBuildOptionsTest.ReadSubsystem(t.FilePath("app.exe")));
+        // Desktop settings are harmless for intermediate Wasm and browser exports.
+        AssertSuccess(Run(t, "build", app, "-o", "app.wasm"));
+        AssertSuccess(Run(t, "build", app, "--target", "web", "-o", "web"));
+    }
     [Fact] public void CliExportsUseTheManifestOnnxCudaSettingUnlessTheCommandLineOverridesIt() {
         using var t = new ApplicationTestDirectory();
         string app = Project(t, "app", "app", "executable", assets: "[onnx]\ncuda = true");

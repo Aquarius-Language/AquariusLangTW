@@ -314,7 +314,7 @@ internal sealed class Document
 
     public object Completion(Position position)
     {
-        if (IsManifest) return new[] { "manifest_version", "project", "name", "type", "version", "entry", "sources", "platforms", "dependencies", "path", "git", "rev", "subdirectory", "assets", "source", "target", "onnx", "cuda" }
+        if (IsManifest) return new[] { "manifest_version", "project", "name", "type", "version", "entry", "sources", "platforms", "dependencies", "path", "git", "rev", "subdirectory", "assets", "source", "target", "onnx", "cuda", "desktop", "hide_terminal" }
             .Select(label => new { label, kind = 10, detail = "Aquarius project manifest" }).ToArray();
         int offset = Source.Offset(position);
         if (!Source.IsCode(offset)) return Array.Empty<object>();

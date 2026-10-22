@@ -1,4 +1,6 @@
 using System.Security.Cryptography;
+using System.Buffers.Binary;
+using System.Reflection.PortableExecutable;
 using System.Text.Json;
 using AquariusLang.Packaging;
 using AquariusLang.Compiler;
@@ -13,20 +15,29 @@ public sealed class SelfContainedExecutableTarget(string name, string runtimeIde
     /// <summary>"true" selects the opt-in NVIDIA CUDA/TensorRT runtime pack (<c>RID-cuda</c>); projects set it with
     /// <c>[onnx] cuda = true</c> in aqua.toml. Only RIDs with an ONNX Runtime CUDA build accept it.</summary>
     public const string OnnxCudaOption = "--onnx-cuda";
-    public IReadOnlyCollection<string> OptionNames => SupportsOnnxCuda ? new[] { OnnxCudaOption } : Array.Empty<string>();
+    public const string HideTerminalOption = "--hide-terminal";
+    public IReadOnlyCollection<string> OptionNames =>
+        (SupportsOnnxCuda ? new[] { OnnxCudaOption } : Array.Empty<string>())
+        .Concat(SupportsHideTerminal ? new[] { HideTerminalOption } : Array.Empty<string>()).ToArray();
     public bool SupportsOnnxCuda => runtimeIdentifier is "win-x64" or "linux-x64";
+    public bool SupportsHideTerminal => runtimeIdentifier.StartsWith("win-", StringComparison.Ordinal);
     private sealed record RuntimeManifest(string Format, int Version, string RuntimeIdentifier, int BundleVersion,
-        int WasmAbiVersion, string TemplateSha256, bool OnnxCuda = false, bool OnnxCudaRuntime = false);
+        int WasmAbiVersion, string TemplateSha256, bool OnnxCuda = false, bool OnnxCudaRuntime = false, bool HideTerminal = false);
     /// <summary>Parses the option; absent means the standard pack.</summary>
     public static bool OnnxCudaRequested(IReadOnlyDictionary<string, string>? options) {
-        if (options == null || !options.TryGetValue(OnnxCudaOption, out var value)) return false;
+        return BooleanOption(options, OnnxCudaOption);
+    }
+    private static bool BooleanOption(IReadOnlyDictionary<string, string>? options, string name) {
+        if (options == null || !options.TryGetValue(name, out var value)) return false;
         return value.ToLowerInvariant() switch {
             "true" or "on" or "yes" or "1" => true, "false" or "off" or "no" or "0" => false,
-            _ => throw new ArgumentException($"{OnnxCudaOption} expects true or false.")
+            _ => throw new ArgumentException($"{name} expects true or false.")
         };
     }
 
     public void Build(WasmBuildRequest request) {
+        bool hideTerminal = BooleanOption(request.Options, HideTerminalOption);
+        if (hideTerminal && !SupportsHideTerminal) throw new ArgumentException($"{HideTerminalOption} is only supported for Windows executables.");
         string input = Path.GetFullPath(request.Input), output = Path.GetFullPath(request.Output);
         if (!input.EndsWith(".wasm", StringComparison.OrdinalIgnoreCase)) throw new ArgumentException("Executable builds require one .wasm input.");
         if (extension.Length != 0 && !output.EndsWith(extension, StringComparison.OrdinalIgnoreCase)) throw new ArgumentException($"{Name} output must name an {extension} file.");
@@ -58,6 +69,8 @@ public sealed class SelfContainedExecutableTarget(string name, string runtimeIde
             manifest.RuntimeIdentifier != runtimeIdentifier || manifest.BundleVersion != ExecutableBundle.FormatVersion ||
             manifest.WasmAbiVersion != WasmAbi.Version)
             throw new InvalidDataException("Incompatible executable runtime pack. Rebuild or reinstall the pack with this compiler version.");
+        if (hideTerminal && !manifest.HideTerminal)
+            throw new InvalidDataException($"Runtime pack {packName} does not support {HideTerminalOption}. Rebuild it with scripts/publish-apphost.{script} or install an updated aqua distribution.");
         if (manifest.OnnxCuda != onnxCuda)
             throw new InvalidDataException(onnxCuda ? $"Runtime pack {packName} does not contain the ONNX CUDA providers. Republish it with scripts/publish-apphost.{script}."
                 : $"Runtime pack {packName} is a CUDA flavour; publish the standard pack with scripts/publish-apphost.{script}.");
@@ -73,8 +86,9 @@ public sealed class SelfContainedExecutableTarget(string name, string runtimeIde
         Directory.CreateDirectory(parent);
         string stage = Path.Combine(parent, $".{Path.GetFileName(output)}.{Guid.NewGuid():N}.tmp");
         try {
-            using (var stream = new FileStream(stage, FileMode.CreateNew, FileAccess.Write)) {
+            using (var stream = new FileStream(stage, FileMode.CreateNew, FileAccess.ReadWrite)) {
                 ExecutableBundle.Write(template, wasm, stream, request.EntryPoint);
+                if (hideTerminal) HideWindowsTerminal(stream);
                 stream.Flush(flushToDisk: true);
             }
             // A newly created overlay otherwise has no execute bits on Unix.
@@ -84,5 +98,25 @@ public sealed class SelfContainedExecutableTarget(string name, string runtimeIde
                     UnixFileMode.GroupRead | UnixFileMode.GroupExecute | UnixFileMode.OtherRead | UnixFileMode.OtherExecute);
             File.Move(stage, output, overwrite: true);
         } finally { if (File.Exists(stage)) File.Delete(stage); }
+    }
+
+    private static void HideWindowsTerminal(Stream executable) {
+        // Set the PE subsystem before publishing the staged file. Windows then starts
+        // the app without allocating a console, including when launched from Explorer.
+        // The shared runtime template and the embedded Wasm/checksum stay unchanged.
+        executable.Position = 0;
+        try {
+            using var reader = new PEReader(executable, PEStreamOptions.LeaveOpen);
+            var headers = reader.PEHeaders;
+            if (headers.PEHeader == null || headers.PEHeader.Subsystem is not (Subsystem.WindowsCui or Subsystem.WindowsGui))
+                throw new InvalidDataException("The Windows runtime template must be a console or GUI PE executable.");
+            // Subsystem is a 16-bit field at offset 68 in both PE32 and PE32+ optional headers.
+            executable.Position = headers.PEHeaderStartOffset + 68;
+            Span<byte> subsystem = stackalloc byte[2];
+            BinaryPrimitives.WriteUInt16LittleEndian(subsystem, (ushort)Subsystem.WindowsGui);
+            executable.Write(subsystem);
+        } catch (BadImageFormatException error) {
+            throw new InvalidDataException("Invalid Windows PE runtime template for --hide-terminal.", error);
+        }
     }
 }

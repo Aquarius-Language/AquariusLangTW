@@ -13,8 +13,15 @@ with its own runtime identifier and executable extension. Browser/mobile or
 other deployment models can implement their own backend. Adding a runtime
 identifier alone does not establish native-library support.
 
-The current Windows backend produces one Windows x64 console-subsystem `.exe`
-with full desktop libraries. It validates the wasm and selected entry, checks
+The current Windows backend produces one Windows x64 `.exe` with full desktop
+libraries. It uses the console subsystem by default; `--hide-terminal true` or
+`[desktop] hide_terminal = true` in the root project's TOML selects the Windows GUI
+subsystem, preventing a console window at startup. `--hide-terminal false` overrides
+the manifest. The build changes only the staged executable's PE subsystem after
+verifying the pack; the shared template stays unchanged. GUI exports require a
+pack rebuilt with the console-free startup support (`hideTerminal: true` in
+`runtime.json`). Older packs still support default console exports.
+It validates the wasm and selected entry, checks
 an installed runtime pack, writes a sibling staging file, and replaces only the
 specified output file after completion. It does not compile source, execute
 application code, invoke an SDK, or download dependencies.
@@ -52,6 +59,7 @@ checks that the pack's `onnxCuda` matches the request.
   "bundleVersion": 2,
   "wasmAbiVersion": 1,
   "onnxCuda": false,
+  "hideTerminal": true,
   "templateSha256": "<SHA-256 of host.exe>"
 }
 ```
@@ -66,7 +74,7 @@ checks, not publisher authentication. Only the raw, unbundled host accepts
 `ExecutableBundle` in the host-independent packaging library writes:
 
 ```text
-[unmodified host template][original wasm Wasm][UTF-8 entry JSON][64-byte footer]
+[host template (GUI subsystem if requested)][original wasm Wasm][UTF-8 entry JSON][64-byte footer]
 ```
 
 The JSON is `{"EntryPoint":"canonical/module.aqua"}`. Footer integers are
