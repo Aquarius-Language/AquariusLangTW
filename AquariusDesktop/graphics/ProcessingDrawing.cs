@@ -119,7 +119,7 @@ internal sealed partial class GraphicsRuntime {
         Draw("image",3,5,a=> {if(a.Length!=3&&a.Length!=5)throw new ArgumentException("image() takes image,x,y[,width,height].");c.Image(ImageObject(a[0]),F(a[1]),F(a[2]),a.Length==5?F(a[3]):null,a.Length==5?F(a[4]):null);});
         RegisterCanvasPixels(env,c);RegisterCanvasText(env,c);RegisterRetainedShapes(env,c);RegisterCanvasShaders(env,c);
         Draw("smooth",0,1,a=> {if(a.Length==1)Choice(a[0],2,4,8);c.Smooth=true;c.Bind();});Draw("noSmooth",0,0,_=> {c.Smooth=false;c.Bind();});
-        Draw("clip",4,4,a=> {c.Clip=new(F(a[0]),F(a[1]),Positive(a[2]),Positive(a[3]));c.Bind();});
+        Draw("clip",4,4,a=> {c.SetClip(F(a[0]),F(a[1]),Positive(a[2]),Positive(a[3]));c.Bind();});
         Draw("noClip",0,0,_=> {c.Clip=null;c.Bind();});
         Draw("blendMode",1,1,a=>c.BlendMode=Choice(a[0],0,1,2,3,4));
     }

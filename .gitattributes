@@ -1,6 +1,7 @@
 # Auto detect text files and perform LF normalization
 * text=auto
 *.sh text eol=lf
+native/patches/*.patch text eol=lf
 native/vendor/miniaudio/miniaudio.h text eol=lf
 # Preserve literal LF, CR and tab characters inside portable parser strings.
 AquariusCore/graphics/*.aqua -text diff

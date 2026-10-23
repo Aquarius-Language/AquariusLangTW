@@ -110,6 +110,25 @@ public class ProcessingTest {
         Assert.Equal(projection,canvas.Projection);
         Assert.True(canvas.Resize(960,480,960,480));
     }
+    [Theory]
+    [InlineData(1f)]
+    [InlineData(1.25f)]
+    [InlineData(2.5f)]
+    [InlineData(-2f)]
+    public void ClipBoundsFollowScaledTranslatedAndRotatedCoordinates(float scale) {
+        using var runtime=new GraphicsRuntime();
+        var canvas=new ProcessingCanvas(runtime,640,480,false);
+        canvas.Model=Matrix4x4.CreateScale(scale)*Matrix4x4.CreateTranslation(200,180,0);
+        canvas.SetClip(10,20,40,30);
+        var bounds=canvas.Clip!.Value;
+        Assert.Equal(200+Math.Min(10*scale,50*scale),bounds.X,0.001f);
+        Assert.Equal(180+Math.Min(20*scale,50*scale),bounds.Y,0.001f);
+        Assert.Equal(40*Math.Abs(scale),bounds.Z,0.001f);Assert.Equal(30*Math.Abs(scale),bounds.W,0.001f);
+        canvas.Model=Matrix4x4.CreateRotationZ(MathF.PI/2)*Matrix4x4.CreateTranslation(200,180,0);
+        canvas.SetClip(10,20,40,30);bounds=canvas.Clip!.Value;
+        Assert.Equal(150,bounds.X,0.001f);Assert.Equal(190,bounds.Y,0.001f);
+        Assert.Equal(30,bounds.Z,0.001f);Assert.Equal(40,bounds.W,0.001f);
+    }
     [Fact] public void TextRasterResolutionFollowsTransformAndDisplayDensity() {
         using var runtime=new GraphicsRuntime();
         var canvas=new ProcessingCanvas(runtime,640,480,false);
@@ -195,6 +214,19 @@ public class ProcessingIntegrationTest {
         Assert.Equal(800,dimensions[0]);Assert.Equal(600,dimensions[1]);
         Assert.True(dimensions[2]>0&&dimensions[3]>0);
         Assert.Equal(0xFF00FF00,dimensions[4]);
+    }
+    [WgpuFact] public void ClipFollowsTheTransformAtDefinitionAndFramebufferDensity() {
+        var result=Assert.IsType<ArrayObj>(ProcessingTest.Evaluate("""
+            變數 p=匯入("Processing");p.size(64,48);
+            變數 pg=p.createGraphics(240,160);pg.resize(240,160,480,320);
+            pg.beginDraw();pg.noSmooth();pg.noStroke();pg.background(0);
+            pg.translate(10,5);pg.scale(2.5d);pg.clip(40,20,40,24);
+            pg.resetMatrix();pg.fill(255,0,0);pg.rect(0,0,240,160);
+            pg.noClip();pg.fill(0,255,0);pg.rect(220,60,10,20);
+            變數 colors=[pg.get(160,80),pg.get(105,80),pg.get(160,50),pg.get(160,120),pg.get(225,70)];
+            pg.endDraw();p.close();colors;
+            """));
+        Assert.Equal(new double[]{0xFFFF0000,0xFF000000,0xFF000000,0xFF000000,0xFF00FF00},result.Elements.Select(GraphicsRuntime.Number));
     }
     [WgpuFact] public void OffscreenResizeChangesPhysicalPixelsAndRetainsLogicalDrawingCoordinates() {
         var result=Assert.IsType<ArrayObj>(ProcessingTest.Evaluate("""

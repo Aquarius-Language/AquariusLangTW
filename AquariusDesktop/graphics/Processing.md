@@ -126,6 +126,10 @@ starts at 1 in the first draw. `actualFrameRate` is distinct from the
 `frameRate(fps)` setter because module fields and functions share a namespace.
 Framebuffer sizes follow the display's pixel density automatically. Drawing
 coordinates are logical pixels; `pixels` contains physical framebuffer pixels.
+`clip(x,y,w,h)` captures the current model/view/projection transform and uses the
+screen-aligned bounds of the transformed rectangle. Later transforms do not move
+that clip; `noClip()` removes it. Framebuffer density is applied separately, so
+clipped content follows UI scaling on desktop, Android and the web.
 Resizing the window or changing display density recreates the render attachments,
 updates these fields before `windowResized`, and requests a draw even under
 `noLoop()`. Minimized windows skip rendering and redraw when restored. Text

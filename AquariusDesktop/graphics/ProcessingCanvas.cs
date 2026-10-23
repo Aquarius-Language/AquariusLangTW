@@ -90,6 +90,20 @@ internal sealed partial class ProcessingCanvas : IDisposable {
         float f=1/MathF.Tan(fov/2); return new(f/aspect,0,0,0,0,f,0,0,0,0,(far+near)/(near-far),-1,0,0,2*far*near/(near-far),0);
     }
     internal void Background(Vector4 c) {Bind();Target.Clear(c);}
+    internal void SetClip(float x,float y,float width,float height) {
+        // Capture the current drawing transform, just like the geometry being clipped.
+        // Keep logical screen coordinates here; Draw applies framebuffer density once.
+        var matrix=Model*View*Projection;
+        var minimum=new Vector2(float.PositiveInfinity);var maximum=new Vector2(float.NegativeInfinity);
+        foreach(var corner in new[]{new Vector2(x,y),new(x+width,y),new(x+width,y+height),new(x,y+height)}) {
+            var point=Vector4.Transform(new Vector4(corner,0,1),matrix);
+            if(point.W<=0||!float.IsFinite(point.W)) {Clip=Vector4.Zero;return;}
+            var screen=new Vector2((point.X/point.W+1)*Width/2,(1-point.Y/point.W)*Height/2);
+            if(!float.IsFinite(screen.X)||!float.IsFinite(screen.Y)) {Clip=Vector4.Zero;return;}
+            minimum=Vector2.Min(minimum,screen);maximum=Vector2.Max(maximum,screen);
+        }
+        Clip=new Vector4(minimum,maximum.X-minimum.X,maximum.Y-minimum.Y);
+    }
     // Stroke tessellation emits many small triangle lists (segments, joins and round caps). While a stroke is being
     // built they share one pipeline state, so they are collected and submitted as a single draw call.
     private List<ProcessingVertex>? strokeBatch;

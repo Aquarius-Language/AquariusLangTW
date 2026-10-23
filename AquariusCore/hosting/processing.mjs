@@ -111,6 +111,19 @@ class Canvas {
     const scale=Math.max(Math.hypot(dx[0]-origin[0],dx[1]-origin[1]),Math.hypot(dy[0]-origin[0],dy[1]-origin[1]));
     return Number.isFinite(scale)?clamp(Math.round(scale*1000)/1000,1,8):1;
   }
+  setClip(x,y,width,height){
+    if(![x,y,width,height].every(Number.isFinite)||width<=0||height<=0)throw new Error('Expected finite clip coordinates and positive dimensions');
+    // Freeze the drawing transform now; draw() applies framebuffer density once.
+    const matrix=mat4.multiply(mat4.create(),this.projection,mat4.multiply(mat4.create(),this.view,this.model));
+    let left=Infinity,top=Infinity,right=-Infinity,bottom=-Infinity;
+    for(const [cx,cy] of [[x,y],[x+width,y],[x+width,y+height],[x,y+height]]){
+      const p=vec4.transformMat4(vec4.create(),[cx,cy,0,1],matrix);
+      const sx=(p[0]/p[3]+1)*this.width/2,sy=(1-p[1]/p[3])*this.height/2;
+      if(p[3]<=0||![sx,sy,p[3]].every(Number.isFinite)){this.clip=[0,0,0,0];return;}
+      left=Math.min(left,sx);top=Math.min(top,sy);right=Math.max(right,sx);bottom=Math.max(bottom,sy);
+    }
+    this.clip=[left,top,right-left,bottom-top];
+  }
   uniforms(texture,lit){const s=this.style,u=defaultUniforms(this.host.bundle.graphics);u.set(this.model);u.set(this.view,16);u.set(this.projection,32);const normal=mat4.multiply(mat4.create(),this.view,this.model);mat4.invert(normal,normal);mat4.transpose(normal,normal);u.set(normal,48);u.set([texture?1:0,s.lit&&lit?1:0,texture?.premultiplied?1:0,this.blend===4?1:0],64);u.set(s.ambient,68);u.set(s.specular,72);u.set(s.emissive,76);u.set(s.material,80);u[84]=s.lights.length;for(let i=0;i<s.lights.length;i++){const l=s.lights[i];u.set([...l.color,l.kind,...l.position,0,...l.direction,0,...l.falloff,0,...l.specular,0,l.cutoff??0,l.concentration??0,0,0],88+i*24);}return u;}
   draw(vertices,texture=null,lit=true,mode=4){this.live();if(!vertices.length||this.pixelWidth===0||this.pixelHeight===0)return;let gpuTexture;if(texture instanceof Canvas){texture.target.flush();gpuTexture=texture.target.color;}else if(texture){if(!texture.texture)texture.texture=this.owner.device.texture(texture.width,texture.height,texture.bytes);else if(texture.dirty){this.target.flush();this.owner.device.gpu.queue.writeTexture({texture:texture.texture},texture.bytes,{bytesPerRow:texture.width*4},[texture.width,texture.height]);}texture.dirty=false;gpuTexture=texture.texture;}const clip=this.clip?.map((v,i)=>v*(i%2===0?this.pixelWidth/this.width:this.pixelHeight/this.height));this.target.draw(this.shader??this.owner.shader,vertices.flat(),this.uniforms(texture,lit),this.is3D,gpuTexture,this.blend,mode,clip);}
   vertex(p,c=this.style.fill,uv=[0,0],normal=[0,0,1]){return [...p,...normal,...uv,...c];}
@@ -159,7 +172,7 @@ class Canvas {
     b('save',async path=>h.saveImage(path,s.pixelWidth,s.pixelHeight,await s.target.readPixels()));b('saveFrame',async path=>h.saveImage(path.replace(/#+/,x=>String(s.owner.frameCount).padStart(x.length,'0')),s.pixelWidth,s.pixelHeight,await s.target.readPixels()));
     b('loadPixels',async()=>{const bytes=await s.target.readPixels();m.scope.create('pixels',pixelValues(bytes));});b('updatePixels',()=>{const p=m.scope.get('pixels');if(!Array.isArray(p)||p.length!==s.pixelWidth*s.pixelHeight)throw new Error('Call loadPixels() at the current resolution before updatePixels()');const bytes=pixelBytes(p);s.target.flush();s.owner.device.gpu.queue.writeTexture({texture:s.target.color},bytes,{bytesPerRow:s.pixelWidth*4},[s.pixelWidth,s.pixelHeight]);});
     b('get',async(x,y)=>{const bytes=await s.target.readPixels();if(x===undefined){let logical;if(s.width===s.pixelWidth&&s.height===s.pixelHeight)logical=bytes.slice();else{logical=new Uint8Array(s.width*s.height*4);for(let y=0;y<s.height;y++)for(let x=0;x<s.width;x++){const i=(Math.floor(y*s.pixelHeight/s.height)*s.pixelWidth+Math.floor(x*s.pixelWidth/s.width))*4,j=(y*s.width+x)*4;logical[j]=bytes[i];logical[j+1]=bytes[i+1];logical[j+2]=bytes[i+2];logical[j+3]=bytes[i+3];}}return s.owner.image(s.width,s.height,logical).module;}if(x<0||y<0||x>=s.width||y>=s.height)return 0;const i=(Math.floor(y*s.pixelHeight/s.height)*s.pixelWidth+Math.floor(x*s.pixelWidth/s.width))*4;return pack(Array.from(bytes.subarray(i,i+4),v=>v/255));});
-    b('blendMode',n=>s.blend=n);b('clip',(...a)=>s.clip=a);b('noClip',()=>s.clip=null);b('smooth',()=>{});b('noSmooth',()=>{});
+    b('blendMode',n=>s.blend=n);b('clip',(x,y,w,h)=>s.setClip(x,y,w,h));b('noClip',()=>s.clip=null);b('smooth',()=>{});b('noSmooth',()=>{});
   }
   shaderModule(shader){const h=this.host,m=h.newModule();h.objects.set(m,shader);h.bind(m,'PShader','set',(name,...v)=>shader.set(name,v.length===1&&Array.isArray(v[0])?v[0]:v));h.bind(m,'PShader','setInt',(name,v)=>shader.set(name,[v],true));h.bind(m,'PShader','setTexture',(name,m)=>shader.setTexture(name,h.objects.get(m)));return m;}
   dispose(){if(this.disposed)return;this.target?.dispose();this.disposed=true;}

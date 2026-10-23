@@ -33,3 +33,19 @@ test('backlog processing preserves all touch points and release ordering',async(
   p.eventQueue.push({name:'mouseReleased',fields:{isMousePressed:false}});
   while(p.eventQueue.length)await p.beginFrame();assert.deepEqual(names,[...Array(60).fill('move'),'up']);
 });
+
+test('clip captures transformed canvas coordinates before applying framebuffer density',()=>{
+  const clips=[];
+  const host={objects:new Map(),bundle:{graphics:{uniformBytes:1120}},newModule:()=>module(new Scope()),set:(m,n,v)=>m.scope.create(n,wrap(v)),
+    bind(m,library,name,fn,raw=false){m.scope.create(name,(...args)=>fn(...(raw?args:args.map(unwrap))));},installProcessingInput(){}};
+  const p=new Processing(host);
+  p.device={createTarget:()=>({color:{},clear(){},draw(...args){clips.push(args.at(-1));},flush(){},dispose(){}})};
+  p.shader={};
+  const canvas=p.module.scope.get('createGraphics')(240,160),call=(name,...args)=>canvas.scope.get(name)(...args);
+  call('resize',240,160,480,320);call('beginDraw');call('noStroke');
+  call('translate',10,5);call('scale',2.5);call('clip',40,20,40,24);
+  call('resetMatrix');call('rect',0,0,240,160);
+  assert.equal(clips.length,1);
+  for(const [i,value] of [220,110,200,120].entries())assert.ok(Math.abs(clips[0][i]-value)<0.001,JSON.stringify(clips[0]));
+  call('noClip');call('rect',220,60,10,20);assert.equal(clips.at(-1),undefined);
+});

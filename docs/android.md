@@ -39,7 +39,7 @@ npm run --prefix AquariusWebCompiler prepare:browser
 dotnet build AquariusLang.sln -m:1
 ```
 
-準備腳本驗證 wgpu-native 29.0.1.1、Wasmtime 48.0.2 與 QuickJS-NG 0.17.0 的下載雜湊，使用 NDK r28c 編譯 JNI。需先安裝 Rust stable 與 `rustup target add aarch64-linux-android x86_64-linux-android`；Wasmtime 使用上游鎖定的 Cargo 相依套件。Unicode 分詞直接使用 Android ICU，不再封裝 V8 ICU 資料。
+準備腳本驗證 wgpu-native 29.0.1.1、wgpu-hal 29.0.3、Wasmtime 48.0.2 與 QuickJS-NG 0.17.0 的來源下載雜湊，使用 NDK r28c 編譯 JNI 與 WebGPU。需先安裝 Rust stable、libclang（必要時設定 `LIBCLANG_PATH`）與 `rustup target add aarch64-linux-android x86_64-linux-android`；WebGPU 與 Wasmtime 使用上游鎖定的 Cargo 相依套件。Unicode 分詞直接使用 Android ICU，不再封裝 V8 ICU 資料。
 這些產物不提交 Git。發行的編譯器將它們嵌入，使用者產生專案時不需要 Node、NDK 或原始碼。
 若要修改 GPU JNI，可設定 `AQUARIUS_ANDROID_BUILD_NATIVE=1`、`AQUARIUS_ANDROID_NDK`，並安裝 CMake 3.22.1。Wasmtime / QuickJS 配接器的變更則重新執行 `scripts/prepare-android-runtime.ps1 -Ndk ...`，再重建編譯器與 APK。
 
@@ -114,8 +114,8 @@ node --test AquariusAndroid/tests/*.test.mjs
 預設案例涵蓋 Wasmtime 回呼與重新進入、記憶體增長、表格、全域值、BigInt、陷阱與模組身分，以及語言、共用能力、Processing、響應式色彩及文字輸入、文件與影像、Jolt、WGPU 繪圖與計算、模組與路徑匯入。
 APK 冒煙測試也執行 Java 的相機平面、旋轉與材質回歸測試；`-DeviceServices` 僅在可供自動化的測試模擬器使用，會授予測試 APK 相機權限並注入輸入事件。
 `-CaseNames` 可選擇個別案例。原生 ONNX CPU 的姿態與臉部驗證也可使用 `--entry 姿態驗證.aqua` / `臉部驗證.aqua` 建置執行。
-以 Vulkan 啟用的 API 35 系統映像測試 GPU；GFXStream 在模擬器上需要接受不完整 conformance 的測試裝置，實機仍使用標準裝置篩選。
-API 37 預覽映像的 GFXStream 驅動在 GPU readback 發生原生崩潰，因此不作為此版本的 GPU 驗證基準。
+以 Vulkan 啟用的 API 35 與 API 37 系統映像測試 GPU；GFXStream 在模擬器上需要接受不完整 conformance 的測試裝置，實機仍使用標準裝置篩選。
+API 37 的 GFXStream 會在混合 binary / timeline semaphore 提交時讀取原本可省略的 timeline 值陣列。`scripts/prepare-android-wgpu.ps1` 對鎖定的 wgpu-hal 套用 `native/patches/wgpu-hal-29.0.3-timeline-values.patch`：只要任一側使用 timeline，就補齊等待與訊號兩側的值陣列，保留真正的 timeline 值，讓 binary semaphore 的值由 Vulkan 忽略。繪圖、呈現、GPU readback 與計算仍使用原生 Vulkan，應用程式不用修改或選擇其他後端。詳見 [API 37 相容性驗證](android-api37.md)。
 
 範例專案的 `建置.ps1 -Android` 產生新專案目錄，`-APK` 直接建置 APK。
 Marble、Snake、Painter、Kanban、MediaPipe、PBR 與 Audio 使用視窗寬度重排控制項，行動網頁也套用相同版面。

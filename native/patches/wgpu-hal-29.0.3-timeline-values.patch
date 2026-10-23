@@ -1,0 +1,18 @@
+diff --git a/src/vulkan/semaphore_list.rs b/src/vulkan/semaphore_list.rs
+--- a/src/vulkan/semaphore_list.rs
++++ b/src/vulkan/semaphore_list.rs
+@@ -86,6 +86,14 @@
+         assert!(matches!(wait_semaphores.mode, SemaphoreListMode::Wait));
+         assert!(matches!(signal_semaphores.mode, SemaphoreListMode::Signal));
+ 
++        // Android API 37 GFXStream prunes binary semaphores using the timeline
++        // arrays too. Keep both sides complete whenever either side has a
++        // timeline; Vulkan ignores these dummy values for binary semaphores.
++        if !wait_semaphores.values.is_empty() || !signal_semaphores.values.is_empty() {
++            wait_semaphores.pad_values();
++            signal_semaphores.pad_values();
++        }
++
+         let timeline_info = timeline_info.write(vk::TimelineSemaphoreSubmitInfo::default());
+ 
+         let mut uses_timeline = false;
