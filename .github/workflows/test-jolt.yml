@@ -18,7 +18,7 @@ jobs:
       - uses: ./.github/actions/wasm-toolchain
       - run: npm ci --prefix AquariusWebCompiler
       - run: npm run --prefix AquariusWebCompiler prepare:browser
-      - run: dotnet test AquariusTests -c Release --filter "FullyQualifiedName~TerminalTest|FullyQualifiedName~DynamicLibraryTest|FullyQualifiedName~ExternalLibraryTest" --logger "trx;LogFileName=host-capabilities.trx"
+      - run: dotnet test AquariusTests -c Release --filter "FullyQualifiedName~TerminalTest|FullyQualifiedName~DynamicLibraryTest|FullyQualifiedName~ExternalLibraryTest|Category=Architecture" --logger "trx;LogFileName=host-capabilities.trx"
       - uses: actions/upload-artifact@v4
         if: always()
         with:

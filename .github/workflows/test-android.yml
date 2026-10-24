@@ -33,7 +33,7 @@ jobs:
       - name: Core, deployment and bridge tests
         shell: pwsh
         run: |
-          dotnet test AquariusTests -m:1 --filter 'FullyQualifiedName~AquariusTests.Android|FullyQualifiedName~WasmExternalAssets' --logger 'trx;LogFileName=android.trx'
+          dotnet test AquariusTests -m:1 --filter 'FullyQualifiedName~AquariusTests.Android|FullyQualifiedName~WasmExternalAssets|Category=Architecture' --logger 'trx;LogFileName=android.trx'
           if ($LASTEXITCODE -ne 0) { throw 'Android unit tests failed' }
           ./scripts/test-android.ps1 -BuildApks
       - uses: actions/upload-artifact@v4

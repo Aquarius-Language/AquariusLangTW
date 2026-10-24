@@ -157,3 +157,34 @@ desktop/browser execution of identical binaries, generic script-library tests,
 source-free imports/assets, CLI and standalone EXE smoke tests, and opt-in desktop
 and browser WebGPU regressions. The example scripts and marble-run remain the
 compatibility target.
+
+## Enforced architecture rules
+
+These rules are checked by `AquariusTests/architecture/ArchitectureRulesTest.cs` (plain `dotnet test`,
+category `Architecture`, a few seconds) and by the `.github/actions/wasm-toolchain` step in every CI job
+that builds. A failure names the rule and the legitimate way to change things.
+
+| Rule | Why | Enforced by |
+| --- | --- | --- |
+| No Zig | One pinned toolchain builds every Wasm/native helper; a second compiler would make binaries irreproducible. Historical validation records may mention Zig. | `NoZigToolchain` |
+| Reproducible Wasm binaries | `runtime.wasm`, `audio.wasm` and `pose.wasm` are committed; they must rebuild byte-identically from source with the pinned LLVM/Clang 23.1.3 (`scripts/wasm-toolchain.json`) on Windows, Linux and macOS. | `CommittedWasmBinariesRebuildFromSource` (runs where the toolchain is installed), the `-Check` scripts in CI |
+| Generated sources are fresh | Library catalogs, portable library tables (C#, JavaScript and C) and the guest memory layout each have one source table; hand edits drift. | `GeneratedSourcesAreFresh` (`--check` of each generator) |
+| Runtime layout | C# emitters and hosts address guest structs only through `RuntimeLayout` constants; `runtime/layout.h` asserts the same offsets in `runtime.c`. | `RuntimeIncludesGeneratedLayoutChecks`, `EmittersUseNamedRuntimeOffsets`, the runtime build |
+| One Wasm encoder | LEB128 and instruction immediates are encoded only by `WasmEncoding`. | `OneWasmEncoder` |
+| Codegen stability | Any emitter or runtime change that alters compiled output for the golden programs is a reviewed, intentional update. | `CompiledOutputMatchesGoldens` |
+| Dependency direction | `AquariusCore` references no project and no host/native package (Silk.NET, Wasmtime, ClearScript, ONNX Runtime, Magick, Tomlyn, Jolt); `AquariusPackaging` depends only on core; hosts depend on core, never the reverse. | `CoreDependsOnNoHostOrProject`, `PackagingDependsOnlyOnCore` |
+| Library admission | Bundled computational libraries execute in Wasm ([requirement](docs/external-libraries.md#requirement-for-future-libraries)); only documented host capabilities may be `HostCapability`. | `BundledComputationalLibrariesExecuteInWasm`, `ExternalLibraryTest` |
+| Single source for shared JavaScript | A browser module named like an `AquariusCore/hosting` module only re-exports it. | `BrowserModulesReExportCoreHosting` |
+| Repository hygiene | No IDE/per-user files; Markdown uses repository-relative links, never machine paths (`docs/archive/` excepted). | `NoCommittedIdeOrUserFiles`, `DocsUseRepositoryRelativeLinks` |
+
+Changing a rule's subject legitimately:
+
+- Generated files: edit the generator's table (`native/generate_library_catalog.py`,
+  `native/generate_portable_libraries.py`, `native/generate_runtime_layout.py`), run it with Python 3, commit
+  the generator and its outputs together.
+- Runtime or other committed Wasm: install the toolchain (`scripts/install-wasm-toolchain.ps1`, or
+  `install-wasm-toolchain.sh` without PowerShell), rebuild with `scripts/build-wasm-runtime.ps1`,
+  `build-audio-runtime.ps1` or `build-pose-wasm.ps1`, and commit the binary with its source.
+- Codegen goldens: after reviewing an intended output change, run
+  `AQUARIUS_UPDATE_CODEGEN_GOLDENS=1 dotnet test AquariusTests --filter CompiledOutputMatchesGoldens` and commit
+  `AquariusTests/architecture/codegen-goldens.txt`.

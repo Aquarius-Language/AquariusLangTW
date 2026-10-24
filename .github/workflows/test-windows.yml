@@ -23,7 +23,7 @@ jobs:
           ./scripts/publish-apphost.ps1
       - name: Test package exports and relocated standalone executables
         shell: pwsh
-        run: dotnet test AquariusTests -m:1 --filter "FullyQualifiedName~Packaging" --logger "trx;LogFileName=windows.trx"
+        run: dotnet test AquariusTests -m:1 --filter "FullyQualifiedName~Packaging|Category=Architecture" --logger "trx;LogFileName=windows.trx"
       - uses: actions/upload-artifact@v4
         if: always()
         with:

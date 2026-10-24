@@ -225,7 +225,7 @@ internal sealed class WasmBodyEmitter
         Else(); Get(tag); I32(FloatTag); Op(0x46); If(); Get(number); Op(0xb6, 0xbb); Set(number); End();
         End();
     }
-    private void NumericTagTest(int tagLocal) { Get(tagLocal); I32(1); Op(0x4f); Get(tagLocal); I32(3); Op(0x4d, 0x71); }
+    private void NumericTagTest(int tagLocal) { Get(tagLocal); I32(IntTag); Op(0x4f); Get(tagLocal); I32(DoubleTag); Op(0x4d, 0x71); }
     private static byte Arithmetic(IrOperation op) => op switch {
         IrOperation.Add => 0xa0, IrOperation.Subtract => 0xa1, IrOperation.Multiply => 0xa2, IrOperation.Divide => 0xa3,
         _ => throw new InvalidOperationException("Invalid arithmetic operation.") };
@@ -272,7 +272,7 @@ internal sealed class WasmBodyEmitter
         Get(C); LoadI32(ScopeCount); I32(candidate.Slot); Op(0x4b); If(0x7f);
         Get(C); LoadI32(ScopeBindings); I32(checked(candidate.Slot * BindingSize)); Op(0x6a); Set(B);
         Get(B); LoadI32(BindingName); I32(0); LoadI32(checked(pool + constant * ValueSize + ValueRef)); Op(0x46);
-        If(0x7f); Get(B); I32(8); Op(0x6a); Else(); I32(0); End();
+        If(0x7f); Get(B); I32(BindingValue); Op(0x6a); Else(); I32(0); End();
         Else(); I32(0); End();
         for (int depth = 0; depth < candidate.Depth; depth++) { Else(); I32(0); End(); }
     }

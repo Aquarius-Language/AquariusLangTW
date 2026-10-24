@@ -21,6 +21,21 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  architecture:
+    name: Enforced architecture rules
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - uses: ./.github/actions/wasm-toolchain
+      - name: Architecture rules
+        run: dotnet test AquariusTests --filter "Category=Architecture"
+
   build:
     name: Build website
     runs-on: ubuntu-latest

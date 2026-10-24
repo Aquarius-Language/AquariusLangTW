@@ -22,7 +22,7 @@ $AquaToolchain = [pscustomobject]@{
     CompilerRt = Join-Path $aquaToolchains $AquaPins.compilerRt.directory
 }
 # Wasm feature baseline of every built binary: lime1 (bulk-memory-opt, call-indirect-overlong, extended-const, multivalue,
-# mutable-globals, nontrapping-fptoint, sign-ext), the default of the Zig 0.15.1 builds these replace. Freestanding builds
+# mutable-globals, nontrapping-fptoint, sign-ext), the feature set of the binaries before the toolchain switch. Freestanding builds
 # that relied on -mbulk-memory still pass it.
 $AquaWasmCpu = @('-mcpu=lime1')
 function Assert-AquaToolchain {
