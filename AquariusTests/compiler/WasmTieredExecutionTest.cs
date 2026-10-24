@@ -11,6 +11,18 @@ public class WasmTieredExecutionTest
     [Theory]
     // Promoted scopes: conditional declarations, per-iteration resets, shadowing and redeclaration.
     [InlineData("變數 y=5;變數 f=函式(n){如果(n>0){變數 y=1;} y;};[f(0),f(1)];")]
+    // Integer shadows of dynamic bindings: calls, closures, type changes, overflow and resumption must all see the binding.
+    [InlineData("變數 c=0;變數 bump=函式(){c+=100;};迴圈(變數 i=0;i<10;i++){c++;如果(i==5){bump();}c+=2;}c;")]
+    [InlineData("變數 c=0;變數 get=函式(){c;};變數 seen=0;迴圈(變數 i=0;i<5;i++){c+=3;seen+=get();};[c,seen];")]
+    [InlineData("變數 c=0;迴圈(變數 i=0;i<6;i++){c+=1;如果(i==3){c=2.5d;}c+=1;}c;")]
+    [InlineData("變數 s=\"\";變數 n=0;迴圈(變數 i=0;i<3;i++){s+=\"a\";n++;};[s,n];")]
+    [InlineData("變數 c=2147483646;變數 d=5;迴圈(變數 i=0;i<3;i++){c++;d+=2147483647;};[c,d];")]
+    [InlineData("變數 c=1;迴圈(變數 i=0;i<3;i++){c+=1.7d;c-=0.2f;}c;")]
+    [InlineData("變數 c=1000;迴圈(變數 i=0;i<3;i++){c/=3;c*=2;c-=1;c%=97;}c;")]
+    [InlineData("變數 c=0;變數 a=0;迴圈(變數 i=0;i<3;i++){a+=c++;a+=++c;};[a,c];")]
+    [InlineData("變數 c=0;迴圈(變數 i=0;i<20;i++){迴圈(變數 j=0;j<i;j++){c++;如果(j==7){中斷;}}如果(c>60){中斷;}}c;")]
+    [InlineData("變數 mk=函式(){變數 t=0;變數 add=函式(n){迴圈(變數 i=0;i<n;i++){t+=i;}t;};add(4);add(3);};mk();")]
+    [InlineData("變數 c=0;變數 r=陣列.建立(3,0);迴圈(變數 i=0;i<3;i++){c+=i;r[i]=c;};[r,c];")]
     [InlineData("變數 x=100;變數 r=陣列.建立(3,0);迴圈(變數 i=0;i<3;i++){如果(i>0){變數 x=i;} r[i]=x;}r;")]
     [InlineData("變數 x=7;變數 out=陣列.建立(2,0);迴圈(變數 i=0;i<2;i++){out[i]=x;變數 x=i;};[out,x];")]
     [InlineData("變數 f=函式(){變數 a=1;變數 a=a+1;a;};f();")]

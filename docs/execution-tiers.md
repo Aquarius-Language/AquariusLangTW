@@ -54,6 +54,16 @@ uses a plan that keeps every scope dynamic. If the emitter rejects a promoted pl
 (`InvalidOperationException`, reported by `AQUARIUS_WASM_TIER_DIAGNOSTICS=1`), the body is emitted
 with the dynamic plan instead.
 
+## Integer shadows of dynamic bindings
+
+A binding the body cannot promote (a module global, or a variable of a captured enclosing scope) that it
+updates with `++` or a compound assignment is kept in an `i32` local while it holds an integer. The shadow is
+acquired lazily (address lookup plus an `INTEGER` tag test), every access to the name in the body goes through
+it, and every barrier (runtime helper, call, return, failure, checkpoint yield and the end of the body) stores
+its number back and drops it; the binding's tag stays `INTEGER`, and resumption starts with zeroed locals, so
+it simply re-acquires. A plain assignment drops the shadow and stores to memory. Unoptimized compilation, the
+differential tests' reference, emits no shadows.
+
 ## Execution fuel (`WasmFuel`)
 
 Fuel is consumed only at the body entry and at targets of backward branches; every

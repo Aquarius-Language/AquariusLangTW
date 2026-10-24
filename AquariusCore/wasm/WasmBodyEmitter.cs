@@ -37,6 +37,8 @@ internal sealed class WasmBodyEmitter
     private readonly int tagBase, refBase, intBase, addressBase, wide, x, y, numberBase;
     private readonly Dictionary<int, int> addressLocals = new();
     private readonly Dictionary<int, int> slotRegisters = new();
+    // Integer shadows of dynamic bindings (see Shadow): constant -> (valid flag, i32 value, binding value address) locals.
+    private readonly Dictionary<int, (int Valid, int Value, int Address)> shadows = new();
     private readonly int i32Count, f64Count;
 
     private Loc[] loc;
@@ -44,7 +46,7 @@ internal sealed class WasmBodyEmitter
     private int[] starts = System.Array.Empty<int>();
     private bool[] deadTop = System.Array.Empty<bool>();
 
-    private WasmBodyEmitter(BinaryWriter w, LoweredProgram body, IReadOnlyDictionary<string, int> helpers, int pool, WasmScopePlan plan, int capacity)
+    private WasmBodyEmitter(BinaryWriter w, LoweredProgram body, IReadOnlyDictionary<string, int> helpers, int pool, WasmScopePlan plan, int capacity, bool shadowBindings)
     {
         this.w = w; this.body = body; this.helpers = helpers; this.pool = pool; this.plan = plan;
         locals = plan.Locals; this.capacity = capacity; loc = new Loc[capacity];
@@ -58,6 +60,7 @@ internal sealed class WasmBodyEmitter
         int next = addressBase + addresses;
         var registers = plan.RegisterSlots.OrderBy(p => p.Key).ToArray();
         foreach (var (slot, tag) in registers) if (tag == IntTag) slotRegisters.Add(slot, next++);
+        if (shadowBindings) foreach (int constant in ShadowCandidates()) { shadows.Add(constant, (next, next + 1, next + 2)); next += 3; }
         i32Count = next - 1;
         wide = next++;
         x = next++; y = next++; numberBase = next; next += capacity;
@@ -66,8 +69,9 @@ internal sealed class WasmBodyEmitter
     }
 
 
-    internal static void Emit(BinaryWriter w, LoweredProgram body, IReadOnlyDictionary<string, int> helpers, int pool, WasmScopePlan plan, int capacity)
-        => new WasmBodyEmitter(w, body, helpers, pool, plan, capacity).Emit();
+    /// <param name="shadowBindings">Keep integer accumulators of dynamic bindings in registers (off for the unoptimized reference).</param>
+    internal static void Emit(BinaryWriter w, LoweredProgram body, IReadOnlyDictionary<string, int> helpers, int pool, WasmScopePlan plan, int capacity, bool shadowBindings = true)
+        => new WasmBodyEmitter(w, body, helpers, pool, plan, capacity, shadowBindings).Emit();
 
     private int T(int p) => tagBase + p;
     private int R(int p) => refBase + p;
@@ -181,14 +185,14 @@ internal sealed class WasmBodyEmitter
     private void Checked()
     {
         Get(F); LoadI32(FrameExecution); LoadI32(ExecutionStatus); I32(StatusFailed); Op(0x46);
-        If(); I32(-1); Return(); End();
+        If(); ShadowWriteBack(); I32(-1); Return(); End();
     }
     private void Resume(int continuation) { I32(continuation); Return(); }
 
     /// <summary>Runtime helper protocol: every live operand is in memory and the frame sp is exact.</summary>
     private void Helper(string name, int operand, int depth, int consumes, bool check = true, int? third = null)
     {
-        SpillAll(depth); StoreSp(depth);
+        ShadowWriteBack(); SpillAll(depth); StoreSp(depth);
         Get(F); I32(operand); if (third is int l) Get(l); Call(name); Drop();
         Forget(depth - consumes); InvalidateAddresses();
         if (check) Checked();
@@ -289,6 +293,55 @@ internal sealed class WasmBodyEmitter
         foreach (int constant in addressLocals.Keys) { I32(0); Set(Address(constant)); }
     }
 
+    // ---- integer shadows of dynamic bindings ------------------------------------------------------
+    // A dynamic binding this body updates with ++/compound assignment (an accumulator in a module or closure scope) is
+    // kept in an i32 local while it holds an integer. Nothing else can observe the binding between barriers: helpers,
+    // calls, returns, failures and yields write the shadow back (only the number: the tag stays INTEGER) and drop it,
+    // and every access to the name in this body goes through the shadow. Locals start at zero on every entry, so a
+    // resumption simply re-acquires.
+    private IEnumerable<int> ShadowCandidates()
+    {
+        var updated = new HashSet<int>(); var excluded = new HashSet<int>();
+        for (int i = 0; i < body.Code.Length; i++) {
+            if (plan.Depth[i] < 0) continue;
+            var op = body.Code[i];
+            if (op.Code is not (IrOperation.Load or IrOperation.Assign or IrOperation.CompoundAssign or IrOperation.IncrementPrefix or IrOperation.IncrementPostfix)) continue;
+            int key = NameConstant(op.Operand); var access = plan.Accesses[i];
+            bool dynamic = access != null && access.Slots.All(slot => plan.SlotDecl[i]![slot] == WasmScopePlan.No);
+            if (!dynamic) excluded.Add(key);
+            else if (op.Code is IrOperation.IncrementPrefix or IrOperation.IncrementPostfix ||
+                     op.Code == IrOperation.CompoundAssign && ((Assignment)body.Pool[op.Operand]).Operation != IrOperation.Modulo)
+                updated.Add(key);
+        }
+        return updated.Where(c => !excluded.Contains(c)).OrderBy(c => c).Take(8).ToArray();
+    }
+    // Loads, assignments and increments name a binding by a string constant; compound assignments by an Assignment
+    // constant. Shadows are keyed by the string constant (or by a key no plain access shares).
+    private int NameConstant(int constant)
+    {
+        if (body.Pool[constant] is not Assignment assignment) return constant;
+        for (int c = 0; c < body.Pool.Length; c++) if (body.Pool[c] is string name && name == assignment.Name) return c;
+        return -1 - constant;
+    }
+    private bool Shadowed(int constant, out (int Valid, int Value, int Address) shadow) => shadows.TryGetValue(NameConstant(constant), out shadow);
+    /// <summary>Makes the shadow valid when the binding currently holds an integer (looking it up if necessary).</summary>
+    private void ShadowAcquire(int constant, (int Valid, int Value, int Address) shadow, WasmBindingSlots.Candidate? candidate)
+    {
+        Get(shadow.Valid); Op(0x45); If();
+        LookupAddress(constant, candidate);
+        Get(A); If(); Get(A); LoadI32(ValueTag); I32(IntTag); Op(0x46); If();
+        Get(A); Set(shadow.Address); Get(A); LoadF64(ValueNumber); ToInt(); Set(shadow.Value); I32(1); Set(shadow.Valid);
+        End(); End();
+        End();
+    }
+    /// <summary>Writes every valid shadow back to its binding and drops it.</summary>
+    private void ShadowWriteBack()
+    {
+        foreach (var shadow in shadows.Values) {
+            Get(shadow.Valid); If(); Get(shadow.Address); Get(shadow.Value); ToDouble(); StoreF64(ValueNumber); I32(0); Set(shadow.Valid); End();
+        }
+    }
+
     private void LookupAddress(int constant, WasmBindingSlots.Candidate? candidate)
     {
         bool cache = addressLocals.ContainsKey(constant);
@@ -368,9 +421,15 @@ internal sealed class WasmBodyEmitter
     private void DynamicLoad(int constant, WasmScopePlan.Access access, int d, int resultTag)
     {
         if (resultTag != Unknown) throw new InvalidOperationException("Dynamic loads have unknown tags.");
-        LookupAddress(constant, access.Dynamic); Get(A);
-        Branch(() => { LoadValue(d, A, 0, Unknown); loc[d] = Loc.Reg; return false; },
-            () => { Helper("load", constant, d, 0); LoadValue(d, F, StackOffset(d), Unknown); loc[d] = Loc.Both; return false; });
+        bool Memory() {
+            LookupAddress(constant, access.Dynamic); Get(A);
+            Branch(() => { LoadValue(d, A, 0, Unknown); loc[d] = Loc.Reg; return false; },
+                () => { Helper("load", constant, d, 0); LoadValue(d, F, StackOffset(d), Unknown); loc[d] = Loc.Both; return false; });
+            return false;
+        }
+        if (!Shadowed(constant, out var shadow)) { Memory(); return; }
+        ShadowAcquire(constant, shadow, access.Dynamic); Get(shadow.Valid);
+        Branch(() => { I32(IntTag); Set(T(d)); I32(0); Set(R(d)); Get(shadow.Value); ToDouble(); Set(N(d)); loc[d] = Loc.Reg; return false; }, Memory);
     }
 
     // ---- emission --------------------------------------------------------------------------------
@@ -424,7 +483,7 @@ internal sealed class WasmBodyEmitter
             int depth = plan.Depth[start];
             if (depth < 0) { w.Write((byte)0x00); continue; }
             System.Array.Fill(loc, Loc.Mem); fusedTruth = -1;
-            if (start == n) { pc = n; StoreSp(depth); Resume(-1); continue; }
+            if (start == n) { pc = n; StoreSp(depth); ShadowWriteBack(); Resume(-1); continue; }
             if (checkpointBlocks.TryGetValue(block, out int weight)) Checkpoint(depth, weight);
             bool terminated = false;
             for (pc = start; pc < starts[block + 1]; pc++) {
@@ -447,7 +506,7 @@ internal sealed class WasmBodyEmitter
         Get(E); LoadI32(ExecutionBudget); Tee(G); I32(weight); Op(0x4b);
         Get(E); LoadI32(ExecutionPoll); Op(0x45); Op(0x71);
         If(); Get(E); Get(G); I32(weight); Op(0x6b); StoreI32(ExecutionBudget);
-        Else(); StoreSp(depth); WriteBack(); Get(F); I32(weight); Call("checkpoint"); If(); Resume(block); End();
+        Else(); StoreSp(depth); WriteBack(); ShadowWriteBack(); Get(F); I32(weight); Call("checkpoint"); If(); Resume(block); End();
         End();
     }
 
@@ -514,7 +573,7 @@ internal sealed class WasmBodyEmitter
                 int slot = DefiniteSlot(access);
                 if (slot >= 0 && slotRegisters.TryGetValue(slot, out int register)) SetRegister(slot, register, value, tag);
                 else if (slot >= 0) StoreEntryAt(value, F, SlotOffset(slot), tag);
-                else { TargetAddress(access, n); StoreEntryAt(value, A, 0, tag); }
+                else { if (Shadowed(n, out var shadow)) { I32(0); Set(shadow.Valid); } TargetAddress(access, n); StoreEntryAt(value, A, 0, tag); }
                 PushKnown(d - 2, VoidTag); loc[d - 1] = Loc.Mem; return false;
             }
             case IrOperation.CompoundAssign: CompoundAssign(n, d); return false;
@@ -584,10 +643,10 @@ internal sealed class WasmBodyEmitter
                 SpillEdge(d, null, n, pc + 1); Get(A); If(); GoBlock(n); End(); GoBlock(pc + 1); return true;
             }
             case IrOperation.Return:
-                SpillAll(d); StoreSp(d); Get(F); I32(1); StoreI32(FrameReturned); Resume(-1); return true;
+                ShadowWriteBack(); SpillAll(d); StoreSp(d); Get(F); I32(1); StoreI32(FrameReturned); Resume(-1); return true;
             case IrOperation.Error: Helper("error", n, d, 0, false); Resume(-1); return true;
             case IrOperation.Call:
-                SpillAll(d); StoreSp(d); Get(F); I32(n); Call("call");
+                ShadowWriteBack(); SpillAll(d); StoreSp(d); Get(F); I32(n); Call("call");
                 If(); WriteBack(); Resume(BlockOf(pc + 1)); End(); Forget(d - n - 1); InvalidateAddresses();
                 GoBlock(pc + 1); return true;
             case IrOperation.ResolveMemberFunction:
@@ -721,9 +780,24 @@ internal sealed class WasmBodyEmitter
             }
             PushKnown(d - 2, VoidTag); loc[rhs] = Loc.Mem; return;
         }
+        if (slot < 0 && operation != IrOperation.Modulo && (rt == Unknown || IsNumeric(rt)) && Shadowed(constant, out var shadow)) {
+            ShadowAcquire(constant, shadow, access.Dynamic);
+            Get(shadow.Valid); if (rt == Unknown) { NumericTagTest(T(rhs)); Op(0x71); }
+            Branch(() => {
+                if (rt == IntTag && operation != IrOperation.Divide) { IntArithmetic(operation, () => Get(shadow.Value), () => Get(I(rhs))); Set(shadow.Value); }
+                else { Get(shadow.Value); ToDouble(); Number(rhs, rt); Op(Arithmetic(operation)); Set(x); IntegerOf(x); Set(shadow.Value); }
+                return false;
+            }, () => { CompoundMemory(constant, d, access, rhs, rt, operation, slot); return false; }, d - 2);
+            PushKnown(d - 2, VoidTag); loc[rhs] = Loc.Mem; return;
+        }
+        CompoundMemory(constant, d, access, rhs, rt, operation, slot);
+        PushKnown(d - 2, VoidTag);
+    }
+    private void CompoundMemory(int constant, int d, WasmScopePlan.Access access, int rhs, int rt, IrOperation operation, int slot)
+    {
         if (slot >= 0) { Get(F); I32(SlotOffset(slot)); Op(0x6a); Set(A); WriteBack(slot); } else TargetAddress(access, constant);
         void Slow() { Helper("compoundAt", constant, d, 2, true, A); }
-        if (operation == IrOperation.Modulo || rt != Unknown && !IsNumeric(rt)) { Slow(); if (slot >= 0) Reload(slot); PushKnown(d - 2, VoidTag); return; }
+        if (operation == IrOperation.Modulo || rt != Unknown && !IsNumeric(rt)) { Slow(); if (slot >= 0) Reload(slot); return; }
         Get(A); LoadI32(ValueTag); Set(B);
         NumericTagTest(B); if (rt == Unknown) { NumericTagTest(T(rhs)); Op(0x71); }
         Branch(() => {
@@ -731,7 +805,6 @@ internal sealed class WasmBodyEmitter
             Get(A); Get(x); StoreF64(ValueNumber); return false;
         }, () => { Slow(); return false; }, d - 2);
         if (slot >= 0) Reload(slot);
-        PushKnown(d - 2, VoidTag);
     }
 
     private void Increment(int constant, int d, bool prefix)
@@ -754,13 +827,25 @@ internal sealed class WasmBodyEmitter
             if (st == IntTag) { ToInt(); Set(I(d)); } else Set(N(d));
             loc[d] = Loc.Reg; return;
         }
-        if (slot >= 0) { Get(F); I32(SlotOffset(slot)); Op(0x6a); Set(A); WriteBack(slot); } else TargetAddress(access, constant);
-        Get(A); LoadI32(ValueTag); Set(T(d)); NumericTagTest(T(d));
+        bool Memory() {
+            if (slot >= 0) { Get(F); I32(SlotOffset(slot)); Op(0x6a); Set(A); WriteBack(slot); } else TargetAddress(access, constant);
+            Get(A); LoadI32(ValueTag); Set(T(d)); NumericTagTest(T(d));
+            Branch(() => {
+                Get(A); LoadF64(ValueNumber); Set(x); Get(x); F64(1); Op(0xa0); Set(y); NormalizeDynamic(T(d), y);
+                Get(A); Get(y); StoreF64(ValueNumber); Get(prefix ? y : x); Set(N(d)); loc[d] = Loc.Reg; return false;
+            }, () => { Helper("incrementAt", prefix ? 1 : 0, d, 0, true, A); LoadValue(d, F, StackOffset(d), Unknown); loc[d] = Loc.Both; return false; });
+            if (slot >= 0) Reload(slot);
+            return false;
+        }
+        if (slot >= 0 || !Shadowed(constant, out var shadow)) { Memory(); return; }
+        ShadowAcquire(constant, shadow, access.Dynamic); Get(shadow.Valid);
         Branch(() => {
-            Get(A); LoadF64(ValueNumber); Set(x); Get(x); F64(1); Op(0xa0); Set(y); NormalizeDynamic(T(d), y);
-            Get(A); Get(y); StoreF64(ValueNumber); Get(prefix ? y : x); Set(N(d)); loc[d] = Loc.Reg; return false;
-        }, () => { Helper("incrementAt", prefix ? 1 : 0, d, 0, true, A); LoadValue(d, F, StackOffset(d), Unknown); loc[d] = Loc.Both; return false; });
-        if (slot >= 0) Reload(slot);
+            // Integer increment: the maximum integer wraps to the minimum like number(x + 1, INTEGER).
+            Get(shadow.Value); ToDouble(); Set(N(d));
+            Get(shadow.Value); I32(int.MaxValue); Op(0x46); If(0x7f); I32(int.MinValue); Else(); Get(shadow.Value); I32(1); Op(0x6a); End(); Set(shadow.Value);
+            if (prefix) { Get(shadow.Value); ToDouble(); Set(N(d)); }
+            I32(IntTag); Set(T(d)); I32(0); Set(R(d)); loc[d] = Loc.Reg; return false;
+        }, Memory);
     }
 
     /// <summary>Pushes the i32 index of operand p (INTEGER-tagged at run time).</summary>

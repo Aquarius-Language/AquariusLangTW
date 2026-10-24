@@ -88,7 +88,7 @@ public sealed class WasmCompiler
             byte[] Emit(WasmScopePlan plan)
             {
                 using var bytes = new MemoryStream(); using var code = new BinaryWriter(bytes, Encoding.UTF8, true);
-                WasmBodyEmitter.Emit(code, bodies[f], runtime.Functions, layout.Pools[f], plan, capacities[f]); code.Flush(); return bytes.ToArray();
+                WasmBodyEmitter.Emit(code, bodies[f], runtime.Functions, layout.Pools[f], plan, capacities[f], optimize); code.Flush(); return bytes.ToArray();
             }
             try { emitted[f] = Emit(plans[f]); }
             catch (InvalidOperationException e) when (plans[f].PromotedFunction || plans[f].Locals > 0) {
