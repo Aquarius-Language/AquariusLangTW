@@ -2,10 +2,12 @@
 
 Keep translations here and regenerate after adding host functions. Runtime and LSP
 consume the same checked-in catalog. Unknown OpenGL words fail generation.
+--check compares both outputs with the files on disk (ignoring CRLF) without writing.
 """
 from pathlib import Path
 import re
 import json
+import sys
 
 ROOT = Path(__file__).resolve().parent.parent
 TRANSLATIONS = """
@@ -17,6 +19,7 @@ Backspace 刪除末字
 ByteData 位元組資料
 ByteLength 位元組長度
 Clear 清除
+Close 關閉
 Cos 餘弦
 CreateBox 建立方塊
 CreateBuffer 建立緩衝區
@@ -25,6 +28,7 @@ CreateProgram 建立程式
 CreateRenderTarget 建立繪圖目標
 CreateShader 建立著色器
 CreateSphere 建立球體
+CreateVertexBuffer 建立頂點緩衝區
 CreateWindow 建立視窗
 CreateWorld 建立世界
 Cross 外積
@@ -33,6 +37,8 @@ Dispatch 派送
 Dispose 釋放
 Dot 內積
 Draw 繪製
+DrawBuffer 繪製緩衝區
+DrawProcedural 程序化繪製
 FloatData 浮點資料
 FreeData 釋放資料
 GetAngularVelocity 取得角速度
@@ -46,15 +52,23 @@ GetLinearVelocity 取得線速度
 GetMouseButton 取得滑鼠按鈕
 GetPosition 取得位置
 GetRotation 取得旋轉
+GetTexture 取得紋理
 GetTime 取得時間
 GetWindowSize 取得視窗尺寸
 Identity 單位矩陣
 Init 初始化
 Inverse 反矩陣
 IsActive 是否作用中
+KeyDown 按鍵按住
+KeyPressed 按鍵按下
+KeyReleased 按鍵放開
 Load 載入
+LoadTexture 載入紋理
 LookAt 看向
 MakeContextCurrent 設為目前繪圖環境
+MouseDown 滑鼠按住
+MousePressed 滑鼠按下
+MouseReleased 滑鼠放開
 Multiply 相乘
 Normalize 正規化
 OptimizeBroadPhase 最佳化廣域碰撞
@@ -63,11 +77,13 @@ ParseInteger 解析整數
 Perspective 透視
 Poll 輪詢
 PollEvents 輪詢事件
+Present 呈現
 ProgramLog 程式紀錄
 Radians 弧度
 Read 讀取
 ReadBytes 讀取位元組
 ReadPixels 讀取像素
+ReadRange 讀取範圍
 ReadText 讀取文字
 RemoveBody 移除物體
 Rotate 旋轉
@@ -76,15 +92,20 @@ SavePPM 儲存PPM
 Scale 縮放
 Set 設定
 SetAngularVelocity 設定角速度
+SetBuffer 設定緩衝區
 SetCaretRect 設定插入點矩形
 SetFriction 設定摩擦力
 SetGravity 設定重力
 SetInputMode 設定輸入模式
 SetInt 設定整數
 SetLinearVelocity 設定線速度
+SetPointerLock 設定指標鎖定
 SetPosition 設定位置
 SetRestitution 設定恢復係數
 SetRotation 設定旋轉
+SetState 設定狀態
+SetTexture 設定紋理
+SetTitle 設定標題
 SetWindowShouldClose 設定視窗關閉狀態
 SetWindowSize 設定視窗尺寸
 ShaderLog 著色器紀錄
@@ -104,6 +125,7 @@ UIntData 無號整數資料
 WindowHint 視窗提示
 WindowShouldClose 視窗是否關閉
 Write 寫入
+WriteRange 寫入範圍
 abs 絕對值
 acos 反餘弦
 add 相加
@@ -196,6 +218,7 @@ line 線段
 loadImage 載入圖片
 loadPixels 載入像素
 loadShader 載入著色器
+loadTexture 載入紋理
 log 對數
 loop 持續繪圖
 mag 長度
@@ -263,6 +286,8 @@ set 設定
 setFill 設定填色
 setInt 設定整數
 setMag 設定長度
+setNormal 設定法線
+setTexture 設定紋理
 setVertex 設定頂點
 shader 著色器
 shape 圖形
@@ -363,12 +388,60 @@ def chinese(name):
     return output
 
 
-entries = {}
+# Code-vs-catalog drift that the committed outputs intentionally keep. The generator scans the code,
+# then applies these tables so the checked-in catalog only changes when someone edits them on purpose.
+# Every key must still be produced by the scan; stale rows fail generation so they get cleaned up.
+EXCLUDED = {  # registered in code, absent from both outputs
+    ('Processing','loadMesh'): 'ProcessingShapes.cs registers it, but it was never added to the catalog (no alias).',
+    ('Processing.Canvas','loadMesh'): 'Canvas copy of Processing.loadMesh; likewise never catalogued.',
+}
+CS_OMIT = {  # registered in code and listed in LIBRARY_NAMES.md, absent from LibraryCatalog.Generated.cs
+    ('WGPU.Buffer','ReadRange'): 'WgpuRuntime.cs registers it; the committed runtime catalog lacks it.',
+    ('WGPU.Buffer','WriteRange'): 'WgpuRuntime.cs registers it; the committed runtime catalog lacks it.',
+}
+MD_OMIT = {  # registered in code and in LibraryCatalog.Generated.cs, absent from LIBRARY_NAMES.md
+    ('Processing','loadTexture'): 'Hand-added to the .cs catalog without regenerating the reference.',
+    ('Processing.Canvas','loadTexture'): 'Hand-added to the .cs catalog without regenerating the reference.',
+    ('Processing.Shader','setTexture'): 'Hand-added to the .cs catalog without regenerating the reference.',
+    ('Processing.Shape','setNormal'): 'Hand-added to the .cs catalog without regenerating the reference.',
+}
+MD_ARITY = {  # (min, max) shown in LIBRARY_NAMES.md where it is staler than code and the .cs catalog
+    ('Processing','createGraphics'): (2,3),  # ProcessingModule.cs and the .cs catalog accept 2..4
+    ('Processing.Shape','vertex'): (2,3),  # ProcessingShapes.cs and the .cs catalog accept 2..5
+}
+# LibraryCatalog.Generated.cs is sorted like the reference except where entries were hand-inserted.
+# Each row moves the listed entries, in order, to just after the anchor (None appends at the end).
+CS_PLACEMENT = [
+    (('Processing','redrawAfter'), [('Processing','displayDensity'),('Processing','displayScale'),('Processing','windowMove')]),
+    (('Processing.Shader','setTexture'), [('Processing','loadTexture'),('Processing.Canvas','loadTexture'),('WGPU.Texture','Dispose')]),
+    (('Processing.Shape','vertex'), [('Processing.Shape','setNormal')]),
+    # Legacy WGPU block that predates WGPU.Window/VertexBuffer, kept in its original hand-edited order.
+    (None, [('WGPU.Buffer','Dispose'),('WGPU.Buffer','Read'),('WGPU.Buffer','Write'),('WGPU.Device','CreateBuffer'),
+            ('WGPU.Device','CreateRenderTarget'),('WGPU.Device','CreateShader'),('WGPU.Device','LoadTexture'),
+            ('WGPU.Shader','SetTexture'),('WGPU.Device','Dispatch'),('WGPU.Device','Dispose'),('WGPU.Device','Poll'),
+            ('WGPU.Shader','Dispose'),('WGPU.Shader','Set'),('WGPU.Shader','SetInt'),('WGPU.Target','Clear'),
+            ('WGPU.Target','Dispose'),('WGPU.Target','Draw'),('WGPU.Target','ReadPixels'),('WGPU.Target','GetTexture'),
+            ('WGPU.Target','Save')]),
+]
+
+entries, excluded_seen = {}, set()
 def add(module, name, minimum, maximum=None, returns=None):
+    if (module, name) in EXCLUDED: excluded_seen.add((module, name)); return
     entry = (name, chinese(name), minimum, minimum if maximum is None else maximum, returns)
     entries.setdefault(module, {})[name] = entry
 
 
+RETURNS = {
+    ('WGPU','CreateDevice'): 'WGPU.Device', ('WGPU','CreateWindow'): 'WGPU.Window',
+    ('WGPU.Device','CreateBuffer'): 'WGPU.Buffer', ('WGPU.Device','CreateVertexBuffer'): 'WGPU.VertexBuffer',
+    ('WGPU.Device','CreateShader'): 'WGPU.Shader', ('WGPU.Device','CreateRenderTarget'): 'WGPU.Target',
+    ('WGPU.Device','LoadTexture'): 'WGPU.Texture', ('WGPU.Target','GetTexture'): 'WGPU.Texture',
+    ('Processing','createVector'): 'Processing.Vector', ('Processing','PVector'): 'Processing.Vector',
+    ('Processing','createImage'): 'Processing.Image', ('Processing','loadImage'): 'Processing.Image',
+    ('Processing','createGraphics'): 'Processing.Canvas', ('Processing','createShape'): 'Processing.Shape',
+    ('Processing','createShader'): 'Processing.Shader', ('Processing','loadShader'): 'Processing.Shader',
+    ('Processing','loadTexture'): 'WGPU.Texture',
+}
 pattern = re.compile(r'(Bind|PBind|PAction|Action|Mutate|Draw|Transform|Result)\(\s*(?:([\w.]+)\s*,\s*)?"(\w+)"\s*,\s*(\d+)\s*,\s*(?:(\d+)\s*,)?')
 for file in sorted((ROOT / 'AquariusDesktop/graphics').glob('*.cs')):
     text = file.read_text(encoding='utf-8-sig')
@@ -381,30 +454,58 @@ for file in sorted((ROOT / 'AquariusDesktop/graphics').glob('*.cs')):
         elif stem == 'MathModule': module = 'GLM'
         elif stem == 'ImageModule': module = 'STBImage'
         elif stem == 'TextInput': module = 'TextInput'
-        elif stem == 'WgpuModule':
-            module = {'bufferEnv': 'WGPU.Buffer', 'shaderEnv': 'WGPU.Shader', 'targetEnv': 'WGPU.Target'}.get(env,
-                'WGPU' if pos < text.index('private ModuleObj CreateWgpuDevice') else 'WGPU.Device')
         elif stem.startswith('Processing'):
             module = 'Processing'
             if stem == 'ProcessingMath' and pos > text.index('private ModuleObj CreateVector'): module = 'Processing.Vector'
             if stem == 'ProcessingShapes' and env == 'e': module = 'Processing.Shape'
+            if stem == 'ProcessingShaders' and env == 'scope': module = 'WGPU.Texture'  # loadTexture's result
             if stem == 'ProcessingShaders' and pos > text.index('private ModuleObj CreateProcessingShader'): module = 'Processing.Shader'
             if stem == 'ProcessingPixels' and text.index('private ProcessingImage RegisterImage') < pos < text.index('private ProcessingImage LoadProcessingImage'): module = 'Processing.Image'
             if stem == 'ProcessingModule' and env == 'canvas.Module._Environment': module = 'Processing.Canvas'
         else: continue
-        returns = {
-            ('WGPU','CreateDevice'): 'WGPU.Device', ('WGPU.Device','CreateBuffer'): 'WGPU.Buffer',
-            ('WGPU.Device','CreateShader'): 'WGPU.Shader', ('WGPU.Device','CreateRenderTarget'): 'WGPU.Target',
-            ('Processing','createVector'): 'Processing.Vector', ('Processing','PVector'): 'Processing.Vector',
-            ('Processing','createImage'): 'Processing.Image', ('Processing','loadImage'): 'Processing.Image',
-            ('Processing','createGraphics'): 'Processing.Canvas', ('Processing','createShape'): 'Processing.Shape',
-            ('Processing','createShader'): 'Processing.Shader', ('Processing','loadShader'): 'Processing.Shader',
-        }.get((module,name))
+        returns = RETURNS.get((module,name))
         if module == 'Processing.Vector' and (kind == 'Mutate' or name in ('copy','cross')): returns = module
         if module == 'Processing.Image' and name == 'get': returns = module
         add(module,name,int(minimum),int(maximum) if maximum else None,returns)
         if module == 'Processing' and stem in ('ProcessingDrawing','ProcessingText','ProcessingPixels','ProcessingShaders','ProcessingShapes'):
             add('Processing.Canvas',name,int(minimum),int(maximum) if maximum else None,returns)
+
+
+def trailing_int(text, start):
+    """Return a trailing integer argument of the call opening at text[start], e.g. Action(...,fn,3)."""
+    depth, comma, i = 0, None, text.index('(', start)
+    while i < len(text):
+        c = text[i]
+        if c == '"':
+            i += 1
+            while text[i] != '"': i += 2 if text[i] == '\\' else 1
+        elif c in '([{': depth += 1
+        elif c in ')]}':
+            depth -= 1
+            if depth == 0:
+                last = text[comma+1:i].strip() if comma else ''
+                return int(last) if last.isdigit() else None
+        elif c == ',' and depth == 1: comma = i
+        i += 1
+
+
+# Portable WGPU host (AquariusCore); module objects are told apart by their environment variable.
+wgpu_scopes = {'vertexEnv': 'WGPU.VertexBuffer', 'bufferEnv': 'WGPU.Buffer', 'shaderEnv': 'WGPU.Shader',
+               'targetEnv': 'WGPU.Target', 'scope': 'WGPU.Texture'}
+wgpu_methods = {'private void RegisterWgpu(': 'WGPU', 'private ModuleObj CreateWgpuWindow(': 'WGPU.Window',
+                'private ModuleObj CreateWgpuDevice(': 'WGPU.Device'}
+wgpu_pattern = re.compile(r'\b(Bind|Action|W)\(\s*(?:(\w+)\s*,\s*)?"(\w+)"\s*,\s*(\d+)\s*,\s*(?:(\d+)\s*,)?')
+for file in sorted((ROOT / 'AquariusCore/graphics').glob('WgpuRuntime*.cs')):
+    text = file.read_text(encoding='utf-8-sig')
+    for match in wgpu_pattern.finditer(text):
+        kind, env, name, minimum, maximum = match.groups()
+        pos = match.start()
+        if env in wgpu_scopes: module = wgpu_scopes[env]
+        else:
+            index, module = max((text.rfind(marker, 0, pos), owner) for marker, owner in wgpu_methods.items())
+            if index < 0: raise ValueError(f'Cannot place WGPU binding {name} in {file.name}')
+        if maximum is None and kind == 'Action': maximum = trailing_int(text, pos)
+        add(module,name,int(minimum),int(maximum) if maximum else None,RETURNS.get((module,name)))
 
 gl = (ROOT / 'AquariusDesktop/graphics/GlBindings.Generated.cs').read_text()
 for name, args in re.findall(r'BindGl\("(gl\w+)".*?new string\[\] \{(.*?)\}', gl):
@@ -420,24 +521,53 @@ for name in ('bezier','curve'):
 for name in 'modelX modelY modelZ screenX screenY screenZ'.split():
     for module in ('Processing','Processing.Canvas'): add(module,name,2,3)
 
+scanned = {(module, name) for module, functions in entries.items() for name in functions} | excluded_seen
+for table, label in ((EXCLUDED,'EXCLUDED'), (CS_OMIT,'CS_OMIT'), (MD_OMIT,'MD_OMIT'), (MD_ARITY,'MD_ARITY')):
+    for key in table:
+        if key not in scanned: raise ValueError(f'Stale {label} entry, no longer registered in code: {key}')
+
 quote = lambda s: 'null' if s is None else json.dumps(s,ensure_ascii=False)
-lines = ['// Generated by native/generate_library_catalog.py; do not edit.',
-         'namespace AquariusLang.runtime;', 'public static partial class LibraryCatalog {',
-         '    private static readonly LibraryFunction[] definitions = {']
+rows = []
 docs = ['# Bilingual library function reference', '',
         'Both names call the same function. Module names, constants, properties and event strings retain their existing spelling.',
-        'OpenGL entry points retain the `gl` prefix and overload/type suffixes.', '']
+        'Jolt is provided separately by the `Aqua_JoltPhysics` Bottle package.', '',
+        'OpenGL entry points retain the `gl` prefix and overload/type suffixes.', '',
+        'ONNX Runtime additionally supplies bilingual module names, constants and metadata fields;',
+        'see the [ONNX interface table](../docs/onnx.md#language-api).', '']
 for module, functions in sorted(entries.items()):
     seen = set()
     docs += [f'## {module}', '', '| English | 繁體中文 | Arguments |', '| --- | --- | --- |']
     for name, zh, minimum, maximum, returns in sorted(functions.values()):
         if zh in seen: raise ValueError(f'Alias collision in {module}: {zh}')
         seen.add(zh)
-        lines.append(f'        new({quote(module)}, {quote(name)}, {quote(zh)}, {minimum}, {maximum}, {quote(returns)}),')
+        if (module, name) not in CS_OMIT:
+            rows.append(((module, name), f'        new({quote(module)}, {quote(name)}, {quote(zh)}, {minimum}, {maximum}, {quote(returns)}),'))
+        if (module, name) in MD_OMIT: continue
+        minimum, maximum = MD_ARITY.get((module, name), (minimum, maximum))
         arity = str(minimum) if minimum == maximum else f'{minimum}..{maximum}'
         docs.append(f'| `{name}` | `{zh}` | {arity} |')
     docs.append('')
-lines += ['    };', '}']
-(ROOT / 'AquariusCore/runtime/LibraryCatalog.Generated.cs').write_text('\n'.join(lines)+'\n',encoding='utf-8')
-(ROOT / 'AquariusDesktop/LIBRARY_NAMES.md').write_text('\n'.join(docs),encoding='utf-8')
+for anchor, keys in CS_PLACEMENT:
+    moved = []
+    for key in keys:
+        index = next((i for i, row in enumerate(rows) if row[0] == key), None)
+        if index is None: raise ValueError(f'Stale CS_PLACEMENT entry, not in catalog: {key}')
+        moved.append(rows.pop(index))
+    at = len(rows) if anchor is None else next((i+1 for i, row in enumerate(rows) if row[0] == anchor), None)
+    if at is None: raise ValueError(f'Stale CS_PLACEMENT anchor, not in catalog: {anchor}')
+    rows[at:at] = moved
+lines = ['// Generated by native/generate_library_catalog.py; do not edit.',
+         'namespace AquariusLang.runtime;', 'public static partial class LibraryCatalog {',
+         '    private static readonly LibraryFunction[] definitions = {']
+lines += [line for _, line in rows] + ['    };', '}']
+outputs = {ROOT / 'AquariusCore/runtime/LibraryCatalog.Generated.cs': '\n'.join(lines)+'\n',
+           ROOT / 'AquariusDesktop/LIBRARY_NAMES.md': '\n'.join(docs)}
+if '--check' in sys.argv[1:]:
+    stale = [path for path in outputs
+             if not path.exists() or path.read_text(encoding='utf-8').replace('\r\n','\n') != outputs[path]]
+    for path in stale: print(f'Stale: {path.relative_to(ROOT).as_posix()}; run python native/generate_library_catalog.py')
+    if stale: sys.exit(1)
+    print(f'Library catalog is up to date ({sum(len(x) for x in entries.values())} API definitions in {len(entries)} library types).')
+    sys.exit(0)
+for path, text in outputs.items(): path.write_text(text,encoding='utf-8')
 print(f'Generated {sum(len(x) for x in entries.values())} API definitions in {len(entries)} library types.')
