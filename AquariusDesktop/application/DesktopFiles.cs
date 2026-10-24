@@ -59,7 +59,7 @@ public sealed class DesktopFiles : IFileProvider {
         string stage = to + ".aquarius-" + Guid.NewGuid().ToString("N") + ".tmp";
         try {
             await using (var output = new FileStream(stage, FileMode.CreateNew, FileAccess.Write, FileShare.None, 8192, true)) { await input.CopyToAsync(output, cancellation).ConfigureAwait(false); await output.FlushAsync(cancellation).ConfigureAwait(false); output.Flush(true); }
-            cancellation.ThrowIfCancellationRequested(); File.Move(stage, to, overwrite);
+            cancellation.ThrowIfCancellationRequested(); await Settle(() => File.Move(stage, to, overwrite), cancellation).ConfigureAwait(false);
         } finally { if (File.Exists(stage)) File.Delete(stage); }
     }
     public ValueTask Move(FileResource source, FileResource destination, bool overwrite, CancellationToken cancellation = default) {
@@ -73,9 +73,19 @@ public sealed class DesktopFiles : IFileProvider {
         try {
             await using (var output = new FileStream(stage, FileMode.CreateNew, FileAccess.Write, FileShare.None, 8192, true)) { await output.WriteAsync(bytes, cancellation).ConfigureAwait(false); await output.FlushAsync(cancellation).ConfigureAwait(false); output.Flush(true); }
             cancellation.ThrowIfCancellationRequested();
-            if (File.Exists(path)) File.Replace(stage, path, null); else File.Move(stage, path);
+            await Settle(() => { if (File.Exists(path)) File.Replace(stage, path, null); else File.Move(stage, path); }, cancellation).ConfigureAwait(false);
             return true;
         } finally { if (File.Exists(stage)) File.Delete(stage); }
+    }
+    // Windows: an on-access scanner or indexer can hold a just-written file open without delete sharing for a moment,
+    // so replacing it fails although nothing else uses it. Retry those failures briefly before reporting them.
+    internal static async Task Settle(Action replace, CancellationToken cancellation, int attempts = 12) {
+        for (int attempt = 1; ; attempt++) {
+            try { replace(); return; }
+            catch (IOException e) when (OperatingSystem.IsWindows() && attempt < attempts && (e.HResult & 0xFFFF) is 32 or 33 or 1175 or 1176 or 1177) {
+                await Task.Delay(25 * attempt, cancellation).ConfigureAwait(false);
+            }
+        }
     }
     public ValueTask<ITemporaryResource> Temporary(bool directory, CancellationToken cancellation = default) {
         cancellation.ThrowIfCancellationRequested(); string path = Path.Combine(Path.GetTempPath(), "aquarius-" + Guid.NewGuid().ToString("N"));

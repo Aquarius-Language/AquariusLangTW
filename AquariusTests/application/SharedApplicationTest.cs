@@ -72,7 +72,20 @@ public class SharedApplicationTest {
         await using(var stream=await provider.Open(resource,ResourceOpenMode.Read)){Assert.True(stream.CanSeek);stream.Seek(3,SeekOrigin.Begin);Assert.Equal(0xf0,stream.ReadByte());}
         await Assert.ThrowsAsync<ArgumentException>(async()=>await new DesktopFiles().Open(resource,ResourceOpenMode.Read));
     }
-    [Fact] public async Task SettingsPersistAndMigrateWithoutChangingTheStorageProvider() {
+    [Fact] public async Task SavingOverAFileBrieflyHeldByAnotherProcessSucceeds() {
+        // On-access scanners hold just-written files open without delete sharing for a moment; replacing one must wait it out.
+        var provider=new DesktopFiles();await using var temp=await provider.Temporary(true);var path=Path.Combine(temp.Resource.Id,"held.txt");
+        var resource=provider.Resolve(path);var service=new FileService(provider);Assert.True(await service.SaveText(resource,"first","utf-8"));
+        var held=new FileStream(path,FileMode.Open,FileAccess.Read,FileShare.ReadWrite);
+        var release=Task.Delay(150).ContinueWith(_=>held.Dispose());
+        Assert.True(await service.SaveText(resource,"second","utf-8"));await release;
+        Assert.Equal("second",await service.ReadText(resource,"utf-8"));
+        if(OperatingSystem.IsWindows()) {
+            // A file that stays held still fails, after a bounded wait.
+            using var kept=new FileStream(path,FileMode.Open,FileAccess.Read,FileShare.ReadWrite);var clock=System.Diagnostics.Stopwatch.StartNew();
+            await Assert.ThrowsAnyAsync<Exception>(async()=>await service.SaveText(resource,"third","utf-8"));Assert.True(clock.Elapsed<TimeSpan.FromSeconds(10));
+        }
+    }    [Fact] public async Task SettingsPersistAndMigrateWithoutChangingTheStorageProvider() {
         var files=new DesktopFiles();await using var temp=await files.Temporary(true);var storage=new DesktopStorage(files,"test",temp.Resource.Id);var v1=new Preferences(storage);await v1.Save("preferences",new { theme="dark" });
         var v2=new Preferences(storage,2);v2.AddMigration(1,value=>System.Text.Json.JsonSerializer.SerializeToElement(new {theme=value.GetProperty("theme").GetString(),size=12}));var settings=await v2.Load("preferences");Assert.Equal(12,settings!.Value.GetProperty("size").GetInt32());
         await Assert.ThrowsAsync<ArgumentException>(async()=>await storage.Read("../escape"));
