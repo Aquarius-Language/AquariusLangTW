@@ -26,6 +26,21 @@ public class AndroidBuildTest
         Assert.Throws<ArgumentException>(() => new AndroidBuildTarget().Build(new(wasm, t.FilePath("collision"))));
         Assert.False(Directory.Exists(t.FilePath("collision")));
     }
+    public static IEnumerable<object[]> RuntimeLibraryNames() =>
+        AndroidToolchain.RuntimeLibraries.SelectMany(name => new[] { "arm64-v8a", "x86_64" }.Select(abi => new object[] { abi, name }));
+    [Theory]
+    [MemberData(nameof(RuntimeLibraryNames))]
+    public void EveryRuntimeLibraryNameIsReservedEvenWithoutPrebuiltRuntimeBinaries(string abi, string name)
+    {
+        // Linux and macOS compilers usually embed no prebuilt Android runtime; the reservation must not depend on it.
+        using var t = new ApplicationTestDirectory();
+        string source = t.Write("main.aqua", "1;"), wasm = t.FilePath("app.wasm");
+        t.Write($"native/android/{abi}/{name}", "cannot replace runtime");
+        WasmApplication.Compile(new[] { source }, wasm, t.Path, new[] { t.FilePath("native") });
+        var error = Assert.Throws<ArgumentException>(() => new AndroidBuildTarget().Build(new(wasm, t.FilePath("android"))));
+        Assert.Matches("conflicts with runtime|Invalid Android dynamic library asset path", error.Message); // libc++_shared.so fails the name pattern first
+        Assert.False(Directory.Exists(t.FilePath("android")));
+    }
     [Fact]
     public void MissingNativeRuntimeIsRejectedBeforeLaunchingGradle()
     {

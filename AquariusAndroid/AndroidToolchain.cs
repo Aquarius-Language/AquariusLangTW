@@ -4,11 +4,15 @@ namespace AquariusLang.Android;
 
 public static class AndroidToolchain
 {
+    /// <summary>Native libraries every generated project ships for the Aquarius runtime (per ABI). Applications cannot
+    /// install libraries with these names, whether or not this compiler embeds the prebuilt runtime binaries.</summary>
+    public static IReadOnlyList<string> RuntimeLibraries { get; } = new[] { "libaquarius_android.so", "libaquarius_runtime.so", "libwasmtime.so", "libwgpu_native.so", "libc++_shared.so" };
+
     public static void Build(string project)
     {
         string root = Path.Combine(project, "app/src/main");
         if (new[] { "arm64-v8a", "x86_64" }.Any(abi =>
-                new[] { "libaquarius_android.so", "libaquarius_runtime.so", "libwasmtime.so", "libwgpu_native.so", "libc++_shared.so" }.Any(name => !File.Exists(Path.Combine(root, "jniLibs", abi, name)))))
+                RuntimeLibraries.Any(name => !File.Exists(Path.Combine(root, "jniLibs", abi, name)))))
             throw new IOException("Android native runtime assets are missing. Build the compiler after running scripts/prepare-android.ps1.");
         string? gradle = Environment.GetEnvironmentVariable("AQUARIUS_GRADLE");
         gradle ??= Path.Combine(project, OperatingSystem.IsWindows() ? "gradlew.bat" : "gradlew");

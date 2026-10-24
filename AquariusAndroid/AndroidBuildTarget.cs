@@ -88,7 +88,10 @@ public sealed class AndroidBuildTarget : IWasmBuildTarget
                     var match = System.Text.RegularExpressions.Regex.Match(asset.Key, @"\Anative/android/(arm64-v8a|x86_64)/(lib[A-Za-z0-9_][A-Za-z0-9_.-]*\.so)\z");
                     if (!match.Success) throw new ArgumentException("Invalid Android dynamic library asset path: " + asset.Key);
                     string nativePath = Path.Combine(stage, "app/src/main/jniLibs", match.Groups[1].Value, match.Groups[2].Value);
-                    if (File.Exists(nativePath)) throw new ArgumentException("Android dynamic library conflicts with runtime: " + asset.Key);
+                    // Reserved by name: the prebuilt runtime is only embedded where prepare-android ran, but every
+                    // generated project ships it, so presence in the staged template cannot decide.
+                    if (AndroidToolchain.RuntimeLibraries.Contains(match.Groups[2].Value) || File.Exists(nativePath))
+                        throw new ArgumentException("Android dynamic library conflicts with runtime: " + asset.Key);
                     Directory.CreateDirectory(Path.GetDirectoryName(nativePath)!);
                     File.WriteAllBytes(nativePath, asset.Value);
                     continue;
