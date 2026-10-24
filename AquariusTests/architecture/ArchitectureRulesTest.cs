@@ -138,7 +138,8 @@ public class ArchitectureRulesTest
     public void CompiledOutputMatchesGoldens()
     {
         var actual = GoldenPrograms.Where(p => File.Exists(Path.Combine(Root, p))).Select(p => {
-            var bytes = new WasmCompiler().Compile(Read(p)).Bytes.ToArray();
+            // Multi-line string literals would otherwise follow the checkout's line endings (CRLF on Windows, LF elsewhere).
+            var bytes = new WasmCompiler().Compile(Read(p).Replace("\r\n", "\n")).Bytes.ToArray();
             return $"{p}\t{Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant()}\t{bytes.Length}";
         }).ToList();
         Assert.True(actual.Count >= 8, "Rule 'Codegen stability': most golden programs are missing; update GoldenPrograms.");
@@ -248,24 +249,28 @@ public class ArchitectureRulesTest
         process.WaitForExit();
         return (process.ExitCode, stdout.Result + stderr.Result);
     }
-    internal static string? Python()
+    // (executable, leading arguments); on Windows the bare python/python3 names often resolve to the Store stubs, so the py launcher follows.
+    internal static (string File, string Prefix)? Python()
     {
-        var candidates = new[] { Environment.GetEnvironmentVariable("AQUARIUS_PYTHON"), "python3", "python" };
-        foreach (var candidate in candidates.Where(c => !string.IsNullOrEmpty(c))) {
-            try { if (Run(candidate!, "--version").Code == 0) return candidate; } catch (System.ComponentModel.Win32Exception) { }
+        var candidates = new List<(string?, string)> { (Environment.GetEnvironmentVariable("AQUARIUS_PYTHON"), ""), ("python3", ""), ("python", "") };
+        if (OperatingSystem.IsWindows()) candidates.Add(("py", "-3 "));
+        foreach (var (file, prefix) in candidates.Where(c => !string.IsNullOrEmpty(c.Item1))) {
+            try { if (Run(file!, prefix + "--version").Code == 0) return (file!, prefix); } catch (System.ComponentModel.Win32Exception) { }
         }
         return null;
     }
     private static (int Code, string Output) RunPython(string script, string arguments)
     {
-        string? python = Python();
+        var python = Python();
         Assert.True(python != null, "The architecture rules run the repository's Python generators; install Python 3 or set AQUARIUS_PYTHON.");
-        return Run(python!, $"\"{Path.Combine(Root, script)}\" {arguments}");
+        return Run(python!.Value.File, $"{python.Value.Prefix}\"{Path.Combine(Root, script)}\" {arguments}");
     }
-    private static (int Code, string Output) RunPowerShell(string script, string arguments)
+    internal static string PowerShell => OperatingSystem.IsWindows() ? "powershell" : "pwsh";
+    private static (int Code, string Output) RunPowerShell(string script, string arguments) =>
+        Run(PowerShell, $"-NoProfile -ExecutionPolicy Bypass -File \"{script}\" {arguments}");
+    internal static bool CanRun(string file)
     {
-        string shell = OperatingSystem.IsWindows() ? "powershell" : "pwsh";
-        return Run(shell, $"-NoProfile -ExecutionPolicy Bypass -File \"{script}\" {arguments}");
+        try { return Run(file, "-NoProfile -Command exit 0").Code == 0; } catch (System.ComponentModel.Win32Exception) { return false; }
     }
 }
 
@@ -278,5 +283,7 @@ public sealed class ToolchainFactAttribute : FactAttribute
         bool installed = Directory.Exists(toolchains) && Directory.EnumerateDirectories(toolchains, "llvm-*").Any();
         if (!installed && Environment.GetEnvironmentVariable("AQUARIUS_LLVM") == null)
             Skip = "Install the pinned Clang toolchain (scripts/install-wasm-toolchain.ps1) to check that committed Wasm binaries rebuild from source.";
+        else if (!ArchitectureRulesTest.CanRun(ArchitectureRulesTest.PowerShell))
+            Skip = "Install PowerShell 7 (pwsh) to run the Wasm build scripts' -Check mode; CI runners include it.";
     }
 }
