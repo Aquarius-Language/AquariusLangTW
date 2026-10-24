@@ -20,6 +20,10 @@ public static class PortableGraphicsLibraries {
             ?? throw new InvalidDataException("Missing core graphics library: " + path);
         using var reader = new StreamReader(stream); return reader.ReadToEnd();
     }
+    // Embedded sources never change and lowered programs are immutable, so each library is lowered once per process.
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, Lazy<LoweredProgram>> lowered = new(StringComparer.Ordinal);
+    private static LoweredProgram Lowered(string path) =>
+        lowered.GetOrAdd(path, p => new Lazy<LoweredProgram>(() => new LoweringCompiler().Compile(ReadSource(p)))).Value;
     public static IReadOnlyDictionary<string, LoweredProgram> Link(IReadOnlyDictionary<string, LoweredProgram> input) {
         if (input.Keys.Any(p => p.StartsWith(".aquarius/", StringComparison.OrdinalIgnoreCase)))
             throw new CompilationException("The .aquarius module directory is reserved for core libraries.");
@@ -29,7 +33,7 @@ public static class PortableGraphicsLibraries {
             if (item is FunctionCode function) pending.Enqueue(function.BodyCode);
             else if (item is LoweredProgram nested) pending.Enqueue(nested);
             else if (item is StringObj text && Modules.TryGetValue(text.Value, out var path) && !result.ContainsKey(path)) {
-                var library = new LoweringCompiler().Compile(ReadSource(path)); result.Add(path, library); pending.Enqueue(library);
+                var library = Lowered(path); result.Add(path, library); pending.Enqueue(library);
             }
         }
         return result;

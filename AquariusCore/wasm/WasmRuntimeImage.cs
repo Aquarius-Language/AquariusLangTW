@@ -9,33 +9,51 @@ namespace AquariusLang.Wasm;
 /// <summary>Links compiled application functions into the portable value runtime.</summary>
 internal sealed class WasmRuntimeImage
 {
-    internal readonly Dictionary<byte, byte[]> Sections = new();
-    internal readonly Dictionary<string, int> Functions = new(StringComparer.Ordinal);
+    /// <summary>Section payloads of this link. Values are never mutated in place: a link replaces them.</summary>
+    internal readonly Dictionary<byte, byte[]> Sections;
+    internal readonly IReadOnlyDictionary<string, int> Functions;
     internal readonly int FunctionCount;
     internal readonly int TypeCount;
     internal const int ProgramAddress = 4 * 1024 * 1024;
+    // The embedded runtime is immutable, so it is read and parsed once per process.
+    private static readonly Lazy<WasmRuntimeImage> Template = new(() => new WasmRuntimeImage(Parse()));
 
-    internal WasmRuntimeImage()
+    /// <summary>A fresh link of the embedded runtime; each compile owns its section map.</summary>
+    internal WasmRuntimeImage() : this(Template.Value) { }
+    private WasmRuntimeImage(WasmRuntimeImage template)
     {
-        using var input = typeof(WasmRuntimeImage).Assembly.GetManifestResourceStream("AquariusLang.Wasm.runtime.wasm")
-            ?? throw new InvalidOperationException("Build the portable Wasm runtime before building the compiler.");
-        using var bytes = new MemoryStream(); input.CopyTo(bytes);
-        using var reader = new BinaryReader(new MemoryStream(bytes.ToArray())); reader.BaseStream.Position = 8;
-        while (reader.BaseStream.Position < reader.BaseStream.Length)
-        {
-            byte id = reader.ReadByte(); byte[] section = reader.ReadBytes(checked((int)ReadUnsigned(reader)));
-            if (id != 0) Sections.Add(id, section);
-        }
+        Sections = new(template.Sections); Functions = template.Functions;
+        FunctionCount = template.FunctionCount; TypeCount = template.TypeCount;
+    }
+    private WasmRuntimeImage(Dictionary<byte, byte[]> sections)
+    {
+        Sections = sections;
         int imports = Count(Sections[2]);
         FunctionCount = imports + Count(Sections[3]); TypeCount = Count(Sections[1]);
+        var functions = new Dictionary<string, int>(StringComparer.Ordinal);
         using var exports = new BinaryReader(new MemoryStream(Sections[7]));
         uint count = ReadUnsigned(exports);
         for (int i = 0; i < count; i++)
         {
             string name = Encoding.UTF8.GetString(exports.ReadBytes(checked((int)ReadUnsigned(exports))));
             byte kind = exports.ReadByte(); int index = checked((int)ReadUnsigned(exports));
-            if (kind == 0) Functions.Add(name, index);
+            if (kind == 0) functions.Add(name, index);
         }
+        Functions = functions;
+    }
+    private static Dictionary<byte, byte[]> Parse()
+    {
+        using var input = typeof(WasmRuntimeImage).Assembly.GetManifestResourceStream("AquariusLang.Wasm.runtime.wasm")
+            ?? throw new InvalidOperationException("Build the portable Wasm runtime before building the compiler.");
+        using var bytes = new MemoryStream(); input.CopyTo(bytes);
+        using var reader = new BinaryReader(new MemoryStream(bytes.ToArray())); reader.BaseStream.Position = 8;
+        var sections = new Dictionary<byte, byte[]>();
+        while (reader.BaseStream.Position < reader.BaseStream.Length)
+        {
+            byte id = reader.ReadByte(); byte[] section = reader.ReadBytes(checked((int)ReadUnsigned(reader)));
+            if (id != 0) sections.Add(id, section);
+        }
+        return sections;
     }
     internal static uint ReadUnsigned(BinaryReader reader)
     {
