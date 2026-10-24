@@ -16,6 +16,11 @@ public sealed class WasmCompiler
     /// <param name="optimize">Disable guarded fast paths for differential diagnostics.</param>
     public WasmCompiler() : this(true) { }
     public WasmCompiler(bool optimize) { this.optimize = optimize; }
+    /// <summary>Receives "function N: tier: reason" when a body falls back to a slower tier. Defaults to standard
+    /// error when AQUARIUS_WASM_TIER_DIAGNOSTICS=1.</summary>
+    public static Action<string>? TierDiagnostics { get; set; } =
+        System.Environment.GetEnvironmentVariable("AQUARIUS_WASM_TIER_DIAGNOSTICS") == "1" ? Console.Error.WriteLine : null;
+    private static void Diagnose(int function, string tier, string reason) => TierDiagnostics?.Invoke($"function {function}: {tier}: {reason}");
     public WasmProgram Compile(string source) => Compile(new LoweringCompiler().Compile(source));
     public WasmProgram Compile(INode tree) => Compile(new LoweringCompiler().Compile(tree));
     public WasmProgram Compile(LoweredProgram lowered) => Compile(new Dictionary<string, LoweredProgram> { ["main.aqua"] = lowered }, "main.aqua");
@@ -59,22 +64,32 @@ public sealed class WasmCompiler
         // Closure-free lexical scopes become frame slots; bodies with very deep operand stacks keep the
         // memory-resident emitter so the register-resident operand window stays bounded.
         var runtime = new WasmRuntimeImage();
-        var plans = bodies.Select(b => {
-            int capacity = WasmStackAnalysis.Capacity(b);
-            if (!optimize || !WasmBodyEmitter.Supports(capacity)) return null;
+        var capacities = bodies.Select(WasmStackAnalysis.Capacity).ToArray();
+        var plans = bodies.Select((b, f) => {
+            if (!optimize || !WasmBodyEmitter.Supports(capacities[f])) return null;
             string[]? arguments = parameters.TryGetValue(b, out var p) ? p : null;
-            WasmScopePlan plan;
-            try { plan = WasmScopePlan.Analyze(b, arguments, true); }
-            catch (InvalidOperationException) { plan = WasmScopePlan.Analyze(b, arguments, false); }
-            // A body whose plan violates an emitter invariant keeps the memory-resident emitter.
-            try { WasmBodyEmitter.Emit(new BinaryWriter(Stream.Null), b, runtime.Functions, 0, plan, capacity); return plan; }
-            catch (InvalidOperationException) { return null; }
+            var plan = WasmScopePlan.Analyze(b, arguments, true, out string? rejection);
+            if (plan == null) { Diagnose(f, "frame-slot promotion", rejection!); plan = WasmScopePlan.Analyze(b, arguments, false, out _)!; }
+            return plan;
         }).ToArray();
-        var functions = bodies.Select((b, f) => new WasmFunction(b.WrapReturn, b.Constants.Select(Constant).ToArray(),
+        WasmFunction[] Functions() => bodies.Select((b, f) => new WasmFunction(b.WrapReturn, b.Constants.Select(Constant).ToArray(),
             // Promoted calls share one binding cache per closure, so free-name lookups are cached across calls.
-            parameters.GetValueOrDefault(b, System.Array.Empty<string>()), WasmStackAnalysis.Capacity(b),
+            parameters.GetValueOrDefault(b, System.Array.Empty<string>()), capacities[f],
             b.Code.Any(op => op.Code == IrOperation.EnterLoop) || plans[f]?.PromotedFunction == true,
             Locals: plans[f]?.Locals ?? 0, PromotedScope: plans[f]?.PromotedFunction ?? false)).ToArray();
+        // Constant pool addresses depend only on pools and names, never on the chosen tier, so every optimized
+        // body is emitted exactly once, at its final address, and the tier is fixed by whether that succeeds.
+        var layout = new WasmRuntimeImage.Data(); layout.Build(Functions());
+        var emitted = new byte[]?[bodies.Count];
+        for (int f = 0; f < bodies.Count; f++)
+        {
+            if (plans[f] is not { } plan) continue;
+            using var bytes = new MemoryStream(); using var code = new BinaryWriter(bytes, Encoding.UTF8, true);
+            // A body whose plan violates an emitter invariant keeps the memory-resident emitter.
+            try { WasmBodyEmitter.Emit(code, bodies[f], runtime.Functions, layout.Pools[f], plan, capacities[f]); emitted[f] = bytes.ToArray(); }
+            catch (InvalidOperationException e) { plans[f] = null; Diagnose(f, "register emitter", e.Message); }
+        }
+        var functions = Functions();
         var numeric = new List<(int Body, WasmNumericFunction Plan)>();
         if (optimize) for (int f = 0; f < bodies.Count; f++)
             if (parameters.TryGetValue(bodies[f], out var args) && WasmNumericFunction.Analyze(bodies[f], args) is { } plan)
@@ -93,6 +108,7 @@ public sealed class WasmCompiler
             if (integers[p] != null) integerTypes[p] = runtime.TypeCount + 2 + numeric.Count + extraTypes++;
         }
         var data = new WasmRuntimeImage.Data(); data.Build(functions);
+        if (!data.Pools.SequenceEqual(layout.Pools)) throw new InvalidOperationException("Constant pool layout changed after tier selection.");
         var metadata = new WasmMetadata(WasmAbi.Version, entry, exports, functions,
             assets?.ToDictionary(p => p.Key, p => Convert.ToBase64String(p.Value)) ?? new(),
             ProgramAddress: WasmRuntimeImage.ProgramAddress, HeapStart: data.End, FunctionLayout: 40, SupportedPlatforms: supportedPlatforms);
@@ -126,9 +142,9 @@ public sealed class WasmCompiler
         {
             for (int f = 0; f < bodies.Count; f++)
             {
+                if (emitted[f] is { } body) { U(w, body.Length); w.Write(body); continue; }
                 using var bytes = new MemoryStream(); using var code = new BinaryWriter(bytes, Encoding.UTF8, true);
-                if (plans[f] is { } plan) WasmBodyEmitter.Emit(code, bodies[f], runtime.Functions, data.Pools[f], plan, functions[f].StackCapacity);
-                else EmitBody(code, bodies[f], runtime.Functions, data.Pools[f], functions[f].Parameters!, optimize);
+                EmitBody(code, bodies[f], runtime.Functions, data.Pools[f], functions[f].Parameters!, optimize);
                 U(w, (int)bytes.Length); w.Write(bytes.ToArray());
             }
             for (int p = 0; p < numeric.Count; p++) {

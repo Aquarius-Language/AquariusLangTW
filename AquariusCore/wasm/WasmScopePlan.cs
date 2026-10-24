@@ -73,8 +73,11 @@ internal sealed class WasmScopePlan
 
     /// <param name="parameters">Parameters for a function body; null for module or computed-member bodies,
     /// whose outermost scope is supplied by the host or a module and therefore stays dynamic.</param>
-    internal static WasmScopePlan Analyze(LoweredProgram body, string[]? parameters, bool promote)
+    /// <returns>Null when frame-slot promotion is requested but unsupported for this body; <paramref name="rejection"/>
+    /// then says why. Without promotion every well-formed body has a plan.</returns>
+    internal static WasmScopePlan? Analyze(LoweredProgram body, string[]? parameters, bool promote, out string? rejection)
     {
+        rejection = null;
         var code = body.Code;
         // 1. Static scope tree.
         var scopes = new List<StaticScope> { new() };
@@ -98,7 +101,7 @@ internal sealed class WasmScopePlan
             scopes[s].Promoted = promote && !scopes[s].HasClosure && (s != 0 || parameters != null && distinct);
         // Only the innermost scopes can be promoted: verify upward closure explicitly.
         for (int s = 1; s < scopes.Count; s++)
-            if (scopes[scopes[s].Parent].Promoted && !scopes[s].Promoted) throw new InvalidOperationException("Promotion must be upward closed.");
+            if (scopes[scopes[s].Parent].Promoted && !scopes[s].Promoted) { rejection = "Promotion must be upward closed."; return null; }
 
         // 2. Slots for promoted scopes. Parameters occupy the first slots of a promoted function.
         int locals = 0; var slotScope = new List<int>();
@@ -114,10 +117,10 @@ internal sealed class WasmScopePlan
                 declareSlot[i] = AddSlot(scopeAt[i], (string)body.Pool[code[i].Operand]);
         foreach (var scope in scopes)
             if (scope.Promoted && scope.LoopName != null && !scope.Slots.ContainsKey(scope.LoopName))
-                throw new InvalidOperationException("A promoted loop binding must be declared in its loop scope.");
+                { rejection = "A promoted loop binding must be declared in its loop scope."; return null; }
         // The dataflow keeps per-instruction slot states; bound its memory for very large generated bodies.
         if (promote && (long)(code.Length + 1) * Math.Max(1, locals) > MaxSlotStates)
-            throw new InvalidOperationException("Body too large for frame-slot promotion.");
+            { rejection = "Body too large for frame-slot promotion."; return null; }
 
         // 3. Named accesses: promoted candidates, then the guarded dynamic lexical slot of WasmBindingSlots.
         var accesses = new Access?[code.Length];
@@ -267,7 +270,7 @@ internal sealed class WasmScopePlan
                     int s = scopeAt[pc];
                     if (scopes[s].Promoted) {
                         int? keep = scopes[s].LoopName is string loopName ? scopes[s].Slots[loopName] : null;
-                        if (keep is int k && decl[k] != Yes) throw new InvalidOperationException("Promoted loop binding is not definitely declared.");
+                        if (keep is int k && decl[k] != Yes) { rejection = "Promoted loop binding is not definitely declared."; return null; }
                         ResetScope(s, keep);
                     }
                     break;
