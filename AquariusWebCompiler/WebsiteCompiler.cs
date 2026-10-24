@@ -59,7 +59,7 @@ public static class WebsiteCompiler {
         string constants;
         using (var reader = new StreamReader(assembly.GetManifestResourceStream(prefix + "legacy-constants.json")!)) constants = reader.ReadToEnd();
         string json = JsonSerializer.Serialize(new {
-            version = WasmAbi.Version, abiVersion = WasmAbi.Version, wasm = "program.wasm", entry = Name(selected), modules, assets, assetEncoding = "files",
+            version = WasmAbi.BundleVersion, abiVersion = WasmAbi.Version, wasm = "program.wasm", entry = Name(selected), modules, assets, assetEncoding = "files",
             packageVersion = package.Version, pathComparison = "ordinalIgnoreCase",
             portableLibraries = PortableGraphicsLibraries.Modules,
             catalog = LibraryCatalog.Functions.Concat(LibraryCatalog.GlobalFunctions).Select(f => new {

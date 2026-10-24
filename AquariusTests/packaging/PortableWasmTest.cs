@@ -28,7 +28,7 @@ public class PortableWasmTest {
         Assert.Equal("files",document.RootElement.GetProperty("assetEncoding").GetString());
         string file=document.RootElement.GetProperty("assets").GetProperty("asset.txt").GetString()!;
         Assert.Matches("^asset-[0-9a-f]{64}\\.bin$",file);Assert.Equal("asset",File.ReadAllText(Path.Combine(web,file)));
-        Assert.All(AquariusLang.Wasm.WasmProgram.Load(Path.Combine(web,"program.wasm")).Metadata.Assets.Values,v=>Assert.Equal("",v));
+        var deployed=AquariusLang.Wasm.WasmProgram.Load(Path.Combine(web,"program.wasm"));Assert.True(deployed.Metadata.ExternalAssets);Assert.All(deployed.Assets.Values,v=>Assert.Equal(0,v.Length));
         WebsiteCompiler.BuildWasm(wasm,web);Assert.Equal("asset",File.ReadAllText(Path.Combine(web,file)));
         WasmApplication.Compile(new[]{t.FilePath("main.aqua")},wasm,t.Path);WebsiteCompiler.BuildWasm(wasm,web);
         Assert.False(File.Exists(Path.Combine(web,file)));Assert.Empty(Directory.GetDirectories(t.Path,".aquarius-web-*"));
@@ -63,7 +63,10 @@ public class PortableWasmTest {
     [InlineData("a.txt.")][InlineData("NUL.txt")][InlineData("COM1")][InlineData("a:stream")][InlineData("a?.txt")]
     public void UnsafeResourceArchivePathsAreRejected(string path) {
         var program=new AquariusLang.Wasm.WasmCompiler().Compile("42;");
-        var bytes=AquariusTests.Wasm.WasmArtifactTest.WithMetadata(program,node=>node["assets"]![path]="");
+        var manifest=AquariusTests.Wasm.WasmArtifactTest.Manifest(program) with { Assets=new[]{(path,0)} };
+        var bytes=AquariusTests.Wasm.WasmArtifactTest.WithManifest(program,manifest,Array.Empty<byte>());
+        Assert.NotNull(AquariusLang.Wasm.WasmProgram.Load(AquariusTests.Wasm.WasmArtifactTest.WithManifest(program,manifest with { Assets=new[]{("safe.txt",0)} },Array.Empty<byte>())));
+        Assert.Throws<InvalidDataException>(() => AquariusLang.Wasm.WasmProgram.Load(AquariusTests.Wasm.WasmArtifactTest.WithMetadata(AquariusTests.Wasm.WasmArtifactTest.Abi2Artifact(),node=>node["assets"]![path]="")));
         Assert.Throws<InvalidDataException>(() => AquariusLang.Wasm.WasmProgram.Load(bytes));
     }
 

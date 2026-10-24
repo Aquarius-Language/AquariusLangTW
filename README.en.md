@@ -172,8 +172,9 @@ root. Module names retain their relative `.aqua` paths. Compilation and export
 do not execute the program, and failed builds preserve existing output.
 Old `.bottle` / `.rius` artifacts must be rebuilt from source.
 
-The `aquarius.application` Wasm custom section contains versioned ABI metadata,
-constants, module entries and assets. Deployed code executes compiled Wasm functions.
+The `aquarius.application` Wasm custom section contains versioned binary ABI metadata and
+module entries; embedded assets are a raw `aquarius.assets` section, and constants live in
+the Wasm data segment. Deployed code executes compiled Wasm functions.
 
 Application EXEs include Wasmtime, .NET, host libraries and application resources;
 their runtime unpacks into the user's cache on first launch. Building them from

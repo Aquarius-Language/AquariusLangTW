@@ -125,6 +125,37 @@ public class ArchitectureRulesTest
             string.Join(", ", offenders));
     }
 
+    // ---- ABI compatibility -----------------------------------------------------------------------------------------
+
+    // Built by the ABI 2 compiler (commit 7fa27b7) from the sources beside it; never regenerate it with a newer compiler.
+    private const string Abi2Artifact = "AquariusTests/compiler/fixtures/abi2-application.wasm";
+    private const string Abi2Sha256 = "10f4af1017eb2ee8e27d323dce686276482c90743149dfdc7712bc373e22a53c";
+
+    [Fact]
+    public void Abi2ArtifactsStillLoadAndRun()
+    {
+        byte[] bytes = File.ReadAllBytes(Path.Combine(Root, Abi2Artifact));
+        Assert.True(Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant() == Abi2Sha256, $"Rule 'ABI 2 compatibility': {Abi2Artifact} " +
+            "is the committed output of the ABI 2 compiler and must not change. Restore it from git; new hosts must keep loading it as is.");
+        string fix = " New hosts must load ABI 2 artifacts: keep the JSON metadata reader in WasmProgram.LoadLegacy and readManifest " +
+            "(AquariusCore/hosting/wasm-manifest.mjs), and keep the value ABI, function table and import module unchanged.";
+        WasmProgram program;
+        try { program = WasmProgram.Load(bytes); }
+        catch (InvalidDataException e) { Assert.Fail("Rule 'ABI 2 compatibility': the ABI 2 artifact no longer loads (" + e.Message + ")." + fix); return; }
+        Assert.True(program.Metadata.AbiVersion == WasmAbi.LegacyVersion && program.Functions[1].NumericTable != 0 &&
+            System.Text.Encoding.UTF8.GetString(program.Assets["data/note.txt"].Span) == "abi2", "Rule 'ABI 2 compatibility': metadata, function layout or assets read wrongly." + fix);
+        // Run it as shipped, and re-encoded by a new deployment step (external assets are written as ABI 3).
+        string directory = Path.Combine(Path.GetTempPath(), "aquarius-abi2-" + Guid.NewGuid().ToString("N")); Directory.CreateDirectory(directory);
+        try {
+            string original = Path.Combine(directory, "abi2.wasm"), external = Path.Combine(directory, "external.wasm");
+            File.WriteAllBytes(original, bytes); File.WriteAllBytes(external, program.WithExternalAssets().Bytes.ToArray());
+            foreach (string path in new[] { original, external }) {
+                string result = AquariusLang.Desktop.runtime.ScriptRunner.RunWasm(path).Inspect();
+                Assert.True(result == "[6765, 42, 49, 68, 3, 函式(a) {\n...\n}]", $"Rule 'ABI 2 compatibility': the ABI 2 artifact runs differently ({result})." + fix);
+            }
+        } finally { Directory.Delete(directory, true); }
+    }
+
     // ---- Codegen stability -----------------------------------------------------------------------------------------
 
     private const string Goldens = "AquariusTests/architecture/codegen-goldens.txt";

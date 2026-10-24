@@ -11,7 +11,55 @@ export function validAssetEncoding(value) {
     (padding===''||padding==='='&&end%4===3||padding==='=='&&end%4===2);
 }
 
-// Match the application contract checked by WasmProgram.Load on desktop.
+// Read and validate a module's application metadata, matching WasmProgram.Load on desktop. ABI 3 metadata is binary
+// (assets live in the raw 'aquarius.assets' section); ABI 2 JSON metadata still loads. Both normalize to
+// {abiVersion,entry,modules,functionCount,assetNames,externalAssets,programAddress,heapStart,functionLayout,supportedPlatforms}.
+export function readManifest(module){
+  const sections=WebAssembly.Module.customSections(module,'aquarius.application');if(sections.length!==1)throw new Error('Missing or duplicate Aquarius metadata');
+  const bytes=new Uint8Array(sections[0]),assets=WebAssembly.Module.customSections(module,'aquarius.assets');
+  if(bytes[0]!==0){
+    if(assets.length)throw new Error('Invalid Aquarius metadata: asset section');
+    const m=validateManifest(module,JSON.parse(new TextDecoder().decode(bytes)));
+    return {abiVersion:2,entry:m.entry,modules:m.modules,functionCount:m.functions.length,assetNames:Object.keys(m.assets),externalAssets:false,
+      programAddress:m.programAddress,heapStart:m.heapStart,functionLayout:m.functionLayout??24,supportedPlatforms:m.supportedPlatforms??null};
+  }
+  return validateBinaryManifest(module,bytes,assets);
+}
+function validateBinaryManifest(module,bytes,assetSections){
+  const invalid=message=>{throw new Error(`Invalid Aquarius metadata: ${message}`);};
+  let p=4;const decoder=new TextDecoder('utf-8',{fatal:true});
+  const byte=()=>p<bytes.length?bytes[p++]:invalid('truncated');
+  const u=()=>{let n=0;for(let shift=0;shift<35;shift+=7){const b=byte();n+=(b&127)*2**shift;if(!(b&128))return n>2147483647?invalid('integer'):n;}invalid('integer');};
+  const str=()=>{const n=u();if(n>bytes.length-p)invalid('truncated');const s=decoder.decode(bytes.subarray(p,p+n));p+=n;return s;};
+  if(bytes[1]!==65||bytes[2]!==81||bytes[3]!==77||byte()!==3)invalid('unsupported ABI; recompile the application');
+  const valueAbi=u(),programAddress=u(),heapStart=u(),functionLayout=u(),functionCount=u();
+  if(valueAbi!==2||programAddress!==4194304||heapStart<4194312||heapStart>268435456||functionLayout!==40)invalid('memory layout');
+  if(functionCount<1||functionCount>100000)invalid('function count');
+  const seen=new Set(),fold=value=>Array.from(value,c=>{const upper=c.toUpperCase();return [...upper].length===1&&(c.codePointAt(0)<128||upper.codePointAt(0)>=128)?upper:c;}).join('');
+  const path=name=>{if(name.length>1024||resolvePath(name)!==name||seen.has(fold(name)))invalid('unsafe or duplicate path');seen.add(fold(name));};
+  const moduleCount=u();if(moduleCount<1||moduleCount>10000)invalid('module count');
+  const modules={},order=[];
+  for(let i=0;i<moduleCount;i++){const name=str(),index=u();path(name);if(!/\.aqua$/i.test(name)||index>=functionCount)invalid('module reference');modules[name]=index;order.push(name);}
+  const entry=order[u()]??invalid('missing entry');
+  const platformCount=u();let supportedPlatforms=null;
+  if(platformCount){supportedPlatforms=Array.from({length:platformCount-1},str);if(!supportedPlatforms.length||supportedPlatforms.length>32||supportedPlatforms.some(x=>!x.trim()||x.length>32))invalid('supported platforms');}
+  const storage=byte();if(storage>1)invalid('asset storage');
+  const assetCount=u();if(moduleCount+assetCount>10000)invalid('module count');
+  const assetNames=[];let total=0;
+  for(let i=0;i<assetCount;i++){const name=str();total+=u();path(name);if(/\.aqua$/i.test(name))invalid('asset path');assetNames.push(name);}
+  if(p!==bytes.length)invalid('trailing bytes');
+  const stored=assetSections.length===1?assetSections[0].byteLength:assetSections.length?invalid('duplicate asset section'):-1;
+  if(storage===1?stored>=0:assetCount===0?stored>=0:stored!==total)invalid('asset section');
+  checkModule(module,functionCount,invalid);
+  return {abiVersion:3,entry,modules,functionCount,assetNames,externalAssets:storage===1,programAddress,heapStart,functionLayout,supportedPlatforms};
+}
+function checkModule(module,functionCount,invalid){
+  const imports=WebAssembly.Module.imports(module);if(imports.length!==1||imports[0].module!=='aquarius_v2'||imports[0].name!=='service'||imports[0].kind!=='function')invalid('capability imports');
+  const exports=new Map(WebAssembly.Module.exports(module).map(e=>[e.name,e.kind]));if(exports.get('memory')!=='memory')invalid('missing memory');
+  for(let i=0;i<functionCount;i++)if(exports.get(`aqua_f${i}`)!=='function')invalid('missing function export');
+}
+
+// The ABI 2 (JSON) application contract.
 export function validateManifest(module,m){
   const invalid=message=>{throw new Error(`Invalid Aquarius metadata: ${message}`);};
   const record=v=>v!==null&&typeof v==='object'&&!Array.isArray(v);
@@ -47,8 +95,6 @@ export function validateManifest(module,m){
     }
   }
   if(4194304+position!==m.heapStart)invalid('metadata does not match memory layout');
-  const imports=WebAssembly.Module.imports(module);if(imports.length!==1||imports[0].module!=='aquarius_v2'||imports[0].name!=='service'||imports[0].kind!=='function')invalid('capability imports');
-  const exports=new Map(WebAssembly.Module.exports(module).map(e=>[e.name,e.kind]));if(exports.get('memory')!=='memory')invalid('missing memory');
-  for(let i=0;i<m.functions.length;i++)if(exports.get(`aqua_f${i}`)!=='function')invalid('missing function export');
+  checkModule(module,m.functions.length,invalid);
   return m;
 }

@@ -3,14 +3,17 @@
 `AquariusPackaging` depends only on core and framework libraries. `WasmApplication`
 compiles source modules and assets into one standard WebAssembly 1.0 `.wasm` file.
 It has the usual Wasm types, imports, functions, exports and code sections, plus
-one `aquarius.application` custom section. There is no ZIP container or Aquarius
-bytecode format.
+one `aquarius.application` custom section, plus a raw `aquarius.assets` section when
+assets are embedded. There is no ZIP container or Aquarius bytecode format.
 
-Metadata ABI version 1 declares `entry`, `modules` (relative `.aqua` identities to
-compiled function indices), `functions` (constant pools and return behavior), and
-`assets` (relative paths to base64 content). Nested functions refer to exported
-Wasm function indices; metadata never contains executable Aquarius instructions.
-The host ABI is `aquarius_v1`, and compiled exports are `aqua_fN(i32) -> i32`.
+Metadata ABI version 3 is binary (`WasmProgram.Create` writes it): the value ABI, program
+address, heap start, function layout and count, `modules` (relative `.aqua` identities to
+compiled function indices), the entry, supported platforms, whether assets are external, and
+each asset's path and length. Asset bytes follow in order in `aquarius.assets`. Constant pools,
+function frames and parameter names live in the program data segment, not in metadata.
+Metadata never contains executable Aquarius instructions or source text. ABI 2 artifacts
+(JSON metadata with constant pools and base64 assets) still load. The host import module is
+`aquarius_v2`, and compiled exports are `aqua_fN(i32) -> i32`.
 
 All inputs must remain within `--root`, without symbolic-link traversal. Modules
 retain Unicode paths and case-insensitive ordinal resolution; internal `..`

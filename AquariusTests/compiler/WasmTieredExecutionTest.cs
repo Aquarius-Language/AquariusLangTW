@@ -82,12 +82,12 @@ public class WasmTieredExecutionTest
     {
         var program = new WasmCompiler().Compile("變數 f=函式(alpha,beta){變數 t=0;迴圈(變數 i=0;i<alpha;i++){t+=beta;}t;};變數 g=函式(gamma){函式(){gamma;};};f(2,3);");
         Assert.Equal(40, program.Metadata.FunctionLayout);
-        var f = program.Metadata.Functions.Single(x => x.Parameters!.SequenceEqual(new[] { "alpha", "beta" }));
+        var f = program.Functions.Single(x => x.Parameters!.SequenceEqual(new[] { "alpha", "beta" }));
         Assert.True(f.PromotedScope); Assert.True(f.Locals >= 4);
-        var g = program.Metadata.Functions.Single(x => x.Parameters!.SequenceEqual(new[] { "gamma" }));
+        var g = program.Functions.Single(x => x.Parameters!.SequenceEqual(new[] { "gamma" }));
         Assert.False(g.PromotedScope);
         // Unoptimized compilation keeps every scope dynamic.
-        Assert.All(new WasmCompiler(false).Compile("變數 f=函式(a){a;};f(1);").Metadata.Functions, x => Assert.Equal(0, x.Locals));
+        Assert.All(new WasmCompiler(false).Compile("變數 f=函式(a){a;};f(1);").Functions, x => Assert.Equal(0, x.Locals));
     }
 
     [Fact]

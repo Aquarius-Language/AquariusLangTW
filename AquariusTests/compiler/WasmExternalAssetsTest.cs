@@ -20,8 +20,8 @@ public class WasmExternalAssetsTest
         Assert.Equal("42", new WasmRuntime(engine: new WasmtimeEngine()).Execute(external).Inspect());
         Assert.Equal(original.Metadata.HeapStart, external.Metadata.HeapStart);
         Assert.Equal(original.Metadata.Modules, external.Metadata.Modules);
-        Assert.Equal("", external.Metadata.Assets["模型/姿態.bin"]);
-        Assert.Equal(size, Convert.FromBase64String(original.Metadata.Assets["模型/姿態.bin"]).Length);
+        Assert.True(external.Metadata.ExternalAssets); Assert.Equal(0, external.Assets["模型/姿態.bin"].Length);
+        Assert.Equal(Enumerable.Repeat((byte)253, size), original.Assets["模型/姿態.bin"].ToArray());
         Assert.True(external.Bytes.Length <= original.Bytes.Length);
         Assert.Equal(external.Bytes.ToArray(), original.WithExternalAssets().Bytes.ToArray());
     }
@@ -36,7 +36,7 @@ public class WasmExternalAssetsTest
         var original = new WasmCompiler().Compile(new Dictionary<string, LoweredProgram> { ["main.aqua"] = new LoweringCompiler().Compile("42;") }, "main.aqua", new Dictionary<string, byte[]> { ["a.bin"] = new byte[] { 1 } });
         byte[] extra = { 0, 5, 3, (byte)'a', (byte)'b', (byte)'c', 42 };
         var tagged = WasmProgram.Load(original.Bytes.ToArray().Concat(extra).ToArray());
-        Assert.Equal(extra, tagged.WithExternalAssets().Bytes.ToArray().TakeLast(extra.Length));
+        Assert.True(tagged.WithExternalAssets().Bytes.Span.IndexOf(extra) > 0);
         Assert.Equal("42", new WasmRuntime(engine: new WasmtimeEngine()).Execute(tagged.WithExternalAssets()).Inspect());
     }
 }

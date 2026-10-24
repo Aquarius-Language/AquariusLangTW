@@ -100,7 +100,7 @@ public sealed class AndroidBuildTarget : IWasmBuildTarget
             }
             File.WriteAllText(Path.Combine(assets, "program.json"), JsonSerializer.Serialize(new
             {
-                version = WasmAbi.Version,
+                version = WasmAbi.BundleVersion, abiVersion = WasmAbi.Version,
                 entry,
                 modules = package.Program.Metadata.Modules,
                 assets = assetFiles,

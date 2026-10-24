@@ -3,14 +3,15 @@ import assert from 'node:assert/strict';
 import {runtime,compile} from './wasm-fixture.mjs';
 import {Scope,module,num,inspect,nativeCall,nativeOwner,portableBuiltin} from '../browser/values.mjs';
 import {WasmRuntime} from '../browser/wasm.mjs';
+import {readManifest} from '../browser/wasm-manifest.mjs';
 
 test('compiler emits native Wasm exports and metadata without instructions',()=>{
   const bundle=compile({'main.aqua':'42;'}),exports=WebAssembly.Module.exports(bundle.compiledModule);
   assert.ok(exports.some(e=>e.name==='aqua_f0'));
   assert.deepEqual(WebAssembly.Module.imports(bundle.compiledModule),[{module:'aquarius_v2',name:'service',kind:'function'}]);
   assert.ok(exports.some(e=>e.name==='memory'&&e.kind==='memory'));
-  const text=new TextDecoder().decode(WebAssembly.Module.customSections(bundle.compiledModule,'aquarius.application')[0]);
-  assert.equal(JSON.parse(text).abiVersion,2);assert.ok(!text.includes('"code"'));
+  const metadata=new Uint8Array(WebAssembly.Module.customSections(bundle.compiledModule,'aquarius.application')[0]);
+  assert.deepEqual([...metadata.subarray(0,5)],[0,65,81,77,3]);assert.equal(readManifest(bundle.compiledModule).abiVersion,3);
 });
 test('portable builtin aliases and recursive computation never call host implementations',async()=>{
   const len=()=>{throw Error('host length called');},push=()=>{throw Error('host push called');};len[portableBuiltin]=1;push[portableBuiltin]=4;

@@ -1,10 +1,11 @@
 import {readFileSync,writeFileSync} from 'node:fs';
 import {performance} from 'node:perf_hooks';
 import {WasmRuntime} from '../../AquariusCore/hosting/wasm-host.mjs';
+import {readManifest} from '../../AquariusCore/hosting/wasm-manifest.mjs';
 
 if(process.argv.length!==4)throw new Error('Usage: node host-views.mjs artifact.wasm output.json');
 const compiledModule=new WebAssembly.Module(readFileSync(process.argv[2]));
-const metadata=JSON.parse(new TextDecoder().decode(WebAssembly.Module.customSections(compiledModule,'aquarius.application')[0]));
+const metadata=readManifest(compiledModule);
 const vm=new WasmRuntime({bundle:{version:2,compiledModule,modules:metadata.modules,entry:metadata.entry,assets:{}}});
 await vm.ready();
 const session=vm.program.session,cached=session.view,uncached=function(){return new DataView(this.exports.memory.buffer);};

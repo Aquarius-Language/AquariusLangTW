@@ -19,7 +19,7 @@ public sealed class WasmApplication
     {
         Program = program;
         Scripts = new ReadOnlyDictionary<string, WasmProgram>(program.Metadata.Modules.ToDictionary(p => p.Key, p => program, StringComparer.OrdinalIgnoreCase));
-        Assets = new ReadOnlyDictionary<string, byte[]>(program.Metadata.Assets.ToDictionary(p => p.Key, p => Convert.FromBase64String(p.Value), StringComparer.OrdinalIgnoreCase));
+        Assets = new ReadOnlyDictionary<string, byte[]>(program.Assets.ToDictionary(p => p.Key, p => p.Value.ToArray(), StringComparer.OrdinalIgnoreCase));
     }
     public static void Compile(IEnumerable<string> sourceFiles, string outputPath, string? rootDirectory = null,
         IEnumerable<string>? assetPaths = null, string? entryPoint = null, string[]? supportedPlatforms = null)

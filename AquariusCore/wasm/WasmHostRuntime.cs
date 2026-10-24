@@ -335,26 +335,14 @@ public sealed partial class WasmRuntime : IDisposable
                     Refresh(tag, reference); return result;
                 case 7: var pairs = new Dictionary<HashKey, HashPair>(); result = new HashObj(pairs); objects[(tag, reference)] = new(result); Lease(result, address, tag, reference);
                     Refresh(tag, reference); return result;
-                case 8: int function = Int(reference + 4), scope = Int(reference + 8); var metadata = Program.Metadata.Functions[function];
-                    var parameters = (metadata.Parameters ?? Array.Empty<string>()).Select(p => new Identifier(new AquariusLang.token.Token { Type = AquariusLang.token.TokenType.IDENT, Literal = p }, p)).ToArray();
-                    string display = Display(function);
-                    var fn = new FunctionObj(parameters, null, Project(scope), display); result = fn;
+                case 8: int function = Int(reference + 4), scope = Int(reference + 8);
+                    var parameters = Program.Functions[function].Parameters.Select(p => new Identifier(new AquariusLang.token.Token { Type = AquariusLang.token.TokenType.IDENT, Literal = p }, p)).ToArray();
+                    var fn = new FunctionObj(parameters, Project(scope)); result = fn;
                     int callable = exports.Pin(address); Callables.Add(fn, new Callable(this, callable)); leases.Add((new(fn), callable)); break;
                 case 9: result = new ModuleObj(Project(reference)); break;
                 default: throw new InvalidOperationException($"Invalid Wasm value tag: {tag}");
             }
             objects[(tag, reference)] = new(result); Lease(result, address, tag, reference); return result;
-        }
-        // Display text of a compiled function: its first "function" constant, indexed once per program.
-        private Dictionary<int, string>? displays;
-        private string Display(int function)
-        {
-            if (displays == null) {
-                displays = new Dictionary<int, string>();
-                foreach (var constant in Program.Metadata.Functions.SelectMany(f => f.Pool))
-                    if (constant.Type == "function") displays.TryAdd(constant.Function, constant.Display ?? "");
-            }
-            return displays.TryGetValue(function, out var display) ? display : "";
         }
         // Portable builtin tokens by id: the first context's registration wins, then the portable libraries.
         // A context's index is rebuilt when its registrations change size or a hit is no longer registered.

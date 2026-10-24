@@ -1,5 +1,5 @@
 import {Scope,num,numeric,nativeCall,nativeOwner,isPromiseLike,portableBuiltin} from './values.mjs';
-import {validateManifest} from './wasm-manifest.mjs';
+import {readManifest} from './wasm-manifest.mjs';
 import {arrayBuiltin} from './array-library.mjs';
 import {hashBuiltin} from './hash-library.mjs';
 import {stringBuiltin} from './string-library.mjs';
@@ -17,8 +17,7 @@ export class WasmRuntime {
   }
   async initialize(){
     const module=this.host.bundle.compiledModule??await WebAssembly.compile(await(await fetch(this.host.bundle.wasm)).arrayBuffer());
-    const sections=WebAssembly.Module.customSections(module,'aquarius.application');if(sections.length!==1)throw new Error('Missing or duplicate Aquarius metadata');
-    const metadata=validateManifest(module,JSON.parse(new TextDecoder().decode(sections[0])));
+    const metadata=readManifest(module);
     const program={module,metadata};program.session=new Session(this,program);await program.session.initialize();this.program=program;return program;
   }
   async execute(index,env=new Scope(),builtins=this.host.builtins,program=null){program??=await this.ready();const s=program.session,context=s.contexts.length;s.contexts.push(builtins);const scope=s.scope(env);if(!s.running.length)s.synchronizeIn();return s.run(s.call('aqua_execute',program.metadata.programAddress,index,scope,context));}
@@ -122,8 +121,15 @@ class Session {
     const key=objectKey(tag,reference),cached=this.objects.get(key)?.deref();if(cached){if(!this.refreshingDirtyHashes)this.refresh(tag,reference,cached);return cached;}
     let result;if(tag===6){result=new Array(this.call('aqua_array_count',reference));this.objects.set(key,new WeakRef(result));this.lease(result,p,tag,reference);this.reading.add(key);try{this.readArray(reference,result);}finally{this.reading.delete(key);}return result;}
     if(tag===7){result=new Map();this.objects.set(key,new WeakRef(result));this.lease(result,p,tag,reference);this.refresh(tag,reference,result);return result;}
-    if(tag===8){const function_=this.int(reference+4),scope=this.int(reference+8),context=this.int(reference+12);result={type:'closure',function:function_,parameters:this.program.metadata.functions[function_].parameters??[],env:this.project(scope),builtins:this.contexts[context],program:this.program};}
+    if(tag===8){const function_=this.int(reference+4),scope=this.int(reference+8),context=this.int(reference+12);result={type:'closure',function:function_,parameters:this.parameters(function_),env:this.project(scope),builtins:this.contexts[context],program:this.program};}
     else if(tag===9)result={type:'module',scope:this.project(reference)};else throw new Error(`Invalid Wasm value tag: ${tag}`);this.objects.set(key,new WeakRef(result));this.lease(result,p,tag,reference);return result;
+  }
+  // A function's parameter names, from its definition in the program data segment.
+  parameters(function_){
+    this.parameterNames??=new Map();let names=this.parameterNames.get(function_);
+    if(!names){const m=this.program.metadata,definition=this.int(m.programAddress+4)+function_*m.functionLayout,table=this.int(definition+16);
+      names=Array.from({length:this.int(definition+4)},(_,i)=>this.text(this.int(table+i*4)));this.parameterNames.set(function_,names);}
+    return names;
   }
   // Portable builtin tokens by id: the first context's registration wins, then the portable libraries. A context's
   // index is rebuilt when its registrations change size or a hit is no longer registered under its name.

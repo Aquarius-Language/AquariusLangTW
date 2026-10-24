@@ -6,7 +6,12 @@ namespace AquariusLang.Wasm;
 /// <summary>The capability boundary. Wasm owns language values, frames, scopes and scheduling.</summary>
 public static class WasmAbi
 {
-    public const int Version = 2;
+    /// <summary>Metadata format written by this compiler: 3 is binary metadata with a raw asset section.</summary>
+    public const int Version = 3;
+    /// <summary>Oldest format hosts still load: 2 is JSON metadata with base64 assets. The value ABI is unchanged.</summary>
+    public const int LegacyVersion = 2;
+    /// <summary>Format of the program.json bundle that web and Android hosts load beside program.wasm (independent of the Wasm ABI).</summary>
+    public const int BundleVersion = 2;
     public const string ImportModule = "aquarius_v2";
     public const string MetadataSection = "aquarius.application";
     public const int Quantum = 32768;

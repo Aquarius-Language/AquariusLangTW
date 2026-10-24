@@ -302,23 +302,21 @@ namespace AquariusLang.Object {
 
     /// <summary>
     /// A function retains the environment where it was defined, allowing lexical closures.
-    /// Source functions retain an AST body; loaded functions retain inspection text instead.
+    /// Source functions retain an AST body; compiled closures inspect as their parameters and "...".
     /// CompiledEvaluator associates each compiled closure with compiled instructions and builtins.
     /// </summary>
     public class FunctionObj : IObject {
         private Identifier[] parameters;
         private BlockStatement? body;
         private Environment env;
-        private readonly string? compiledBodyDisplay;
-
         public FunctionObj(Identifier[] parameters, BlockStatement body, Environment env) {
             this.parameters = parameters;
             this.body = body;
             this.env = env;
         }
 
-        internal FunctionObj(Identifier[] parameters, BlockStatement? body, Environment env, string? bodyDisplay)
-            : this(parameters, body!, env) { compiledBodyDisplay = bodyDisplay; }
+        /// <summary>A compiled closure: its body lives in Wasm, so inspection shows the parameters and "...".</summary>
+        internal FunctionObj(Identifier[] parameters, Environment env) : this(parameters, null!, env) { }
 
         public string Type() {
             return ObjectType.FUNCTION_OBJ;
@@ -336,7 +334,7 @@ namespace AquariusLang.Object {
                 .Append('(')
                 .Append(string.Join(", ", parameters))
                 .Append(") {\n")
-                .Append(compiledBodyDisplay ?? body?.String())
+                .Append(body?.String() ?? "...")
                 .Append("\n}");
 
             return builder.ToString();

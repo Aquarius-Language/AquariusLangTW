@@ -87,7 +87,7 @@ foreach (var item in reference.RootElement.GetProperty("benchmarks").EnumerateOb
     for (int i = 0; i < 11; i++) samples.Add(Run());
     var sorted = samples.Order().ToArray();
     rows[item.Name] = new { median_ms = sorted[sorted.Length / 2], samples_ms = samples, source_sha256 = Hash(source), wasm_sha256 = Hash(artifact),
-        promoted_functions = program.Metadata.Functions.Count(f => f.PromotedScope), numeric_functions = program.Metadata.Functions.Count(f => f.NumericTable != 0) };
+        promoted_functions = program.Functions.Count(f => f.PromotedScope), numeric_functions = program.Functions.Count(f => f.NumericTable != 0) };
     Console.WriteLine($"{item.Name}: {sorted[sorted.Length / 2]:F4} ms, validated");
 }
 File.WriteAllText(args[3], JsonSerializer.Serialize(new {

@@ -481,7 +481,7 @@ public class CompiledEvaluatorTest {
         Assert.Equal("x", functionObj.Parameters[0].String());
         
         Assert.Null(functionObj.Body);
-        Assert.Contains("(x + 2)",functionObj.Inspect());
+        Assert.Equal("函式(x) {\n...\n}", functionObj.Inspect());
         Assert.Equal(42,Assert.IsType<IntegerObj>(new AquariusLang.Wasm.WasmRuntime().Invoke(functionObj,new IntegerObj(40))).Value);
     }
 

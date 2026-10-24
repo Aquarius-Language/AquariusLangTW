@@ -1,0 +1,7 @@
+變數 m=匯入("lib/math.aqua");
+變數 fib=函式(n){如果(n<2){回傳 n;}回傳 fib(n-1)+fib(n-2);};
+變數 adder=函式(a){函式(b){a+b;};};
+變數 total=0.5d;
+迴圈(變數 i=0;i<10;i++){total+=i*1.5f;}
+變數 h={"k":[1,2,3]};
+[fib(20), adder(40)(2), m.square(7), total, h["k"][2], adder];

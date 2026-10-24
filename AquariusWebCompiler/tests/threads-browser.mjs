@@ -16,9 +16,9 @@ try{
   browser=await chromium.launch({channel:process.env.AQUARIUS_BROWSER??'chrome',headless:true});
   const page=await browser.newPage();await page.goto(`http://127.0.0.1:${server.address().port}/index.html?autorun=0`);
   const result=await page.evaluate(async()=>{
-    const {WasmRuntime}=await import('./wasm-host.mjs'),{inspect}=await import('./values.mjs');
+    const {WasmRuntime}=await import('./wasm-host.mjs'),{inspect}=await import('./values.mjs'),{readManifest}=await import('./wasm-manifest.mjs');
     const compiledModule=await WebAssembly.compile(await(await fetch('./program.wasm')).arrayBuffer());
-    const metadata=JSON.parse(new TextDecoder().decode(WebAssembly.Module.customSections(compiledModule,'aquarius.application')[0]));
+    const metadata=readManifest(compiledModule);
     const output=[],vm=new WasmRuntime({bundle:{compiledModule},builtins:new Map([['print',(...args)=>{output.push(args.map(inspect).join(' '));}]])});
     let ticks=0;const timer=setInterval(()=>ticks++,1);
     try{return {result:inspect(await vm.execute(metadata.modules[metadata.entry])),output,ticks,isolated:crossOriginIsolated};}

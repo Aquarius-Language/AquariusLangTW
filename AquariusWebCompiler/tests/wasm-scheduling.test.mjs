@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import {runtime} from './wasm-fixture.mjs';
 import {Scope,num,inspect} from '../browser/values.mjs';
 import {WasmRuntime} from '../browser/wasm.mjs';
+import {readManifest} from '../browser/wasm-manifest.mjs';
 
 test('scheduler slices avoid full traces without allocation pressure', async () => {
   const {vm,index}=await runtime('probe();變數 n=0;迴圈(變數 i=0;i<100000;i++){n++;}probe()+n;',new Map([['probe',()=>num(42,'int')]]));
@@ -29,7 +30,7 @@ test('stale collection results cannot release native handles', async () => {
 
 test('old ABI 2 programs retain eager scheduling collection', async () => {
   const compiledModule=new WebAssembly.Module(fs.readFileSync(new URL('../../AquariusTests/compiler/fixtures/legacy-performance-v2.wasm',import.meta.url)));
-  const metadata=JSON.parse(new TextDecoder().decode(WebAssembly.Module.customSections(compiledModule,'aquarius.application')[0]));
+  const metadata=readManifest(compiledModule);
   const vm=new WasmRuntime({bundle:{version:2,compiledModule,modules:metadata.modules,assets:{}},builtins:new Map([['probe',()=>num(42,'int')]])});
   await vm.ready();const s=vm.program.session,call=s.call.bind(s);let collections=0;
   s.call=(name,...args)=>{if(name==='aqua_run')args[1]=16;if(name==='aqua_collect')collections++;return call(name,...args);};

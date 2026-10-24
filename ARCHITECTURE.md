@@ -97,12 +97,16 @@ Processing's optional `error` event handles input callback failures on both host
 `errorEvent` and `errorMessage` describe the failure. Unhandled failures, failures
 in the error handler and browser cancellation still terminate execution.
 
-A `.wasm` file contains executable Wasm sections and exactly one
-`aquarius.application` custom section: ABI version, module/function mapping,
-inspection metadata and base64 assets. Executable constants, function definitions
-and parameter names are in Wasm data segments. Module identities retain their
-source-relative `.aqua` names. Function display metadata currently retains rendered
-source-derived bodies for inspection. Application loaders
+A `.wasm` file contains executable Wasm sections, exactly one `aquarius.application`
+custom section and, when the application embeds assets, one raw `aquarius.assets` section.
+ABI 3 metadata is binary: memory layout, function count, the module/function mapping,
+supported platforms and asset names with lengths (asset bytes follow in `aquarius.assets`,
+or live beside the module in web and Android deployments). Executable constants, function
+definitions and parameter names are in Wasm data segments, which is where hosts read closure
+parameters. Compiled closures inspect as `函式(params) {...}`; no source text is shipped.
+Module identities retain their source-relative `.aqua` names. New hosts still load ABI 2
+artifacts (JSON metadata with constant pools and base64 assets); ABI 2 hosts cannot load
+ABI 3 artifacts, so applications and runtime packs move to ABI 3 together. Application loaders
 bound sizes and reject malformed metadata and unsafe paths. Engines independently
 validate Wasm types and code. Repeated script imports create independent globals;
 registered native modules are shared within a host session. Closures retain their
@@ -171,6 +175,7 @@ that builds. A failure names the rule and the legitimate way to change things.
 | Generated sources are fresh | Library catalogs, portable library tables (C#, JavaScript and C) and the guest memory layout each have one source table; hand edits drift. | `GeneratedSourcesAreFresh` (`--check` of each generator) |
 | Runtime layout | C# emitters and hosts address guest structs only through `RuntimeLayout` constants; `runtime/layout.h` asserts the same offsets in `runtime.c`. | `RuntimeIncludesGeneratedLayoutChecks`, `EmittersUseNamedRuntimeOffsets`, the runtime build |
 | One Wasm encoder | LEB128 and instruction immediates are encoded only by `WasmEncoding`. | `OneWasmEncoder` |
+| ABI 2 compatibility | New hosts keep loading and running applications built by the ABI 2 compiler. | `Abi2ArtifactsStillLoadAndRun` (committed `AquariusTests/compiler/fixtures/abi2-application.wasm`), `wasm-manifest.test.mjs` |
 | Codegen stability | Any emitter or runtime change that alters compiled output for the golden programs is a reviewed, intentional update. | `CompiledOutputMatchesGoldens` |
 | Dependency direction | `AquariusCore` references no project and no host/native package (Silk.NET, Wasmtime, ClearScript, ONNX Runtime, Magick, Tomlyn, Jolt); `AquariusPackaging` depends only on core; hosts depend on core, never the reverse. | `CoreDependsOnNoHostOrProject`, `PackagingDependsOnlyOnCore` |
 | Library admission | Bundled computational libraries execute in Wasm ([requirement](docs/external-libraries.md#requirement-for-future-libraries)); only documented host capabilities may be `HostCapability`. | `BundledComputationalLibrariesExecuteInWasm`, `ExternalLibraryTest` |

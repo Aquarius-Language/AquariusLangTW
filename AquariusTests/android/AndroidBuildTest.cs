@@ -56,7 +56,7 @@ public class AndroidBuildTest
         string output = t.FilePath("Android project"); new AndroidBuildTarget().Build(new(wasm, output));
         var original = WasmProgram.Load(wasm); var deployed = WasmProgram.Load(Path.Combine(output, "app/src/main/assets/aquarius/program.wasm"));
         Assert.Equal(original.WithExternalAssets().Bytes.ToArray(), deployed.Bytes.ToArray());
-        Assert.Equal("", deployed.Metadata.Assets["assets/字.txt"]);
+        Assert.True(deployed.Metadata.ExternalAssets); Assert.Equal(0, deployed.Assets["assets/字.txt"].Length);
         Assert.True(File.Exists(Path.Combine(output, "gradle/wrapper/gradle-wrapper.jar")));
         Assert.DoesNotContain("javet", File.ReadAllText(Path.Combine(output, "app/build.gradle")), StringComparison.OrdinalIgnoreCase);
         Assert.False(File.Exists(Path.Combine(output, "app/src/main/assets/aquarius/icudtl.dat")));

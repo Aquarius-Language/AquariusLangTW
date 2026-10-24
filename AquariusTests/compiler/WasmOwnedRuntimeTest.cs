@@ -138,10 +138,10 @@ public class WasmOwnedRuntimeTest
         var source = "變數 f=函式(n){" + string.Concat(Enumerable.Repeat("n=n+1;", 1000)) + "回傳 n;};" +
             "變數 result=0;迴圈(變數 i=0;i<2;i++){如果(i==1){中斷;}result=f(i);};result;";
         var program = new WasmCompiler().Compile(source);
-        Assert.All(program.Metadata.Functions, function => Assert.Equal(16, function.StackCapacity));
+        Assert.All(program.Functions, function => Assert.Equal(16, function.StackCapacity));
         Assert.Equal("1000", new WasmRuntime().Execute(program).Inspect());
         var wide = new WasmCompiler().Compile("[" + string.Join(",", Enumerable.Range(0, 100)) + "];");
-        Assert.Equal(100, wide.Metadata.Functions[0].StackCapacity);
+        Assert.Equal(100, wide.Functions[0].StackCapacity);
         Assert.Equal(100, Assert.IsType<ArrayObj>(new WasmRuntime().Execute(wide)).Elements.Length);
     }
     private sealed class Counter : IWasmEngine

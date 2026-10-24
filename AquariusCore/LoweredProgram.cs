@@ -62,16 +62,11 @@ public sealed class LoweredProgram {
 internal sealed class FunctionCode {
     internal Identifier[] Parameters { get; }
     internal BlockStatement? Body { get; }
-    internal string? BodyDisplay { get; }
     internal LoweredProgram BodyCode { get; }
     internal FunctionCode(FunctionLiteral function) {
         Parameters = function.Parameters;
         Body = function.Body;
-        BodyDisplay = function.Body.String();
         BodyCode = new LoweringCompiler().Compile(function.Body);
-    }
-    internal FunctionCode(Identifier[] parameters, string bodyDisplay, LoweredProgram bodyCode) {
-        Parameters = parameters; BodyDisplay = bodyDisplay; BodyCode = bodyCode;
     }
 }
 

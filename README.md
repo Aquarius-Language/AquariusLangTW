@@ -182,7 +182,7 @@ python -m http.server 8080 --directory dist\web
 
 必須列出所有匯入的腳本，包括動態匯入；資源須位於根目錄內。
 模組名稱保留 `.aqua` 相對路徑，執行時直接呼叫編譯後的 Wasm 函式。
-編譯成果的 `aquarius.application` 自訂區段包含版本化 ABI、常數、模組入口與資源，
+編譯成果的 `aquarius.application` 自訂區段以二進位格式記錄版本化 ABI 與模組入口，資源位於 `aquarius.assets` 區段，常數位於 Wasm 資料段，
 不包含可供直譯的 Aquarius 指令流。編譯與平台輸出不執行程式，失敗時保留既有輸出。
 舊 `.bottle`／`.rius` 產物需從原始碼重新編譯。
 

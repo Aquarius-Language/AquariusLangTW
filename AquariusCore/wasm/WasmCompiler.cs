@@ -56,7 +56,7 @@ public sealed class WasmCompiler
             NullObj => new("null"),
             BreakObj => new("break"),
             Assignment a => new("assignment", Text: a.Name, Operation: a.Operation.ToString()),
-            FunctionCode f => new("function", Function: ids[f.BodyCode], Parameters: f.Parameters.Select(p => p.Value).ToArray(), Display: f.BodyDisplay ?? f.Body?.String() ?? ""),
+            FunctionCode f => new("function", Function: ids[f.BodyCode], Parameters: f.Parameters.Select(p => p.Value).ToArray()),
             LoweredProgram b => new("program", Function: ids[b]),
             _ => throw new ArgumentException($"Unsupported constant {value.GetType().Name}")
         };
@@ -111,8 +111,7 @@ public sealed class WasmCompiler
         }
         var data = new WasmRuntimeImage.Data(); data.Build(functions);
         if (!data.Pools.SequenceEqual(layout.Pools)) throw new InvalidOperationException("Constant pool layout changed after tier selection.");
-        var metadata = new WasmMetadata(WasmAbi.Version, entry, exports, functions,
-            assets?.ToDictionary(p => p.Key, p => Convert.ToBase64String(p.Value)) ?? new(),
+        var metadata = new WasmMetadata(WasmAbi.Version, entry, exports, bodies.Count, assets?.Keys.ToArray() ?? System.Array.Empty<string>(),
             ProgramAddress: WasmRuntimeImage.ProgramAddress, HeapStart: data.End, FunctionLayout: 40, SupportedPlatforms: supportedPlatforms);
         using var output = new MemoryStream();
         output.Write(new byte[] { 0, 97, 115, 109, 1, 0, 0, 0 });
@@ -173,8 +172,8 @@ public sealed class WasmCompiler
         runtime.Sections[11] = WasmRuntimeImage.Extend(runtime.Sections[11], 1, w =>
             { U(w, 0); w.Write((byte)0x41); S(w, WasmRuntimeImage.ProgramAddress); w.Write((byte)0x0b); var payload = data.Bytes; U(w, payload.Length); w.Write(payload); });
         foreach (var section in runtime.Sections.OrderBy(p => p.Key)) Section(section.Key, w => w.Write(section.Value));
-        Section(0, w => { Name(w, WasmAbi.MetadataSection); w.Write(WasmProgram.SerializeMetadata(metadata)); });
-        return new WasmProgram(output.ToArray(), metadata);
+        return WasmProgram.Create(output.ToArray(), metadata,
+            assets?.ToDictionary(p => p.Key, p => (ReadOnlyMemory<byte>)p.Value) ?? new Dictionary<string, ReadOnlyMemory<byte>>());
     }
 
     private static void EmitBody(BinaryWriter w, LoweredProgram body, IReadOnlyDictionary<string, int> helpers, int pool, string[] parameters, bool optimize)

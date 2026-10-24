@@ -57,7 +57,7 @@ checks that the pack's `onnxCuda` matches the request.
   "version": 1,
   "runtimeIdentifier": "win-x64",
   "bundleVersion": 2,
-  "wasmAbiVersion": 1,
+  "wasmAbiVersion": 3,
   "onnxCuda": false,
   "hideTerminal": true,
   "templateSha256": "<SHA-256 of host.exe>"
