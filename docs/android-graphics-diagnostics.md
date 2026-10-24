@@ -113,7 +113,7 @@ Render pipelines are already cached per shader/depth/blend/mode in `gpu.cpp`; pi
 
 The default prepared JNI library is compiled with `-O2` by [prepare-android.ps1](../scripts/prepare-android.ps1). Direct APK output uses `assembleDebug`, but changing that to release will not remove the transport, submissions, or swapchain recreation. A release baseline is useful after structural changes.
 
-The target uses native V8 and Vulkan, with no WebView. ONNX CPU inference, camera conversion, and audio are additional workload-specific costs; they do not explain Snake's renderer measurements. The earlier [performance-review.md](performance-review.md) concerns a retired VM and must not be used to attribute this regression to old interpreter behavior.
+The target uses native V8 and Vulkan, with no WebView. ONNX CPU inference, camera conversion, and audio are additional workload-specific costs; they do not explain Snake's renderer measurements. The earlier [performance review](archive/performance-review.md) concerns a retired VM and must not be used to attribute this regression to old interpreter behavior.
 
 **Fix order and validation**
 

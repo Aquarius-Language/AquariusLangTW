@@ -46,7 +46,7 @@ The C source and public ABI header produce every native/Wasm library. The JS
 module is standalone and only returns static text or transports bytes. Build
 scripts and sources stay separate from generated assets. Runtime tests live in
 the language repo. See [the complete bilingual ABI guide](../../docs/dynamic-linking.md)
-in the source repository, or `C:/OfficialProjects/AquariusLangTW/docs/dynamic-linking.md`
+in the source repository, or `docs/dynamic-linking.md` in the language repository
 when using the sibling showcase project.
 
 所有原生及 Wasm 函式庫都由 `library.c` 建置。Windows／Linux 獨立程式內含

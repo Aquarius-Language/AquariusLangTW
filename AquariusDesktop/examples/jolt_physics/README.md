@@ -3,7 +3,7 @@
 Jolt is distributed as the independent `Aqua_JoltPhysics` TOML library.
 
 ```powershell
-aqua bottle install C:/OfficialProjects/Aqua_JoltPhysics --global
+aqua bottle install ../Aqua_JoltPhysics --global
 aqua build . -o main.wasm
 aqua run main.wasm
 aqua build . --target web -o web

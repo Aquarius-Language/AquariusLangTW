@@ -7,7 +7,7 @@ The current branch starts at `db6ff61` and was clean before this work.
 
 The installed executable was:
 
-`C:\OfficialProjects\AquariusLangTW\dist\releases\AquariusCompiler-win-x64-20261015-210053-89186526\aqua\aqua.exe`
+`dist\releases\AquariusCompiler-win-x64-20261015-210053-89186526\aqua\aqua.exe`
 
 Fresh measurements show that the existing branch's optimizations already work.
 Alternating installed-release and final artifacts on the same final desktop host
@@ -100,8 +100,8 @@ does not warm later sample processes. Paired diagnostics additionally measure
 reused, warmed sessions.
 
 ```powershell
-python C:\OfficialProjects\AquariusLang_PerformanceBenchmark\run_benchmarks.py `
-  --aquarius C:\OfficialProjects\AquariusLangTW\dist\performance-20261018\aqua.exe `
+python ..\AquariusLang_PerformanceBenchmark\run_benchmarks.py `
+  --aquarius dist\performance-20261018\aqua.exe `
   --repetitions 9 --warmups 2
 ```
 

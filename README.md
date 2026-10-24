@@ -90,7 +90,7 @@ Linux x86_64／WSL2 的建置、測試與獨立執行檔輸出：見 [Linux 桌�
 .\build-release.bat -Help
 
 # 自動偵測找不到工具時，可指定完整路徑
-.\build-release.bat -Dotnet "C:\Users\你的帳號\.dotnet\dotnet.exe" -CMake "C:\工具\CMake\bin\cmake.exe"
+.\build-release.bat -Dotnet "$env:USERPROFILE\.dotnet\dotnet.exe" -CMake "C:\工具\CMake\bin\cmake.exe"
 
 # 指定 Python，避開尚未設定完成的 pyenv shim
 .\build-release.bat -Python "C:\工具\Python\python.exe"

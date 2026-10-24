@@ -32,3 +32,10 @@ AquariusCore/external/onnx/ort*
 .performance/
 .performance-*.log
 /宣傳影片
+
+# IDE and per-user files
+.idea/
+*.DotSettings.user
+*.suo
+*.user
+

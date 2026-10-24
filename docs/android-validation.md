@@ -29,13 +29,13 @@ Each original project's `建置.ps1` supports `-Android` for project generation 
 
 | Project | Final APK |
 |---|---|
-| Marble3D | [android.apk](C:/OfficialProjects/AquariusLang_MarbleRun_3D/dist/android.apk) |
-| Snake | [android.apk](C:/OfficialProjects/AquariusLang_Snake/dist/android.apk) |
-| Painter | [android.apk](C:/OfficialProjects/AquariusLang_Painter/dist/android.apk) |
-| Kanban | [android.apk](C:/OfficialProjects/AquariusLangTW_SingleUserKanban/dist/android.apk) |
-| MediaPipe | [android.apk](C:/OfficialProjects/AquariusLangTW_MediaPipeExamples/dist/android.apk) |
-| PBR model viewer | [android.apk](C:/OfficialProjects/AquariusLang_PBR_ModelViewer/dist/android.apk) |
-| Audio | [android.apk](C:/OfficialProjects/AquariusLangTW_AudioExamples/dist/android.apk) |
+| Marble3D | `AquariusLang_MarbleRun_3D/dist/android.apk` |
+| Snake | `AquariusLang_Snake/dist/android.apk` |
+| Painter | `AquariusLang_Painter/dist/android.apk` |
+| Kanban | `AquariusLangTW_SingleUserKanban/dist/android.apk` |
+| MediaPipe | `AquariusLangTW_MediaPipeExamples/dist/android.apk` |
+| PBR model viewer | `AquariusLang_PBR_ModelViewer/dist/android.apk` |
+| Audio | `AquariusLangTW_AudioExamples/dist/android.apk` |
 
 Local reports are retained under `.android-build`: `final-tests.log`, `final-targeted-tests.log`, `node-final.log`, `final-native-smoke.log`, `final-project-apks.json`, `final-project-apks.log`, `final-alignment.log`, `default-wrapper-build.log`, and `mobile-web/results.json`. The native colour preview is `colors-native-final.png`; mobile screenshots are in `mobile-web`.
 

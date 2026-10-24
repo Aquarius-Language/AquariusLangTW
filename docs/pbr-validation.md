@@ -38,6 +38,6 @@ Reports are retained under `.web-build/pbr/`, `.web-build/projects/`,
 `.web-build/browser-results.json`, `.web-build/desktop-example-results.json`
 and `AquariusTests/TestResults/pbr-regression-final.trx`. These generated reports
 are ignored by Git. The standalone demo is at the sibling
-`C:/OfficialProjects/AquariusLang_PBR_ModelViewer`; its GitHub Pages workflow
+the `AquariusLang_PBR_ModelViewer` repository; its GitHub Pages workflow
 deploys its committed web folder when uploaded to a GitHub repository configured
 for Actions-based Pages. No remote repository or public deployment was created.

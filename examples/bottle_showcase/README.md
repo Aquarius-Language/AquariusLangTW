@@ -23,7 +23,7 @@ aqua build . --target web -o dist/web
 aqua bottle install ./libraries/greeting/aqua.toml --project . --version "> 0.17, <= 0.21"
 
 # Build from the repository without publishing:
-# C:/Users/templ/.dotnet/dotnet.exe C:/OfficialProjects/AquariusLangTW/AquariusCli/bin/Debug/net8.0/aqua.dll build .
+# dotnet ../../AquariusCli/bin/Debug/net8.0/aqua.dll build .
 ```
 
 Expected output contains `20 + 22 = 42`, `BOTTLE_DYNAMIC_LINK_OK` and

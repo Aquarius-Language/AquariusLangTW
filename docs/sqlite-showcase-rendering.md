@@ -45,16 +45,16 @@ releases on PATH retain their bundled runtime and must not be used to rebuild
 the fixed EXE. For example, from the showcase directory:
 
 ```powershell
-.\build.ps1 -Aqua C:/OfficialProjects/AquariusLangTW/dist/aqua/aqua.exe -Targets windows
+.\build.ps1 -Aqua ../AquariusLangTW/dist/aqua/aqua.exe -Targets windows
 ```
 
 The showcase's generated files were saved at:
 
-* `C:/OfficialProjects/Aqua_SQLite_Showcase/dist/windows/Aqua_SQLite_Showcase.exe`
-* `C:/OfficialProjects/Aqua_SQLite_Showcase/dist/linux/aqua_sqlite_showcase`
-* `C:/OfficialProjects/Aqua_SQLite_Showcase/dist/android/Aqua_SQLite_Showcase.apk`
-* `C:/OfficialProjects/Aqua_SQLite_Showcase/dist/android-project-clipping-fixed/`
-* `C:/OfficialProjects/Aqua_SQLite_Showcase/dist/android-project-api37-fixed/`
+* `../Aqua_SQLite_Showcase/dist/windows/Aqua_SQLite_Showcase.exe`
+* `../Aqua_SQLite_Showcase/dist/linux/aqua_sqlite_showcase`
+* `../Aqua_SQLite_Showcase/dist/android/Aqua_SQLite_Showcase.apk`
+* `../Aqua_SQLite_Showcase/dist/android-project-clipping-fixed/`
+* `../Aqua_SQLite_Showcase/dist/android-project-api37-fixed/`
 
 The new Android project directories preserve existing nonempty generated
 projects. The APK and compiler now also include the API 37 Vulkan submission

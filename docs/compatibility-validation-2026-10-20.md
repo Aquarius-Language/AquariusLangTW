@@ -69,7 +69,7 @@ Evidence is retained under `.web-build/`:
 - `cuda-packaging-proof/results.json`
 - `onnx-showcase/cuda-fix/` for compiler publishing and complete test logs
 
-The ONNX delivery has its own `VALIDATION.md`, provider outputs, device reports, SHA-256 manifests and UI/emulator evidence under `C:\OfficialProjects\AquariusLangTW_ONNX_Showcase`.
+The ONNX delivery has its own `VALIDATION.md`, provider outputs, device reports, SHA-256 manifests and UI/emulator evidence in the `AquariusLangTW_ONNX_Showcase` repository.
 
 ## Reproduction
 

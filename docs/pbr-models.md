@@ -114,8 +114,8 @@ Unit coverage lives in PortableGraphicsTest.cs and portable-graphics.test.mjs;
 both execute the same compiled library without a host algorithm implementation.
 
 ```powershell
-./scripts/test-pbr.ps1 -Dotnet C:/Users/you/.dotnet/dotnet.exe
-./scripts/test-pbr.ps1 -Dotnet C:/Users/you/.dotnet/dotnet.exe -WindowsExecutable
+./scripts/test-pbr.ps1 -Dotnet $HOME/.dotnet/dotnet.exe
+./scripts/test-pbr.ps1 -Dotnet $HOME/.dotnet/dotnet.exe -WindowsExecutable
 dotnet test AquariusTests -m:1
 cd AquariusWebCompiler; npm test
 ```

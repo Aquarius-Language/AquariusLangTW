@@ -21,7 +21,7 @@ also expand to Chinese declarations; they are not Aquarius keywords.
    `aquariuslang-tw-0.1.0.vsix`. You can also install from a terminal:
 
    ```powershell
-   code --install-extension "C:\OfficialProjects\AquariusLangTW\editors\vscode\aquariuslang-tw-0.1.0.vsix"
+   code --install-extension "editors\vscode\aquariuslang-tw-0.1.0.vsix"
    ```
 
 4. Open a folder you trust and open or create a UTF-8 `.aqua` file. The status bar
