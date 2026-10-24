@@ -13,6 +13,7 @@ jobs:
           node-version: '24'
           cache: npm
           cache-dependency-path: AquariusWebCompiler/package-lock.json
+      - uses: ./.github/actions/wasm-toolchain
       - name: Install native build, display and font dependencies
         run: |
           sudo apt-get update

@@ -1,23 +1,26 @@
 param(
-    [string]$Repository = 'C:/OfficialProjects/AquariusLangTW',
-    [string]$Dotnet = '', [string]$Zig = '', [string]$Ndk = '',
+    [string]$Repository = (Join-Path $PSScriptRoot '../..'),
+    [string]$Dotnet = '', [string]$Ndk = '',
     [switch]$LibrariesOnly, [switch]$SkipRuntimePacks, [switch]$Apk
 )
 $ErrorActionPreference = 'Stop'
 $project = $PSScriptRoot
 if (-not $Dotnet) { $Dotnet = Join-Path $env:USERPROFILE '.dotnet/dotnet.exe'; if (-not (Test-Path -LiteralPath $Dotnet)) { $Dotnet = 'dotnet' } }
-if (-not $Zig) { $Zig = Join-Path $Repository '.native-build/toolchains/zig-x86_64-windows-0.15.1/zig.exe' }
 if (-not $Ndk) { $Ndk = if ($env:AQUARIUS_ANDROID_NDK) { $env:AQUARIUS_ANDROID_NDK } else { Join-Path $Repository '.android-build/toolchains/android-ndk-r28c' } }
-$env:ZIG_GLOBAL_CACHE_DIR = Join-Path $Repository '.native-build/zig-cache'
-$env:ZIG_LOCAL_CACHE_DIR = Join-Path $Repository '.native-build/zig-local-cache'
+$Repository = [IO.Path]::GetFullPath($Repository)
+# The repository's pinned LLVM/Clang (scripts/install-wasm-toolchain.ps1) cross-compiles every non-Android library.
+. (Join-Path $Repository 'scripts/wasm-toolchain.ps1')
+Assert-AquaToolchain
+$clang = $AquaToolchain.Clang
 function Run([string]$Tool, [string[]]$Arguments) { & $Tool @Arguments; if ($LASTEXITCODE -ne 0) { throw "Failed: $Tool $Arguments" } }
 $include = Join-Path $Repository 'AquariusCore/linking'
 $source = Join-Path $project 'library.c'
 foreach ($directory in @('libraries/windows','libraries/linux','libraries/portable','libraries/web','native/android/arm64-v8a','native/android/x86_64','dist')) { New-Item -ItemType Directory -Force -Path (Join-Path $project $directory) | Out-Null }
-Run $Zig @('cc','-target','x86_64-windows-msvc','-O2','-shared','-nostdlib','-I',$include,$source,'-o',(Join-Path $project 'libraries/windows/showcase.dll'))
-Run $Zig @('cc','-target','x86_64-linux-musl','-O2','-shared','-fPIC','-nostdlib','-I',$include,$source,'-o',(Join-Path $project 'libraries/linux/libshowcase.so'))
+# -fno-builtin keeps -O2 from turning loops into libc calls that -nostdlib leaves unresolved.
+Run $clang @('--target=x86_64-pc-windows-msvc','-fuse-ld=lld','-O2','-shared','-nostdlib','-fno-builtin','-I',$include,$source,'-o',(Join-Path $project 'libraries/windows/showcase.dll'))
+Run $clang @('--target=x86_64-linux-musl','-fuse-ld=lld','-O2','-shared','-fPIC','-nostdlib','-fno-builtin','-I',$include,$source,'-o',(Join-Path $project 'libraries/linux/libshowcase.so'))
 $exports = @('aqua_library_abi','aqua_alloc','aqua_free','echo','greeting','sum','counter','failure','oversized','invalid_utf8') | ForEach-Object { '-Wl,--export=' + $_ }
-Run $Zig (@('cc','-target','wasm32-freestanding','-O2','-nostdlib','-fno-builtin','-Wl,--no-entry','-Wl,--export-memory','-Wl,--max-memory=16777216','-I',$include,$source,'-o',(Join-Path $project 'libraries/portable/showcase.wasm')) + $exports)
+Run $clang (@('--target=wasm32-unknown-unknown')+$AquaWasmCpu+@('-O2','-nostdlib','-fno-builtin','-Wl,--no-entry','-Wl,--export-memory','-Wl,-z,stack-size=1048576','-Wl,--max-memory=16777216','-I',$include,$source,'-o',(Join-Path $project 'libraries/portable/showcase.wasm')) + $exports)
 Copy-Item -LiteralPath (Join-Path $project 'web-library.mjs') -Destination (Join-Path $project 'libraries/web/showcase.mjs') -Force
 $llvm = Join-Path $Ndk 'toolchains/llvm/prebuilt/windows-x86_64'
 foreach ($spec in @(@{abi='arm64-v8a';triple='aarch64-linux-android29'},@{abi='x86_64';triple='x86_64-linux-android29'})) {

@@ -351,7 +351,7 @@ application decision; the example requires 0.75 and hides points outside the fra
 bilinear affine crops, 2254-anchor decoding, weighted suppression around the
 strongest detection, 1.25 ROI expansion, heatmap refinement, inverse projection,
 ROI tracking and adaptive One Euro filtering. Compile its committed `pose.wasm`
-with `scripts/build-pose-wasm.ps1` (pinned Zig 0.15.1). C#/JavaScript adapters only
+with `scripts/build-pose-wasm.ps1` (pinned LLVM/Clang 23.1.3; `-Check` verifies the committed binary). C#/JavaScript adapters only
 transfer bulk buffers and call the injected ONNX backend. Future hosts therefore
 reuse this Wasm and implement the existing image, Wasm and ONNX contracts.
 Single-person tracking periodically reacquires and reacquires after loss; it

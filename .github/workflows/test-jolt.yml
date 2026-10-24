@@ -15,6 +15,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
+      - uses: ./.github/actions/wasm-toolchain
       - run: npm ci --prefix AquariusWebCompiler
       - run: npm run --prefix AquariusWebCompiler prepare:browser
       - run: dotnet test AquariusTests -c Release --filter "FullyQualifiedName~TerminalTest|FullyQualifiedName~DynamicLibraryTest|FullyQualifiedName~ExternalLibraryTest" --logger "trx;LogFileName=host-capabilities.trx"

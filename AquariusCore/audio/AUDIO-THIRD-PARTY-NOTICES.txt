@@ -1,30 +1,11 @@
-Aquarius audio.wasm third-party notices. Built with pinned Zig 0.15.1 and its WASI libc.
+Aquarius audio.wasm third-party notices. Built with the pinned LLVM/Clang 23.1.3 toolchain, the wasi-libc sysroot of wasi-sdk 33 and LLVM compiler-rt builtins.
 
-===== LICENSE =====
-The MIT License (Expat)
-
-Copyright (c) Zig contributors
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in
-all copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
-THE SOFTWARE.
+===== compiler-rt builtins (LLVM project) =====
+Licensed under the Apache License v2.0 with LLVM Exceptions; the full text follows under
+wasi-libc/LICENSE-APACHE-LLVM. Copyright (c) LLVM project contributors.
 
 
-===== lib/libc/wasi/LICENSE =====
+===== wasi-libc/LICENSE =====
 wasi-libc as a whole is multi-licensed under the
 Apache License v2.0 with LLVM Exceptions, the Apache License v2.0, and
 the MIT License. See the LICENSE-APACHE-LLVM, LICENSE-APACHE and LICENSE-MIT
@@ -43,7 +24,7 @@ Apache License v2.0 with LLVM Exceptions, the Apache License v2.0,
 the MIT License, and the original licenses of the third-party works.
 
 
-===== lib/libc/wasi/LICENSE-MIT =====
+===== wasi-libc/LICENSE-MIT =====
 Permission is hereby granted, free of charge, to any
 person obtaining a copy of this software and associated
 documentation files (the "Software"), to deal in the
@@ -69,7 +50,7 @@ IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 
 
-===== lib/libc/wasi/LICENSE-APACHE =====
+===== wasi-libc/LICENSE-APACHE =====
                               Apache License
                         Version 2.0, January 2004
                      http://www.apache.org/licenses/
@@ -273,7 +254,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 
 
-===== lib/libc/wasi/LICENSE-APACHE-LLVM =====
+===== wasi-libc/LICENSE-APACHE-LLVM =====
 
                                  Apache License
                            Version 2.0, January 2004
@@ -496,7 +477,7 @@ Software.
 
 
 
-===== lib/libc/wasi/libc-top-half/musl/COPYRIGHT =====
+===== wasi-libc/libc-top-half/musl/COPYRIGHT =====
 musl as a whole is licensed under the following standard MIT license:
 
 ----------------------------------------------------------------------
@@ -692,7 +673,7 @@ permissive licensing, and of not having licensing issues being an
 obstacle to adoption, that text has been removed.
 
 
-===== lib/libc/wasi/libc-bottom-half/cloudlibc/LICENSE =====
+===== wasi-libc/libc-bottom-half/cloudlibc/LICENSE =====
 Copyright (c) 2015-2017 Nuxi (https://nuxi.nl/) and contributors.
 
 Redistribution and use in source and binary forms, with or without

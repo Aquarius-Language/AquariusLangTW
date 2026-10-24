@@ -39,7 +39,8 @@ met. Recompile the old ABI 1 application artifacts.
 - Future computational libraries cannot enter the CLR factory registry as
   CoreWasm; new Emscripten providers are rejected. This is an admission gate,
   not a completed generic Wasm library loader.
-- The pinned Zig source/binary reproducibility check passed with runtime SHA-256
+- (Historical; the runtime is now built with a pinned LLVM/Clang toolchain instead of Zig.)
+  The pinned Zig source/binary reproducibility check passed with runtime SHA-256
   2ac77fff9ce91ae938f095dcc90a3eee1f9b3cfa46778bfa7c6c24ffc07fcff0.
 
 The [ABI 2 guide](wasm-value-abi-v2.md) documents values, calls, memory,

@@ -72,6 +72,6 @@ A yield-state regression mutates a recursive binding while execution is suspende
 JavaScript WebAssembly tests exercise the same artifact and calling convention,
 including fuel exhaustion and old metadata compatibility.
 
-Build the runtime with pinned Zig and verify its source/binary match before compiling
+Build the runtime with the pinned LLVM/Clang toolchain and verify its source/binary match before compiling
 the compiler. No host-specific numeric implementation, engine setting, native
 backend or platform branch is added.

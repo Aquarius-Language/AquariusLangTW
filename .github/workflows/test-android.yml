@@ -15,6 +15,7 @@ jobs:
         with:
           distribution: temurin
           java-version: '21'
+      - uses: ./.github/actions/wasm-toolchain
       - uses: android-actions/setup-android@v3
       - name: Prepare pinned native and portable libraries
         shell: pwsh

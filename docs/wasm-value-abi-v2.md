@@ -99,7 +99,8 @@ Standalone compile-and-run convenience APIs still rely on owner/GC lifetimes.
 
 ## Build and compatibility
 
-Build with pinned Zig 0.15.1 using `scripts/build-wasm-runtime.ps1`. `-Check`
+Build with the pinned LLVM/Clang 23.1.3 toolchain (`scripts/install-wasm-toolchain.ps1`, pins in
+`scripts/wasm-toolchain.json`) using `scripts/build-wasm-runtime.ps1` or `scripts/build-wasm-runtime.sh`. `-Check`
 rebuilds and compares the checked-in binary. The runtime uses bulk-memory
 instructions (`memory.copy`/`memory.fill`); a supporting engine is required.
 The desktop Wasmtime cache owns machine-code cache validation and keys. Portable

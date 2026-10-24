@@ -40,6 +40,6 @@
 ./native/build.ps1
 ```
 
-使用 Zig 0.15.1；首次可先執行 `scripts/install-wasm-toolchain.ps1`。Wasm 使用 WASI libc 的配置與數學實作，但不匯入 WASI：未使用的 miniaudio 檔案 VFS 被封閉，只能從主機傳入的記憶體解碼。離線測試驗證 Wasmtime／Node 樣本逐位元一致，並覆蓋靜音、混音、控制、WAV 解碼、限制、全繁體中文語言介面與資源釋放；單元測試不需要音訊硬體。
+使用固定版本的 LLVM/Clang 23.1.3 與 wasi-sdk 33 的 WASI sysroot（版本與 SHA-256 見 `scripts/wasm-toolchain.json`）；首次可先執行 `scripts/install-wasm-toolchain.ps1`，`scripts/build-audio-runtime.ps1 -Check` 會確認已提交的二進位檔與原始碼一致。Wasm 使用 WASI libc 的配置與數學實作，但不匯入 WASI：未使用的 miniaudio 檔案 VFS 被封閉，只能從主機傳入的記憶體解碼。離線測試驗證 Wasmtime／Node 樣本逐位元一致，並覆蓋靜音、混音、控制、WAV 解碼、限制、全繁體中文語言介面與資源釋放；單元測試不需要音訊硬體。
 
 `AquariusWebCompiler/tests/audio.test.mjs` 也驗證 FLAC／MP3 解碼與重採樣，以及 128／256／4096 影格區塊的樣本一致性。`tests/audio-browser.mjs` 需先建置音訊示範網站；以 `AQUARIUS_AUDIO_WEB` 指定網站目錄。它使用 Chrome 的靜音輸出端驗證真正的即時 AudioWorklet，不需要測試機的喇叭。

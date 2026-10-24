@@ -1,5 +1,8 @@
 # PBR / model import validation — 2026-10-12
 
+> Historical record. The repository has since replaced Zig with a pinned LLVM/Clang toolchain
+> (`scripts/install-wasm-toolchain.ps1`); the results below were produced with Zig.
+
 Validation ran on Windows x64 with the pinned Zig 0.15.1 compiler, .NET 8,
 Wasmtime and actual wgpu-native / Chrome WebGPU rendering.
 
