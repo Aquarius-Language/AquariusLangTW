@@ -36,6 +36,15 @@ same isolated `pose.wasm` on desktop and browser. Its adapters compose two ONNX
 sessions and bulk image/tensor transfers; pose math is never implemented in host
 code. See the pose pipeline section of the ONNX guide.
 
+Processing tessellation uses `CoreWasm` ABI 1: `geometry.wasm`, built from
+`AquariusCore/graphics/geometry.c` by `scripts/build-geometry-wasm.ps1`, imports
+nothing and serves the desktop canvas (`GeometryKernel`) and the browser and Android
+canvas (`geometry-core.mjs`). Hosts write a state block (stroke style, colors,
+rect/ellipse modes, curve detail, the model-view-projection matrix) and input
+coordinates, run a `geo_*` operation and upload its packed vertex ranges (12 floats
+per vertex). Triangulation with contour holes, stroke joins and caps, ellipses,
+rounded rectangles, curves and box/sphere meshes are never implemented in host code.
+
 Core owns library identities, pinned versions, contract versions, portable assets,
 argument validation, language registration, aliases and object ownership rules.
 Platform projects provide adapters and execution engines. Core has no Wasmtime,

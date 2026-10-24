@@ -67,7 +67,7 @@ public class ArchitectureRulesTest
     [ToolchainFact]
     public void CommittedWasmBinariesRebuildFromSource()
     {
-        foreach (var script in new[] { "build-wasm-runtime.ps1", "build-audio-runtime.ps1", "build-pose-wasm.ps1" }) {
+        foreach (var script in new[] { "build-wasm-runtime.ps1", "build-audio-runtime.ps1", "build-pose-wasm.ps1", "build-geometry-wasm.ps1" }) {
             var (code, output) = RunPowerShell(Path.Combine(Root, "scripts", script), "-Check");
             Assert.True(code == 0, $"Rule 'Reproducible Wasm binaries': scripts/{script} -Check failed, so a committed binary no longer " +
                 $"matches its source. Rebuild it with scripts/{script} (pinned Clang) and commit the result.\n{output}");
@@ -281,6 +281,33 @@ public class ArchitectureRulesTest
         Assert.True(problems.Count == 0, $"Rule 'Hosts contain no mirroring algorithm': {host} {string.Join("; ", problems)}. Mirror freshness, " +
             "release and change tracking are runtime decisions (runtime.c exports); host scopes are live views of guest scopes (attach). " +
             "Use the runtime exports instead of re-reading or copying, as both hosts in " + string.Join(" and ", HostBridges) + " do.");
+    }
+
+    // ---- Processing geometry -------------------------------------------------------------------------------------
+
+    /// <summary>Hosts that draw Processing sketches: the shared JavaScript canvas (browser and Android) and the desktop canvas.</summary>
+    private static readonly string[] ProcessingHosts = { "AquariusCore/hosting/processing.mjs", "AquariusDesktop/graphics/ProcessingCanvas.cs",
+        "AquariusDesktop/graphics/ProcessingDrawing.cs" };
+
+    [Fact]
+    public void ProcessingGeometryLivesInTheKernel()
+    {
+        // Triangulation, stroke joins/caps, ellipses, rounded rectangles, curves and box/sphere meshes are geometry.c; hosts
+        // keep device, texture, font and window access and upload the kernel's vertex ranges.
+        var tessellation = new Regex(@"\bearcut\b|\b[Tt]riangulate\s*\(|\bMiterStrip\b|\bsegmentVertices\b|\bStrokeOffset\b|\bear[Cc]lip");
+        var problems = new List<string>();
+        var hostFiles = ProcessingHosts.Concat(Files("AquariusDesktop/graphics", "*.cs").Select(Relative))
+            .Concat(Files("AquariusWebCompiler/browser", "*.mjs").Select(Relative)).Concat(Files("AquariusAndroid/template", "*.mjs").Select(Relative))
+            .Concat(Files("AquariusCore/hosting", "*.mjs").Select(Relative)).Distinct();
+        foreach (var file in hostFiles)
+            foreach (Match m in tessellation.Matches(Read(file))) problems.Add($"{file} tessellates ({m.Value})");
+        foreach (var host in ProcessingHosts.Take(2))
+            foreach (var operation in new[] { "geo_polygon", "geo_polyline", "geo_rect", "geo_ellipse", "geo_curve" })
+                if (!Read(host).Contains(operation, StringComparison.Ordinal)) problems.Add($"{host} does not draw through {operation}");
+        if (Read("AquariusWebCompiler/package.json").Contains("\"earcut\"", StringComparison.Ordinal)) problems.Add("AquariusWebCompiler/package.json depends on earcut");
+        Assert.True(problems.Count == 0, "Rule 'Processing geometry lives in the kernel': " + string.Join("; ", problems) + ". Shape tessellation " +
+            "belongs in AquariusCore/graphics/geometry.c (rebuilt with scripts/build-geometry-wasm.ps1) so every host draws the same pixels; add or " +
+            "extend a geo_* operation there and call it through GeometryKernel (C#) or geometry-core.mjs (JavaScript).");
     }
 
     // ---- Repository hygiene ----------------------------------------------------------------------------------------

@@ -50,6 +50,7 @@ const {AndroidWgpuBackend} = await import('data:text/javascript;base64,' + Buffe
 const abi = {header: '', vertex: '', fragment: '', uniformBytes: 1120};
 class DiagnosticHost extends CapabilityHost {
   installProcessingInput(p) { p.textarea = {remove() {}, style: {}}; }
+  geometryModule() { return WebAssembly.compile(fs.readFileSync(path.join(root, 'AquariusCore/graphics/geometry.wasm'))); }
   surface(width, height) {
     const size = {width, height, pixelWidth: width, pixelHeight: height};
     return {size, canvas: {width, height, style: {}}, requestSize() {}, readSize: () => size, apply() {}, dispose() {}};

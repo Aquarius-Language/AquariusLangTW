@@ -2,7 +2,7 @@ using System.Numerics;
 
 namespace AquariusLang.Desktop.Graphics;
 
-// Geometry and color calculations stay independent of the window/driver.
+// Color and scalar curve calculations; shape tessellation lives in the shared geometry kernel (AquariusCore/graphics/geometry.c).
 internal static class ProcessingGeometry {
     internal static Vector4 Unpack(uint c) => new((c >> 16 & 255) / 255f, (c >> 8 & 255) / 255f, (c & 255) / 255f, (c >> 24) / 255f);
     internal static uint Pack(Vector4 c) {
@@ -20,42 +20,10 @@ internal static class ProcessingGeometry {
         float h = d == 0 ? 0 : max == c.X ? ((c.Y-c.Z)/d + 6) % 6 : max == c.Y ? (c.Z-c.X)/d+2 : (c.X-c.Y)/d+4;
         return new(h/6, max == 0 ? 0 : d/max, max);
     }
-    internal static (float x,float y,float w,float h) Bounds(float x,float y,float w,float h,int mode) => mode switch {
-        1 => (x,y,w-x,h-y), 2 => (x-w/2,y-h/2,w,h), 3 => (x-w,y-h,w*2,h*2), _ => (x,y,w,h)
-    };
     internal static float Bezier(float a,float b,float c,float d,float t) { float s=1-t; return s*s*s*a+3*s*s*t*b+3*s*t*t*c+t*t*t*d; }
     internal static float BezierTangent(float a,float b,float c,float d,float t) { float s=1-t; return 3*s*s*(b-a)+6*s*t*(c-b)+3*t*t*(d-c); }
     internal static float Curve(float a,float b,float c,float d,float t,float tightness=0) {
         float s=(1-tightness)/2; return Bezier(b,b+s*(c-a)/3,c-s*(d-b)/3,c,t);
-    }
-    // Ear clipping handles concave simple polygons, in either winding direction.
-    internal static List<int> Triangulate(IReadOnlyList<Vector3> vertices) {
-        var result=new List<int>(); if(vertices.Count<3) return result;
-        // Project a planar 3D polygon onto its dominant plane.
-        Vector3 normal=Vector3.Zero;
-        for(int i=0;i<vertices.Count;i++){var a=vertices[i];var b=vertices[(i+1)%vertices.Count];normal+=new Vector3((a.Y-b.Y)*(a.Z+b.Z),(a.Z-b.Z)*(a.X+b.X),(a.X-b.X)*(a.Y+b.Y));}
-        if(Math.Abs(normal.X)>Math.Abs(normal.Z)&&Math.Abs(normal.X)>=Math.Abs(normal.Y))vertices=vertices.Select(p=>new Vector3(p.Y,p.Z,0)).ToArray();
-        else if(Math.Abs(normal.Y)>Math.Abs(normal.Z))vertices=vertices.Select(p=>new Vector3(p.X,p.Z,0)).ToArray();
-        var ids=Enumerable.Range(0,vertices.Count).ToList();
-        float Cross(Vector3 a,Vector3 b,Vector3 c) => (b.X-a.X)*(c.Y-a.Y)-(b.Y-a.Y)*(c.X-a.X);
-        bool removed=true;while(removed&&ids.Count>3){removed=false;for(int i=0;i<ids.Count;i++) {var a=vertices[ids[(i+ids.Count-1)%ids.Count]];var b=vertices[ids[i]];var c=vertices[ids[(i+1)%ids.Count]];
-            if(Vector3.DistanceSquared(a,b)<1e-12f||Math.Abs(Cross(a,b,c))<1e-6f){ids.RemoveAt(i);removed=true;break;}}}
-        float area=0; for(int i=0;i<ids.Count;i++) { var a=vertices[ids[i]]; var b=vertices[ids[(i+1)%ids.Count]]; area+=a.X*b.Y-b.X*a.Y; }
-        if(Math.Abs(area)<1e-6f)throw new ArgumentException("Polygon has zero area.");
-        float sign=area>=0?1:-1;
-        while(ids.Count>3) {
-            bool found=false;
-            for(int i=0;i<ids.Count;i++) {
-                int a=ids[(i+ids.Count-1)%ids.Count],b=ids[i],c=ids[(i+1)%ids.Count];
-                if(sign*Cross(vertices[a],vertices[b],vertices[c])<=1e-6f) continue;
-                bool inside=ids.Any(p=>p!=a&&p!=b&&p!=c && sign*Cross(vertices[a],vertices[b],vertices[p])>=-1e-6f
-                    && sign*Cross(vertices[b],vertices[c],vertices[p])>=-1e-6f && sign*Cross(vertices[c],vertices[a],vertices[p])>=-1e-6f);
-                if(inside) continue;
-                result.AddRange(new[]{a,b,c}); ids.RemoveAt(i); found=true; break;
-            }
-            if(!found) throw new ArgumentException("Polygon boundary must be simple and have nonzero area; use beginContour() for holes.");
-        }
-        if(ids.Count==3) result.AddRange(ids); return result;
     }
 }
 

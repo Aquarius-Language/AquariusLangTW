@@ -65,6 +65,7 @@ export class AndroidHost extends CapabilityHost {
   modelAsset(path){return {asset:this.bundle.assets[lookupPath(this.bundle.assets,this.resolve(path))]};}
   async loadTexture(device,descriptor,path){this.signal.throwIfAborted();return device.loadTextureAsset(descriptor,this.modelAsset(path).asset);}
   asset(path){const raw=native.readAssetBytes(this.modelAsset(path).asset);return new Uint8Array(raw.buffer,raw.byteOffset,raw.byteLength);}
+  geometryModule(){return WebAssembly.compile(native.readAssetBytes('geometry.wasm'));}
   installProcessingInput(p){p.textarea={style:{},focus:()=>native.keyboard(true),blur:()=>native.keyboard(false),remove(){}};}
   screenSize(){return JSON.parse(native.viewport());}
   surface(width,height,title){const host=this,canvas={style:{},width:0,height:0},surface={canvas,size:{width,height,pixelWidth:width,pixelHeight:height},requestSize(){},readSize(){const size=host.screenSize();return resizeSurfaceSize(this.size,size.width,size.height,size.pixelWidth,size.pixelHeight);},apply(size){this.size=size;canvas.width=size.pixelWidth;canvas.height=size.pixelHeight;},dispose(){}};surface.apply(surface.readSize());return surface;}

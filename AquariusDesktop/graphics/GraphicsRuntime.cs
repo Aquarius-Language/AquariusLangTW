@@ -28,6 +28,9 @@ internal sealed partial class GraphicsRuntime : IDisposable {
     internal readonly Application.DesktopApplicationHost ApplicationHost;
     internal readonly AquariusLang.Application.ApplicationRuntime Application;
     internal AquaEnvironment GlEnvironment = AquaEnvironment.NewEnvironment();
+    private AquariusLang.Graphics.GeometryKernel? geometry;
+    /// <summary>The shared Processing geometry kernel, instantiated on first use.</summary>
+    internal AquariusLang.Graphics.GeometryKernel Geometry => geometry ??= new(new runtime.WasmtimeEngine());
 
     internal GraphicsRuntime(Application.DesktopApplicationHost? applicationHost = null, AquariusLang.Webcam.IWebcamBackend? webcamBackend = null, AquariusLang.Onnx.IOnnxBackend? onnxBackend = null) {
         network = new(new Network.DesktopNetworkBackend()) { Invoke = (fn, args) => InvokeAqua?.Invoke(fn, args) ?? new ErrorObj("Network callbacks unavailable"), ResourcePath = path => ResourcePath(path) };
@@ -185,6 +188,7 @@ internal sealed partial class GraphicsRuntime : IDisposable {
         audio.Dispose();
         DisposeProcessing();
         sharedWgpu.Dispose();
+        geometry?.Dispose(); geometry = null;
         foreach (var buffer in buffers) buffer.Dispose();
         buffers.Clear();
         Terminate(); disposed = true;

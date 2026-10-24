@@ -34,36 +34,19 @@ internal sealed partial class GraphicsRuntime {
         Action("strokeWeight",1,1,a=>c.Style.Weight=Nonnegative(a[0]));Action("strokeCap",1,1,a=>c.Style.Cap=Choice(a[0],0,1,2));Action("strokeJoin",1,1,a=>c.Style.Join=Choice(a[0],0,1,2));
         Action("rectMode",1,1,a=>c.Style.RectMode=Choice(a[0],0,1,2,3));Action("ellipseMode",1,1,a=>c.Style.EllipseMode=Choice(a[0],0,1,2,3));Action("imageMode",1,1,a=>c.Style.ImageMode=Choice(a[0],0,1,2));
         Draw("background",1,4,a=>c.Background(Color(c.Style,a)));Draw("clear",0,0,_=>c.Background(Vector4.Zero));
-        Draw("point",2,3,a=> {if(c.Style.HasStroke)c.Disk(Point(a,0,a.Length),c.Style.Weight/2,c.Style.Stroke);});
+        Draw("point",2,3,a=>c.Point(Point(a,0,a.Length)));
         Draw("line",4,6,a=> {if(a.Length!=4&&a.Length!=6)throw new ArgumentException("Use 4 (2D) or 6 (3D) coordinates.");int d=a.Length/2;c.Segment(Point(a,0,d),Point(a,d,d));});
         Draw("triangle",6,6,a=>c.Polygon(new[]{Point(a,0),Point(a,2),Point(a,4)}));
         Draw("quad",8,8,a=>c.Polygon(new[]{Point(a,0),Point(a,2),Point(a,4),Point(a,6)}));
-        Draw("rect",4,5,a=> {
-            var b=ProcessingGeometry.Bounds(F(a[0]),F(a[1]),F(a[2]),F(a[3]),c.Style.RectMode);
-            if(a.Length==4) {c.Polygon(new[]{new Vector3(b.x,b.y,0),new(b.x+b.w,b.y,0),new(b.x+b.w,b.y+b.h,0),new(b.x,b.y+b.h,0)});return;}
-            float r=Math.Clamp(F(a[4]),0,Math.Min(Math.Abs(b.w),Math.Abs(b.h))/2);
-            if(r<=0) {c.Polygon(new[]{new Vector3(b.x,b.y,0),new(b.x+b.w,b.y,0),new(b.x+b.w,b.y+b.h,0),new(b.x,b.y+b.h,0)});return;}
-            // When r is half a side (a pill or circle), adjacent corner arcs meet at one point. Computing that point
-            // twice gives float near-duplicates (an ulp apart, a tiny backtrack) that make ear clipping fail, so emit it once.
-            float eps=1e-4f*Math.Max(1f,Math.Max(Math.Abs(b.w),Math.Abs(b.h)));
-            bool flatW=Math.Abs(b.w)-2*r<=eps,flatH=Math.Abs(b.h)-2*r<=eps;var pts=new List<Vector3>();
-            for(int corner=0;corner<4;corner++) {float cx=corner is 0 or 1?b.x+b.w-r:b.x+r,cy=corner is 1 or 2?b.y+b.h-r:b.y+r;
-                bool skipFirst=corner switch{1=>flatH,2=>flatW,3=>flatH,_=>false},skipLast=corner==3&&flatW;
-                for(int i=skipFirst?1:0;i<=(skipLast?7:8);i++){float angle=(-MathF.PI/2+corner*MathF.PI/2)+i*MathF.PI/16;pts.Add(new(cx+r*MathF.Cos(angle),cy+r*MathF.Sin(angle),0));}}
-            c.Polygon(pts);
-        });
+        Draw("rect",4,5,a=>c.Rect(F(a[0]),F(a[1]),F(a[2]),F(a[3]),a.Length==5?Math.Max(0,F(a[4])):-1));
         Draw("ellipse",4,4,a=>c.Ellipse(F(a[0]),F(a[1]),F(a[2]),F(a[3])));
         Draw("circle",3,3,a=>c.Ellipse(F(a[0]),F(a[1]),F(a[2]),F(a[2])));
-        Draw("square",3,3,a=> {var b=ProcessingGeometry.Bounds(F(a[0]),F(a[1]),F(a[2]),F(a[2]),c.Style.RectMode);c.Polygon(new[]{new Vector3(b.x,b.y,0),new(b.x+b.w,b.y,0),new(b.x+b.w,b.y+b.h,0),new(b.x,b.y+b.h,0)});});
+        Draw("square",3,3,a=>c.Rect(F(a[0]),F(a[1]),F(a[2]),F(a[2])));
         Draw("arc",6,7,a=>c.Ellipse(F(a[0]),F(a[1]),F(a[2]),F(a[3]),F(a[4]),F(a[5]),a.Length==7?Choice(a[6],0,1,2):0,true));
         Action("bezierDetail",1,1,a=>c.Detail=Detail(a[0]));Action("curveDetail",1,1,a=>c.Detail=Detail(a[0]));Action("curveTightness",1,1,a=>c.Tightness=F(a[0]));
         foreach(string curve in new[]{"bezier","curve"}) {
             string name=curve;Draw(name,8,12,a=> {if(a.Length!=8&&a.Length!=12)throw new ArgumentException("Use 8 (2D) or 12 (3D) coordinates.");
-                int d=a.Length/4;var p=new Vector3[4];for(int j=0;j<p.Length;j++)p[j]=Point(a,j*d,d);var pts=new List<Vector3>();
-                for(int i=0;i<=c.Detail;i++) {float t=(float)i/c.Detail;float Component(float x,float y,float z,float w)=>name=="bezier"?ProcessingGeometry.Bezier(x,y,z,w,t):ProcessingGeometry.Curve(x,y,z,w,t,c.Tightness);
-                    pts.Add(new(Component(p[0].X,p[1].X,p[2].X,p[3].X),Component(p[0].Y,p[1].Y,p[2].Y,p[3].Y),Component(p[0].Z,p[1].Z,p[2].Z,p[3].Z)));}
-                c.Polyline(pts);
-            });
+                int d=a.Length/4;var p=new Vector3[4];for(int j=0;j<p.Length;j++)p[j]=Point(a,j*d,d);c.Curve(name=="curve",p);});
         }
         Action("pushMatrix",0,0,_=>c.Matrices.Push(c.Model));Action("popMatrix",0,0,_=> {if(c.Matrices.Count==0)throw new InvalidOperationException("Matrix stack is empty.");c.Model=c.Matrices.Pop();});
         Action("resetMatrix",0,0,_=>c.Model=Matrix4x4.Identity);
@@ -114,7 +97,8 @@ internal sealed partial class GraphicsRuntime {
         Action("textureMode",1,1,a=>c.TextureMode=Choice(a[0],0,1));
         Action("bezierVertex",6,9,a=>c.BezierVertex(ProcessingFloats(a)));
         Action("quadraticVertex",4,6,a=>c.QuadraticVertex(ProcessingFloats(a)));
-        Action("curveVertex",2,3,a=> {if(c.ShapeMode!=9)throw new InvalidOperationException("curveVertex() belongs in a polygon.");c.CurveVertices.Add(Point(a,0,a.Length));if(c.CurveVertices.Count>=4){var p=c.CurveVertices.TakeLast(4).ToArray();for(int i=c.CurveVertices.Count==4?0:1;i<=c.Detail;i++){float t=(float)i/c.Detail;c.ActiveVertices.Add(c.V(new(ProcessingGeometry.Curve(p[0].X,p[1].X,p[2].X,p[3].X,t,c.Tightness),ProcessingGeometry.Curve(p[0].Y,p[1].Y,p[2].Y,p[3].Y,t,c.Tightness),ProcessingGeometry.Curve(p[0].Z,p[1].Z,p[2].Z,p[3].Z,t,c.Tightness)),c.Style.Fill));}}});
+        Action("curveVertex",2,3,a=> {if(c.ShapeMode!=9)throw new InvalidOperationException("curveVertex() belongs in a polygon.");c.CurveVertices.Add(Point(a,0,a.Length));
+            if(c.CurveVertices.Count>=4)foreach(var p in c.CurvePoints(true,c.CurveVertices.TakeLast(4).ToArray(),c.CurveVertices.Count==4?0:1))c.ActiveVertices.Add(c.V(p,c.Style.Fill));});
         Action("endShape",0,1,a=> {if(c.ShapeMode==-1||c.InContour)throw new InvalidOperationException("Finish any contour and call beginShape() first.");c.EndShape(a.Length==1&&Choice(a[0],0,1)==1);});
         Draw("image",3,5,a=> {if(a.Length!=3&&a.Length!=5)throw new ArgumentException("image() takes image,x,y[,width,height].");c.Image(ImageObject(a[0]),F(a[1]),F(a[2]),a.Length==5?F(a[3]):null,a.Length==5?F(a[4]):null);});
         RegisterCanvasPixels(env,c);RegisterCanvasText(env,c);RegisterRetainedShapes(env,c);RegisterCanvasShaders(env,c);
@@ -128,28 +112,12 @@ internal sealed partial class GraphicsRuntime {
 
 internal sealed partial class ProcessingCanvas {
     internal int BlendMode;
-    internal void Box(float w,float h,float d) {
-        var p=new[]{new Vector3(-w/2,-h/2,-d/2),new(w/2,-h/2,-d/2),new(w/2,h/2,-d/2),new(-w/2,h/2,-d/2),new(-w/2,-h/2,d/2),new(w/2,-h/2,d/2),new(w/2,h/2,d/2),new(-w/2,h/2,d/2)};
-        int[][] faces={new[]{4,5,6,7},new[]{1,0,3,2},new[]{0,4,7,3},new[]{5,1,2,6},new[]{3,7,6,2},new[]{0,1,5,4}};
-        var normals=new[]{Vector3.UnitZ,-Vector3.UnitZ,-Vector3.UnitX,Vector3.UnitX,Vector3.UnitY,-Vector3.UnitY};var mesh=new List<ProcessingVertex>();
-        for(int f=0;f<6;f++)foreach(int i in new[]{0,1,2,0,2,3})mesh.Add(V(p[faces[f][i]],Style.Fill,normal:normals[f]));
-        if(Style.HasFill)Draw(mesh);
-        if(Style.HasStroke)foreach(var face in faces)Polyline(face.Select(i=>p[i]).ToArray(),true);
-    }
-    internal void Sphere(float radius) {
-        Vector3 P(int u,int v) {float a=MathF.Tau*u/SphereU,b=MathF.PI*v/SphereV;return new(MathF.Sin(b)*MathF.Cos(a),MathF.Cos(b),MathF.Sin(b)*MathF.Sin(a));}
-        var mesh=new List<ProcessingVertex>();
-        for(int v=0;v<SphereV;v++)for(int u=0;u<SphereU;u++) {
-            var a=P(u,v);var b=P(u+1,v);var c=P(u+1,v+1);var d=P(u,v+1);
-            foreach(var n in new[]{a,b,c,a,c,d})mesh.Add(V(n*radius,Style.Fill,normal:n));
-            if(Style.HasStroke){Segment(a*radius,b*radius);Segment(a*radius,d*radius);}
-        }
-        if(Style.HasFill)Draw(mesh);
-    }
+    internal void Box(float w,float h,float d) {var kernel=Geometry();Floats(kernel,w,h,d);kernel.Run("geo_box");DrawGeometry(kernel);}
+    internal void Sphere(float radius) {var kernel=Geometry();Floats(kernel,radius);kernel.Run("geo_sphere",SphereU,SphereV);DrawGeometry(kernel);}
     internal void BezierVertex(float[] a) {
         if(ShapeMode!=9||ActiveVertices.Count==0||a.Length is not (6 or 9))throw new ArgumentException("bezierVertex() needs a POLYGON with an initial vertex and 6 or 9 coordinates.");
-        int dim=a.Length/3;Vector3 P(int i)=>new(a[i],a[i+1],dim==3?a[i+2]:0);var start=ActiveVertices[^1].Position;var b=P(0);var c=P(dim);var d=P(dim*2);
-        for(int i=1;i<=Detail;i++){float t=(float)i/Detail;ActiveVertices.Add(V(new(ProcessingGeometry.Bezier(start.X,b.X,c.X,d.X,t),ProcessingGeometry.Bezier(start.Y,b.Y,c.Y,d.Y,t),ProcessingGeometry.Bezier(start.Z,b.Z,c.Z,d.Z,t)),Style.Fill));}
+        int dim=a.Length/3;Vector3 P(int i)=>new(a[i],a[i+1],dim==3?a[i+2]:0);
+        foreach(var p in CurvePoints(false,new[]{ActiveVertices[^1].Position,P(0),P(dim),P(dim*2)},1))ActiveVertices.Add(V(p,Style.Fill));
     }
     internal void QuadraticVertex(float[] a) {
         if(ShapeMode!=9||ActiveVertices.Count==0||a.Length is not (4 or 6))throw new ArgumentException("quadraticVertex() needs an initial polygon vertex and 4 or 6 coordinates.");
@@ -158,28 +126,31 @@ internal sealed partial class ProcessingCanvas {
     }
     internal void EndShape(bool close) {
         int kind=ShapeMode;ShapeMode=-1;
-        var triangles=new List<ProcessingVertex>();
-        void Tri(int a,int b,int c) {triangles.Add(Vertices[a]);triangles.Add(Vertices[b]);triangles.Add(Vertices[c]);}
-        if(kind==0){foreach(var v in Vertices)if(Style.HasStroke)Disk(v.Position,Style.Weight/2,Style.Stroke);return;}
-        if(kind==1){if(Vertices.Count%2!=0)throw new ArgumentException("LINES requires pairs of vertices.");for(int i=0;i<Vertices.Count;i+=2)Segment(Vertices[i].Position,Vertices[i+1].Position);return;}
-        if(kind==4){if(Vertices.Count%3!=0)throw new ArgumentException("TRIANGLES requires groups of three vertices.");for(int i=0;i<Vertices.Count;i+=3)Tri(i,i+1,i+2);}
-        if(kind==5)for(int i=2;i<Vertices.Count;i++) {if(i%2==0)Tri(i-2,i-1,i);else Tri(i-1,i-2,i);}
-        if(kind==6)for(int i=2;i<Vertices.Count;i++)Tri(0,i-1,i);
-        if(kind==7){if(Vertices.Count%4!=0)throw new ArgumentException("QUADS requires groups of four vertices.");for(int i=0;i<Vertices.Count;i+=4){Tri(i,i+1,i+2);Tri(i,i+2,i+3);}}
-        if(kind==8){if(Vertices.Count%2!=0)throw new ArgumentException("QUAD_STRIP requires pairs of vertices.");for(int i=2;i+1<Vertices.Count;i+=2){Tri(i-2,i-1,i+1);Tri(i-2,i+1,i);}}
+        var positions=Vertices.Select(v=>v.Position).ToArray();
+        if(kind==0){if(Style.HasStroke){var points=Geometry();Points(points,positions);points.Run("geo_points",positions.Length);DrawGeometry(points);}return;}
+        if(kind==1){if(Vertices.Count%2!=0)throw new ArgumentException("LINES requires pairs of vertices.");var lines=Geometry();Points(lines,positions);lines.Run("geo_lines",positions.Length);DrawGeometry(lines);return;}
+        if(kind==4&&Vertices.Count%3!=0)throw new ArgumentException("TRIANGLES requires groups of three vertices.");
+        if(kind==7&&Vertices.Count%4!=0)throw new ArgumentException("QUADS requires groups of four vertices.");
+        if(kind==8&&Vertices.Count%2!=0)throw new ArgumentException("QUAD_STRIP requires pairs of vertices.");
         // Unfilled paths only need stroke geometry; they may cross themselves or have zero area.
-        if(kind==9&&Style.HasFill&&Vertices.Count>=3)foreach(int i in ProcessingGeometry.Triangulate(Vertices.Select(v=>v.Position).ToArray()))triangles.Add(Vertices[i]);
+        var triangles=kind==9&&!(Style.HasFill&&Vertices.Count>=3)?new List<ProcessingVertex>():ShapeTriangles(kind,Vertices);
         if(Style.HasFill&&Contours.Count>0) {
             Bind();Target.ClearStencil();Draw(triangles,lit:false,stencilMode:1);
-            foreach(var contour in Contours){var mesh=ProcessingGeometry.Triangulate(contour.Select(v=>v.Position).ToArray()).Select(i=>contour[i]).ToArray();Draw(mesh,lit:false,stencilMode:2);}
+            foreach(var contour in Contours)Draw(ShapeTriangles(9,contour),lit:false,stencilMode:2);
             Draw(triangles,image:Texture,stencilMode:3);
         } else if(Style.HasFill)Draw(triangles,image:Texture);
         if(Style.HasStroke) {
-            if(kind==9)Polyline(Vertices.Select(v=>v.Position).ToArray(),close);
-            else if(kind==7)for(int i=0;i<Vertices.Count;i+=4)Polyline(Vertices.Skip(i).Take(4).Select(v=>v.Position).ToArray(),true);
+            if(kind==9)Polyline(positions,close);
+            else if(kind==7)for(int i=0;i<Vertices.Count;i+=4)Polyline(positions.Skip(i).Take(4).ToArray(),true);
             else for(int i=0;i<triangles.Count;i+=3)Polyline(triangles.Skip(i).Take(3).Select(v=>v.Position).ToArray(),true);
         }
         if(Style.HasStroke)foreach(var contour in Contours)Polyline(contour.Select(v=>v.Position).ToArray(),true);
         Vertices.Clear();Contours.Clear();Texture=null;
+    }
+    /// <summary>The triangles of a beginShape kind (POLYGON triangulated by the kernel), keeping each vertex's attributes.</summary>
+    private List<ProcessingVertex> ShapeTriangles(int kind,List<ProcessingVertex> vertices) {
+        var kernel=Geometry();Points(kernel,vertices.Select(v=>v.Position).ToArray());
+        int count=kernel.Run("geo_shape_indices",kind,vertices.Count);var indices=kernel.Indices(count);
+        var result=new List<ProcessingVertex>(count);foreach(int i in indices)result.Add(vertices[i]);return result;
     }
 }

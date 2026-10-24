@@ -393,7 +393,9 @@ source map at the end.
 
 38. **P1 · Confirmed — Drawing and math contain substantial C#/JS computation.**
     Processing geometry, triangulation, transforms and vectors run in host code;
-    browser dependencies include `earcut` and `gl-matrix` (S12, S16). Move these
+    browser dependencies include `earcut` and `gl-matrix` (S12, S16). *Processing
+    tessellation is done: `AquariusCore/graphics/geometry.c` (geometry.wasm) serves
+    every host and `earcut` is gone; transforms and vectors remain.* Move these
     algorithms and portable sketch/state logic into Wasm. Retain shader source and
     GPU ABI contracts; GPU shader execution remains on the GPU. Leave surface
     creation, command submission, mapping and presentation in small adapters.

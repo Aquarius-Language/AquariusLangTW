@@ -86,9 +86,11 @@ public class ProcessingTest {
     }
     [Fact] public void ConcavePolygonsTriangulateInBothWindingsAndOnVerticalPlanes() {
         var points=new[]{new Vector3(0,0,0),new(4,0,0),new(4,4,0),new(2,2,0),new(0,4,0)};
+        using var kernel=new AquariusLang.Graphics.GeometryKernel(new AquariusLang.Desktop.runtime.WasmtimeEngine());
         foreach(var p in new[]{points,points.Reverse().ToArray(),points.Select(v=>new Vector3(0,v.X,v.Y)).ToArray()}) {
-            var ids=ProcessingGeometry.Triangulate(p);Assert.Equal(9,ids.Count);
-            double area=0;for(int i=0;i<ids.Count;i+=3)area+=Vector3.Cross(p[ids[i+1]]-p[ids[i]],p[ids[i+2]]-p[ids[i]]).Length()/2;Assert.Equal(12,area,5);
+            var input=kernel.Input(p.Length*3);for(int i=0;i<p.Length;i++){input[i*3]=p[i].X;input[i*3+1]=p[i].Y;input[i*3+2]=p[i].Z;}
+            var ids=kernel.Indices(kernel.Run("geo_shape_indices",9,p.Length)).ToArray();Assert.Equal(9,ids.Length);
+            double area=0;for(int i=0;i<ids.Length;i+=3)area+=Vector3.Cross(p[ids[i+1]]-p[ids[i]],p[ids[i+2]]-p[ids[i]]).Length()/2;Assert.Equal(12,area,5);
         }
     }
     [Fact] public void ShowcaseParses() {

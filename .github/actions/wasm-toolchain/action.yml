@@ -1,7 +1,7 @@
 name: Pinned Wasm toolchain
 description: >-
   Installs the pinned LLVM/Clang toolchain (scripts/wasm-toolchain.json) and fails unless the committed runtime.wasm,
-  audio.wasm and pose.wasm rebuild byte-identically from their sources. Requires Node.js (the audio check reads imports).
+  audio.wasm, pose.wasm and geometry.wasm rebuild byte-identically from their sources. Requires Node.js (the audio check reads imports).
 runs:
   using: composite
   steps:
@@ -16,3 +16,4 @@ runs:
         ./scripts/build-wasm-runtime.ps1 -Check
         ./scripts/build-audio-runtime.ps1 -Check
         ./scripts/build-pose-wasm.ps1 -Check
+        ./scripts/build-geometry-wasm.ps1 -Check

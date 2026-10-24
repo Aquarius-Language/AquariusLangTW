@@ -28,7 +28,10 @@ public static class ExternalLibraries
         new Dictionary<string,string> { ["ort.webgpu.min.mjs"]="ort.webgpu.min.mjs", ["ort-wasm-simd-threaded.asyncify.mjs"]="ort-wasm-simd-threaded.asyncify.mjs", ["ort-wasm-simd-threaded.asyncify.wasm"]="ort-wasm-simd-threaded.asyncify.wasm", ["LICENSE.txt"]="ONNX-LICENSE.txt", ["ThirdPartyNotices.txt"]="ONNX-THIRD-PARTY-NOTICES.txt" });
     public static ExternalLibraryDescriptor MediaPipe { get; } = new("mediapipe", "1", 1, ExternalLibraryProfile.CoreWasm, typeof(AquariusLang.MediaPipe.PoseTracker),
         new[] { "pose.wasm" }, new Dictionary<string,string> { ["pose.wasm"]="pose.wasm" });
-    public static IReadOnlyList<ExternalLibraryDescriptor> All { get; } = System.Array.AsReadOnly(new[] { WebGpu, Audio, Webcam, Network, Onnx, MediaPipe });
+    // Processing tessellation (geometry.c) shared by every host; hosts keep device, texture, font and window access.
+    public static ExternalLibraryDescriptor Geometry { get; } = new("geometry", "1", AquariusLang.Graphics.GeometryKernel.Abi, ExternalLibraryProfile.CoreWasm, typeof(AquariusLang.Graphics.GeometryKernel),
+        new[] { "geometry.wasm" }, new Dictionary<string,string> { ["geometry.wasm"]="geometry.wasm" });
+    public static IReadOnlyList<ExternalLibraryDescriptor> All { get; } = System.Array.AsReadOnly(new[] { WebGpu, Audio, Webcam, Network, Onnx, MediaPipe, Geometry });
     public static byte[] ReadAsset(ExternalLibraryDescriptor library, string name)
     {
         if (!library.Assets.Contains(name, StringComparer.Ordinal)) throw new ArgumentException("Asset is not declared by this library.");

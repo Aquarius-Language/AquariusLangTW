@@ -2,6 +2,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {Processing,pixelValues,pixelBytes} from '../browser/processing.mjs';
 import {Scope,module,wrap,unwrap} from '../browser/values.mjs';
+import {readFileSync} from 'node:fs';
+import {GeometryKernel} from '../../AquariusCore/hosting/geometry-core.mjs';
+const geometry=await GeometryKernel.create(new WebAssembly.Module(readFileSync(new URL('../../AquariusCore/graphics/geometry.wasm',import.meta.url))));
 
 test('direct pixel conversion preserves every byte including transparency and unsigned colors',()=>{
   const bytes=Uint8Array.from({length:4096},(_,i)=>(i*73+19)%256);
@@ -15,7 +18,7 @@ test('offscreen endDraw retains batches until a texture consumer flushes them',(
   const host={objects:new Map(),bundle:{graphics:{uniformBytes:1120}},newModule:()=>module(new Scope()),set:(m,n,v)=>m.scope.create(n,wrap(v)),
     bind(m,library,name,fn,raw=false){m.scope.create(name,(...args)=>fn(...(raw?args:args.map(unwrap))));},installProcessingInput(){}};
   const p=new Processing(host);
-  p.device={createTarget:()=>({color:{},clear(){},draw(){operations.push('draw');},flush(){operations.push('flush');},dispose(){}})};
+  p.geometry=geometry;p.device={createTarget:()=>({color:{},clear(){},draw(){operations.push('draw');},flush(){operations.push('flush');},dispose(){}})};
   p.screen.resize(32,32);p.shader={};
   const canvas=p.module.scope.get('createGraphics')(32,32),call=(name,...args)=>canvas.scope.get(name)(...args);
   call('beginDraw');call('line',1,1,10,10);call('endDraw');
@@ -39,7 +42,7 @@ test('clip captures transformed canvas coordinates before applying framebuffer d
   const host={objects:new Map(),bundle:{graphics:{uniformBytes:1120}},newModule:()=>module(new Scope()),set:(m,n,v)=>m.scope.create(n,wrap(v)),
     bind(m,library,name,fn,raw=false){m.scope.create(name,(...args)=>fn(...(raw?args:args.map(unwrap))));},installProcessingInput(){}};
   const p=new Processing(host);
-  p.device={createTarget:()=>({color:{},clear(){},draw(...args){clips.push(args.at(-1));},flush(){},dispose(){}})};
+  p.geometry=geometry;p.device={createTarget:()=>({color:{},clear(){},draw(...args){clips.push(args.at(-1));},flush(){},dispose(){}})};
   p.shader={};
   const canvas=p.module.scope.get('createGraphics')(240,160),call=(name,...args)=>canvas.scope.get(name)(...args);
   call('resize',240,160,480,320);call('beginDraw');call('noStroke');

@@ -264,7 +264,7 @@ try {
         $wasmToRemove = Assert-InDirectory (Join-Path $smoke 'app.wasm') $smoke
         Remove-Item -LiteralPath $wasmToRemove
         Invoke-Published 'standalone windows execution' @() '[40, 42, 封裝成功' '' $standalone
-        foreach ($file in @('index.html', 'program.json', 'terminal.mjs', 'vendor-earcut.LICENSE.txt', 'vendor-gl-matrix.LICENSE.txt')) { Assert-File (Join-Path $smoke "web/$file") }
+        foreach ($file in @('index.html', 'program.json', 'terminal.mjs', 'geometry.wasm', 'vendor-gl-matrix.LICENSE.txt')) { Assert-File (Join-Path $smoke "web/$file") }
         $examples = Join-Path $package 'examples'
         $exampleSources = @(Get-ChildItem -LiteralPath $examples -Filter '*.aqua' -Recurse | Where-Object {
             for ($directory=$_.Directory; $directory -and $directory.FullName.StartsWith($examples,[StringComparison]::OrdinalIgnoreCase); $directory=$directory.Parent) {

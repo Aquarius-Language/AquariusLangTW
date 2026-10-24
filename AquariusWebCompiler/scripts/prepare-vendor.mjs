@@ -9,9 +9,9 @@ const ortRoot=path.resolve(path.dirname(require.resolve('onnxruntime-web')),'..'
 const ortCore=path.join(root,'../AquariusCore/external/onnx');await mkdir(ortCore,{recursive:true});
 for(const name of ['ort.webgpu.min.mjs','ort-wasm-simd-threaded.asyncify.mjs','ort-wasm-simd-threaded.asyncify.wasm'])await copyFile(path.join(ortRoot,'dist',name),path.join(ortCore,name));
 for(const name of ['LICENSE.txt','ThirdPartyNotices.txt'])if(!existsSync(path.join(ortCore,name)))throw new Error(`Missing pinned ONNX notice: ${name}`);
-for(const name of ['gl-matrix','earcut'])await build({entryPoints:[name==='gl-matrix'?path.join(path.dirname(require.resolve('gl-matrix/package.json')),'esm/index.js'):require.resolve(name)],bundle:true,format:'esm',outfile:path.join(root,`browser/vendor-${name}.mjs`),minify:true});
+await build({entryPoints:[path.join(path.dirname(require.resolve('gl-matrix/package.json')),'esm/index.js')],bundle:true,format:'esm',outfile:path.join(root,'browser/vendor-gl-matrix.mjs'),minify:true});
 await copyFile(path.join(root,'../AquariusCore/audio/audio-core.mjs'),path.join(root,'browser/audio-core.mjs'));
-for(const name of ['earcut','gl-matrix']){
+for(const name of ['gl-matrix']){
   let dir=path.dirname(require.resolve(name));
   while(!existsSync(path.join(dir,'LICENSE')))dir=path.dirname(dir);
   await copyFile(path.join(dir,'LICENSE'),path.join(root,`browser/vendor-${name}.LICENSE.txt`));
@@ -24,5 +24,5 @@ await build({entryPoints:[path.join(path.dirname(require.resolve('fflate/package
 await copyFile(path.join(path.dirname(require.resolve('fflate')),'../LICENSE'),path.join(root,'browser/vendor-fflate.LICENSE.txt'));
 
 const hostingCore=path.join(root,"../AquariusCore/hosting");await mkdir(hostingCore,{recursive:true});
-for(const name of ["vendor-gl-matrix.mjs","vendor-earcut.mjs","vendor-fflate.mjs","vendor-magick.mjs","vendor-magick.wasm"])await copyFile(path.join(root,"browser",name),path.join(hostingCore,name));
-for(const name of ["vendor-gl-matrix.LICENSE.txt","vendor-earcut.LICENSE.txt","vendor-fflate.LICENSE.txt","vendor-magick.LICENSE.txt","vendor-magick.NOTICE.txt"])await copyFile(path.join(root,"browser",name),path.join(hostingCore,name));
+for(const name of ["vendor-gl-matrix.mjs","vendor-fflate.mjs","vendor-magick.mjs","vendor-magick.wasm"])await copyFile(path.join(root,"browser",name),path.join(hostingCore,name));
+for(const name of ["vendor-gl-matrix.LICENSE.txt","vendor-fflate.LICENSE.txt","vendor-magick.LICENSE.txt","vendor-magick.NOTICE.txt"])await copyFile(path.join(root,"browser",name),path.join(hostingCore,name));

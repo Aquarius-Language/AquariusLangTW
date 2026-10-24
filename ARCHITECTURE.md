@@ -181,7 +181,7 @@ that builds. A failure names the rule and the legitimate way to change things.
 | Rule | Why | Enforced by |
 | --- | --- | --- |
 | No Zig | One pinned toolchain builds every Wasm/native helper; a second compiler would make binaries irreproducible. Historical validation records may mention Zig. | `NoZigToolchain` |
-| Reproducible Wasm binaries | `runtime.wasm`, `audio.wasm` and `pose.wasm` are committed; they must rebuild byte-identically from source with the pinned LLVM/Clang 23.1.3 (`scripts/wasm-toolchain.json`) on Windows, Linux and macOS. | `CommittedWasmBinariesRebuildFromSource` (runs where the toolchain is installed), the `-Check` scripts in CI |
+| Reproducible Wasm binaries | `runtime.wasm`, `audio.wasm`, `pose.wasm` and `geometry.wasm` are committed; they must rebuild byte-identically from source with the pinned LLVM/Clang 23.1.3 (`scripts/wasm-toolchain.json`) on Windows, Linux and macOS. | `CommittedWasmBinariesRebuildFromSource` (runs where the toolchain is installed), the `-Check` scripts in CI |
 | Generated sources are fresh | Library catalogs, portable library tables (C#, JavaScript and C) and the guest memory layout each have one source table; hand edits drift. Libraries the catalog generator scans have no hand-written catalog entries, and every function registered in code needs a translation. | `GeneratedSourcesAreFresh` (`--check` of each generator), `GeneratedLibrariesHaveNoHandWrittenEntries` |
 | Runtime layout | C# emitters and hosts address guest structs only through `RuntimeLayout` constants; `runtime/layout.h` asserts the same offsets in `runtime.c`. | `RuntimeIncludesGeneratedLayoutChecks`, `EmittersUseNamedRuntimeOffsets`, the runtime build |
 | One Wasm encoder | LEB128 and instruction immediates are encoded only by `WasmEncoding`. | `OneWasmEncoder` |
@@ -190,6 +190,7 @@ that builds. A failure names the rule and the legitimate way to change things.
 | Dependency direction | `AquariusCore` references no project and no host/native package (Silk.NET, Wasmtime, ClearScript, ONNX Runtime, Magick, Tomlyn, Jolt); `AquariusPackaging` depends only on core; hosts depend on core, never the reverse. | `CoreDependsOnNoHostOrProject`, `PackagingDependsOnlyOnCore` |
 | Library admission | Bundled computational libraries execute in Wasm ([requirement](docs/external-libraries.md#requirement-for-future-libraries)); only documented host capabilities may be `HostCapability`. | `BundledComputationalLibrariesExecuteInWasm`, `ExternalLibraryTest` |
 | Hosts contain no mirroring algorithm | Mirror freshness, release of dropped guest objects and change tracking are runtime decisions (`aqua_stale`, `aqua_take_released`, `aqua_take_dirty_*`, weak mirrors, borrowed array views); host scopes are live views of guest scopes, never copied. | `HostsTranslateRuntimeMirrorDecisions` |
+| Processing geometry lives in the kernel | Triangulation (including contour holes), stroke joins and caps, ellipses, rounded rectangles, curves and box/sphere meshes are `AquariusCore/graphics/geometry.c` (`geometry.wasm`), so desktop, browser and Android draw the same geometry; hosts keep device, texture, font and window access and upload the kernel's vertex ranges. | `ProcessingGeometryLivesInTheKernel`, `CommittedWasmBinariesRebuildFromSource` |
 | Single source for shared JavaScript | A browser module named like an `AquariusCore/hosting` module only re-exports it. | `BrowserModulesReExportCoreHosting` |
 | One example tree | `examples/` is the single sample tree: desktop builds ship it, tests and scripts read it, and platform variants live inside an example (a `desktop.aqua` entry or a width/platform condition). | `ExamplesHaveOneTree` |
 | Repository hygiene | No IDE/per-user files; Markdown uses repository-relative links, never machine paths (`docs/archive/` excepted). | `NoCommittedIdeOrUserFiles`, `DocsUseRepositoryRelativeLinks` |
@@ -201,7 +202,7 @@ Changing a rule's subject legitimately:
   the generator and its outputs together.
 - Runtime or other committed Wasm: install the toolchain (`scripts/install-wasm-toolchain.ps1`, or
   `install-wasm-toolchain.sh` without PowerShell), rebuild with `scripts/build-wasm-runtime.ps1`,
-  `build-audio-runtime.ps1` or `build-pose-wasm.ps1`, and commit the binary with its source.
+  `build-audio-runtime.ps1`, `build-pose-wasm.ps1` or `build-geometry-wasm.ps1`, and commit the binary with its source.
 - Codegen goldens: after reviewing an intended output change, run
   `AQUARIUS_UPDATE_CODEGEN_GOLDENS=1 dotnet test AquariusTests --filter CompiledOutputMatchesGoldens` and commit
   `AquariusTests/architecture/codegen-goldens.txt`.

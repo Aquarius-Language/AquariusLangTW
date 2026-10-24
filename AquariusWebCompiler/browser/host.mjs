@@ -14,6 +14,7 @@ export class BrowserHost extends CapabilityHost {
   constructor(bundle,options={}) {super(bundle,{...options,adapters:{platform:'web',graphics:abi=>new BrowserWgpuBackend(abi),registerLegacy,register:host=>{host.application=new BrowserApplication(host);registerAudio(host);registerWebcam(host);registerOnnx(host);registerMediaPipe(host);registerBrowserDynamicLibrary(host);registerBrowserNetwork(host);}}});}
   screenSize(){return {width:window.innerWidth,height:window.innerHeight};}
   installProcessingInput(p){installProcessingInput(p);}
+  geometryModule(){return this.geometryCode??=fetch(new URL('./geometry.wasm',import.meta.url)).then(async response=>{if(!response.ok)throw new Error(`Could not load the geometry kernel (${response.status})`);return WebAssembly.compile(await response.arrayBuffer());});}
   async yieldExecution(){
     if(!this.taskChannel){this.taskChannel=new MessageChannel();this.taskWaiters=[];this.taskChannel.port1.onmessage=()=>this.taskWaiters.shift()?.();this.signal.addEventListener('abort',()=>this.cancelYielding(),{once:true});}
     await new Promise(resolve=>{this.taskWaiters.push(resolve);this.taskChannel.port2.postMessage(null);});

@@ -9,7 +9,6 @@
   "dependencies": {
     "onnxruntime-web": "1.30.0",
     "@imagemagick/magick-wasm": "0.0.44",
-    "earcut": "3.0.2",
     "fflate": "0.8.3",
     "gl-matrix": "3.4.4"
   },
