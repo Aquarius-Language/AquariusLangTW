@@ -270,7 +270,7 @@ int rt_pop(Frame*f,int n) { pop(f);return 0; }
 int rt_duplicate(Frame*f,int n) { push(f,peek(f,1));return 0; }
 /* Built-in portable modules: each has an English and a Traditional Chinese global name. */
 static Scope *portable_module(Text*t,const uint16_t**alias) {
-    static const uint16_t *names[][2]={{u"Thread",u"執行緒"},{u"Array",u"陣列"},{u"Hash",u"雜湊"},{u"String",u"字串"}};
+    const uint16_t *const *names[]={thread_module_names,array_module_names,hash_module_names,text_module_names};
     for(u32 i=0;i<4;i++)for(u32 j=0;j<2;j++)if(text_is(t,names[i][j])){
         *alias=names[i][1-j];
         return i==0?thread_library():i==1?array_library():i==2?hash_library():text_library();
@@ -323,12 +323,12 @@ static Value flood_fill(Frame*f,Value*args) {
 }
 int rt_call(Frame*f,int n) {
     if(n<0||(u32)n>=f->sp){failure(f,"Invalid compiled call.");return 1;}u32 base=f->sp-n-1;Value callee=f->values[base];Value*args=f->values+base+1;
-    if(callee.tag==BUILTIN&&callee.ref>=100&&callee.ref<=107){
+    if(callee.tag==BUILTIN&&callee.ref>=THREAD_FIRST_ID&&callee.ref<THREAD_FIRST_ID+THREAD_COUNT){
         if(!thread_arguments(f,callee.ref,args,n))return 1;
         Value out=empty;int pending=host_service(4,f->context,callee.ref,0,address(args),n,address(&out));f->sp=base;
         if(pending==1){f->pending_base=base;f->pending_count=n+1;f->execution->status=2;}else push(f,out);
     }
-    else if(callee.tag==BUILTIN&&callee.ref>=6&&callee.ref<=45){Value out=callee.ref<=19?array_call(f,callee.ref,args,n):callee.ref<=29?hash_call(f,callee.ref,args,n):text_call(f,callee.ref,args,n);f->sp=base;push(f,out);}
+    else if(callee.tag==BUILTIN&&callee.ref>=ARRAY_FIRST_ID&&callee.ref<TEXT_FIRST_ID+TEXT_COUNT){Value out=callee.ref<HASH_FIRST_ID?array_call(f,callee.ref,args,n):callee.ref<TEXT_FIRST_ID?hash_call(f,callee.ref,args,n):text_call(f,callee.ref,args,n);f->sp=base;push(f,out);}
     else if(callee.tag==BUILTIN){Value out=empty;if(callee.ref<1||callee.ref>5||n!=(callee.ref==5?6:callee.ref==4?2:1)){failure(f,"Incorrect builtin argument count.");return 1;}Value a=args[0];
         if(callee.ref==5)out=flood_fill(f,args);
         else if(callee.ref==1){if(a.tag==STRING)out=number(((Text*)pointer(a.ref))->length,INT);else if(a.tag==ARRAY)out=number(((Array*)pointer(a.ref))->count,INT);else if(a.tag==HASH)out=number(((Hash*)pointer(a.ref))->count,INT);else failure(f,"Length requires string, array or hash.");}
