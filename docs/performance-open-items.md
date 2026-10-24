@@ -6,8 +6,8 @@ retired VM. Ranks refer to that review. Update this list when an item lands.
 
 | Rank | Item | Where | Status |
 | ---: | --- | --- | --- |
-| 5 | Reuse GPU vertex/uniform storage and bind groups instead of creating buffers and bind groups per Processing draw | `AquariusDesktop/graphics/WgpuDevice.cs` (`WgpuTarget.Draw`), `AquariusWebCompiler/browser/wgpu.mjs` | Open |
-| 7 | Remove per-vertex and per-matrix packing allocations | `AquariusDesktop/graphics/ProcessingCanvas.cs` (`Draw`), `AquariusDesktop/graphics/WgpuShaders.cs` (`Uniforms`) | Open |
+| 5 | Reuse GPU vertex/uniform storage and bind groups instead of creating buffers and bind groups per Processing draw | `AquariusDesktop/graphics/WgpuDevice.cs` (`WgpuTarget.Draw`), `AquariusWebCompiler/browser/wgpu.mjs` | Done: per-pass upload arenas and the version-cached user group leave one bind group per draw (dynamic offsets would remove that too) |
+| 7 | Remove per-vertex and per-matrix packing allocations | `AquariusDesktop/graphics/ProcessingCanvas.cs` (`Draw`), `AquariusDesktop/graphics/WgpuShaders.cs` (`Uniforms`) | Done for the per-draw vertex and uniform arrays (reused per canvas); vertex lists built by shapes still allocate |
 | 14 | Cache immutable geometry and triangulation (unit spheres by detail, retained shapes) | `AquariusDesktop/graphics/ProcessingDrawing.cs`, `ProcessingShapes.cs` | Open |
 | 15 | Cache unchanged normal matrices and uniform components while model/view are unchanged | `AquariusDesktop/graphics/WgpuShaders.cs` (`Uniforms`) | Open |
 

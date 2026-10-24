@@ -412,6 +412,13 @@ internal unsafe sealed class WgpuTarget : IDisposable {
     private RenderPassEncoder* pass;
     private readonly List<nint> pendingBuffers=new();
     private readonly List<nint> pendingGroups=new();
+    // Per-pass upload arenas: each draw appends its vertices and uniforms at an aligned offset, so a draw keeps its own
+    // snapshot without creating buffers. Offsets rewind after every submit (queue writes are ordered after earlier
+    // submissions). A full arena is replaced by a larger one; the replaced buffer stays alive until this pass is submitted.
+    private GpuBuffer* vertexArena,uniformArena;
+    private ulong vertexCapacity,uniformCapacity,vertexUsed,uniformUsed;
+    // Uniform buffer binding offsets must be multiples of minUniformBufferOffsetAlignment, which WebGPU caps at 256.
+    private const ulong UniformAlignment=256,ArenaLimit=64*1024*1024;
     internal bool Disposed;
     internal WgpuTarget(WgpuDevice device,int width,int height,TextureFormat format=TextureFormat.Rgba8Unorm) {
         Device=device;ColorFormat=format;Color=new(device,width,height,format){SourceTarget=this};depth=new(device,width,height,TextureFormat.Depth24PlusStencil8);
@@ -454,22 +461,32 @@ internal unsafe sealed class WgpuTarget : IDisposable {
         Device.Check();
     }
     internal void ClearStencil() {Flush();Begin(clearStencil:true);}
-    internal void Draw(WgpuShader shader,float[] vertices,float[] uniforms,int mode,int blend,bool threeD,Vector4? clip,WgpuTexture? texture=null,int stencilMode=0,int depthMode=-1,int cull=0) {
+    private ulong Append(ref GpuBuffer* arena,ref ulong capacity,ref ulong used,ReadOnlySpan<float> values,ulong alignment,BufferUsage usage,ulong minimum) {
+        ulong size=(ulong)values.Length*4,offset=(used+alignment-1)/alignment*alignment;
+        if(arena==null||offset+size>capacity) {
+            if(arena!=null)pendingBuffers.Add((nint)arena);
+            capacity=Math.Min(ArenaLimit,Math.Max(Math.Max(minimum,capacity*2),size));
+            arena=Device.Buffer(capacity,usage);offset=0;
+        }
+        fixed(float* p=values)Device.Api.QueueWriteBuffer(Device.Queue,arena,offset,p,(nuint)size);
+        used=offset+size;return offset;
+    }
+    internal void Draw(WgpuShader shader,ReadOnlySpan<float> vertices,ReadOnlySpan<float> uniforms,int mode,int blend,bool threeD,Vector4? clip,WgpuTexture? texture=null,int stencilMode=0,int depthMode=-1,int cull=0) {
         if(shader.Device!=Device||texture!=null&&texture.Device!=Device)throw new ArgumentException("wgpu resources must belong to the same device.");
         if(vertices.Length==0||vertices.Length%12!=0)throw new ArgumentException("Vertices need 12 floats each: position, normal, UV, RGBA.");
         shader.PrepareTextures(this);
         var pipeline=depthMode<0?shader.Pipeline(mode,blend,threeD,samples,stencilMode,ColorFormat):shader.Pipeline(mode,blend,depthMode,samples,stencilMode,ColorFormat,cull,true);
         Begin();var api=Device.Api;
-        var vertex=Device.Floats(vertices,BufferUsage.Vertex);pendingBuffers.Add((nint)vertex);
-        var uniform=Device.Floats(uniforms,BufferUsage.Uniform);pendingBuffers.Add((nint)uniform);
-        var user=Device.Buffer(1024,BufferUsage.Uniform,shader.Uniforms.Bytes);pendingBuffers.Add((nint)user);
-        var entries=stackalloc BindGroupEntry[3];entries[0]=new(){Binding=0,Buffer=uniform,Size=WgpuShaders.UniformBytes};entries[1]=new(){Binding=1,TextureView=(texture??Device.White).View};entries[2]=new(){Binding=2,Sampler=Device.Sampler};
+        ulong vertexOffset=Append(ref vertexArena,ref vertexCapacity,ref vertexUsed,vertices,4,BufferUsage.Vertex,256*1024);
+        ulong uniformOffset=Append(ref uniformArena,ref uniformCapacity,ref uniformUsed,uniforms,UniformAlignment,BufferUsage.Uniform,64*1024);
+        var entries=stackalloc BindGroupEntry[3];entries[0]=new(){Binding=0,Buffer=uniformArena,Offset=uniformOffset,Size=WgpuShaders.UniformBytes};entries[1]=new(){Binding=1,TextureView=(texture??Device.White).View};entries[2]=new(){Binding=2,Sampler=Device.Sampler};
         var descriptor=new BindGroupDescriptor {Layout=Device.DrawingLayout,EntryCount=3,Entries=entries};var group=api.DeviceCreateBindGroup(Device.Handle,&descriptor);pendingGroups.Add((nint)group);
-        var userEntry=new BindGroupEntry {Binding=0,Buffer=user,Size=1024};descriptor=new(){Layout=Device.UserLayout,EntryCount=1,Entries=&userEntry};var userGroup=api.DeviceCreateBindGroup(Device.Handle,&descriptor);pendingGroups.Add((nint)userGroup);
+        // User uniforms are shared per Set version, like retained draws; a new version gets a new group, so each draw keeps its snapshot.
+        var userGroup=shader.UserGroup();
         api.RenderPassEncoderSetPipeline(pass,pipeline);api.RenderPassEncoderSetBindGroup(pass,0,group,0,null);api.RenderPassEncoderSetBindGroup(pass,1,userGroup,0,null);
         var textureGroup=shader.TextureGroup();pendingGroups.Add((nint)textureGroup);api.RenderPassEncoderSetBindGroup(pass,2,textureGroup,0,null);
         api.RenderPassEncoderSetStencilReference(pass,stencilMode==2?0u:1u);
-        api.RenderPassEncoderSetVertexBuffer(pass,0,vertex,0,(ulong)vertices.Length*4);
+        api.RenderPassEncoderSetVertexBuffer(pass,0,vertexArena,vertexOffset,(ulong)vertices.Length*4);
         var bounds=Scissor(Width,Height,clip);api.RenderPassEncoderSetScissorRect(pass,(uint)bounds.X,(uint)bounds.Y,(uint)bounds.Width,(uint)bounds.Height);
         if(bounds.Width>0&&bounds.Height>0)api.RenderPassEncoderDraw(pass,(uint)(vertices.Length/12),1,0,0);
         Device.Check();
@@ -487,6 +504,7 @@ internal unsafe sealed class WgpuTarget : IDisposable {
             // wgpu-native resolves recorded resource IDs at pass end; keep them alive until submission.
             foreach(var group in pendingGroups)Device.Api.BindGroupRelease((BindGroup*)group);pendingGroups.Clear();
             foreach(var buffer in pendingBuffers)Device.Api.BufferRelease((GpuBuffer*)buffer);pendingBuffers.Clear();
+            vertexUsed=0;uniformUsed=0;
         }
     }
     internal byte[] ReadPixels() {
@@ -502,5 +520,9 @@ internal unsafe sealed class WgpuTarget : IDisposable {
             return bytes;
         } finally {Device.Api.BufferRelease(buffer);}
     }
-    public void Dispose() {if(Disposed)return;Flush();Disposed=true;Color.Dispose();depth.Dispose();multisample?.Dispose();Device.Resources.Remove(this);}
+    public void Dispose() {
+        if(Disposed)return;Flush();Disposed=true;Color.Dispose();depth.Dispose();multisample?.Dispose();
+        if(vertexArena!=null)Device.Api.BufferRelease(vertexArena);if(uniformArena!=null)Device.Api.BufferRelease(uniformArena);vertexArena=uniformArena=null;
+        Device.Resources.Remove(this);
+    }
 }

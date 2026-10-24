@@ -114,11 +114,16 @@ internal sealed partial class ProcessingCanvas : IDisposable {
         try{build();}finally{batch=strokeBatch;strokeBatch=null;}
         if(batch.Count>0)Draw(batch,lit:false);
     }
+    // Packing buffers reused by every draw; the target copies them into its upload arenas before Draw returns.
+    private float[] packedVertices=System.Array.Empty<float>();
+    private readonly float[] packedUniforms=new float[WgpuShaders.UniformBytes/4];
     internal void Draw(IReadOnlyList<ProcessingVertex> vertices,int mode=4,ProcessingImage? image=null,bool lit=true,int stencilMode=0) {
         if(vertices.Count==0)return;
         if(strokeBatch!=null&&mode==4&&image==null&&!lit&&stencilMode==0){strokeBatch.AddRange(vertices);return;}
         Bind();image?.Upload(this);
-        var floats=new float[vertices.Count*12];int i=0;
+        int length=vertices.Count*12;
+        if(packedVertices.Length<length)packedVertices=new float[Math.Max(length,packedVertices.Length*2)];
+        var floats=packedVertices;int i=0;
         foreach(var v in vertices) {
             floats[i++]=v.Position.X;floats[i++]=v.Position.Y;floats[i++]=v.Position.Z;
             floats[i++]=v.Normal.X;floats[i++]=v.Normal.Y;floats[i++]=v.Normal.Z;
@@ -126,7 +131,8 @@ internal sealed partial class ProcessingCanvas : IDisposable {
             floats[i++]=v.Color.X;floats[i++]=v.Color.Y;floats[i++]=v.Color.Z;floats[i++]=v.Color.W;
         }
         Vector4? clip=Clip is Vector4 c?new Vector4(c.X*PixelWidth/Width,c.Y*PixelHeight/Height,c.Z*PixelWidth/Width,c.W*PixelHeight/Height):null;
-        Target.Draw(CustomProgram??program!,floats,WgpuShaders.Uniforms(this,image!=null,image?.Premultiplied==true,lit),mode,BlendMode,Is3D,clip,image?.GpuTexture,stencilMode);
+        WgpuShaders.Uniforms(packedUniforms,this,image!=null,image?.Premultiplied==true,lit);
+        Target.Draw(CustomProgram??program!,floats.AsSpan(0,length),packedUniforms,mode,BlendMode,Is3D,clip,image?.GpuTexture,stencilMode);
     }
     internal ProcessingVertex V(Vector3 p,Vector4 color,Vector2 uv=default,Vector3? normal=null) => new(p,normal??Normal,uv,color);
     internal void Polygon(IReadOnlyList<Vector3> points,bool close=true,bool fill=true) {
