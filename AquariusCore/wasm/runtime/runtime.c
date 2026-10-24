@@ -45,7 +45,9 @@ typedef struct Pin { struct Pin *next, *prev; Value value; } Pin;
 __attribute__((import_module("aquarius_v2"), import_name("service")))
 extern int host_service(int operation, int context, int subject, int name, int arguments, int count, int output);
 
-static u32 heap_start, heap_end, free_heads[26];
+static u32 heap_start, heap_end, free_heads[26], free_mask; /* bit c: free_heads[c] is not empty */
+/* A free block being carved sequentially like the bump region; it is on no free list and always a valid FREE block. */
+static Block *carving;
 static Scope *builtin_scopes[65536];
 static u32 builtin_contexts[65536], builtin_context_count;
 static Execution *executions;
@@ -79,7 +81,9 @@ static Value value(u32 tag, u32 ref, double n) { return (Value){tag,ref,n}; }
 static u32 address(const void *p) { return (u32)(uintptr_t)p; }
 static void *pointer(u32 p) { return (void *)(uintptr_t)p; }
 static u32 allocation_class(u32 size) { return 27u-(u32)__builtin_clz(size); }
-static void release(void *p) { if(p&&address(p)>=heap_start){Block*b=(Block*)p-1;if(b->kind==FREE)return;bytes_since_collection=bytes_since_collection>b->size?bytes_since_collection-b->size:0;u32 bucket=allocation_class(b->size);b->kind=FREE;*(u32*)p=free_heads[bucket];free_heads[bucket]=address(b);} }
+static void push_free(Block*b) { u32 c=allocation_class(b->size);*(u32*)(b+1)=free_heads[c];free_heads[c]=address(b);free_mask|=1u<<c; }
+static Block *pop_free(u32 c) { Block*b=pointer(free_heads[c]);free_heads[c]=*(u32*)(b+1);if(!free_heads[c])free_mask&=~(1u<<c);return b; }
+static void release(void *p) { if(p&&address(p)>=heap_start){Block*b=(Block*)p-1;if(b->kind==FREE)return;bytes_since_collection=bytes_since_collection>b->size?bytes_since_collection-b->size:0;b->kind=FREE;push_free(b);} }
 static void initialize_allocation(void *p,u32 n,u32 kind) {
     // Collection scans only committed elements and live stack operands.
     // Constructors fill value/binding buffers completely before a checkpoint.
@@ -95,11 +99,12 @@ static void *allocate(u32 n,u32 kind) {
     bytes_since_collection+=n;
     // Compiled checkpoints poll Execution.poll instead of calling into the runtime every block.
     if(!gc_armed&&collection_due()){gc_armed=1;for(Execution*e=executions;e;e=e->next)e->poll=1;}
-    if(free_heads[bucket]){Block*b=pointer(free_heads[bucket]);free_heads[bucket]=*(u32*)(b+1);b->kind=kind;b->marked=0;initialize_allocation(b+1,b->size,kind);return b+1;}
-    // Split the smallest larger free block before growing the heap; the remainder stays free in its own class.
-    for(u32 k=bucket+1;k<26;k++)if(free_heads[k]){
-        Block*b=pointer(free_heads[k]);free_heads[k]=*(u32*)(b+1);u32 rest=b->size-n;
-        if(rest>=sizeof(Block)+16){Block*r=(Block*)((char*)(b+1)+n);r->size=rest-sizeof(Block);r->reserved=0;r->kind=FREE;r->marked=0;u32 c=allocation_class(r->size);*(u32*)(r+1)=free_heads[c];free_heads[c]=address(r);b->size=n;}
+    if(free_mask>>bucket&1){Block*b=pop_free(bucket);b->kind=kind;b->marked=0;initialize_allocation(b+1,b->size,kind);return b+1;}
+    // Otherwise carve the largest free run before growing the heap: sequential allocation with no list operations.
+    if(!carving||carving->size<n){u32 larger=free_mask&~((2u<<bucket)-1u);if(larger){if(carving)push_free(carving);carving=pop_free(31u-(u32)__builtin_clz(larger));}}
+    if(carving&&carving->size>=n){
+        Block*b=carving;u32 rest=b->size-n;carving=0;
+        if(rest>=sizeof(Block)+16){Block*r=(Block*)((char*)(b+1)+n);r->size=rest-sizeof(Block);r->reserved=0;r->kind=FREE;r->marked=0;carving=r;b->size=n;}
         b->kind=kind;b->marked=0;initialize_allocation(b+1,b->size,kind);return b+1;
     }
     if(n>512u*1024*1024-heap_end-sizeof(Block))__builtin_trap();
@@ -448,15 +453,15 @@ u32 aqua_collect(void){
     // One pass sweeps, clears survivor marks and rebuilds the segregated free lists, so tiny scopes
     // cannot consume reusable frames.
     // Adjacent free blocks coalesce, and a free run at the top of the heap returns to the bump allocator.
-    memset(free_heads,0,sizeof(free_heads));Block*run=0;
+    memset(free_heads,0,sizeof(free_heads));free_mask=0;carving=0;Block*run=0;
     for(u32 a=heap_start;a<heap_end;){Block*b=pointer(a);a+=sizeof(Block)+b->size;
-        if(b->kind!=FREE){if(b->marked){b->marked=0;live+=b->size;run=0;continue;}if(keep_released(b)){live+=b->size;run=0;continue;}reclaimed+=b->size;b->kind=FREE;}
+        if(b->kind!=FREE){
+            if(b->marked||keep_released(b)){b->marked=0;live+=b->size;if(run){push_free(run);run=0;}continue;}
+            reclaimed+=b->size;b->kind=FREE;
+        }
         if(run)run->size+=sizeof(Block)+b->size;else run=b;
     }
     if(run)heap_end=address(run);
-    for(u32 a=heap_start;a<heap_end;){Block*b=pointer(a);a+=sizeof(Block)+b->size;
-        if(b->kind==FREE){u32 bucket=allocation_class(b->size);*(u32*)(b+1)=free_heads[bucket];free_heads[bucket]=address(b);}
-    }
     // Allow garbage up to the live size, but no more than a quarter of the remaining headroom under the 512 MiB heap
     // limit, so large live sets collect more often instead of running out of memory between collections.
     {u32 limit=512u*1024*1024,headroom=live<limit?(limit-live)/4:0;u32 t=live<headroom?live:headroom;gc_threshold=t>8u*1024*1024?t:8u*1024*1024;}
