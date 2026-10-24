@@ -37,6 +37,8 @@ _Static_assert(offsetof(Frame, values)==56, "Compiler frame ABI mismatch");
 _Static_assert(offsetof(Execution, status)==28 && offsetof(Execution, budget)==24 && offsetof(Execution, poll)==36 && offsetof(Execution, numeric_closure)==40, "Compiler execution ABI mismatch");
 _Static_assert(sizeof(Function)==40, "Function layout mismatch");
 _Static_assert(sizeof(Value)==16 && sizeof(Binding)==24 && offsetof(Binding,value)==8, "Host value/binding ABI mismatch");
+/* Every offset the C# emitters and hosts use (RuntimeLayout), checked here; see native/generate_runtime_layout.py. */
+#include "layout.h"
 typedef struct Pin { struct Pin *next; Value value; } Pin;
 
 __attribute__((import_module("aquarius_v2"), import_name("service")))
