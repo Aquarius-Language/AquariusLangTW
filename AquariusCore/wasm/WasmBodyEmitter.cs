@@ -21,7 +21,6 @@ namespace AquariusLang.Wasm;
 /// </summary>
 internal sealed class WasmBodyEmitter
 {
-    internal const int RegisterLimit = 64;
     private const int Unknown = WasmScopePlan.Unknown;
     private const double IntMin = -2147483648d, IntLimit = 2147483648d;
 
@@ -66,7 +65,6 @@ internal sealed class WasmBodyEmitter
         f64Count = next - x;
     }
 
-    internal static bool Supports(int capacity) => capacity <= RegisterLimit;
 
     internal static void Emit(BinaryWriter w, LoweredProgram body, IReadOnlyDictionary<string, int> helpers, int pool, WasmScopePlan plan, int capacity)
         => new WasmBodyEmitter(w, body, helpers, pool, plan, capacity).Emit();

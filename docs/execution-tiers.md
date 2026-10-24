@@ -48,8 +48,11 @@ before every resumable exit, so a suspended frame always has the exact generic
 layout. A comparison followed by a branch is fused. Branch arms merge their virtual
 stack states; values that are only popped are not spilled at edges.
 
-The emitter is dry-run first; any body it cannot represent (`InvalidOperationException`)
-is emitted by the previous emitter. Both emitters produce the same frame layout.
+`WasmBodyEmitter` emits every body, at any operand stack depth; `WasmScopePlan` is the one
+identifier resolver all bodies use. Unoptimized compilation (the differential tests' reference)
+uses a plan that keeps every scope dynamic. If the emitter rejects a promoted plan
+(`InvalidOperationException`, reported by `AQUARIUS_WASM_TIER_DIAGNOSTICS=1`), the body is emitted
+with the dynamic plan instead.
 
 ## Execution fuel (`WasmFuel`)
 
@@ -85,9 +88,13 @@ fast entry for functions that keep failing.
 
 ## Garbage collector
 
-Explicitly released blocks are subtracted from the allocation counter, the next
-threshold is `max(8 MB, live bytes)`, and the sweep is a single pass that clears
-marks and rebuilds free lists. Variable-size `memset` is avoided on hot paths
+Blocks tile the heap contiguously. The sweep is a single pass by address that clears marks,
+coalesces adjacent free blocks into runs, files each run in its size class (a bitmask finds
+non-empty classes) and returns a trailing run to the bump pointer. An allocation that misses
+its exact class carves the largest free run sequentially before growing the heap. A collection
+is due when net allocation (explicit releases subtract) or heap growth (they do not) reaches the
+threshold `max(8 MB, min(live bytes, (512 MiB - live bytes) / 4))`. Hosts that opt into weak
+mirrors receive dropped exposed arrays and hashes on a released list instead of pinning them. Variable-size `memset` is avoided on hot paths
 because engines lower `memory.fill` to an out-of-line call.
 
 ## Compatibility
