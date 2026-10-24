@@ -35,8 +35,8 @@ public sealed partial class WasmRuntime
                     if (threads.Count >= 64) throw new InvalidOperationException("Close threads before starting more (limit: 64).");
                     var backend = ThreadBackendFactory?.Invoke() ?? throw new NotSupportedException("This host has no threading backend.");
                     int closure = Int(arguments + 4), array = count == 2 ? Int(arguments + 20) : 0;
-                    int items = array == 0 ? 0 : Call("aqua_array_values", array), length = array == 0 ? 0 : Call("aqua_array_count", array);
-                    byte[] snapshot = instance.Memory(0, Call("aqua_thread_snapshot_size")).ToArray();
+                    int items = array == 0 ? 0 : exports.ArrayValues(array), length = array == 0 ? 0 : exports.ArrayCount(array);
+                    byte[] snapshot = instance.Memory(0, exports.ThreadSnapshotSize()).ToArray();
                     var handle = new ThreadHandle(this, backend.Start(token => RunThread(engine, Program, snapshot, closure, items, length, token)));
                     threads.Add(handle); Write(output, handle); return 0;
                 }
@@ -52,9 +52,9 @@ public sealed partial class WasmRuntime
                 }
                 var worker = h.Worker ?? throw new InvalidOperationException("Thread is closed.");
                 if (operation == 102) {
-                    byte[] packet = worker.Result(); int p = Call("aqua_allocate", packet.Length); packet.CopyTo(instance.Memory(p, packet.Length));
-                    int cell = Call("aqua_thread_decode", p); if (cell == 0) throw new InvalidOperationException("Invalid thread result packet.");
-                    instance.Memory(cell, 16).CopyTo(instance.Memory(output, 16)); Call("aqua_thread_free_packet", p); return 0;
+                    byte[] packet = worker.Result(); int p = exports.Allocate(packet.Length); packet.CopyTo(instance.Memory(p, packet.Length));
+                    int cell = exports.ThreadDecode(p); if (cell == 0) throw new InvalidOperationException("Invalid thread result packet.");
+                    instance.Memory(cell, 16).CopyTo(instance.Memory(output, 16)); exports.ThreadFreePacket(p); return 0;
                 }
                 Write(output, new BooleanObj(operation switch { 101 => worker.Wait(timeout), 103 => worker.Cancel(), 105 => worker.IsDone, _ => throw new InvalidOperationException("Unknown thread operation.") }));
             } catch (Exception error) { Write(output, new ErrorObj("Thread: " + (error is OperationCanceledException ? "Execution cancelled." : error.Message))); }

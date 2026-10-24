@@ -23,7 +23,34 @@ public sealed class WasmProgram
     private readonly byte[] bytes;
     public ReadOnlyMemory<byte> Bytes => bytes;
     public WasmMetadata Metadata { get; }
+    private HashSet<string>? exports;
     internal WasmProgram(byte[] bytes, WasmMetadata metadata) { this.bytes = bytes; Metadata = metadata; }
+    /// <summary>Whether the module exports a function of this name. Older ABI 2 artifacts lack some additive exports.</summary>
+    public bool HasExport(string name) => (exports ??= ReadExports()).Contains(name);
+    private HashSet<string> ReadExports()
+    {
+        var names = new HashSet<string>(StringComparer.Ordinal);
+        int position = 8;
+        uint ReadUnsigned() {
+            uint result = 0; int shift = 0; byte value;
+            do { value = bytes[position++]; result |= (uint)(value & 127) << shift; shift += 7; } while ((value & 128) != 0);
+            return result;
+        }
+        while (position < bytes.Length) {
+            byte id = bytes[position++]; int length = (int)ReadUnsigned(), end = checked(position + length);
+            if (id == 7) {
+                uint count = ReadUnsigned();
+                for (uint i = 0; i < count; i++) {
+                    int nameLength = (int)ReadUnsigned(); string name = Encoding.UTF8.GetString(bytes, position, nameLength); position += nameLength;
+                    byte kind = bytes[position++]; ReadUnsigned();
+                    if (kind == 0) names.Add(name);
+                }
+                break;
+            }
+            position = end;
+        }
+        return names;
+    }
     internal static byte[] SerializeMetadata(WasmMetadata metadata) => JsonSerializer.SerializeToUtf8Bytes(metadata, JsonOptions);
     /// <summary>Retain executable sections and asset paths while a deployment host stores asset bytes separately.</summary>
     public WasmProgram WithExternalAssets() {

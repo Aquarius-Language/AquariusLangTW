@@ -21,4 +21,11 @@ public interface IWasmInstance : IDisposable
 {
     int Invoke(string name, params int[] arguments);
     Span<byte> Memory(int address, int length);
+    // Typed exports are bound once and called without a name lookup or argument array. Engines override
+    // these with direct bindings; wrappers that only implement Invoke keep observing every call.
+    Func<int> Export(string name) => () => Invoke(name);
+    Func<int, int> Export1(string name) => a => Invoke(name, a);
+    Func<int, int, int> Export2(string name) => (a, b) => Invoke(name, a, b);
+    Func<int, int, int, int> Export3(string name) => (a, b, c) => Invoke(name, a, b, c);
+    Func<int, int, int, int, int> Export4(string name) => (a, b, c, d) => Invoke(name, a, b, c, d);
 }

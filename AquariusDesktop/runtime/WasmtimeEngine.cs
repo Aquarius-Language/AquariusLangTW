@@ -72,6 +72,32 @@ public sealed class WasmtimeEngine : IWasmEngine
             catch (WasmtimeException e) when (e.InnerException != null) { ExceptionDispatchInfo.Capture(e.InnerException).Throw(); throw; }
             finally { RefreshMemory(); }
         }
+        private Function ExportFunction(string name) {
+            ObjectDisposedException.ThrowIf(disposed, this);
+            return instance.GetFunction(name) ?? throw new InvalidDataException($"Missing Wasm runtime export: {name}");
+        }
+        // Same exception and memory-refresh contract as Invoke, without the name lookup and argument array.
+        private Exception Unwrap(WasmtimeException e) { ExceptionDispatchInfo.Capture(e.InnerException!).Throw(); return e; }
+        public Func<int> Export(string name) {
+            var f = ExportFunction(name).WrapFunc<int>(); if (f == null) return () => Invoke(name);
+            return () => { ObjectDisposedException.ThrowIf(disposed, this); try { return f(); } catch (WasmtimeException e) when (e.InnerException != null) { throw Unwrap(e); } finally { RefreshMemory(); } };
+        }
+        public Func<int, int> Export1(string name) {
+            var f = ExportFunction(name).WrapFunc<int, int>(); if (f == null) return a => Invoke(name, a);
+            return a => { ObjectDisposedException.ThrowIf(disposed, this); try { return f(a); } catch (WasmtimeException e) when (e.InnerException != null) { throw Unwrap(e); } finally { RefreshMemory(); } };
+        }
+        public Func<int, int, int> Export2(string name) {
+            var f = ExportFunction(name).WrapFunc<int, int, int>(); if (f == null) return (a, b) => Invoke(name, a, b);
+            return (a, b) => { ObjectDisposedException.ThrowIf(disposed, this); try { return f(a, b); } catch (WasmtimeException e) when (e.InnerException != null) { throw Unwrap(e); } finally { RefreshMemory(); } };
+        }
+        public Func<int, int, int, int> Export3(string name) {
+            var f = ExportFunction(name).WrapFunc<int, int, int, int>(); if (f == null) return (a, b, c) => Invoke(name, a, b, c);
+            return (a, b, c) => { ObjectDisposedException.ThrowIf(disposed, this); try { return f(a, b, c); } catch (WasmtimeException e) when (e.InnerException != null) { throw Unwrap(e); } finally { RefreshMemory(); } };
+        }
+        public Func<int, int, int, int, int> Export4(string name) {
+            var f = ExportFunction(name).WrapFunc<int, int, int, int, int>(); if (f == null) return (a, b, c, d) => Invoke(name, a, b, c, d);
+            return (a, b, c, d) => { ObjectDisposedException.ThrowIf(disposed, this); try { return f(a, b, c, d); } catch (WasmtimeException e) when (e.InnerException != null) { throw Unwrap(e); } finally { RefreshMemory(); } };
+        }
         private static Func<int[], int> Bind(Function function, int arity)
         {
             // Every runtime export takes i32 arguments and returns one i32; other shapes use the boxed path.

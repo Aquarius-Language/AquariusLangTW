@@ -84,6 +84,7 @@ public sealed partial class WasmRuntime : IDisposable
     {
         internal readonly WasmProgram Program;
         private readonly IWasmInstance instance;
+        private readonly WasmRuntimeExports exports;
         private readonly int quantum;
         private readonly bool deferredCollections;
         private bool disposed;
@@ -117,13 +118,12 @@ public sealed partial class WasmRuntime : IDisposable
                 { ["service"] = (Func<int, int, int, int, int, int, int, int>)((op, context, subject, name, arguments, count, output) =>
                     owner.TryGetTarget(out var session) ? session.Service(op, context, subject, name, arguments, count, output)
                         : throw new ObjectDisposedException(nameof(WasmRuntime))) });
-            Call("aqua_initialize", program.Metadata.HeapStart);
+            exports = new WasmRuntimeExports(instance);
+            exports.Initialize(program.Metadata.HeapStart);
             // 舊編譯成果未匯出此功能，仍沿用原本唯讀雜湊表的主機行為。
-            try { mutableHashes = Call("aqua_hash_write_support") != 0; }
-            catch (InvalidDataException) { mutableHashes = false; }
+            mutableHashes = program.HasExport("aqua_hash_write_support") && Call("aqua_hash_write_support") != 0;
             // Additive exports: older ABI 2 artifacts retain eager collection.
-            try { Call("aqua_collection_generation"); deferredCollections = true; }
-            catch (InvalidDataException) { deferredCollections = false; }
+            deferredCollections = program.HasExport("aqua_collection_generation");
         }
         ~Session() { try { Dispose(); } catch { /* Finalization cannot report native cleanup failures. */ } }
         public void Dispose()
@@ -144,60 +144,60 @@ public sealed partial class WasmRuntime : IDisposable
         private int Text(string text, bool intern = true)
         {
             if (texts.TryGetValue(text, out int address)) return address;
-            address = Call("aqua_text", text.Length); Encoding.Unicode.GetBytes(text).CopyTo(instance.Memory(address + 4, text.Length * 2));
-            if (intern) { int cell = Call("aqua_value"); WriteRaw(cell, 5, address); Call("aqua_pin", cell); texts.Add(text, address); } return address;
+            address = exports.Text(text.Length); Encoding.Unicode.GetBytes(text).CopyTo(instance.Memory(address + 4, text.Length * 2));
+            if (intern) { int cell = exports.Value(); WriteRaw(cell, 5, address); exports.Pin(cell); texts.Add(text, address); } return address;
         }
         private void WriteRaw(int address, int tag, int reference = 0, double number = 0) { Int(address, tag); Int(address + 4, reference); Number(address + 8, number); }
         private int Native(IObject value) { if (nativeIds.TryGetValue(value, out int id)) return id; id = freeNativeIds.TryPop(out int reused) ? reused : natives.Count; if (id >= 65536) throw new InvalidOperationException("Native resource table capacity exceeded."); nativeIds.Add(value, id); if (id == natives.Count) natives.Add(value); else natives[id] = value; return id; }
         private void Lease(IObject value, int address, int tag, int reference)
         {
             Origins.Remove(value); Origins.Add(value, new Origin(this, tag, reference));
-            int pin = Call("aqua_pin", address); leases.Add((new WeakReference<IObject>(value), pin));
+            int pin = exports.Pin(address); leases.Add((new WeakReference<IObject>(value), pin));
             objects[(tag, reference)] = new(value);
-            if (tag == 6) Call("aqua_array_expose", reference);
-            if (tag == 7 && mutableHashes) Call("aqua_hash_expose", reference);
+            if (tag == 6) exports.ArrayExpose(reference);
+            if (tag == 7 && mutableHashes) exports.HashExpose(reference);
         }
         private void Collect(bool force = true)
         {
             bool released = false;
-            for (int i = leases.Count - 1; i >= 0; i--) if (!leases[i].Owner.TryGetTarget(out _)) { Call("aqua_unpin", leases[i].Pin); leases.RemoveAt(i); released = true; }
-            for (int i = scopeLeases.Count - 1; i >= 0; i--) if (!scopeLeases[i].Owner.TryGetTarget(out _)) { Call("aqua_unpin", scopeLeases[i].Pin); scopeLeases.RemoveAt(i); released = true; }
-            if (deferredCollections && !force && !released && Call("aqua_collection_due") == 0) return;
-            int generation = deferredCollections ? Call("aqua_collection_generation") : 0;
-            Call("aqua_collect");
+            for (int i = leases.Count - 1; i >= 0; i--) if (!leases[i].Owner.TryGetTarget(out _)) { exports.Unpin(leases[i].Pin); leases.RemoveAt(i); released = true; }
+            for (int i = scopeLeases.Count - 1; i >= 0; i--) if (!scopeLeases[i].Owner.TryGetTarget(out _)) { exports.Unpin(scopeLeases[i].Pin); scopeLeases.RemoveAt(i); released = true; }
+            if (deferredCollections && !force && !released && exports.CollectionDue() == 0) return;
+            int generation = deferredCollections ? exports.CollectionGeneration() : 0;
+            exports.Collect();
             // Stale trace results must never release live capabilities.
-            if (deferredCollections && Call("aqua_collection_generation") == generation)
+            if (deferredCollections && exports.CollectionGeneration() == generation)
                 throw new InvalidOperationException("Guest collection did not refresh native liveness.");
-            for (int i = 1; i < natives.Count; i++) if (natives[i] is { } native && Call("aqua_native_live", i) == 0) { nativeIds.Remove(native); natives[i] = null; freeNativeIds.Push(i); }
+            for (int i = 1; i < natives.Count; i++) if (natives[i] is { } native && exports.NativeLive(i) == 0) { nativeIds.Remove(native); natives[i] = null; freeNativeIds.Push(i); }
         }
         internal IEnumerable<IObject> NativeRoots()
         {
-            Collect(); for (int i = 1; i < natives.Count; i++) if (Call("aqua_native_live", i) != 0 && natives[i] != null) yield return natives[i]!;
+            Collect(); for (int i = 1; i < natives.Count; i++) if (exports.NativeLive(i) != 0 && natives[i] != null) yield return natives[i]!;
             foreach (var arguments in nativeArguments) foreach (var value in arguments) yield return value;
         }
         private int EncodeScope(AquaEnvironment environment)
         {
             if (scopes.TryGetValue(environment, out var existing)) return existing.Address;
-            int outer = environment.Outer == null ? 0 : EncodeScope(environment.Outer), scope = Call("aqua_scope", outer); scopes.Add(environment, new(scope));
-            int root = Call("aqua_value"); WriteRaw(root, 9, scope); scopeLeases.Add((new(environment), scope, Call("aqua_pin", root), true));
+            int outer = environment.Outer == null ? 0 : EncodeScope(environment.Outer), scope = exports.Scope(outer); scopes.Add(environment, new(scope));
+            int root = exports.Value(); WriteRaw(root, 9, scope); scopeLeases.Add((new(environment), scope, exports.Pin(root), true));
             foreach (var binding in environment.OwnedBindings) Set(scope, binding.Key, binding.Value); return scope;
         }
-        private void Set(int scope, string name, IObject? value) { int cell = Call("aqua_value"); Write(cell, value); Call("aqua_scope_set", scope, Text(name), cell); }
+        private void Set(int scope, string name, IObject? value) { int cell = exports.Value(); Write(cell, value); exports.ScopeSet(scope, Text(name), cell); }
         private IReadOnlyDictionary<string, IObject> Bindings(int scope)
         {
-            var result = new Dictionary<string, IObject>(); int count = Call("aqua_scope_count", scope);
-            for (int i = 0; i < count; i++) { int binding = Call("aqua_scope_binding", scope, i); result.Add(Text(Int(binding)), Read(binding + 8)!); } return result;
+            var result = new Dictionary<string, IObject>(); int count = exports.ScopeCount(scope);
+            for (int i = 0; i < count; i++) { int binding = exports.ScopeBinding(scope, i); result.Add(Text(Int(binding)), Read(binding + 8)!); } return result;
         }
         private AquaEnvironment Project(int scope)
         {
             if (projectedScopes.TryGetValue(scope, out var cached) && cached.TryGetTarget(out var found)) return found;
             int outer = Int(scope);
             var environment = outer == 0 ? AquaEnvironment.NewEnvironment() : AquaEnvironment.NewEnclosedEnvironment(Project(outer)); projectedScopes[scope] = new(environment); scopes.Add(environment, new(scope));
-            int root = Call("aqua_value"); WriteRaw(root, 9, scope); scopeLeases.Add((new(environment), scope, Call("aqua_pin", root), false));
+            int root = exports.Value(); WriteRaw(root, 9, scope); scopeLeases.Add((new(environment), scope, exports.Pin(root), false));
             environment.ExternalBindings = () => Bindings(scope);
-            environment.ExternalLookup = name => { int cell = Call("aqua_scope_get", scope, Text(name)); return (cell != 0, cell == 0 ? null : Read(cell)); };
+            environment.ExternalLookup = name => { int cell = exports.ScopeGet(scope, Text(name)); return (cell != 0, cell == 0 ? null : Read(cell)); };
             environment.ExternalCreate = (name, value) => Set(scope, name, value);
-            environment.ExternalSet = (name, value) => { int cell = Call("aqua_value"); Write(cell, value); if (Call("aqua_scope_assign", scope, Text(name), cell) == 0) throw new KeyNotFoundException($"Identifier not found: {name}"); }; return environment;
+            environment.ExternalSet = (name, value) => { int cell = exports.Value(); Write(cell, value); if (exports.ScopeAssign(scope, Text(name), cell) == 0) throw new KeyNotFoundException($"Identifier not found: {name}"); }; return environment;
         }
         private void SynchronizeIn() { foreach (var pair in scopeLeases.ToArray()) if (pair.Mirror && pair.Owner.TryGetTarget(out var environment)) foreach (var binding in environment.OwnedBindings) Set(pair.Address, binding.Key, binding.Value); }
         private void ArrayOwner(IObject? value, AquaEnvironment owner)
@@ -213,10 +213,10 @@ public sealed partial class WasmRuntime : IDisposable
             // 避免修改一個欄位時反覆遞迴走訪整份文件。
             if (mutableHashes) {
                 refreshingDirtyHashes = true;
-                try { while ((reference = Call("aqua_take_dirty_hash")) != 0) Refresh(7, reference); }
+                try { while ((reference = exports.TakeDirtyHash()) != 0) Refresh(7, reference); }
                 finally { refreshingDirtyHashes = false; }
             }
-            while ((reference = Call("aqua_take_dirty_array")) != 0) dirtyArrays.Add(reference);
+            while ((reference = exports.TakeDirtyArray()) != 0) dirtyArrays.Add(reference);
             foreach (int item in dirtyArrays.ToArray())
             {
                 if (!objects.TryGetValue((6, item), out var cached) || !cached.TryGetTarget(out _)) { dirtyArrays.Remove(item); arrayOwners.Remove(item); continue; }
@@ -240,21 +240,21 @@ public sealed partial class WasmRuntime : IDisposable
                 contexts.Add(builtins); contextIds.Add(builtins, context);
             }
             // Anonymous executions have no observable host scope to mirror or pin.
-            int scope = environment == null ? Call("aqua_scope", 0) : EncodeScope(environment);
+            int scope = environment == null ? exports.Scope(0) : EncodeScope(environment);
             if (active?.Contains(this) != true) SynchronizeIn();
-            return Run(Call("aqua_execute", Program.Metadata.ProgramAddress, function, scope, context));
+            return Run(exports.Execute(Program.Metadata.ProgramAddress, function, scope, context));
         }
         internal IObject? Invoke(int callable, IObject[] arguments)
         {
-            if (active?.Contains(this) != true) SynchronizeIn(); int args = Call("aqua_allocate", checked(arguments.Length * 16)); for (int i = 0; i < arguments.Length; i++) Write(args + i * 16, arguments[i]);
-            return Run(Call("aqua_invoke", Int(callable + 4), args, arguments.Length));
+            if (active?.Contains(this) != true) SynchronizeIn(); int args = exports.Allocate(checked(arguments.Length * 16)); for (int i = 0; i < arguments.Length; i++) Write(args + i * 16, arguments[i]);
+            return Run(exports.Invoke(Int(callable + 4), args, arguments.Length));
         }
         private IObject? Run(int execution)
         {
             (active ??= new()).Add(this);
-            try { while (true) { int status = Call("aqua_run", execution, quantum); if (status == 1) { Collect(false); continue; }
-                if (status == 2) throw new InvalidOperationException("Unresolved desktop async operation."); return Read(Call("aqua_result", execution)); } }
-            finally { SynchronizeOut(); Call("aqua_release_execution", execution); active.RemoveAt(active.Count - 1);
+            try { while (true) { int status = exports.Run(execution, quantum); if (status == 1) { Collect(false); continue; }
+                if (status == 2) throw new InvalidOperationException("Unresolved desktop async operation."); return Read(exports.Result(execution)); } }
+            finally { SynchronizeOut(); exports.ReleaseExecution(execution); active.RemoveAt(active.Count - 1);
                 if (deferredCollections && !active.Contains(this)) Collect(); }
         }
         private int Service(int operation, int context, int subject, int name, int arguments, int count, int output)
@@ -293,7 +293,7 @@ public sealed partial class WasmRuntime : IDisposable
         private void Write(int address, IObject? value)
         {
             switch (value) {
-                case ThreadModule: WriteRaw(address, 9, Call("aqua_thread_module")); return;
+                case ThreadModule: WriteRaw(address, 9, exports.ThreadModule()); return;
                 case null: WriteRaw(address, 0); return;
                 case IntegerObj n: WriteRaw(address, 1, number: n.Value); return;
                 case FloatObj n: WriteRaw(address, 2, number: n.Value); return;
@@ -309,14 +309,14 @@ public sealed partial class WasmRuntime : IDisposable
                 WriteRaw(address, origin.Tag, origin.Reference);
                 if (!writing.Add(value)) return;
                 try {
-                    if (value is ArrayObj array) { if (Call("aqua_array_count", origin.Reference) != array.Elements.Length) Call("aqua_array_resize", origin.Reference, array.Elements.Length); int items = Call("aqua_array_values", origin.Reference); WriteElements(items, array.Elements); }
-                    else if (value is HashObj mirroredHash) { Call("aqua_hash_resize", origin.Reference, mirroredHash.Pairs.Count); int items = Call("aqua_hash_pairs", origin.Reference), i = 0; foreach (var pair in mirroredHash.Pairs.Values) { Write(items + i * 32, pair.Key); Write(items + i * 32 + 16, pair.Value); i++; } }
+                    if (value is ArrayObj array) { if (exports.ArrayCount(origin.Reference) != array.Elements.Length) exports.ArrayResize(origin.Reference, array.Elements.Length); int items = exports.ArrayValues(origin.Reference); WriteElements(items, array.Elements); }
+                    else if (value is HashObj mirroredHash) { exports.HashResize(origin.Reference, mirroredHash.Pairs.Count); int items = exports.HashPairs(origin.Reference), i = 0; foreach (var pair in mirroredHash.Pairs.Values) { Write(items + i * 32, pair.Key); Write(items + i * 32 + 16, pair.Value); i++; } }
                 }
                 finally { writing.Remove(value); } return;
             }
-            if (value is ArrayObj a) { int reference = Call("aqua_array", a.Elements.Length); WriteRaw(address, 6, reference); Lease(a, address, 6, reference);
-                int items = Call("aqua_array_values", reference); WriteElements(items, a.Elements); return; }
-            if (value is HashObj hash) { int reference = Call("aqua_hash", hash.Pairs.Count); WriteRaw(address, 7, reference); Lease(hash, address, 7, reference); int items = Call("aqua_hash_pairs", reference), i = 0;
+            if (value is ArrayObj a) { int reference = exports.Array(a.Elements.Length); WriteRaw(address, 6, reference); Lease(a, address, 6, reference);
+                int items = exports.ArrayValues(reference); WriteElements(items, a.Elements); return; }
+            if (value is HashObj hash) { int reference = exports.Hash(hash.Pairs.Count); WriteRaw(address, 7, reference); Lease(hash, address, 7, reference); int items = exports.HashPairs(reference), i = 0;
                 foreach (var pair in hash.Pairs.Values) { Write(items + i * 32, pair.Key); Write(items + i * 32 + 16, pair.Value); i++; } return; }
             if (value is ModuleObj module && scopes.TryGetValue(module._Environment, out var moduleScope)) { WriteRaw(address, 9, moduleScope.Address); Lease(value, address, 9, moduleScope.Address); return; }
             WriteRaw(address, 10, Native(value));
@@ -331,7 +331,7 @@ public sealed partial class WasmRuntime : IDisposable
             if (objects.TryGetValue((tag, reference), out var cached) && cached.TryGetTarget(out var existing)) { if (!refreshingDirtyHashes) Refresh(tag, reference); return existing; }
             IObject result;
             switch (tag) {
-                case 6: var array = new ArrayObj(new IObject[Call("aqua_array_count", reference)]); result = array; objects[(tag, reference)] = new(array); Lease(result, address, tag, reference);
+                case 6: var array = new ArrayObj(new IObject[exports.ArrayCount(reference)]); result = array; objects[(tag, reference)] = new(array); Lease(result, address, tag, reference);
                     Refresh(tag, reference); return result;
                 case 7: var pairs = new Dictionary<HashKey, HashPair>(); result = new HashObj(pairs); objects[(tag, reference)] = new(result); Lease(result, address, tag, reference);
                     Refresh(tag, reference); return result;
@@ -339,7 +339,7 @@ public sealed partial class WasmRuntime : IDisposable
                     var parameters = (metadata.Parameters ?? Array.Empty<string>()).Select(p => new Identifier(new AquariusLang.token.Token { Type = AquariusLang.token.TokenType.IDENT, Literal = p }, p)).ToArray();
                     string display = Program.Metadata.Functions.SelectMany(f => f.Pool).FirstOrDefault(c => c.Type == "function" && c.Function == function)?.Display ?? "";
                     var fn = new FunctionObj(parameters, null, Project(scope), display); result = fn;
-                    int callable = Call("aqua_pin", address); Callables.Add(fn, new Callable(this, callable)); leases.Add((new(fn), callable)); break;
+                    int callable = exports.Pin(address); Callables.Add(fn, new Callable(this, callable)); leases.Add((new(fn), callable)); break;
                 case 9: result = new ModuleObj(Project(reference)); break;
                 default: throw new InvalidOperationException($"Invalid Wasm value tag: {tag}");
             }
@@ -375,13 +375,13 @@ public sealed partial class WasmRuntime : IDisposable
             {
                 if (value is ArrayObj array)
                 {
-                    int count = Call("aqua_array_count", reference); if (array.Elements.Length != count) array.Elements = new IObject[count];
-                    int items = Call("aqua_array_values", reference);
+                    int count = exports.ArrayCount(reference); if (array.Elements.Length != count) array.Elements = new IObject[count];
+                    int items = exports.ArrayValues(reference);
                     if (!ReadIntegerElements(items, array.Elements)) for (int i = 0; i < array.Elements.Length; i++) array.Elements[i] = Read(items + i * 16)!;
                 }
                 else if (value is HashObj hash)
                 {
-                    int items = Call("aqua_hash_pairs", reference), count = Call("aqua_hash_count", reference); hash.Pairs.Clear();
+                    int items = exports.HashPairs(reference), count = exports.HashCount(reference); hash.Pairs.Clear();
                     for (int i = 0; i < count; i++) { var key = Read(items + i * 32)!; hash.Pairs[((IHashable)key).HashKey()] = new HashPair(key, Read(items + i * 32 + 16)!); }
                 }
             }
