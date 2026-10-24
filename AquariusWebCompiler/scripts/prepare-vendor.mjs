@@ -1,5 +1,5 @@
 import {build} from 'esbuild';
-import {copyFile,mkdir} from 'node:fs/promises';
+import {copyFile,mkdir,rm} from 'node:fs/promises';
 import {existsSync} from 'node:fs';
 import {createRequire} from 'node:module';
 import path from 'node:path';
@@ -24,5 +24,7 @@ await build({entryPoints:[path.join(path.dirname(require.resolve('fflate/package
 await copyFile(path.join(path.dirname(require.resolve('fflate')),'../LICENSE'),path.join(root,'browser/vendor-fflate.LICENSE.txt'));
 
 const hostingCore=path.join(root,"../AquariusCore/hosting");await mkdir(hostingCore,{recursive:true});
+// Retired bundles (earcut: Processing tessellation now lives in geometry.wasm).
+for(const dir of [path.join(root,"browser"),hostingCore])for(const name of ["vendor-earcut.mjs","vendor-earcut.LICENSE.txt"])await rm(path.join(dir,name),{force:true});
 for(const name of ["vendor-gl-matrix.mjs","vendor-fflate.mjs","vendor-magick.mjs","vendor-magick.wasm"])await copyFile(path.join(root,"browser",name),path.join(hostingCore,name));
 for(const name of ["vendor-gl-matrix.LICENSE.txt","vendor-fflate.LICENSE.txt","vendor-magick.LICENSE.txt","vendor-magick.NOTICE.txt"])await copyFile(path.join(root,"browser",name),path.join(hostingCore,name));
