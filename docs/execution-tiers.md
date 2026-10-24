@@ -61,8 +61,10 @@ updates with `++` or a compound assignment is kept in an `i32` local while it ho
 acquired lazily (address lookup plus an `INTEGER` tag test), every access to the name in the body goes through
 it, and every barrier (runtime helper, call, return, failure, checkpoint yield and the end of the body) stores
 its number back and drops it; the binding's tag stays `INTEGER`, and resumption starts with zeroed locals, so
-it simply re-acquires. A plain assignment drops the shadow and stores to memory. Unoptimized compilation, the
-differential tests' reference, emits no shadows.
+it simply re-acquires. A plain assignment drops the shadow and stores to memory. Dynamic bindings a body loads
+at least twice and never assigns get read shadows: the whole value (tag, ref, number) is cached in locals on the
+first load after a barrier, and barriers drop it. Unoptimized compilation, the differential tests' reference,
+emits no shadows.
 
 ## Execution fuel (`WasmFuel`)
 

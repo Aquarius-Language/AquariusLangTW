@@ -12,6 +12,11 @@ public class WasmTieredExecutionTest
     // Promoted scopes: conditional declarations, per-iteration resets, shadowing and redeclaration.
     [InlineData("變數 y=5;變數 f=函式(n){如果(n>0){變數 y=1;} y;};[f(0),f(1)];")]
     // Integer shadows of dynamic bindings: calls, closures, type changes, overflow and resumption must all see the binding.
+    // Read shadows: values cached between barriers must follow reassignment by calls and shadowing declarations.
+    [InlineData("變數 n=3;變數 set=函式(){n=10;};變數 t=0;迴圈(變數 i=0;i<5;i++){t+=n;如果(i==2){set();}t+=n;};t;")]
+    [InlineData("變數 a=[1,2,3];變數 swap=函式(){a=[7,8,9];};變數 t=0;迴圈(變數 i=0;i<3;i++){t+=a[i];如果(i==0){swap();}t+=a[i];};t;")]
+    [InlineData("變數 n=1;變數 fs=[];變數 t=0;迴圈(變數 i=0;i<3;i++){t+=n;變數 n=i*10;fs=push(fs,函式(){n;});t+=n;};[t,n,fs[2]()];")]
+    [InlineData("變數 n=2;變數 f=函式(){變數 t=0;迴圈(變數 i=0;i<4;i++){t+=n*n;n=n+1;};[t,n];};f();")]
     [InlineData("變數 c=0;變數 bump=函式(){c+=100;};迴圈(變數 i=0;i<10;i++){c++;如果(i==5){bump();}c+=2;}c;")]
     [InlineData("變數 c=0;變數 get=函式(){c;};變數 seen=0;迴圈(變數 i=0;i<5;i++){c+=3;seen+=get();};[c,seen];")]
     [InlineData("變數 c=0;迴圈(變數 i=0;i<6;i++){c+=1;如果(i==3){c=2.5d;}c+=1;}c;")]

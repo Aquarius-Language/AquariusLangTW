@@ -39,6 +39,8 @@ internal sealed class WasmBodyEmitter
     private readonly Dictionary<int, int> slotRegisters = new();
     // Integer shadows of dynamic bindings (see Shadow): constant -> (valid flag, i32 value, binding value address) locals.
     private readonly Dictionary<int, (int Valid, int Value, int Address)> shadows = new();
+    // Read shadows: dynamic bindings this body only reads, cached as a whole value (valid, tag, ref locals; f64 number local).
+    private readonly Dictionary<int, (int Valid, int Tag, int Ref, int Number)> readShadows = new();
     private readonly int i32Count, f64Count;
 
     private Loc[] loc;
@@ -61,9 +63,12 @@ internal sealed class WasmBodyEmitter
         var registers = plan.RegisterSlots.OrderBy(p => p.Key).ToArray();
         foreach (var (slot, tag) in registers) if (tag == IntTag) slotRegisters.Add(slot, next++);
         if (shadowBindings) foreach (int constant in ShadowCandidates()) { shadows.Add(constant, (next, next + 1, next + 2)); next += 3; }
+        var readOnly = shadowBindings ? ReadShadowCandidates() : System.Array.Empty<int>();
+        foreach (int constant in readOnly) { readShadows.Add(constant, (next, next + 1, next + 2, 0)); next += 3; }
         i32Count = next - 1;
         wide = next++;
         x = next++; y = next++; numberBase = next; next += capacity;
+        foreach (int constant in readOnly) readShadows[constant] = readShadows[constant] with { Number = next++ };
         foreach (var (slot, tag) in registers) if (tag != IntTag) slotRegisters.Add(slot, next++);
         f64Count = next - x;
     }
@@ -315,6 +320,21 @@ internal sealed class WasmBodyEmitter
         }
         return updated.Where(c => !excluded.Contains(c)).OrderBy(c => c).Take(8).ToArray();
     }
+    // Dynamic bindings this body loads at least twice and never assigns: between barriers they cannot change, so the
+    // whole value is cached in locals and loads read the locals.
+    private IEnumerable<int> ReadShadowCandidates()
+    {
+        var loads = new Dictionary<int, int>(); var excluded = new HashSet<int>(shadows.Keys);
+        for (int i = 0; i < body.Code.Length; i++) {
+            if (plan.Depth[i] < 0) continue;
+            var op = body.Code[i];
+            if (op.Code is not (IrOperation.Load or IrOperation.Assign or IrOperation.CompoundAssign or IrOperation.IncrementPrefix or IrOperation.IncrementPostfix)) continue;
+            int key = NameConstant(op.Operand); var access = plan.Accesses[i];
+            bool dynamic = access != null && access.Slots.All(slot => plan.SlotDecl[i]![slot] == WasmScopePlan.No);
+            if (op.Code != IrOperation.Load || !dynamic) excluded.Add(key); else loads[key] = loads.GetValueOrDefault(key) + 1;
+        }
+        return loads.Where(p => p.Value >= 2 && !excluded.Contains(p.Key)).Select(p => p.Key).OrderBy(c => c).Take(8).ToArray();
+    }
     // Loads, assignments and increments name a binding by a string constant; compound assignments by an Assignment
     // constant. Shadows are keyed by the string constant (or by a key no plain access shares).
     private int NameConstant(int constant)
@@ -334,12 +354,13 @@ internal sealed class WasmBodyEmitter
         End(); End();
         End();
     }
-    /// <summary>Writes every valid shadow back to its binding and drops it.</summary>
+    /// <summary>Writes every valid shadow back to its binding and drops it; read shadows are dropped.</summary>
     private void ShadowWriteBack()
     {
         foreach (var shadow in shadows.Values) {
             Get(shadow.Valid); If(); Get(shadow.Address); Get(shadow.Value); ToDouble(); StoreF64(ValueNumber); I32(0); Set(shadow.Valid); End();
         }
+        foreach (var shadow in readShadows.Values) { I32(0); Set(shadow.Valid); }
     }
 
     private void LookupAddress(int constant, WasmBindingSlots.Candidate? candidate)
@@ -426,6 +447,15 @@ internal sealed class WasmBodyEmitter
             Branch(() => { LoadValue(d, A, 0, Unknown); loc[d] = Loc.Reg; return false; },
                 () => { Helper("load", constant, d, 0); LoadValue(d, F, StackOffset(d), Unknown); loc[d] = Loc.Both; return false; });
             return false;
+        }
+        if (readShadows.TryGetValue(constant, out var cached)) {
+            Get(cached.Valid); Op(0x45); If();
+            LookupAddress(constant, access.Dynamic);
+            Get(A); If(); Get(A); LoadI32(ValueTag); Set(cached.Tag); Get(A); LoadI32(ValueRef); Set(cached.Ref); Get(A); LoadF64(ValueNumber); Set(cached.Number); I32(1); Set(cached.Valid); End();
+            End();
+            Get(cached.Valid);
+            Branch(() => { Get(cached.Tag); Set(T(d)); Get(cached.Ref); Set(R(d)); Get(cached.Number); Set(N(d)); loc[d] = Loc.Reg; return false; }, Memory);
+            return;
         }
         if (!Shadowed(constant, out var shadow)) { Memory(); return; }
         ShadowAcquire(constant, shadow, access.Dynamic); Get(shadow.Valid);
