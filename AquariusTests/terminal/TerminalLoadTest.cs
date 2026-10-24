@@ -13,7 +13,8 @@ public class TerminalLoadTest {
     // Output collection must not wait behind that work, or a killed command reports "Child output streams did not close".
     [Fact] public void OutputCollectionDoesNotWaitForTheThreadPool() {
         ThreadPool.GetMinThreads(out int workers, out _);
-        using var release = new ManualResetEventSlim();
+        // Not disposed: queued items may start only after the test ends, and must then pass straight through.
+        var release = new ManualResetEventSlim();
         for (int i = 0; i < workers + 64; i++) ThreadPool.UnsafeQueueUserWorkItem(_ => release.Wait(), null);
         try {
             var backend = new DesktopTerminalBackend();
