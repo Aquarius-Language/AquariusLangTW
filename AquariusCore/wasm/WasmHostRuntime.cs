@@ -327,7 +327,7 @@ public sealed partial class WasmRuntime : IDisposable
             switch (tag) { case 0: return null; case 1: return new IntegerObj((int)number); case 2: return new FloatObj((float)number); case 3: return new DoubleObj(number);
                 case 4: return number != 0 ? RepeatedPrimitives.TRUE : RepeatedPrimitives.FALSE; case 5: return new StringObj(Text(reference)); case 10: return natives[reference];
                 case 11: return RepeatedPrimitives.NULL; case 12: return RepeatedPrimitives.BREAK; case 13: return new ErrorObj(Text(reference));
-                case 14: return contexts.SelectMany(c => c.BuiltinFuncs.Values).FirstOrDefault(f => f.PortableId == reference) ?? ArrayLibrary.Resolve(reference) ?? HashLibrary.Resolve(reference) ?? StringLibrary.Resolve(reference) ?? AquariusLang.Threading.ThreadCatalog.Resolve(reference) ?? throw new InvalidOperationException("Unknown portable builtin."); }
+                case 14: return PortableBuiltin(reference); }
             if (objects.TryGetValue((tag, reference), out var cached) && cached.TryGetTarget(out var existing)) { if (!refreshingDirtyHashes) Refresh(tag, reference); return existing; }
             IObject result;
             switch (tag) {
@@ -337,13 +337,45 @@ public sealed partial class WasmRuntime : IDisposable
                     Refresh(tag, reference); return result;
                 case 8: int function = Int(reference + 4), scope = Int(reference + 8); var metadata = Program.Metadata.Functions[function];
                     var parameters = (metadata.Parameters ?? Array.Empty<string>()).Select(p => new Identifier(new AquariusLang.token.Token { Type = AquariusLang.token.TokenType.IDENT, Literal = p }, p)).ToArray();
-                    string display = Program.Metadata.Functions.SelectMany(f => f.Pool).FirstOrDefault(c => c.Type == "function" && c.Function == function)?.Display ?? "";
+                    string display = Display(function);
                     var fn = new FunctionObj(parameters, null, Project(scope), display); result = fn;
                     int callable = exports.Pin(address); Callables.Add(fn, new Callable(this, callable)); leases.Add((new(fn), callable)); break;
                 case 9: result = new ModuleObj(Project(reference)); break;
                 default: throw new InvalidOperationException($"Invalid Wasm value tag: {tag}");
             }
             objects[(tag, reference)] = new(result); Lease(result, address, tag, reference); return result;
+        }
+        // Display text of a compiled function: its first "function" constant, indexed once per program.
+        private Dictionary<int, string>? displays;
+        private string Display(int function)
+        {
+            if (displays == null) {
+                displays = new Dictionary<int, string>();
+                foreach (var constant in Program.Metadata.Functions.SelectMany(f => f.Pool))
+                    if (constant.Type == "function") displays.TryAdd(constant.Function, constant.Display ?? "");
+            }
+            return displays.TryGetValue(function, out var display) ? display : "";
+        }
+        // Portable builtin tokens by id: the first context's registration wins, then the portable libraries.
+        // A context's index is rebuilt when its registrations change size or a hit is no longer registered.
+        private readonly List<(int Count, Dictionary<int, KeyValuePair<string, BuiltinObj>> Ids)> portableIndex = new();
+        private BuiltinObj PortableBuiltin(int id)
+        {
+            for (int c = 0; c < contexts.Count; c++) {
+                var functions = contexts[c].BuiltinFuncs;
+                if (c == portableIndex.Count) portableIndex.Add((-1, new()));
+                for (int pass = 0; pass < 2; pass++) {
+                    if (pass == 1 || portableIndex[c].Count != functions.Count) {
+                        var ids = new Dictionary<int, KeyValuePair<string, BuiltinObj>>();
+                        foreach (var pair in functions) if (pair.Value.PortableId != 0) ids.TryAdd(pair.Value.PortableId, pair);
+                        portableIndex[c] = (functions.Count, ids);
+                    }
+                    if (!portableIndex[c].Ids.TryGetValue(id, out var entry)) break;
+                    if (functions.TryGetValue(entry.Key, out var current) && ReferenceEquals(current, entry.Value)) return entry.Value;
+                }
+            }
+            return ArrayLibrary.Resolve(id) ?? HashLibrary.Resolve(id) ?? StringLibrary.Resolve(id) ?? AquariusLang.Threading.ThreadCatalog.Resolve(id)
+                ?? throw new InvalidOperationException("Unknown portable builtin.");
         }
         private void WriteElements(int address, IObject[] elements)
         {

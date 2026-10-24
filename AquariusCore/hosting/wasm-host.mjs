@@ -5,6 +5,8 @@ import {hashBuiltin} from './hash-library.mjs';
 import {stringBuiltin} from './string-library.mjs';
 import {ThreadGroup,ThreadPacket,threadBuiltin,threadModule} from './threads.mjs';
 // Shared engine transport: Aquarius values, calls and control flow execute in Wasm.
+// Mirrored guest objects are keyed by number: references are u32 addresses and tags are below 16.
+const objectKey=(tag,reference)=>reference*16+tag;
 export class WasmRuntime {
   get cancelled(){return this._cancelled??false;}
   set cancelled(value){this._cancelled=value;if(value)this.program?.session.threads.cancelPending();}
@@ -52,7 +54,7 @@ class Session {
     if(intern){const cell=this.call('aqua_value');this.raw(cell,5,p);this.call('aqua_pin',cell);this.texts.set(value,p);}return p;
   }
   native(v){if(this.nativeIds.has(v))return this.nativeIds.get(v);const id=this.freeNativeIds.length?this.freeNativeIds.pop():this.natives.length;if(id>=65536)throw new Error('Native resource table capacity exceeded');this.nativeIds.set(v,id);this.natives[id]=v;return id;}
-  lease(v,p,tag,reference){this.runtime.origins.set(v,{session:this,tag,reference});this.objects.set(`${tag}:${reference}`,new WeakRef(v));this.leases.push({owner:new WeakRef(v),pin:this.call('aqua_pin',p)});if(tag===6)this.call('aqua_array_expose',reference);if(tag===7&&this.mutableHashes)this.call('aqua_hash_expose',reference);}
+  lease(v,p,tag,reference){this.runtime.origins.set(v,{session:this,tag,reference});this.objects.set(objectKey(tag,reference),new WeakRef(v));this.leases.push({owner:new WeakRef(v),pin:this.call('aqua_pin',p)});if(tag===6)this.call('aqua_array_expose',reference);if(tag===7&&this.mutableHashes)this.call('aqua_hash_expose',reference);}
   collect(force=true){
     let released=false;
     for(const leases of [this.leases,this.scopeLeases])for(let i=leases.length-1;i>=0;i--)if(!leases[i].owner.deref()){this.call('aqua_unpin',leases[i].pin);leases.splice(i,1);released=true;}
@@ -83,7 +85,7 @@ class Session {
   }
   synchronizeIn(){for(const lease of this.scopeLeases){const env=lease.owner.deref();if(lease.mirror&&env)for(const n of env.owned)this.set(lease.pointer,n,env.store.get(n));}}
   arrayOwner(value,owner){const origin=this.runtime.origins.get(value);if(!Array.isArray(value)||origin?.session!==this)return;let owners=this.arrayOwners.get(origin.reference);if(!owners)this.arrayOwners.set(origin.reference,owners=[]);if(!owners.some(w=>w.deref()===owner))owners.push(new WeakRef(owner));}
-  flushDirty(owner=null){let reference;if(this.mutableHashes){this.refreshingDirtyHashes=true;try{while((reference=this.call('aqua_take_dirty_hash'))!==0){const cached=this.objects.get('7:'+reference)?.deref();if(cached)this.refresh(7,reference,cached);}}finally{this.refreshingDirtyHashes=false;}}while((reference=this.call('aqua_take_dirty_array'))!==0)this.dirtyArrays.add(reference);for(const item of this.dirtyArrays){const cached=this.objects.get(`6:${item}`)?.deref();if(!cached){this.dirtyArrays.delete(item);this.arrayOwners.delete(item);continue;}if(owner&&!this.arrayOwners.get(item)?.some(w=>w.deref()===owner))continue;this.refresh(6,item,cached);this.dirtyArrays.delete(item);}}
+  flushDirty(owner=null){let reference;if(this.mutableHashes){this.refreshingDirtyHashes=true;try{while((reference=this.call('aqua_take_dirty_hash'))!==0){const cached=this.objects.get(objectKey(7,reference))?.deref();if(cached)this.refresh(7,reference,cached);}}finally{this.refreshingDirtyHashes=false;}}while((reference=this.call('aqua_take_dirty_array'))!==0)this.dirtyArrays.add(reference);for(const item of this.dirtyArrays){const cached=this.objects.get(objectKey(6,item))?.deref();if(!cached){this.dirtyArrays.delete(item);this.arrayOwners.delete(item);continue;}if(owner&&!this.arrayOwners.get(item)?.some(w=>w.deref()===owner))continue;this.refresh(6,item,cached);this.dirtyArrays.delete(item);}}
   synchronizeOut(){this.flushDirty();this.refreshingDirtyHashes=true;try{for(const lease of this.scopeLeases){const env=lease.owner.deref();if(lease.mirror&&env)for(const [n,v]of this.bindings(lease.pointer))env.create(n,v);}}finally{this.refreshingDirtyHashes=false;}}
   async run(pointer){
     const state={pointer,session:this,pending:null};let sliceStart=performance.now();this.runtime.executions.add(state);this.running.push(state);
@@ -115,15 +117,25 @@ class Session {
     if(v?.type==='module'&&this.scopes.has(v.scope)){const reference=this.scopes.get(v.scope);this.raw(p,9,reference);this.lease(v,p,9,reference);return;}this.raw(p,10,this.native(v));
   }
   read(p){
-    if(this.int(p)===14){const id=this.int(p+4);for(const context of this.contexts)for(const fn of context.values())if(fn?.[portableBuiltin]===id)return fn;const arrayFn=arrayBuiltin(id)??hashBuiltin(id)??stringBuiltin(id)??threadBuiltin(id);if(arrayFn)return arrayFn;throw new Error('Unknown portable builtin');}
+    if(this.int(p)===14)return this.portableBuiltin(this.int(p+4));
     const tag=this.int(p),reference=this.int(p+4),number=this.view().getFloat64(p+8,true);if(tag===0)return undefined;if(tag>=1&&tag<=3)return num(number,['','int','float','double'][tag]);if(tag===4)return number!==0;if(tag===5)return this.text(reference);if(tag===10)return this.natives[reference];if(tag===11)return null;if(tag===12)return {type:'break'};if(tag===13)throw new Error(this.text(reference));
-    const key=`${tag}:${reference}`,cached=this.objects.get(key)?.deref();if(cached){if(!this.refreshingDirtyHashes)this.refresh(tag,reference,cached);return cached;}
+    const key=objectKey(tag,reference),cached=this.objects.get(key)?.deref();if(cached){if(!this.refreshingDirtyHashes)this.refresh(tag,reference,cached);return cached;}
     let result;if(tag===6){result=new Array(this.call('aqua_array_count',reference));this.objects.set(key,new WeakRef(result));this.lease(result,p,tag,reference);this.reading.add(key);try{this.readArray(reference,result);}finally{this.reading.delete(key);}return result;}
     if(tag===7){result=new Map();this.objects.set(key,new WeakRef(result));this.lease(result,p,tag,reference);this.refresh(tag,reference,result);return result;}
     if(tag===8){const function_=this.int(reference+4),scope=this.int(reference+8),context=this.int(reference+12);result={type:'closure',function:function_,parameters:this.program.metadata.functions[function_].parameters??[],env:this.project(scope),builtins:this.contexts[context],program:this.program};}
     else if(tag===9)result={type:'module',scope:this.project(reference)};else throw new Error(`Invalid Wasm value tag: ${tag}`);this.objects.set(key,new WeakRef(result));this.lease(result,p,tag,reference);return result;
   }
-  refresh(tag,reference,result){const key=`${tag}:${reference}`;if(this.reading.has(key))return;this.reading.add(key);try{
+  // Portable builtin tokens by id: the first context's registration wins, then the portable libraries. A context's
+  // index is rebuilt when its registrations change size or a hit is no longer registered under its name.
+  portableBuiltin(id){
+    this.portableIndex??=[];
+    for(let c=0;c<this.contexts.length;c++){const context=this.contexts[c];
+      for(let pass=0;pass<2;pass++){let index=this.portableIndex[c];
+        if(pass===1||!index||index.size!==context.size){index={size:context.size,ids:new Map()};for(const [name,fn] of context)if(fn?.[portableBuiltin]&&!index.ids.has(fn[portableBuiltin]))index.ids.set(fn[portableBuiltin],[name,fn]);this.portableIndex[c]=index;}
+        const entry=index.ids.get(id);if(!entry)break;if(context.get(entry[0])===entry[1])return entry[1];}}
+    const fn=arrayBuiltin(id)??hashBuiltin(id)??stringBuiltin(id)??threadBuiltin(id);if(fn)return fn;throw new Error('Unknown portable builtin');
+  }
+  refresh(tag,reference,result){const key=objectKey(tag,reference);if(this.reading.has(key))return;this.reading.add(key);try{
     if(Array.isArray(result))this.readArray(reference,result);
     else if(result instanceof Map){const items=this.call('aqua_hash_pairs',reference),count=this.call('aqua_hash_count',reference);result.clear();for(let i=0;i<count;i++){const k=this.read(items+i*32),v=this.read(items+i*32+16);result.set(numeric(k)?`${k.type}:${k.value}`:`${typeof k}:${k}`,[k,v]);}}
   }finally{this.reading.delete(key);}}

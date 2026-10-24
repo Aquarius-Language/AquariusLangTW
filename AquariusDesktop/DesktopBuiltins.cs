@@ -18,6 +18,8 @@ public class DesktopBuiltins : Builtins, IDisposable {
     private readonly Lazy<ModuleObj> hashLibrary = new(HashLibrary.CreateModule);
     private readonly Lazy<ModuleObj> stringLibrary = new(StringLibrary.CreateModule);
     private readonly bool ownsGraphics;
+    // One evaluator serves every sketch callback; compiled callbacks run in the session that created them.
+    private CompiledEvaluator? callbackEvaluator;
     internal Func<string, IObject>? ScriptImport { get; set; }
     internal Func<string, string> ResourceArgument { get; set; } = path => path;
     public DesktopBuiltins() : this(new Lazy<GraphicsRuntime>(() => new GraphicsRuntime()), true) { }
@@ -116,7 +118,7 @@ public class DesktopBuiltins : Builtins, IDisposable {
                             if (callback is BuiltinObj builtin) return builtin.Fn(values);
                             if (callback is not FunctionObj function) return new ErrorObj("Expected an Aquarius function callback.");
                             if (function.Parameters.Length != values.Length) return new ErrorObj($"Callback expects {function.Parameters.Length} arguments, got {values.Length}.");
-                            return CompiledEvaluator.NewInstance(this).Invoke(function, values);
+                            return (callbackEvaluator ??= CompiledEvaluator.NewInstance(this)).Invoke(function, values);
                         };
                         if (services.TryImport(stringObj.Value, out ModuleObj nativeModule)) return nativeModule;
                         if (ScriptImport != null) return ScriptImport(stringObj.Value);
@@ -206,7 +208,10 @@ public class DesktopBuiltins : Builtins, IDisposable {
         _Builtins.Add("currWorkingDir", _Builtins["目前工作目錄"]);
     }
 
-    public void Dispose() { if (ownsGraphics && graphics.IsValueCreated) graphics.Value.Dispose(); }
+    public void Dispose() {
+        try { if (ownsGraphics && graphics.IsValueCreated) graphics.Value.Dispose(); }
+        finally { callbackEvaluator?.Dispose(); callbackEvaluator = null; }
+    }
 
     private ErrorObj checkArgsCount(string funcName, int expected, int actual) {
         if (expected != actual) {
