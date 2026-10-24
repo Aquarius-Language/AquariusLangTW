@@ -78,7 +78,8 @@ public sealed class BottleCache {
                 return existing with { Dependencies = dependencies };
             }
             Write(Path.Combine(stage, "package.json"), package);
-            Directory.CreateDirectory(Path.GetDirectoryName(destination)!); Directory.Move(stage, destination);
+            // A scanner may still hold a just-copied file; wait that out instead of failing the restore.
+            Directory.CreateDirectory(Path.GetDirectoryName(destination)!); AquariusLang.FileSystem.TransientFileLocks.Retry(() => Directory.Move(stage, destination), accessDenied: true);
             return package;
         } finally { if (Directory.Exists(stage)) Directory.Delete(stage, true); }
     }
