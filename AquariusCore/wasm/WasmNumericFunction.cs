@@ -4,6 +4,8 @@ using System.IO;
 using System.Linq;
 using AquariusLang.Compiler;
 using AquariusLang.Object;
+using static AquariusLang.Wasm.RuntimeLayout;
+using static AquariusLang.Wasm.WasmEncoding;
 
 namespace AquariusLang.Wasm;
 
@@ -127,20 +129,20 @@ internal sealed class WasmNumericFunction
         U(w, 3); U(w, 1); w.Write((byte)0x7f); U(w, 1); w.Write((byte)0x7f); U(w, 1); w.Write((byte)0x7c);
         // (args, output, execution) -> status; only scalar arguments enter typed code.
         for (int p = 0; p < Parameters.Length; p++) {
-            Get(w, 0); Memory(w, 0x28, 2, p * 16); Set(w, 4);
+            Get(w, 0); Memory(w, 0x28, 2, p * ValueSize + ValueTag); Set(w, 4);
             Get(w, 4); I(w, 4); w.Write((byte)0x4d); Get(w, 4); I(w, 11); w.Write(new byte[] { 0x46, 0x72, 0x45, 0x04, 0x40 });
             I(w, 0); w.Write(new byte[] { 0x0f, 0x0b });
         }
         if (integerImplementation.HasValue) {
             I(w, 1); Set(w, 4);
             for (int p = 0; p < Parameters.Length; p++) {
-                Get(w, 4); Get(w, 0); Memory(w, 0x28, 2, p * 16); I(w, 1); w.Write(new byte[] { 0x46, 0x71 }); Set(w, 4);
+                Get(w, 4); Get(w, 0); Memory(w, 0x28, 2, p * ValueSize + ValueTag); I(w, IntTag); w.Write(new byte[] { 0x46, 0x71 }); Set(w, 4);
             }
             Get(w, 4); w.Write(new byte[] { 0x04, 0x40 });
             // Also validate the payload so a malformed host value cannot trap or
             // be silently truncated by a representation-changing fast path.
             for (int p = 0; p < Parameters.Length; p++) {
-                Get(w, 0); Memory(w, 0x2b, 3, p * 16 + 8); Set(w, 5);
+                Get(w, 0); Memory(w, 0x2b, 3, p * ValueSize + ValueNumber); Set(w, 5);
                 Get(w, 5); F(w, -2147483648d); w.Write((byte)0x66);
                 Get(w, 5); F(w, 2147483648d); w.Write(new byte[] { 0x63, 0x71, 0x45, 0x04, 0x40 });
                 I(w, 0); w.Write(new byte[] { 0x0f, 0x0b });
@@ -148,10 +150,10 @@ internal sealed class WasmNumericFunction
                 I(w, 0); w.Write(new byte[] { 0x0f, 0x0b });
             }
             Get(w, 2); I(w, 0);
-            for (int p = 0; p < Parameters.Length; p++) { Get(w, 0); Memory(w, 0x2b, 3, p * 16 + 8); w.Write((byte)0xaa); }
+            for (int p = 0; p < Parameters.Length; p++) { Get(w, 0); Memory(w, 0x2b, 3, p * ValueSize + ValueNumber); w.Write((byte)0xaa); }
             w.Write((byte)0x10); U(w, integerImplementation.Value); Set(w, 5); Set(w, 4); Set(w, 3);
             // Status 4: the typed code deoptimized into generic frames; report the outermost one.
-            Get(w, 3); I(w, 4); w.Write(new byte[] { 0x46, 0x04, 0x40 }); Get(w, 1); Get(w, 4); Memory(w, 0x36, 2, 4); I(w, 4); w.Write(new byte[] { 0x0f, 0x0b });
+            Get(w, 3); I(w, 4); w.Write(new byte[] { 0x46, 0x04, 0x40 }); Get(w, 1); Get(w, 4); Memory(w, 0x36, 2, ValueRef); I(w, 4); w.Write(new byte[] { 0x0f, 0x0b });
             // Typed result: integers and booleans arrive as i32, floats and doubles as f64.
             if (integerResult == 1) { Get(w, 4); w.Write((byte)0xb7); Set(w, 5); }
             else if (integerResult == 4) { Get(w, 4); w.Write((byte)0xb8); Set(w, 5); }
@@ -163,13 +165,13 @@ internal sealed class WasmNumericFunction
         if (RecursiveName != null) { I(w, 0); w.Write((byte)0x0f); }
         Get(w, 2); I(w, 0);
         for (int p = 0; p < Parameters.Length; p++) {
-            Get(w, 0); Memory(w, 0x28, 2, p * 16); Get(w, 0); Memory(w, 0x2b, 3, p * 16 + 8);
+            Get(w, 0); Memory(w, 0x28, 2, p * ValueSize + ValueTag); Get(w, 0); Memory(w, 0x2b, 3, p * ValueSize + ValueNumber);
         }
         w.Write((byte)0x10); U(w, implementation); Set(w, 5); Set(w, 4); Set(w, 3);
         if (integerImplementation.HasValue) w.Write((byte)0x0b);
         Get(w, 3); I(w, 1); w.Write(new byte[] { 0x46, 0x04, 0x40 });
-        Get(w, 1); Get(w, 4); Memory(w, 0x36, 2); Get(w, 1); I(w, 0); Memory(w, 0x36, 2, 4);
-        Get(w, 1); Get(w, 5); Memory(w, 0x39, 3, 8); w.Write((byte)0x0b);
+        Get(w, 1); Get(w, 4); Memory(w, 0x36, 2, ValueTag); Get(w, 1); I(w, 0); Memory(w, 0x36, 2, ValueRef);
+        Get(w, 1); Get(w, 5); Memory(w, 0x39, 3, ValueNumber); w.Write((byte)0x0b);
         Get(w, 3); w.Write((byte)0x0b);
     }
 
@@ -228,8 +230,8 @@ internal sealed class WasmNumericFunction
             if (comparison) { I(w, 4); Set(w, leftTag); } else Normalize(leftTag, leftNumber);
         }
         void Fuel() {
-            Get(w, 0); Memory(w, 0x28, 2, 24); w.Write(new byte[] { 0x45, 0x04, 0x40 }); Fail(2); w.Write((byte)0x0b);
-            Get(w, 0); Get(w, 0); Memory(w, 0x28, 2, 24); I(w, 1); w.Write((byte)0x6b); Memory(w, 0x36, 2, 24);
+            Get(w, 0); Memory(w, 0x28, 2, ExecutionBudget); w.Write(new byte[] { 0x45, 0x04, 0x40 }); Fail(2); w.Write((byte)0x0b);
+            Get(w, 0); Get(w, 0); Memory(w, 0x28, 2, ExecutionBudget); I(w, 1); w.Write((byte)0x6b); Memory(w, 0x36, 2, ExecutionBudget);
         }
         int depthLimit = Math.Min(64, Math.Max(2, 1024 / (Variables.Length + Capacity + Parameters.Length * 2 + 8)));
         Get(w, 1); I(w, depthLimit); w.Write(new byte[] { 0x4f, 0x04, 0x40 }); Fail(3); w.Write((byte)0x0b);
@@ -307,10 +309,4 @@ internal sealed class WasmNumericFunction
         w.Write((byte)0x0b);
     }
 
-    private static void U(BinaryWriter w, int n) => WasmCompiler.WriteUnsigned(w.BaseStream, checked((uint)n));
-    private static void I(BinaryWriter w, int n) { w.Write((byte)0x41); bool more; do { byte b = (byte)(n & 127); n >>= 7; more = !(n == 0 && (b & 64) == 0 || n == -1 && (b & 64) != 0); w.Write((byte)(b | (more ? 128 : 0))); } while (more); }
-    private static void F(BinaryWriter w, double n) { w.Write((byte)0x44); w.Write(n); }
-    private static void Get(BinaryWriter w, int local) { w.Write((byte)0x20); U(w, local); }
-    private static void Set(BinaryWriter w, int local) { w.Write((byte)0x21); U(w, local); }
-    private static void Memory(BinaryWriter w, byte op, int align, int offset = 0) { w.Write(op); U(w, align); U(w, offset); }
 }

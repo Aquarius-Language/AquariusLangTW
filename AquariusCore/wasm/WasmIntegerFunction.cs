@@ -4,6 +4,8 @@ using System.IO;
 using System.Linq;
 using AquariusLang.Compiler;
 using AquariusLang.Object;
+using static AquariusLang.Wasm.RuntimeLayout;
+using static AquariusLang.Wasm.WasmEncoding;
 
 namespace AquariusLang.Wasm;
 
@@ -159,8 +161,8 @@ internal sealed class WasmIntegerFunction
         void Fail(int code) { I(w, code); I(w, 0); F(w, 0); w.Write((byte)0x0f); }
         void Fuel() {
             if (deopt != null) return; // Fuel is consumed once at entry, like the generic body's checkpoint.
-            Get(w, 0); Memory(w, 0x28, 2, 24); w.Write(new byte[] { 0x45, 0x04, 0x40 }); Fail(2); w.Write((byte)0x0b);
-            Get(w, 0); Get(w, 0); Memory(w, 0x28, 2, 24); I(w, 1); w.Write((byte)0x6b); Memory(w, 0x36, 2, 24);
+            Get(w, 0); Memory(w, 0x28, 2, ExecutionBudget); w.Write(new byte[] { 0x45, 0x04, 0x40 }); Fail(2); w.Write((byte)0x0b);
+            Get(w, 0); Get(w, 0); Memory(w, 0x28, 2, ExecutionBudget); I(w, 1); w.Write((byte)0x6b); Memory(w, 0x36, 2, ExecutionBudget);
         }
         // Pushes a typed value as f64 (numeric conversion for mixed arithmetic).
         void AsDouble(int type, int i, int f) { if (Wide(type)) Get(w, f); else { Get(w, i); w.Write((byte)0xb7); } }
@@ -171,12 +173,12 @@ internal sealed class WasmIntegerFunction
         }
         // Stores a typed value as a generic Value at frame+offset.
         void StoreValue(int frameLocal, int offset, int type, int i, int f) {
-            Get(w, frameLocal); I(w, type); Memory(w, 0x36, 2, offset);
-            Get(w, frameLocal); if (type == CallableType) { Get(w, 0); Memory(w, 0x28, 2, 40); } else I(w, 0); Memory(w, 0x36, 2, offset + 4);
+            Get(w, frameLocal); I(w, type); Memory(w, 0x36, 2, offset + ValueTag);
+            Get(w, frameLocal); if (type == CallableType) { Get(w, 0); Memory(w, 0x28, 2, ExecutionNumericClosure); } else I(w, 0); Memory(w, 0x36, 2, offset + ValueRef);
             Get(w, frameLocal);
             if (type == IntType) { Get(w, i); w.Write((byte)0xb7); } else if (type == BoolType) { Get(w, i); w.Write((byte)0xb8); }
             else if (Wide(type)) Get(w, f); else F(w, 0);
-            Memory(w, 0x39, 3, offset + 8);
+            Memory(w, 0x39, 3, offset + ValueNumber);
         }
         void NewFrame(int pc, int depth) {
             Get(w, 0); I(w, pc); I(w, depth); w.Write((byte)0x10); U(w, deopt!.FrameHelper); Set(w, frame);
@@ -189,17 +191,17 @@ internal sealed class WasmIntegerFunction
             // Deoptimize at the depth bound, on an exhausted budget (the generic checkpoint then yields)
             // or when a collection is pending; otherwise consume the entry weight like the checkpoint.
             Get(w, 1); I(w, depthLimit); w.Write((byte)0x4f);
-            Get(w, 0); Memory(w, 0x28, 2, 24); w.Write(new byte[] { 0x45, 0x72 });
-            Get(w, 0); Memory(w, 0x28, 2, 36); w.Write(new byte[] { 0x72, 0x04, 0x40 });
+            Get(w, 0); Memory(w, 0x28, 2, ExecutionBudget); w.Write(new byte[] { 0x45, 0x72 });
+            Get(w, 0); Memory(w, 0x28, 2, ExecutionPoll); w.Write(new byte[] { 0x72, 0x04, 0x40 });
             // Entry deoptimization: the generic body starts at its first block and runs its own checkpoint.
             NewFrame(0, 0);
             for (int p = 0; p < plan.Parameters.Length; p++)
-                StoreValue(frame, 56 + 16 * deopt.Slots[variables[plan.Parameters[p]]], IntType, 2 + p, 0);
+                StoreValue(frame, FrameValues + ValueSize * deopt.Slots[variables[plan.Parameters[p]]], IntType, 2 + p, 0);
             I(w, 4); Get(w, frame); F(w, 0); w.Write(new byte[] { 0x0f, 0x0b });
             Get(w, 0);
-            Get(w, 0); Memory(w, 0x28, 2, 24); I(w, deopt.Weight); w.Write((byte)0x6b); I(w, 0);
-            Get(w, 0); Memory(w, 0x28, 2, 24); I(w, deopt.Weight); w.Write(new byte[] { 0x4b, 0x1b });
-            Memory(w, 0x36, 2, 24);
+            Get(w, 0); Memory(w, 0x28, 2, ExecutionBudget); I(w, deopt.Weight); w.Write((byte)0x6b); I(w, 0);
+            Get(w, 0); Memory(w, 0x28, 2, ExecutionBudget); I(w, deopt.Weight); w.Write(new byte[] { 0x4b, 0x1b });
+            Memory(w, 0x36, 2, ExecutionBudget);
         } else {
             int depthLimit = Math.Min(64, Math.Max(2, 1024 / (2 * (nv + ns) + plan.Parameters.Length + 8)));
             Get(w, 1); I(w, depthLimit); w.Write(new byte[] { 0x4f, 0x04, 0x40 }); Fail(3); w.Write((byte)0x0b);
@@ -314,9 +316,9 @@ internal sealed class WasmIntegerFunction
                         if (block < 0) throw new InvalidOperationException("Call continuation is not a generic block.");
                         NewFrame(block, under);
                         for (int vi = 0; vi < nv; vi++)
-                            if (types[vi] >= 0) StoreValue(frame, 56 + 16 * deopt.Slots[vi], types[vi], VarI(vi), VarF(vi));
-                        for (int k = 0; k < under; k++) StoreValue(frame, 56 + 16 * (deopt.Locals + k), stack[k], SlotI(k), SlotF(k));
-                        Get(w, resultI); Get(w, frame); Memory(w, 0x36, 2, 0);
+                            if (types[vi] >= 0) StoreValue(frame, FrameValues + ValueSize * deopt.Slots[vi], types[vi], VarI(vi), VarF(vi));
+                        for (int k = 0; k < under; k++) StoreValue(frame, FrameValues + ValueSize * (deopt.Locals + k), stack[k], SlotI(k), SlotF(k));
+                        Get(w, resultI); Get(w, frame); Memory(w, 0x36, 2, FrameParent);
                         I(w, 4); Get(w, frame); F(w, 0); w.Write(new byte[] { 0x0f, 0x0b });
                     }
                     Get(w, status); I(w, 1); w.Write(new byte[] { 0x47, 0x04, 0x40 }); Get(w, status); I(w, 0); F(w, 0); w.Write(new byte[] { 0x0f, 0x0b });
@@ -368,12 +370,4 @@ internal sealed class WasmIntegerFunction
         IrOperation.Less => 0x63, IrOperation.Greater => 0x64, IrOperation.LessEqual => 0x65, IrOperation.GreaterEqual => 0x66,
         _ => throw new InvalidOperationException("Invalid comparison.") };
 
-    private static void U(BinaryWriter w, int n) => WasmCompiler.WriteUnsigned(w.BaseStream, checked((uint)n));
-    private static void Signed(BinaryWriter w, long n) { bool more; do { byte b = (byte)(n & 127); n >>= 7; more = !(n == 0 && (b & 64) == 0 || n == -1 && (b & 64) != 0); w.Write((byte)(b | (more ? 128 : 0))); } while (more); }
-    private static void I(BinaryWriter w, int n) { w.Write((byte)0x41); Signed(w, n); }
-    private static void L(BinaryWriter w, long n) { w.Write((byte)0x42); Signed(w, n); }
-    private static void F(BinaryWriter w, double v) { w.Write((byte)0x44); w.Write(v); }
-    private static void Get(BinaryWriter w, int local) { w.Write((byte)0x20); U(w, local); }
-    private static void Set(BinaryWriter w, int local) { w.Write((byte)0x21); U(w, local); }
-    private static void Memory(BinaryWriter w, byte op, int align, int offset) { w.Write(op); U(w, align); U(w, offset); }
 }

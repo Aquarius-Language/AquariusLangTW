@@ -6,6 +6,8 @@ using System.Text;
 using AquariusLang.ast;
 using AquariusLang.Object;
 using AquariusLang.Compiler;
+using static AquariusLang.Wasm.RuntimeLayout;
+using static AquariusLang.Wasm.WasmEncoding;
 
 namespace AquariusLang.Wasm;
 
@@ -117,7 +119,7 @@ public sealed class WasmCompiler
         void Section(byte id, Action<BinaryWriter> write)
         {
             using var bytes = new MemoryStream(); using var writer = new BinaryWriter(bytes, Encoding.UTF8, true);
-            write(writer); output.WriteByte(id); WriteUnsigned(output, (uint)bytes.Length); bytes.Position = 0; bytes.CopyTo(output);
+            write(writer); output.WriteByte(id); WasmEncoding.WriteUnsigned(output, (uint)bytes.Length); bytes.Position = 0; bytes.CopyTo(output);
         }
         runtime.Sections[1] = WasmRuntimeImage.Extend(runtime.Sections[1], 2 + numeric.Count + extraTypes, w => {
             w.Write(new byte[] { 0x60, 1, 0x7f, 1, 0x7f });
@@ -136,8 +138,8 @@ public sealed class WasmCompiler
         // Runtime function pointers dispatch compiled Aquarius functions directly.
         using (var table = new MemoryStream()) { using var w = new BinaryWriter(table); U(w, 1); w.Write((byte)0x70); U(w, 0); U(w, bodies.Count + 1 + numeric.Count); runtime.Sections[4] = table.ToArray(); }
         runtime.Sections[7] = WasmRuntimeImage.Extend(runtime.Sections[7], bodies.Count, w =>
-            { for (int i = 0; i < bodies.Count; i++) { Text(w, $"aqua_f{i}"); w.Write((byte)0); U(w, runtime.FunctionCount + i); } });
-        using (var elements = new MemoryStream()) { using var w = new BinaryWriter(elements); U(w, 1); U(w, 0); w.Write((byte)0x41); Signed(w, 1); w.Write((byte)0x0b); U(w, bodies.Count + numeric.Count); for (int i = 0; i < bodies.Count; i++) U(w, runtime.FunctionCount + i); foreach (int adapter in adapterIndices) U(w, adapter); runtime.Sections[9] = elements.ToArray(); }
+            { for (int i = 0; i < bodies.Count; i++) { Name(w, $"aqua_f{i}"); w.Write((byte)0); U(w, runtime.FunctionCount + i); } });
+        using (var elements = new MemoryStream()) { using var w = new BinaryWriter(elements); U(w, 1); U(w, 0); w.Write((byte)0x41); S(w, 1); w.Write((byte)0x0b); U(w, bodies.Count + numeric.Count); for (int i = 0; i < bodies.Count; i++) U(w, runtime.FunctionCount + i); foreach (int adapter in adapterIndices) U(w, adapter); runtime.Sections[9] = elements.ToArray(); }
         runtime.Sections[10] = WasmRuntimeImage.Extend(runtime.Sections[10], bodies.Count + extraFunctions, w =>
         {
             for (int f = 0; f < bodies.Count; f++)
@@ -169,9 +171,9 @@ public sealed class WasmCompiler
             }
         });
         runtime.Sections[11] = WasmRuntimeImage.Extend(runtime.Sections[11], 1, w =>
-            { U(w, 0); w.Write((byte)0x41); Signed(w, WasmRuntimeImage.ProgramAddress); w.Write((byte)0x0b); var payload = data.Bytes; U(w, payload.Length); w.Write(payload); });
+            { U(w, 0); w.Write((byte)0x41); S(w, WasmRuntimeImage.ProgramAddress); w.Write((byte)0x0b); var payload = data.Bytes; U(w, payload.Length); w.Write(payload); });
         foreach (var section in runtime.Sections.OrderBy(p => p.Key)) Section(section.Key, w => w.Write(section.Value));
-        Section(0, w => { Text(w, WasmAbi.MetadataSection); w.Write(WasmProgram.SerializeMetadata(metadata)); });
+        Section(0, w => { Name(w, WasmAbi.MetadataSection); w.Write(WasmProgram.SerializeMetadata(metadata)); });
         return new WasmProgram(output.ToArray(), metadata);
     }
 
@@ -188,58 +190,62 @@ public sealed class WasmCompiler
         var starts = leaders.ToArray(); int count = starts.Length;
         var fuel = WasmFuel.Checkpoints(body);
         int Block(int position) => System.Array.BinarySearch(starts, position);
-        void I(int n) { w.Write((byte)0x41); Signed(w, n); }
+        void I(int n) => WasmEncoding.I(w, n);
         void Call(string name, int? operand = null)
         {
-            w.Write(new byte[] { 0x20, 0 }); I(operand ?? 0);
-            w.Write((byte)0x10); U(w, helpers["rt_" + name]);
+            Get(0); I(operand ?? 0);
+            w.Write(WasmEncoding.Call); U(w, helpers["rt_" + name]);
         }
         void Resume(int n) { I(n); w.Write((byte)0x0f); }
-        void Get(int index) { w.Write((byte)0x20); U(w, index); }
-        void Set(int index) { w.Write((byte)0x21); U(w, index); }
-        void Memory(byte op, int align, int offset = 0) { w.Write(op); U(w, align); U(w, offset); }
-        void F(double value) { w.Write((byte)0x44); w.Write(value); }
-        void Checked() { Get(0); Memory(0x28, 2, 4); Memory(0x28, 2, 28); I(3); w.Write(new byte[] { 0x46, 0x04, 0x40 }); Resume(-1); w.Write((byte)0x0b); }
-        void StackAddress(int offset) { Get(0); Get(0); Memory(0x28, 2, 28); I(4); w.Write(new byte[] { 0x74, 0x6a }); I(offset); w.Write((byte)0x6a); Set(2); }
-        void StackChange(int change) { Get(0); Get(0); Memory(0x28, 2, 28); I(change); w.Write((byte)0x6a); Memory(0x36, 2, 28); }
+        void Get(int index) => WasmEncoding.Get(w, index);
+        void Set(int index) => WasmEncoding.Set(w, index);
+        void Memory(byte op, int align, int offset = 0) => WasmEncoding.Memory(w, op, align, offset);
+        void F(double value) => WasmEncoding.F(w, value);
+        // Locals: 0 frame, 1 continuation, 2 operand address, 3 scope or second operand, 4/5 tags, 6 number, 7 binding/element address.
+        void Checked() { Get(0); Memory(0x28, 2, FrameExecution); Memory(0x28, 2, ExecutionStatus); I(StatusFailed); w.Write(new byte[] { 0x46, 0x04, 0x40 }); Resume(-1); w.Write((byte)0x0b); }
+        // Address of an operand relative to the top of the frame's operand stack (sp counts values; a value is 1 << 4 bytes).
+        void StackAddress(int offset) { Get(0); Get(0); Memory(0x28, 2, FrameSp); I(4); w.Write(new byte[] { 0x74, 0x6a }); I(offset); w.Write((byte)0x6a); Set(2); }
+        void StackChange(int change) { Get(0); Get(0); Memory(0x28, 2, FrameSp); I(change); w.Write((byte)0x6a); Memory(0x36, 2, FrameSp); }
+        const int Push = FrameValues, Top = FrameValues - ValueSize, Second = FrameValues - 2 * ValueSize;
         void Literal(int index) {
-            StackAddress(56);
-            for (int offset = 0; offset <= 8; offset += 8) { Get(2); I(checked(pool + index * 16)); Memory(0x29, 3, offset); Memory(0x37, 3, offset); }
+            StackAddress(Push);
+            for (int offset = 0; offset <= 8; offset += 8) { Get(2); I(checked(pool + index * ValueSize)); Memory(0x29, 3, offset); Memory(0x37, 3, offset); }
             StackChange(1);
         }
-        void NumericTag(int local) { Get(local); I(1); w.Write((byte)0x4f); Get(local); I(3); w.Write(new byte[] { 0x4d, 0x71 }); }
+        void NumericTag(int local) { Get(local); I(IntTag); w.Write((byte)0x4f); Get(local); I(DoubleTag); w.Write(new byte[] { 0x4d, 0x71 }); }
         void NormalizeNumber() {
-            Get(4); I(1); w.Write(new byte[] { 0x46, 0x04, 0x40 });
+            Get(4); I(IntTag); w.Write(new byte[] { 0x46, 0x04, 0x40 });
             Get(6); F(-2147483648d); w.Write((byte)0x66); Get(6); F(2147483648d); w.Write(new byte[] { 0x63, 0x71, 0x04, 0x7c });
             Get(6); w.Write(new byte[] { 0xaa, 0xb7, 0x05 }); F(-2147483648d); w.Write((byte)0x0b); Set(6);
-            w.Write((byte)0x05); Get(4); I(2); w.Write(new byte[] { 0x46, 0x04, 0x40 }); Get(6); w.Write(new byte[] { 0xb6, 0xbb }); Set(6); w.Write(new byte[] { 0x0b, 0x0b });
+            w.Write((byte)0x05); Get(4); I(FloatTag); w.Write(new byte[] { 0x46, 0x04, 0x40 }); Get(6); w.Write(new byte[] { 0xb6, 0xbb }); Set(6); w.Write(new byte[] { 0x0b, 0x0b });
         }
         void CopyValue(int target, int source) {
             for (int offset = 0; offset <= 8; offset += 8) { Get(target); Get(source); Memory(0x29, 3, offset); Memory(0x37, 3, offset); }
         }
+        // Loads the candidate binding slot's address when its name matches; leaves the binding address or 0.
+        void SlotBinding(int constant, WasmBindingSlots.Candidate candidate, int target, byte type) {
+            Get(3); Memory(0x28, 2, ScopeCount); I(candidate.Slot); w.Write(new byte[] { 0x4b, 0x04, type });
+            Get(3); Memory(0x28, 2, ScopeBindings); I(checked(candidate.Slot * BindingSize)); w.Write((byte)0x6a); Set(target);
+            Get(target); Memory(0x28, 2, BindingName); I(checked(pool + constant * ValueSize)); Memory(0x28, 2, ValueRef); w.Write(new byte[] { 0x46, 0x04, type });
+            Get(target); I(BindingValue); w.Write((byte)0x6a);
+        }
         void CandidatePointer(int constant, WasmBindingSlots.Candidate candidate) {
-            Get(0); Memory(0x28, 2, 16); Set(3); // current scope, never a cached guest pointer
+            Get(0); Memory(0x28, 2, FrameScope); Set(3); // current scope, never a cached guest pointer
             // Resolution proves an intervening scope does not declare this name.
             // Until captured, it cannot have been edited by a host or closure.
             for (int depth = 0; depth < candidate.Depth; depth++) {
-                Get(3); Memory(0x28, 2, 16); w.Write(new byte[] { 0x45, 0x04, 0x7f });
-                Get(3); Memory(0x28, 2); Set(3);
+                Get(3); Memory(0x28, 2, ScopeCaptured); w.Write(new byte[] { 0x45, 0x04, 0x7f });
+                Get(3); Memory(0x28, 2, ScopeOuter); Set(3);
             }
-            Get(3); Memory(0x28, 2, 8); I(candidate.Slot); w.Write(new byte[] { 0x4b, 0x04, 0x7f });
-            Get(3); Memory(0x28, 2, 4); I(checked(candidate.Slot * 24)); w.Write((byte)0x6a); Set(2);
-            Get(2); Memory(0x28, 2); I(checked(pool + constant * 16)); Memory(0x28, 2, 4); w.Write(new byte[] { 0x46, 0x04, 0x7f });
-            Get(2); I(8); w.Write((byte)0x6a); w.Write((byte)0x05); I(0); w.Write((byte)0x0b);
+            SlotBinding(constant, candidate, 2, 0x7f); w.Write((byte)0x05); I(0); w.Write((byte)0x0b);
             w.Write((byte)0x05); I(0); w.Write((byte)0x0b);
             for (int depth = 0; depth < candidate.Depth; depth++) { w.Write((byte)0x05); I(0); w.Write((byte)0x0b); }
         }
         void Binding(int constant, WasmBindingSlots.Candidate? candidate) {
             if (candidate == null) { Call("binding", constant); Set(7); Checked(); return; }
             if (candidate.Depth == 0) {
-                Get(0); Memory(0x28, 2, 16); Set(3);
-                Get(3); Memory(0x28, 2, 8); I(candidate.Slot); w.Write(new byte[] { 0x4b, 0x04, 0x7f });
-                Get(3); Memory(0x28, 2, 4); I(checked(candidate.Slot * 24)); w.Write((byte)0x6a); Set(2);
-                Get(2); Memory(0x28, 2); I(checked(pool + constant * 16)); Memory(0x28, 2, 4); w.Write(new byte[] { 0x46, 0x04, 0x7f });
-                Get(2); I(8); w.Write((byte)0x6a); w.Write((byte)0x05); Call("binding", constant); w.Write((byte)0x0b);
+                Get(0); Memory(0x28, 2, FrameScope); Set(3);
+                SlotBinding(constant, candidate, 2, 0x7f); w.Write((byte)0x05); Call("binding", constant); w.Write((byte)0x0b);
                 w.Write((byte)0x05); Call("binding", constant); w.Write((byte)0x0b); Set(7); Checked(); return;
             }
             CandidatePointer(constant, candidate); Set(7);
@@ -248,30 +254,27 @@ public sealed class WasmCompiler
         void LoadBinding(int constant, WasmBindingSlots.Candidate? candidate) {
             if (candidate == null) { Call("load", constant); w.Write((byte)0x1a); Checked(); return; }
             if (candidate.Depth == 0) {
-                Get(0); Memory(0x28, 2, 16); Set(3);
-                Get(3); Memory(0x28, 2, 8); I(candidate.Slot); w.Write(new byte[] { 0x4b, 0x04, 0x40 });
-                Get(3); Memory(0x28, 2, 4); I(checked(candidate.Slot * 24)); w.Write((byte)0x6a); Set(7);
-                Get(7); Memory(0x28, 2); I(checked(pool + constant * 16)); Memory(0x28, 2, 4); w.Write(new byte[] { 0x46, 0x04, 0x40 });
-                Get(7); I(8); w.Write((byte)0x6a); Set(7); StackAddress(56); CopyValue(2, 7); StackChange(1);
+                Get(0); Memory(0x28, 2, FrameScope); Set(3);
+                SlotBinding(constant, candidate, 7, 0x40); Set(7); StackAddress(Push); CopyValue(2, 7); StackChange(1);
                 w.Write((byte)0x05); Call("load", constant); w.Write(new byte[] { 0x1a, 0x0b });
                 w.Write((byte)0x05); Call("load", constant); w.Write(new byte[] { 0x1a, 0x0b }); Checked(); return;
             }
             CandidatePointer(constant, candidate); Set(7); Get(7); w.Write(new byte[] { 0x04, 0x40 });
-            StackAddress(56); CopyValue(2, 7); StackChange(1);
+            StackAddress(Push); CopyValue(2, 7); StackChange(1);
             w.Write((byte)0x05); Call("load", constant); w.Write(new byte[] { 0x1a, 0x0b });
             Checked();
         }
         void VoidAssignment() {
-            StackChange(-1); StackAddress(40);
+            StackChange(-1); StackAddress(Top);
             for (int offset = 0; offset <= 8; offset += 8) { Get(2); w.Write(new byte[] { 0x42, 0 }); Memory(0x37, 3, offset); }
         }
-        void StoreNumber() { Get(7); I(0); Memory(0x36, 2, 4); Get(7); Get(6); Memory(0x39, 3, 8); }
-        void AssignBinding(int constant, WasmBindingSlots.Candidate? candidate) { Binding(constant, candidate); StackAddress(40); CopyValue(7, 2); VoidAssignment(); }
+        void StoreNumber() { Get(7); I(0); Memory(0x36, 2, ValueRef); Get(7); Get(6); Memory(0x39, 3, ValueNumber); }
+        void AssignBinding(int constant, WasmBindingSlots.Candidate? candidate) { Binding(constant, candidate); StackAddress(Top); CopyValue(7, 2); VoidAssignment(); }
         void CompoundBinding(int constant, WasmBindingSlots.Candidate? candidate) {
-            Binding(constant, candidate); StackAddress(40);
-            Get(7); Memory(0x28, 2); Set(4); Get(2); Memory(0x28, 2); Set(5);
+            Binding(constant, candidate); StackAddress(Top);
+            Get(7); Memory(0x28, 2, ValueTag); Set(4); Get(2); Memory(0x28, 2, ValueTag); Set(5);
             NumericTag(4); NumericTag(5); w.Write(new byte[] { 0x71, 0x04, 0x40 });
-            Get(7); Memory(0x2b, 3, 8); Get(2); Memory(0x2b, 3, 8);
+            Get(7); Memory(0x2b, 3, ValueNumber); Get(2); Memory(0x2b, 3, ValueNumber);
             w.Write(((Assignment)body.Pool[constant]).Operation switch {
                 IrOperation.Add => (byte)0xa0, IrOperation.Subtract => (byte)0xa1,
                 IrOperation.Multiply => (byte)0xa2, IrOperation.Divide => (byte)0xa3,
@@ -280,41 +283,39 @@ public sealed class WasmCompiler
             w.Write((byte)0x05); Call("compoundAssign", constant); w.Write(new byte[] { 0x1a, 0x0b }); Checked();
         }
         void IncrementBinding(int constant, WasmBindingSlots.Candidate? candidate, bool prefix) {
-            Binding(constant, candidate); Get(7); Memory(0x28, 2); Set(4);
+            Binding(constant, candidate); Get(7); Memory(0x28, 2, ValueTag); Set(4);
             NumericTag(4); w.Write(new byte[] { 0x04, 0x40 });
-            Get(7); Memory(0x2b, 3, 8); F(1); w.Write((byte)0xa0); Set(6); NormalizeNumber();
-            if (prefix) StoreNumber(); StackAddress(56); CopyValue(2, 7); StackChange(1); if (!prefix) StoreNumber();
+            Get(7); Memory(0x2b, 3, ValueNumber); F(1); w.Write((byte)0xa0); Set(6); NormalizeNumber();
+            if (prefix) StoreNumber(); StackAddress(Push); CopyValue(2, 7); StackChange(1); if (!prefix) StoreNumber();
             w.Write((byte)0x05); Call(prefix ? "incrementPrefix" : "incrementPostfix", constant); w.Write(new byte[] { 0x1a, 0x0b }); Checked();
         }
         void ArrayIndex() {
-            StackAddress(24); Get(2); I(16); w.Write((byte)0x6a); Set(3);
-            Get(2); Memory(0x28, 2); I(6); w.Write((byte)0x46); Get(3); Memory(0x28, 2); I(1); w.Write(new byte[] { 0x46, 0x71, 0x04, 0x40 });
-            Get(2); Memory(0x28, 2, 4); Set(7); Get(3); Memory(0x2b, 3, 8); Set(6);
-            Get(6); F(0); w.Write((byte)0x66); Get(6); Get(7); Memory(0x28, 2); w.Write(new byte[] { 0xb8, 0x63, 0x71, 0x04, 0x40 });
-            Get(7); Memory(0x28, 2, 8); Get(6); w.Write((byte)0xaa); I(4); w.Write(new byte[] { 0x74, 0x6a }); Set(7); CopyValue(2, 7);
-            w.Write((byte)0x05); Get(2); I(11); Memory(0x36, 2); Get(2); I(0); Memory(0x36, 2, 4); Get(2); F(0); Memory(0x39, 3, 8); w.Write((byte)0x0b); StackChange(-1);
+            StackAddress(Second); Get(2); I(ValueSize); w.Write((byte)0x6a); Set(3);
+            Get(2); Memory(0x28, 2, ValueTag); I(ArrayTag); w.Write((byte)0x46); Get(3); Memory(0x28, 2, ValueTag); I(IntTag); w.Write(new byte[] { 0x46, 0x71, 0x04, 0x40 });
+            Get(2); Memory(0x28, 2, ValueRef); Set(7); Get(3); Memory(0x2b, 3, ValueNumber); Set(6);
+            Get(6); F(0); w.Write((byte)0x66); Get(6); Get(7); Memory(0x28, 2, ArrayCount); w.Write(new byte[] { 0xb8, 0x63, 0x71, 0x04, 0x40 });
+            Get(7); Memory(0x28, 2, ArrayValues); Get(6); w.Write((byte)0xaa); I(4); w.Write(new byte[] { 0x74, 0x6a }); Set(7); CopyValue(2, 7);
+            w.Write((byte)0x05); Get(2); I(NullTag); Memory(0x36, 2, ValueTag); Get(2); I(0); Memory(0x36, 2, ValueRef); Get(2); F(0); Memory(0x39, 3, ValueNumber); w.Write((byte)0x0b); StackChange(-1);
             w.Write((byte)0x05); Call("index"); w.Write(new byte[] { 0x1a, 0x0b }); Checked();
         }
         void Numeric(IrOperation op, string helper) {
-            StackAddress(24); Get(2); I(16); w.Write((byte)0x6a); Set(3);
-            Get(2); Memory(0x28, 2); Set(4); Get(3); Memory(0x28, 2); Set(5);
-            foreach (int tag in new[] { 4, 5 }) { Get(tag); I(1); w.Write((byte)0x4f); Get(tag); I(3); w.Write(new byte[] { 0x4d, 0x71 }); }
+            StackAddress(Second); Get(2); I(ValueSize); w.Write((byte)0x6a); Set(3);
+            Get(2); Memory(0x28, 2, ValueTag); Set(4); Get(3); Memory(0x28, 2, ValueTag); Set(5);
+            foreach (int tag in new[] { 4, 5 }) NumericTag(tag);
             w.Write(new byte[] { 0x71, 0x04, 0x40 });
-            Get(2); Memory(0x2b, 3, 8); Get(3); Memory(0x2b, 3, 8);
+            Get(2); Memory(0x2b, 3, ValueNumber); Get(3); Memory(0x2b, 3, ValueNumber);
             bool comparison = op is IrOperation.Less or IrOperation.Greater or IrOperation.LessEqual or IrOperation.GreaterEqual or IrOperation.Equal or IrOperation.NotEqual;
             w.Write(op switch { IrOperation.Add => (byte)0xa0, IrOperation.Subtract => (byte)0xa1, IrOperation.Multiply => (byte)0xa2, IrOperation.Divide => (byte)0xa3,
                 IrOperation.Less => (byte)0x63, IrOperation.Greater => (byte)0x64, IrOperation.LessEqual => (byte)0x65, IrOperation.GreaterEqual => (byte)0x66,
                 IrOperation.Equal => (byte)0x61, IrOperation.NotEqual => (byte)0x62, _ => throw new InvalidOperationException("Invalid numeric operation.") });
             if (comparison) w.Write((byte)0xb7); Set(6);
-            if (comparison) { I(4); Set(4); }
+            if (comparison) { I(BoolTag); Set(4); }
             else {
+                // The result has the wider operand tag.
                 Get(4); Get(5); w.Write(new byte[] { 0x4b, 0x04, 0x7f }); Get(4); w.Write((byte)0x05); Get(5); w.Write((byte)0x0b); Set(4);
-                Get(4); I(1); w.Write(new byte[] { 0x46, 0x04, 0x40 });
-                Get(6); F(-2147483648d); w.Write((byte)0x66); Get(6); F(2147483648d); w.Write(new byte[] { 0x63, 0x71, 0x04, 0x7c });
-                Get(6); w.Write(new byte[] { 0xaa, 0xb7, 0x05 }); F(-2147483648d); w.Write((byte)0x0b); Set(6);
-                w.Write((byte)0x05); Get(4); I(2); w.Write(new byte[] { 0x46, 0x04, 0x40 }); Get(6); w.Write(new byte[] { 0xb6, 0xbb }); Set(6); w.Write(new byte[] { 0x0b, 0x0b });
+                NormalizeNumber();
             }
-            Get(2); Get(4); Memory(0x36, 2); Get(2); I(0); Memory(0x36, 2, 4); Get(2); Get(6); Memory(0x39, 3, 8); StackChange(-1);
+            Get(2); Get(4); Memory(0x36, 2, ValueTag); Get(2); I(0); Memory(0x36, 2, ValueRef); Get(2); Get(6); Memory(0x39, 3, ValueNumber); StackChange(-1);
             w.Write((byte)0x05); Call(helper); w.Write(new byte[] { 0x1a, 0x0b }); Checked();
         }
         // Parameter 0 is the Wasm-owned frame; local 1 is its continuation.
@@ -373,8 +374,4 @@ public sealed class WasmCompiler
         }
         w.Write(new byte[] { 0x0b, 0x00, 0x0b, 0x00, 0x0b });
     }
-    internal static void WriteUnsigned(Stream s, uint n) { do { byte b = (byte)(n & 127); n >>= 7; s.WriteByte((byte)(b | (n != 0 ? 128 : 0))); } while (n != 0); }
-    private static void U(BinaryWriter w, int n) => WriteUnsigned(w.BaseStream, checked((uint)n));
-    private static void Text(BinaryWriter w, string text) { var b = Encoding.UTF8.GetBytes(text); U(w, b.Length); w.Write(b); }
-    private static void Signed(BinaryWriter w, int n) { bool more; do { byte b = (byte)(n & 127); n >>= 7; more = !(n == 0 && (b & 64) == 0 || n == -1 && (b & 64) != 0); w.Write((byte)(b | (more ? 128 : 0))); } while (more); }
 }

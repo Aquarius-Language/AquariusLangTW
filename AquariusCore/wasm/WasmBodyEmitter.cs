@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 using AquariusLang.Compiler;
 using AquariusLang.Object;
+using static AquariusLang.Wasm.RuntimeLayout;
 
 namespace AquariusLang.Wasm;
 
@@ -21,10 +22,7 @@ namespace AquariusLang.Wasm;
 internal sealed class WasmBodyEmitter
 {
     internal const int RegisterLimit = 64;
-    private const int VoidTag = 0, IntTag = 1, FloatTag = 2, DoubleTag = 3, BoolTag = 4, StringTag = 5, ArrayTag = 6, NullTag = 11, BreakTag = 12;
     private const int Unknown = WasmScopePlan.Unknown;
-    private const int FrameExecution = 4, FrameScope = 16, FramePc = 24, FrameSp = 28, FrameReturned = 32, FrameValues = 56;
-    private const int ExecutionBudget = 24, ExecutionStatus = 28, ExecutionPoll = 36;
     private const double IntMin = -2147483648d, IntLimit = 2147483648d;
 
     private enum Loc : byte { Mem, Reg, Both }
@@ -78,19 +76,19 @@ internal sealed class WasmBodyEmitter
     private int I(int p) => intBase + p;
     private int N(int p) => numberBase + p;
     private int Address(int constant) => addressBase + addressLocals[constant];
-    private int StackOffset(int p) => FrameValues + 16 * (locals + p);
-    private static int SlotOffset(int slot) => FrameValues + 16 * slot;
+    private int StackOffset(int p) => FrameValues + ValueSize * (locals + p);
+    private static int SlotOffset(int slot) => FrameValues + ValueSize * slot;
     private bool IntRegister(int slot) => plan.RegisterSlots.TryGetValue(slot, out int tag) && tag == IntTag;
 
     // ---- encoding ------------------------------------------------------------------------------
     private void Op(params byte[] bytes) => w.Write(bytes);
-    private void U(int n) => WasmCompiler.WriteUnsigned(w.BaseStream, checked((uint)n));
-    private void I32(int n) { w.Write((byte)0x41); bool more; do { byte b = (byte)(n & 127); n >>= 7; more = !(n == 0 && (b & 64) == 0 || n == -1 && (b & 64) != 0); w.Write((byte)(b | (more ? 128 : 0))); } while (more); }
-    private void F64(double v) { w.Write((byte)0x44); w.Write(v); }
-    private void Get(int l) { w.Write((byte)0x20); U(l); }
-    private void Set(int l) { w.Write((byte)0x21); U(l); }
-    private void Tee(int l) { w.Write((byte)0x22); U(l); }
-    private void Mem(byte op, int align, int offset) { w.Write(op); U(align); U(offset); }
+    private void U(int n) => WasmEncoding.U(w, n);
+    private void I32(int n) => WasmEncoding.I(w, n);
+    private void F64(double v) => WasmEncoding.F(w, v);
+    private void Get(int l) => WasmEncoding.Get(w, l);
+    private void Set(int l) => WasmEncoding.Set(w, l);
+    private void Tee(int l) => WasmEncoding.Tee(w, l);
+    private void Mem(byte op, int align, int offset) => WasmEncoding.Memory(w, op, align, offset);
     private void LoadI32(int o) => Mem(0x28, 2, o);
     private void LoadF64(int o) => Mem(0x2b, 3, o);
     private void LoadI64(int o) => Mem(0x29, 3, o);
@@ -148,8 +146,8 @@ internal sealed class WasmBodyEmitter
     private void LoadValue(int p, int baseLocal, int offset, int tag)
     {
         if (tag == Unknown) { Get(baseLocal); LoadI32(offset); Set(T(p)); }
-        if (HasRef(tag)) { Get(baseLocal); LoadI32(offset + 4); Set(R(p)); }
-        Get(baseLocal); LoadF64(offset + 8);
+        if (HasRef(tag)) { Get(baseLocal); LoadI32(offset + ValueRef); Set(R(p)); }
+        Get(baseLocal); LoadF64(offset + ValueNumber);
         if (tag == IntTag) { ToInt(); Set(I(p)); } else Set(N(p));
     }
     /// <summary>Pushes the f64 payload of operand p.</summary>
@@ -157,8 +155,8 @@ internal sealed class WasmBodyEmitter
     private void StoreValue(int p, int baseLocal, int offset, int tag)
     {
         Get(baseLocal); if (tag == Unknown) Get(T(p)); else I32(tag); StoreI32(offset);
-        Get(baseLocal); if (HasRef(tag)) Get(R(p)); else I32(0); StoreI32(offset + 4);
-        Get(baseLocal); Number(p, tag); StoreF64(offset + 8);
+        Get(baseLocal); if (HasRef(tag)) Get(R(p)); else I32(0); StoreI32(offset + ValueRef);
+        Get(baseLocal); Number(p, tag); StoreF64(offset + ValueNumber);
     }
     private void CopyMemory(int fromBase, int fromOffset, int toBase, int toOffset)
     {
@@ -184,7 +182,7 @@ internal sealed class WasmBodyEmitter
     private void StoreSp(int depth) { Get(F); I32(locals + depth); StoreI32(FrameSp); }
     private void Checked()
     {
-        Get(F); LoadI32(FrameExecution); LoadI32(ExecutionStatus); I32(3); Op(0x46);
+        Get(F); LoadI32(FrameExecution); LoadI32(ExecutionStatus); I32(StatusFailed); Op(0x46);
         If(); I32(-1); Return(); End();
     }
     private void Resume(int continuation) { I32(continuation); Return(); }
@@ -269,11 +267,11 @@ internal sealed class WasmBodyEmitter
     {
         Get(F); LoadI32(FrameScope); Set(C);
         for (int depth = 0; depth < candidate.Depth; depth++) {
-            Get(C); LoadI32(16); Op(0x45); If(0x7f); Get(C); LoadI32(0); Set(C);
+            Get(C); LoadI32(ScopeCaptured); Op(0x45); If(0x7f); Get(C); LoadI32(ScopeOuter); Set(C);
         }
-        Get(C); LoadI32(8); I32(candidate.Slot); Op(0x4b); If(0x7f);
-        Get(C); LoadI32(4); I32(checked(candidate.Slot * 24)); Op(0x6a); Set(B);
-        Get(B); LoadI32(0); I32(0); LoadI32(checked(pool + constant * 16 + 4)); Op(0x46);
+        Get(C); LoadI32(ScopeCount); I32(candidate.Slot); Op(0x4b); If(0x7f);
+        Get(C); LoadI32(ScopeBindings); I32(checked(candidate.Slot * BindingSize)); Op(0x6a); Set(B);
+        Get(B); LoadI32(BindingName); I32(0); LoadI32(checked(pool + constant * ValueSize + ValueRef)); Op(0x46);
         If(0x7f); Get(B); I32(8); Op(0x6a); Else(); I32(0); End();
         Else(); I32(0); End();
         for (int depth = 0; depth < candidate.Depth; depth++) { Else(); I32(0); End(); }
@@ -331,7 +329,7 @@ internal sealed class WasmBodyEmitter
     private void SetRegister(int slot, int register, int p, int tag)
     {
         bool integer = IntRegister(slot);
-        if (loc[p] == Loc.Mem) { Get(F); LoadF64(StackOffset(p) + 8); if (integer) ToInt(); }
+        if (loc[p] == Loc.Mem) { Get(F); LoadF64(StackOffset(p) + ValueNumber); if (integer) ToInt(); }
         else if (integer) Get(I(p));
         else Number(p, tag);
         Set(register);
@@ -418,7 +416,7 @@ internal sealed class WasmBodyEmitter
         U(3); U(i32Count); w.Write((byte)0x7f); U(1); w.Write((byte)0x7e); U(f64Count); w.Write((byte)0x7c);
         Get(F); LoadI32(FramePc); Set(PC);
         // Register slots are loaded on every entry (call or resumption) and stored before any resumable exit.
-        foreach (var (slot, register) in slotRegisters) { Get(F); LoadF64(SlotOffset(slot) + 8); if (IntRegister(slot)) ToInt(); Set(register); }
+        foreach (var (slot, register) in slotRegisters) { Get(F); LoadF64(SlotOffset(slot) + ValueNumber); if (IntRegister(slot)) ToInt(); Set(register); }
         Op(0x03, 0x40); Op(0x02, 0x40);
         for (int b = count - 1; b >= 0; b--) Op(0x02, 0x40);
         Get(PC); w.Write((byte)0x0e); U(count); for (int b = 0; b < count; b++) U(b); U(count);
@@ -459,12 +457,12 @@ internal sealed class WasmBodyEmitter
     private void WriteBack(int slot)
     {
         if (!slotRegisters.TryGetValue(slot, out int r)) return;
-        Get(F); Get(r); if (IntRegister(slot)) ToDouble(); StoreF64(SlotOffset(slot) + 8);
+        Get(F); Get(r); if (IntRegister(slot)) ToDouble(); StoreF64(SlotOffset(slot) + ValueNumber);
     }
     private void Reload(int slot)
     {
         if (!slotRegisters.TryGetValue(slot, out int r)) return;
-        Get(F); LoadF64(SlotOffset(slot) + 8); if (IntRegister(slot)) ToInt(); Set(r);
+        Get(F); LoadF64(SlotOffset(slot) + ValueNumber); if (IntRegister(slot)) ToInt(); Set(r);
     }
 
     /// <summary>Spills operands for an edge into the block at target; a block value that the target only pops is dead.</summary>
@@ -490,7 +488,7 @@ internal sealed class WasmBodyEmitter
                     case BooleanObj v: PushKnown(d, BoolTag, v.Value ? 1 : 0); break;
                     case NullObj: PushKnown(d, NullTag); break;
                     default:
-                        I32(0); Set(A); LoadValue(d, A, checked(pool + n * 16), tag); loc[d] = Loc.Reg; break;
+                        I32(0); Set(A); LoadValue(d, A, checked(pool + n * ValueSize), tag); loc[d] = Loc.Reg; break;
                 }
                 return false;
             }
@@ -716,23 +714,23 @@ internal sealed class WasmBodyEmitter
                 else IntArithmetic(operation, () => Get(register), () => Get(I(rhs)));
                 Set(register);
             } else {
-                if (cached) { Get(register); if (st == IntTag) ToDouble(); } else { Get(F); LoadF64(SlotOffset(slot) + 8); }
+                if (cached) { Get(register); if (st == IntTag) ToDouble(); } else { Get(F); LoadF64(SlotOffset(slot) + ValueNumber); }
                 Set(x); Number(rhs, rt); Set(y);
                 if (operation == IrOperation.Modulo) FloatRemainder(x, y); else { Get(x); Get(y); Op(Arithmetic(operation)); }
                 Set(x);
                 if (cached && st == IntTag) { IntegerOf(x); Set(register); }
-                else { NormalizeKnown(x, st); if (cached) { Get(x); Set(register); } else { Get(F); Get(x); StoreF64(SlotOffset(slot) + 8); } }
+                else { NormalizeKnown(x, st); if (cached) { Get(x); Set(register); } else { Get(F); Get(x); StoreF64(SlotOffset(slot) + ValueNumber); } }
             }
             PushKnown(d - 2, VoidTag); loc[rhs] = Loc.Mem; return;
         }
         if (slot >= 0) { Get(F); I32(SlotOffset(slot)); Op(0x6a); Set(A); WriteBack(slot); } else TargetAddress(access, constant);
         void Slow() { Helper("compoundAt", constant, d, 2, true, A); }
         if (operation == IrOperation.Modulo || rt != Unknown && !IsNumeric(rt)) { Slow(); if (slot >= 0) Reload(slot); PushKnown(d - 2, VoidTag); return; }
-        Get(A); LoadI32(0); Set(B);
+        Get(A); LoadI32(ValueTag); Set(B);
         NumericTagTest(B); if (rt == Unknown) { NumericTagTest(T(rhs)); Op(0x71); }
         Branch(() => {
-            Get(A); LoadF64(8); Number(rhs, rt); Op(Arithmetic(operation)); Set(x); NormalizeDynamic(B, x);
-            Get(A); Get(x); StoreF64(8); return false;
+            Get(A); LoadF64(ValueNumber); Number(rhs, rt); Op(Arithmetic(operation)); Set(x); NormalizeDynamic(B, x);
+            Get(A); Get(x); StoreF64(ValueNumber); return false;
         }, () => { Slow(); return false; }, d - 2);
         if (slot >= 0) Reload(slot);
         PushKnown(d - 2, VoidTag);
@@ -751,18 +749,18 @@ internal sealed class WasmBodyEmitter
                 if (prefix) { Get(register); Set(I(d)); }
                 loc[d] = Loc.Reg; return;
             }
-            if (cached) Get(register); else { Get(F); LoadF64(SlotOffset(slot) + 8); } Set(x);
+            if (cached) Get(register); else { Get(F); LoadF64(SlotOffset(slot) + ValueNumber); } Set(x);
             Get(x); F64(1); Op(0xa0); Set(y); NormalizeKnown(y, st);
-            if (cached) { Get(y); Set(register); } else { Get(F); Get(y); StoreF64(SlotOffset(slot) + 8); }
+            if (cached) { Get(y); Set(register); } else { Get(F); Get(y); StoreF64(SlotOffset(slot) + ValueNumber); }
             Get(prefix ? y : x);
             if (st == IntTag) { ToInt(); Set(I(d)); } else Set(N(d));
             loc[d] = Loc.Reg; return;
         }
         if (slot >= 0) { Get(F); I32(SlotOffset(slot)); Op(0x6a); Set(A); WriteBack(slot); } else TargetAddress(access, constant);
-        Get(A); LoadI32(0); Set(T(d)); NumericTagTest(T(d));
+        Get(A); LoadI32(ValueTag); Set(T(d)); NumericTagTest(T(d));
         Branch(() => {
-            Get(A); LoadF64(8); Set(x); Get(x); F64(1); Op(0xa0); Set(y); NormalizeDynamic(T(d), y);
-            Get(A); Get(y); StoreF64(8); Get(prefix ? y : x); Set(N(d)); loc[d] = Loc.Reg; return false;
+            Get(A); LoadF64(ValueNumber); Set(x); Get(x); F64(1); Op(0xa0); Set(y); NormalizeDynamic(T(d), y);
+            Get(A); Get(y); StoreF64(ValueNumber); Get(prefix ? y : x); Set(N(d)); loc[d] = Loc.Reg; return false;
         }, () => { Helper("incrementAt", prefix ? 1 : 0, d, 0, true, A); LoadValue(d, F, StackOffset(d), Unknown); loc[d] = Loc.Both; return false; });
         if (slot >= 0) Reload(slot);
     }
@@ -770,7 +768,7 @@ internal sealed class WasmBodyEmitter
     /// <summary>Pushes the i32 index of operand p (INTEGER-tagged at run time).</summary>
     private void IndexOf(int p, int tag) { if (tag == IntTag) Get(I(p)); else { Get(N(p)); ToInt(); } }
     /// <summary>Pushes whether index operand i is within the array operand a.</summary>
-    private void InBounds(int a, int i, int ti) { IndexOf(i, ti); Get(R(a)); LoadI32(0); Op(0x49); }
+    private void InBounds(int a, int i, int ti) { IndexOf(i, ti); Get(R(a)); LoadI32(ArrayCount); Op(0x49); }
 
     private void Index(int d)
     {
@@ -784,7 +782,7 @@ internal sealed class WasmBodyEmitter
             // Out-of-range array reads produce null like rt_index; an unsigned compare also rejects negatives.
             InBounds(a, i, ti);
             Branch(() => {
-                Get(R(a)); LoadI32(8); IndexOf(i, ti); I32(4); Op(0x74); Op(0x6a); Set(B);
+                Get(R(a)); LoadI32(ArrayValues); IndexOf(i, ti); I32(4); Op(0x74); Op(0x6a); Set(B);
                 LoadValue(a, B, 0, Unknown); loc[a] = Loc.Reg; return false;
             }, () => { I32(NullTag); Set(T(a)); I32(0); Set(R(a)); F64(0); Set(N(a)); loc[a] = Loc.Reg; return false; });
             return false;
@@ -813,9 +811,9 @@ internal sealed class WasmBodyEmitter
         if (ta is not (ArrayTag or Unknown) || ti is not (IntTag or Unknown)) { Slow(); return; }
         // Owned, unexposed storage needs no copy-on-write or host dirty tracking.
         ArrayWriteTest(a, ta, i, ti);
-        If(0x7f); Get(R(a)); LoadI32(24); LoadI32(0); I32(1); Op(0x46); Get(R(a)); LoadI32(20); Op(0x45); Op(0x71); Else(); I32(0); End();
+        If(0x7f); Get(R(a)); LoadI32(ArrayStorage); LoadI32(ArrayStorageReferences); I32(1); Op(0x46); Get(R(a)); LoadI32(ArrayExposed); Op(0x45); Op(0x71); Else(); I32(0); End();
         Branch(() => {
-            Get(R(a)); LoadI32(8); IndexOf(i, ti); I32(4); Op(0x74); Op(0x6a); Set(B);
+            Get(R(a)); LoadI32(ArrayValues); IndexOf(i, ti); I32(4); Op(0x74); Op(0x6a); Set(B);
             StoreValue(v, B, 0, tv);
             if (tv == Unknown) { Get(T(v)); Set(T(a)); }
             if (HasRef(tv)) { Get(R(v)); Set(R(a)); }

@@ -70,7 +70,7 @@ internal sealed class WasmRuntimeImage
     {
         using var reader = new BinaryReader(new MemoryStream(section)); uint count = ReadUnsigned(reader);
         using var output = new MemoryStream(); using var writer = new BinaryWriter(output);
-        WasmCompiler.WriteUnsigned(output, checked(count + (uint)extra));
+        WasmEncoding.WriteUnsigned(output, checked(count + (uint)extra));
         output.Write(section, (int)reader.BaseStream.Position, section.Length - (int)reader.BaseStream.Position);
         append(writer); return output.ToArray();
     }

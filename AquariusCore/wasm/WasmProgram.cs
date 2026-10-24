@@ -69,8 +69,8 @@ public sealed class WasmProgram
                 int nameLength = (int)ReadUnsigned(); string name = Encoding.UTF8.GetString(bytes, position, nameLength);
                 if (name == WasmAbi.MetadataSection) {
                     byte[] serialized = SerializeMetadata(metadata), encodedName = Encoding.UTF8.GetBytes(name);
-                    using var section = new MemoryStream(); WasmCompiler.WriteUnsigned(section, (uint)encodedName.Length); section.Write(encodedName); section.Write(serialized);
-                    output.WriteByte(0); WasmCompiler.WriteUnsigned(output, (uint)section.Length); section.Position = 0; section.CopyTo(output);
+                    using var section = new MemoryStream(); WasmEncoding.WriteUnsigned(section, (uint)encodedName.Length); section.Write(encodedName); section.Write(serialized);
+                    output.WriteByte(0); WasmEncoding.WriteUnsigned(output, (uint)section.Length); section.Position = 0; section.CopyTo(output);
                     position = end; continue;
                 }
             }
