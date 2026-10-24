@@ -180,6 +180,7 @@ that builds. A failure names the rule and the legitimate way to change things.
 | Dependency direction | `AquariusCore` references no project and no host/native package (Silk.NET, Wasmtime, ClearScript, ONNX Runtime, Magick, Tomlyn, Jolt); `AquariusPackaging` depends only on core; hosts depend on core, never the reverse. | `CoreDependsOnNoHostOrProject`, `PackagingDependsOnlyOnCore` |
 | Library admission | Bundled computational libraries execute in Wasm ([requirement](docs/external-libraries.md#requirement-for-future-libraries)); only documented host capabilities may be `HostCapability`. | `BundledComputationalLibrariesExecuteInWasm`, `ExternalLibraryTest` |
 | Single source for shared JavaScript | A browser module named like an `AquariusCore/hosting` module only re-exports it. | `BrowserModulesReExportCoreHosting` |
+| One example tree | `examples/` is the single sample tree: desktop builds ship it, tests and scripts read it, and platform variants live inside an example (a `desktop.aqua` entry or a width/platform condition). | `ExamplesHaveOneTree` |
 | Repository hygiene | No IDE/per-user files; Markdown uses repository-relative links, never machine paths (`docs/archive/` excepted). | `NoCommittedIdeOrUserFiles`, `DocsUseRepositoryRelativeLinks` |
 
 Changing a rule's subject legitimately:

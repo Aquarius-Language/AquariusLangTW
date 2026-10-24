@@ -46,7 +46,6 @@ try {
     $desktop = Join-Path $repository "AquariusDesktop/bin/$Configuration/net8.0/AquariusDesktop.dll"
     foreach ($project in @(
         @{ name = 'examples'; source = 'examples'; entry = 'increment.aqua' },
-        @{ name = 'desktop-examples'; source = 'AquariusDesktop/examples'; entry = 'increment.aqua' },
         @{ name = 'marble'; source = 'AquariusWebCompiler/tests/fixtures/marble-run'; entry = 'main.aqua' },
         @{ name = 'portable'; source = 'AquariusWebCompiler/tests/fixtures/portable'; entry = 'main.aqua' }
     )) {

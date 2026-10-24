@@ -120,7 +120,7 @@ Default value inspection still prints booleans as `真` / `假` and null as `nul
   them to `ErrorObj` for hosts using its evaluation APIs.
 
 See the repository [syntax and examples](../README.md#語法) and the
-[Starship example](../AquariusDesktop/examples/starship_expedition/README.md).
+[Starship example](../examples/starship_expedition/README.md).
 
 ## Measuring elapsed time
 

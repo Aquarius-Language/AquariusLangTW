@@ -39,7 +39,7 @@ Aquarius functions passed to Processing run as compiled VM callbacks through
 | `Processing` | wgpu 2D/3D drawing, sketch loop/input, images/pixels/text, offscreen canvases, retained shapes, lights/materials and WGSL shaders |
 
 See the [Processing API guide](../AquariusDesktop/graphics/Processing.md)
-and [interactive showcase](../AquariusDesktop/examples/processing_showcase/README.md).
+and [interactive showcase](../examples/processing_showcase/README.md).
 Rebuild the native library when updating to this module: its event loop uses
 new bridge exports for window size, character input, wheel input, fullscreen,
 and native window handles. Processing creates a GLFW_NO_API window and presents
@@ -66,7 +66,7 @@ From the repository root on Windows with Visual Studio C++ tools installed:
 ```powershell
 ./native/build.ps1
 dotnet build AquariusLang.sln
-dotnet run --project AquariusDesktop -- AquariusDesktop/examples/opengl_cube/main.aqua
+dotnet run --project AquariusDesktop -- examples/opengl_cube/main.aqua
 ```
 
 `build.ps1` accepts `-CMake <path>`, `-Generator <name>` and `-Runtime <rid>`.

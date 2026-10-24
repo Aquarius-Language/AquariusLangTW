@@ -4,7 +4,7 @@ Run from the repository root after rebuilding the native bridge:
 
 ```powershell
 ./native/build.ps1
-dotnet run --project AquariusDesktop -- AquariusDesktop/examples/multilingual_input/main.aqua
+dotnet run --project AquariusDesktop -- examples/multilingual_input/main.aqua
 ```
 
 Type with the system keyboard or IME. Committed text is appended through

@@ -14,7 +14,7 @@ From the repository root, with .NET 8 SDK and the native graphics bridge install
 ```powershell
 # Only needed if the native graphics bridge has not been built yet.
 ./native/build.ps1
-dotnet run --project AquariusDesktop -- AquariusDesktop/examples/color_mapping/main.aqua
+dotnet run --project AquariusDesktop -- examples/color_mapping/main.aqua
 ```
 
 The example is also copied into VM build and release outputs. From an extracted
@@ -98,7 +98,7 @@ For a finite preview capture:
 ```powershell
 $env:AQUARIUS_GRAPHICS_FRAMES = '1'
 $env:AQUARIUS_GRAPHICS_CAPTURE = "$PWD/color-mapping.png"
-dotnet run --project AquariusDesktop -- AquariusDesktop/examples/color_mapping/main.aqua
+dotnet run --project AquariusDesktop -- examples/color_mapping/main.aqua
 Remove-Item Env:AQUARIUS_GRAPHICS_FRAMES, Env:AQUARIUS_GRAPHICS_CAPTURE
 ```
 

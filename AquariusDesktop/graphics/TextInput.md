@@ -96,7 +96,7 @@ the preview without committing it. Linux/macOS use
 for committed text only; native preedit and caret positioning are unavailable.
 Existing Processing font rendering on those hosts uses a limited bitmap font.
 
-Try the [interactive example](../examples/multilingual_input/README.md).
+Try the [interactive example](../../examples/multilingual_input/README.md).
 
 ## Undo, redo and word deletion
 

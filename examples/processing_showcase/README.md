@@ -8,7 +8,7 @@ offscreen P3D lighting, and a custom WGSL fragment shader.
 
 ```powershell
 ./native/build.ps1
-dotnet run --project AquariusDesktop -- AquariusDesktop/examples/processing_showcase/main.aqua
+dotnet run --project AquariusDesktop -- examples/processing_showcase/main.aqua
 ```
 
 **Space** pauses animation. Hold a **mouse button** to attract particles.

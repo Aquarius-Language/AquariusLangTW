@@ -109,7 +109,7 @@ for name, folder, entry, assets, checks in projects:
 
 if args.examples:
     desktop = ROOT / 'AquariusDesktop/bin/linux/Debug/net8.0/AquariusDesktop.dll'
-    for name, original in [('examples', ROOT / 'examples'), ('desktop-examples', ROOT / 'AquariusDesktop/examples')]:
+    for name, original in [('examples', ROOT / 'examples')]:
         with tempfile.TemporaryDirectory(prefix=name + '-', dir=OUT) as temporary:
             source = Path(temporary) / 'source'
             shutil.copytree(original, source, ignore=shutil.ignore_patterns('.idea'))

@@ -7,7 +7,7 @@
 從儲存庫根目錄執行：
 
 ```powershell
-dotnet run --project AquariusDesktop -- AquariusDesktop/examples/starship_expedition/main.aqua
+dotnet run --project AquariusDesktop -- examples/starship_expedition/main.aqua
 ```
 
 `main.aqua` 利用 `目前工作目錄` 找到同資料夾的 `航行工具.aqua`，因此也可從其他目錄

@@ -1,4 +1,4 @@
-# Run: dotnet run --project AquariusDesktop -- AquariusDesktop/examples/increment_and_plus_equal.aqua
+# Run: dotnet run --project AquariusDesktop -- examples/increment_and_plus_equal.aqua
 # Every check prints PASS or FAIL. The final result is true only if all checks pass.
 變數 通過 = 0;
 變數 失敗 = 0;

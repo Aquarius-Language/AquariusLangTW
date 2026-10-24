@@ -292,7 +292,7 @@ Processing's exact light equations or sorting of translucent 3D surfaces.
 
 ## Showcase and verification
 
-The [color mapping lab](../examples/color_mapping/README.md) is a complete
+The [color mapping lab](../../examples/color_mapping/README.md) is a complete
 Aquarius UI example using Processing shapes, text, PImage pixels, `map`,
 `constrain`, `pow`, `lerpColor`, and input callbacks. It includes four palettes,
 three scalar fields, range/gamma sliders, stepped colors, a pixel probe, and PNG
@@ -300,13 +300,13 @@ export. It redraws on input with `noLoop()` / `redraw()` and scales both the lay
 and pointer coordinates when resized.
 
 ```powershell
-dotnet run --project AquariusDesktop -- AquariusDesktop/examples/color_mapping/main.aqua
+dotnet run --project AquariusDesktop -- examples/color_mapping/main.aqua
 ```
 
-Run the [showcase](../examples/processing_showcase/main.aqua):
+Run the [showcase](../../examples/processing_showcase/main.aqua):
 
 ```powershell
-dotnet run --project AquariusDesktop -- AquariusDesktop/examples/processing_showcase/main.aqua
+dotnet run --project AquariusDesktop -- examples/processing_showcase/main.aqua
 ```
 
 Space pauses motion, the mouse attracts particles, S saves a PNG beside the script,
@@ -315,7 +315,7 @@ and Esc exits. For repeatable finite captures:
 ```powershell
 $env:AQUARIUS_GRAPHICS_FRAMES = '3'
 $env:AQUARIUS_GRAPHICS_CAPTURE = "$PWD/showcase.png"
-dotnet run --project AquariusDesktop -- AquariusDesktop/examples/processing_showcase/main.aqua
+dotnet run --project AquariusDesktop -- examples/processing_showcase/main.aqua
 ```
 
 `AQUARIUS_GRAPHICS_FRAMES=0` (or unset) means no limit. Clear these environment

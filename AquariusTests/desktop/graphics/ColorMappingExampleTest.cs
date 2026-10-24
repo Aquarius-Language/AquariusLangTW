@@ -118,17 +118,34 @@ public class ColorMappingExampleTest {
 
     [Fact]
     public void LetterboxedLayoutConvertsPointerCoordinatesBackToControls() {
-        // Processing's initial logical size is 640x480 before setup opens a window.
         double[] values = Numbers("""
-            更新版面();
+            版面(960, 720);
             變數 x = 左邊 + 100 * 比例; 變數 y = 上邊 + 298 * 比例;
             處理點擊((x-左邊)/比例,(y-上邊)/比例);
             [比例,左邊,上邊,狀態[0]];
             """);
-        Assert.Equal(640.0 / 1200, values[0], 8);
+        Assert.Equal(960.0 / 1200, values[0], 8);
         Assert.Equal(0, values[1], 8);
-        Assert.Equal((480 - 820 * (640.0 / 1200)) / 2, values[2], 8);
+        Assert.Equal((720 - 820 * (960.0 / 1200)) / 2, values[2], 8);
         Assert.Equal(2, values[3]);
+        Assert.False(Assert.IsType<BooleanObj>(ProcessingTest.Evaluate(Definitions() + "版面(960, 720); 行動版;")).Value);
+    }
+
+    [Fact]
+    public void NarrowWindowsUseTheCompactLayout() {
+        // Processing's initial logical size, 640x480, is narrower than the 760 threshold.
+        double[] values = Numbers("""
+            更新版面();
+            變數 x = 左邊 + 40 * 比例; 變數 y = 上邊 + 200 * 比例;
+            處理點擊((x-左邊)/比例,(y-上邊)/比例);
+            [比例,左邊,上邊,狀態[0]];
+            """);
+        double scale = Math.Min(640.0 / 460, 480.0 / 1040);
+        Assert.Equal(scale, values[0], 8);
+        Assert.Equal((640 - 460 * scale) / 2, values[1], 8);
+        Assert.Equal((480 - 1040 * scale) / 2, values[2], 8);
+        Assert.Equal(2, values[3]);
+        Assert.True(Assert.IsType<BooleanObj>(ProcessingTest.Evaluate(Definitions() + "更新版面(); 行動版;")).Value);
     }
 }
 

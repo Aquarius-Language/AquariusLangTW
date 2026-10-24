@@ -1,6 +1,6 @@
 # Bilingual library functions
 
-Run `dotnet run --project AquariusDesktop -- AquariusDesktop/examples/bilingual_library/main.aqua` from the repository root.
+Run `dotnet run --project AquariusDesktop -- examples/bilingual_library/main.aqua` from the repository root.
 
 `變數 加法, add = 函式(甲, 乙) { 甲 + 乙; };` defines one function with two public names.
 Either order works. Keep a single name for Chinese-only or English-only functions.

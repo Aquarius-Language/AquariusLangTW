@@ -273,6 +273,19 @@ public class ArchitectureRulesTest
     }
 
     [Fact]
+    public void ExamplesHaveOneTree()
+    {
+        // Aquarius sources live in examples/, in test fixtures, or are core libraries embedded in AquariusCore/graphics.
+        static bool Allowed(string f) => f.StartsWith("examples/", StringComparison.Ordinal) || f.StartsWith("AquariusTests/", StringComparison.Ordinal) ||
+            f.Contains("/tests/", StringComparison.Ordinal) || Regex.IsMatch(f, @"\AAquariusCore/graphics/[^/]+\.aqua\z");
+        var offenders = TrackedFiles().Where(f => f.EndsWith(".aqua", StringComparison.OrdinalIgnoreCase) && !Allowed(f))
+            .Select(f => f[..(f.LastIndexOf('/') + 1)]).Distinct().ToList();
+        Assert.True(offenders.Count == 0, "Rule 'One example tree': examples/ is the only sample tree; desktop builds ship it and tests read it " +
+            "there. Express platform variants inside the example (a desktop.aqua entry beside main.aqua, or a width/platform " +
+            "condition) and move these samples into examples/: " + string.Join(", ", offenders));
+    }
+
+    [Fact]
     public void DocsUseRepositoryRelativeLinks()
     {
         var machine = new Regex(@"[A-Za-z]:[/\\](?:OfficialProjects|Users)[/\\]", RegexOptions.IgnoreCase);

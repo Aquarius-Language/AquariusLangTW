@@ -10,7 +10,7 @@ Processing uses the same backend for its P2D/P3D canvases and window presentatio
 The `GL`, `GLAD`, `GLFW`, `GLM`, and `STBImage` modules remain available.
 The renderer-independent [TextInput module](TextInput.md) supplies Unicode commits
 and Windows IME composition/caret positioning for GLFW windows. Processing exposes
-the same events for its wgpu sketches; see the [multilingual input example](../examples/multilingual_input/README.md).
+the same events for its wgpu sketches; see the [multilingual input example](../../examples/multilingual_input/README.md).
 
 Importing either graphics module does not initialize the GPU. `CreateDevice()`
 requests a native adapter and device. Missing adapters and shader/validation
@@ -71,7 +71,7 @@ Use `vs_main(input: VertexInput) -> VertexOutput` and
 `VertexInput` has `position`, `normal`, `texcoord`, and `color`; `VertexOutput`
 has `position`, `vertexColor`, `uv`, `normal`, and `eyePosition`.
 Unused outputs can be zero initialized. The full header is in `WgpuShaders.cs`.
-See [the triangle script](../examples/wgpu_triangle/main.aqua).
+See [the triangle script](../../examples/wgpu_triangle/main.aqua).
 
 ## Windows, input and retained geometry
 
@@ -195,7 +195,7 @@ layout annotations; host uploads follow WGSL alignment. Use `setInt` for integer
 fields. Boolean uniforms and sampler reassignment are not supported. Return
 straight RGBA for normal blending; custom translucent REPLACE output must be
 premultiplied. The built-in shader handles this conversion itself.
-The [showcase](../examples/processing_showcase/main.aqua) demonstrates a time uniform.
+The [showcase](../../examples/processing_showcase/main.aqua) demonstrates a time uniform.
 
 ## Verification
 
@@ -203,11 +203,11 @@ Headless compute/render examples need only .NET and wgpu-native. Processing
 examples additionally need the native GLFW bridge and a desktop:
 
 ```powershell
-dotnet run --project AquariusDesktop -- AquariusDesktop/examples/wgpu_compute/main.aqua
-dotnet run --project AquariusDesktop -- AquariusDesktop/examples/wgpu_triangle/main.aqua
+dotnet run --project AquariusDesktop -- examples/wgpu_compute/main.aqua
+dotnet run --project AquariusDesktop -- examples/wgpu_triangle/main.aqua
 ./native/build.ps1
 $env:AQUARIUS_GRAPHICS_FRAMES = '2'
-dotnet run --project AquariusDesktop -- AquariusDesktop/examples/processing_wgpu/main.aqua
+dotnet run --project AquariusDesktop -- examples/processing_wgpu/main.aqua
 Remove-Item Env:AQUARIUS_GRAPHICS_FRAMES
 
 dotnet test AquariusTests -c Release -m:1

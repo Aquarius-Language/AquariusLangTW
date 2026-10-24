@@ -263,8 +263,8 @@ See the [language guide](AquariusCore/LANGUAGE.md) for detailed semantics.
 ## Libraries and examples
 
 Import a library with `var drawing = import("Processing");` or
-`變數 繪圖 = 匯入("Processing");`. Examples live in `examples/` and
-`AquariusDesktop/examples/`; desktop examples are included in release packages.
+`變數 繪圖 = 匯入("Processing");`. Examples live in `examples/`, the single example tree;
+desktop release packages include it.
 
 | Feature | Documentation | Examples |
 | --- | --- | --- |

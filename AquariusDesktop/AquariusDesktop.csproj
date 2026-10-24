@@ -61,11 +61,10 @@
     <Content Include="../native/vendor/miniaudio/LICENSE" Link="licenses/MINIAUDIO-LICENSE.txt" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <Content Include="../AquariusCore/audio/AUDIO-THIRD-PARTY-NOTICES.txt" Link="licenses/AUDIO-THIRD-PARTY-NOTICES.txt" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <Content Include="$(NuGetPackageRoot)microsoft.clearscript.v8/7.5.1.1/licenses/**/*" Link="licenses/clearscript/%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
-    <Content Include="examples/**/*"
-             Exclude="examples/**/.idea/**/*"
-             CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
-    <Content Include="../examples/terminal_scripts/**/*"
-             Link="examples/terminal_scripts/%(RecursiveDir)%(Filename)%(Extension)"
+    <!-- examples/ at the repository root is the only example tree; desktop builds ship it beside the runner. -->
+    <Content Include="../examples/**/*"
+             Exclude="../examples/**/.idea/**/*;../examples/**/dist/**/*;../examples/dynamic_linking/libraries/**/*;../examples/dynamic_linking/native/**/*"
+             Link="examples/%(RecursiveDir)%(Filename)%(Extension)"
              CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <InternalsVisibleTo Include="AquariusTests" />
   </ItemGroup>

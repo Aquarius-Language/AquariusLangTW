@@ -257,7 +257,7 @@ test('closing a document clears errors and invalid feature positions return erro
 test('all repository examples parse through the LSP server without executing them', async t => {
   const s = new Session(t);
   await s.initialize();
-  const root = path.resolve(__dirname, '../../AquariusDesktop/examples');
+  const root = path.resolve(__dirname, '../../examples');
   for (const file of fs.readdirSync(root, { recursive: true }).filter(name => name.endsWith('.aqua'))) {
     const fullPath = path.join(root, file);
     const diagnostics = await s.open(fs.readFileSync(fullPath, 'utf8'), pathToFileURL(fullPath).href);
