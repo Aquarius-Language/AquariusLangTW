@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {runtime} from './wasm-fixture.mjs';
-import {Scope,num,inspect,module} from '../browser/values.mjs';
+import {Scope,num,inspect,module,nativeCall,plainArguments} from '../browser/values.mjs';
 
 // The guest caches members of host modules per host era; any host binding change must be seen by the next read.
 test('host module members are re-read after the host changes them',async()=>{
@@ -26,4 +26,14 @@ test('repeated host member calls resolve the member once and do not probe empty 
   assert.equal(inspect(await vm.execute(index,env)),'1');
   assert.ok(lookups<=2,`${lookups} host member lookups for 1000 calls`);
   assert.ok(probes<20,`${probes} runtime list probes for 1000 calls`);
+});
+
+test('bindings that take plain values receive guest numbers and arrays without boxing',async()=>{
+  const seen=[];const entry=(...a)=>{throw new Error('boxed entry used');};
+  entry[plainArguments]=a=>{seen.push(a);return num(a[0]+a[1].length,'int');};
+  const fn=async()=>{};fn[nativeCall]=entry;
+  const lib=new Scope();lib.create('f',fn);const env=new Scope();env.create('m',module(lib));
+  const {vm,index}=await runtime('m.f(2.5d,[1,[2,3]],"x",真);',new Map());
+  assert.equal(inspect(await vm.execute(index,env)),'4');
+  assert.deepEqual(seen,[[2.5,[1,[2,3]],'x',true]]);
 });

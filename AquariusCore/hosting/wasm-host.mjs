@@ -1,4 +1,4 @@
-import {Scope,num,numeric,nativeCall,nativeOwner,isPromiseLike,portableBuiltin,scopeMutations} from './values.mjs';
+import {Scope,num,numeric,nativeCall,nativeOwner,isPromiseLike,portableBuiltin,scopeMutations,plainArguments,unwrap} from './values.mjs';
 import {readManifest} from './wasm-manifest.mjs';
 import {arrayBuiltin} from './array-library.mjs';
 import {hashBuiltin} from './hash-library.mjs';
@@ -131,9 +131,11 @@ class Session {
     if(operation===0){const n=this.text(name),builtins=this.contexts[context];if(n==='import'||n==='匯入'){const fallback=builtins.get(n);this.write(output,(name)=>{if(name==='Thread'||name==='執行緒')return threadModule;if(!fallback)throw new Error('Module not found: '+name);return (fallback[nativeCall]??fallback)(name);});return 0;}if(!builtins.has(n))return 1;this.write(output,builtins.get(n));return 0;}
     if(operation===2){const m=this.natives[subject];if(m?.type!=='module')return 1;this.flushDirty(m.scope);try{const value=m.scope.get(this.text(name));this.write(output,value);this.arrayOwner(value,m.scope);return 0;}catch{return 1;}}
     if(operation===3){const m=this.natives[subject];if(m?.type!=='module')return 1;this.raw(output,9,this.scope(m.scope));return 0;}
-    if(operation!==1)throw new Error('Invalid native service request');const state=this.dispatchState,fn=this.natives[subject],args=new Array(count);for(let i=0;i<count;i++)args[i]=this.read(arguments_+i*16);const roots=[fn,...args];this.runtime.nativeRoots.add(roots);
+    if(operation!==1)throw new Error('Invalid native service request');const state=this.dispatchState,fn=this.natives[subject],args=new Array(count),direct=typeof fn==='function'?fn[nativeCall]?.[plainArguments]:undefined,plain=direct?new Array(count):null;
+    for(let i=0;i<count;i++){const p=arguments_+i*16,tag=this.int(p);if(plain&&tag>=1&&tag<=3)plain[i]=args[i]=this.view().getFloat64(p+8,true);else{const v=args[i]=this.read(p);if(plain)plain[i]=Array.isArray(v)?unwrap(v):v;}}
+    const roots=[fn,...args];this.runtime.nativeRoots.add(roots);
     const synchronize=!fn?.[nativeOwner];
-    try{if(synchronize)this.synchronizeOut();else this.flushDirty(fn[nativeOwner].scope);const result=typeof fn==='function'?(fn[nativeCall]??fn)(...args):this.runtime.invoke(fn,args);if(isPromiseLike(result)){state.pending={promise:Promise.resolve(result),args,arguments:arguments_,roots,synchronize};return 1;}
+    try{if(synchronize)this.synchronizeOut();else this.flushDirty(fn[nativeOwner].scope);const result=direct?direct(plain):typeof fn==='function'?(fn[nativeCall]??fn)(...args):this.runtime.invoke(fn,args);if(isPromiseLike(result)){state.pending={promise:Promise.resolve(result),args,arguments:arguments_,roots,synchronize};return 1;}
       // Only arrays and hashes can carry a callee's changes back; scalar argument slots are temporaries the guest drops.
       args.forEach((v,i)=>{if(Array.isArray(v)||v instanceof Map)this.write(arguments_+i*16,v);});this.write(output,result);if(!synchronize)this.arrayOwner(result,fn[nativeOwner].scope);this.runtime.nativeRoots.delete(roots);return 0;
     }catch(error){this.runtime.nativeRoots.delete(roots);throw error;}

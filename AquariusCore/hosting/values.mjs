@@ -7,6 +7,9 @@ export const wrap = v => typeof v === 'number' ? num(v) : Array.isArray(v) || Ar
 export const nativeCall = Symbol('Aquarius native call');
 export const nativeOwner = Symbol('Aquarius native owner');
 export const portableBuiltin = Symbol('Aquarius portable builtin');
+// A binding that takes plain JavaScript values (numbers unwrapped) exposes this entry, so hosts can pass guest numbers
+// without boxing them first.
+export const plainArguments = Symbol('Aquarius plain arguments');
 export const isPromiseLike = value => value != null && (typeof value === 'object' || typeof value === 'function') && typeof value.then === 'function';
 // Changes to any host scope's bindings. Wasm sessions publish it as the guest's host era, which invalidates the
 // guest's cache of host module members.
