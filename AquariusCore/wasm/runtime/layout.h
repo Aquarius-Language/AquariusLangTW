@@ -71,6 +71,12 @@ _Static_assert(offsetof(Frame, pending_base) == 44, "Frame.pending_base moved: u
 _Static_assert(offsetof(Frame, pending_count) == 48, "Frame.pending_count moved: update native/generate_runtime_layout.py");
 _Static_assert(offsetof(Frame, binding_cache) == 52, "Frame.binding_cache moved: update native/generate_runtime_layout.py");
 _Static_assert(offsetof(Frame, values) == 56, "Frame.values moved: update native/generate_runtime_layout.py");
+_Static_assert(offsetof(Pending, dirty_arrays) == 0, "Pending.dirty_arrays moved: update native/generate_runtime_layout.py");
+_Static_assert(offsetof(Pending, dirty_hashes) == 4, "Pending.dirty_hashes moved: update native/generate_runtime_layout.py");
+_Static_assert(offsetof(Pending, released_arrays) == 8, "Pending.released_arrays moved: update native/generate_runtime_layout.py");
+_Static_assert(offsetof(Pending, released_hashes) == 12, "Pending.released_hashes moved: update native/generate_runtime_layout.py");
+_Static_assert(offsetof(Pending, host_era) == 16, "Pending.host_era moved: update native/generate_runtime_layout.py");
+_Static_assert(sizeof(Pending) == 20, "Pending size changed: update native/generate_runtime_layout.py");
 _Static_assert(offsetof(Execution, next) == 0, "Execution.next moved: update native/generate_runtime_layout.py");
 _Static_assert(offsetof(Execution, current) == 4, "Execution.current moved: update native/generate_runtime_layout.py");
 _Static_assert(offsetof(Execution, result) == 8, "Execution.result moved: update native/generate_runtime_layout.py");

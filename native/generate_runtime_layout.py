@@ -35,6 +35,8 @@ LAYOUT = [
                         ('scope', 'Scope', 16), ('loops', 'Loops', 20), ('pc', 'Pc', 24), ('sp', 'Sp', 28), ('returned', 'Returned', 32),
                         ('context', 'Context', 36), ('capacity', 'Capacity', 40), ('pending_base', 'PendingBase', 44),
                         ('pending_count', 'PendingCount', 48), ('binding_cache', 'BindingCache', 52), ('values', 'Values', 56)], None),
+    ('Pending', 'Pending', [('dirty_arrays', 'DirtyArrays', 0), ('dirty_hashes', 'DirtyHashes', 4), ('released_arrays', 'ReleasedArrays', 8),
+                            ('released_hashes', 'ReleasedHashes', 12), ('host_era', 'HostEra', 16)], 20),
     ('Execution', 'Execution', [('next', 'Next', 0), ('current', 'Current', 4), ('result', 'Result', 8), ('budget', 'Budget', 24),
                                 ('status', 'Status', 28), ('numeric_depth_disabled', 'NumericDepthDisabled', 32), ('poll', 'Poll', 36),
                                 ('numeric_closure', 'NumericClosure', 40), ('numeric_innermost', 'NumericInnermost', 44)], None),

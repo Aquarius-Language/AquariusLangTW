@@ -48,4 +48,16 @@ public class ModuleMemberTest {
         Assert.True(Assert.IsType<BooleanObj>(Evaluate("模組.關閉() == 假;", caller)).Value);
         Assert.True(Assert.IsType<BooleanObj>(Evaluate("模組.空字串() == \"\";", caller)).Value);
     }
+    [Fact]
+    public void HostModuleMembersAreReadAgainAfterTheHostChangesThem() {
+        // The guest caches members of host modules per host era; any host binding change must be seen by the next read.
+        var module = AquaEnvironment.NewEnvironment(); int n = 0;
+        module.Create("value", new IntegerObj(0));
+        module.Create("bump", new BuiltinObj(_ => { module.Set("value", new IntegerObj(++n)); return RepeatedPrimitives.NULL; }));
+        module.Create("f", new BuiltinObj(_ => new IntegerObj(1)));
+        module.Create("swap", new BuiltinObj(_ => { module.Set("f", new BuiltinObj(_ => new IntegerObj(2))); return RepeatedPrimitives.NULL; }));
+        var caller = AquaEnvironment.NewEnvironment(); caller.Create("m", new ModuleObj(module));
+        var result = Assert.IsType<ArrayObj>(Evaluate("變數 total=0;迴圈(變數 i=0;i<5;i++){total+=m.value;m.bump();}變數 a=m.f();m.swap();[total,a,m.f(),m.value];", caller));
+        Assert.Equal(new[] { 10, 1, 2, 5 }, result.Elements.Select(e => Assert.IsType<IntegerObj>(e).Value));
+    }
 }

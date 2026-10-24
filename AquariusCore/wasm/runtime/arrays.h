@@ -19,7 +19,7 @@ static Scope *array_library(void) {
     Scope*s=scope(0);s->captured=1;for(u32 i=0;i<ARRAY_COUNT;i++)for(u32 j=0;j<2;j++)declare(s,utf16(array_names[i][j]),value(BUILTIN,ARRAY_FIRST_ID+i,0));return s;
 }
 static void array_changed(Array*a) {
-    if(a->exposed&&!a->dirty){a->dirty=1;a->dirty_next=dirty_arrays;dirty_arrays=a;}
+    if(a->exposed&&!a->dirty){a->dirty=1;a->dirty_next=pending.dirty_arrays;pending.dirty_arrays=a;}
 }
 static int array_size(Frame*f,Value v,u32*out) {
     if(v.tag!=INT||v.number<0||v.number>ARRAY_LIMIT){failure(f,"Array size/index must be a nonnegative integer within the Wasm array limit.");return 0;}

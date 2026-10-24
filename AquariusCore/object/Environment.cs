@@ -17,6 +17,9 @@ namespace AquariusLang.Object {
         /// </summary>
         private Dictionary<string, IObject> owned;
         private Environment outer;
+        /// <summary>Changes to any plain environment's bindings. Wasm hosts publish it as the guest's host era, which
+        /// invalidates the guest's cache of host module members.</summary>
+        internal static int Mutations;
         internal IEnumerable<IObject> StoredValues => ExternalBindings?.Invoke().Values ?? store.Values;
         internal Environment Outer => outer;
 
@@ -83,6 +86,7 @@ namespace AquariusLang.Object {
         /// <param name="val"></param>
         public void Set(string name, IObject val) {
             if (ExternalSet != null) { ExternalSet(name, val); return; }
+            unchecked { Mutations++; }
             Environment scope = this;
             while (!scope.Owns(name)) {
                 scope.store[name] = val;
@@ -101,12 +105,14 @@ namespace AquariusLang.Object {
         /// <param name="val"></param>
         /// <summary>Ends guest backing: the scope keeps these bindings as its own plain values.</summary>
         internal void Detach(IReadOnlyDictionary<string, IObject> bindings) {
+            unchecked { Mutations++; }
             ExternalLookup = null; ExternalSet = null; ExternalCreate = null; ExternalBindings = null;
             owned = new Dictionary<string, IObject>(bindings); store = new Dictionary<string, IObject>(bindings);
         }
 
         public void Create(string name, IObject val) {
             if (ExternalCreate != null) { ExternalCreate(name, val); return; }
+            unchecked { Mutations++; }
             owned[name] = val;
             store[name] = val;
         }

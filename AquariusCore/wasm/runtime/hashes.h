@@ -12,7 +12,7 @@ static Scope *hash_library(void) {
     Scope*s=scope(0);s->captured=1;for(u32 i=0;i<HASH_COUNT;i++)for(u32 j=0;j<2;j++)declare(s,utf16(hash_names[i][j]),value(BUILTIN,HASH_FIRST_ID+i,0));return s;
 }
 static void hash_changed(Hash*h) {
-    if(h->exposed&&!h->dirty){h->dirty=1;h->dirty_next=dirty_hashes;dirty_hashes=h;}
+    if(h->exposed&&!h->dirty){h->dirty=1;h->dirty_next=pending.dirty_hashes;pending.dirty_hashes=h;}
 }
 static int hash_key(Frame*f,Value k) {
     if(numeric(k)||k.tag==STRING||k.tag==BOOL)return 1;

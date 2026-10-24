@@ -39,6 +39,8 @@ _Static_assert(offsetof(Execution, status)==28 && offsetof(Execution, budget)==2
 _Static_assert(sizeof(Function)==40, "Function layout mismatch");
 _Static_assert(sizeof(Value)==16 && sizeof(Binding)==24 && offsetof(Binding,value)==8, "Host value/binding ABI mismatch");
 /* Every offset the C# emitters and hosts use (RuntimeLayout), checked here; see native/generate_runtime_layout.py. */
+/* Host synchronization block (see aqua_pending): host-visible work lists and the host environment era. */
+typedef struct { Array *dirty_arrays; Hash *dirty_hashes; Array *released_arrays; Hash *released_hashes; u32 host_era; } Pending;
 #include "layout.h"
 typedef struct Pin { struct Pin *next, *prev; Value value; } Pin;
 
@@ -54,8 +56,6 @@ static Execution *executions;
 static Pin *pins;
 static Value empty;
 static u32 mark_pending;
-static Array *dirty_arrays;
-static Hash *dirty_hashes;
 static unsigned char native_live[65536];
 static u32 marked_native_ids[65536], marked_native_count, collection_generation;
 /* Net allocation since the last collection, and heap growth (which explicit releases never offset: freed blocks of
@@ -187,24 +187,38 @@ u32 aqua_array_values(u32 p) { Array*a=pointer(p);writable_array(a,a->count);ret
 u32 aqua_array_count(u32 p) { return ((Array*)pointer(p))->count; }
 u32 aqua_array_resize(u32 p,u32 n) { Array*a=pointer(p);writable_array(a,n);if(n>a->count)memset(a->values+a->count,0,(n-a->count)*sizeof(Value));a->count=n;a->storage->used=n;return 0; }
 u32 aqua_array_expose(u32 p) { Array*a=pointer(p);if(a->exposed!=2)a->exposed=1;return 0; }
-u32 aqua_take_dirty_array(void) { Array*a=dirty_arrays;if(!a)return 0;dirty_arrays=a->dirty_next;a->dirty_next=0;a->dirty=0;return address(a); }
+/* Host-visible work lists: arrays and hashes changed since the host took them, and exposed ones the guest dropped
+   (weak mirrors). Hosts read this block (aqua_pending) after a run slice or before a service call and call the take_*
+   exports only for a non-empty list, instead of probing each list through a call. */
+static Pending pending;
+u32 aqua_pending(void) { return address(&pending); }
+/* Members of host modules (NATIVE) resolved through host service 2, cached per (module, name) while the host's
+   environment era is unchanged. Hosts write a nonzero era into the pending block whenever control returns to the
+   guest after host bindings may have changed; era 0 (an older host) disables the cache. Only values the guest does
+   not own are cached (host functions and scalars), and every collection clears the cache so a native id the guest
+   no longer references can be freed and reused. */
+typedef struct { u32 native, name, era, pad; Value value; } MemberEntry;
+static MemberEntry member_cache[256];
+static MemberEntry *member_entry(u32 native,u32 name) { return &member_cache[(native*2654435761u^name>>2)&255]; }
+static int member_cacheable(u32 tag) { return tag==INT||tag==FLOAT||tag==DOUBLE||tag==BOOL||tag==NULL_VALUE||tag==NATIVE||tag==BUILTIN; }
+u32 aqua_take_dirty_array(void) { Array*a=pending.dirty_arrays;if(!a)return 0;pending.dirty_arrays=a->dirty_next;a->dirty_next=0;a->dirty=0;return address(a); }
 /* Host reads: a borrowed view of an array's values (no copy-on-write), and whether an exposed array or hash
    changed in the guest since the host last took it from the dirty lists. Hosts refresh a mirror only when stale. */
 /* Weak host mirrors. A host that opts in does not pin mirrored arrays and hashes. When the guest drops an exposed
    one, the collector keeps its block (exposed=2, children untraced) on a released list until the host takes it and
    forgets its mirror; the next collection frees it. Hosts take released objects after every run slice, service call
    and collection, before they could address a mirror's guest object again. */
-static u32 weak_mirrors;static Array*released_arrays;static Hash*released_hashes;
+static u32 weak_mirrors;
 u32 aqua_weak_mirrors(void) { weak_mirrors=1;return 1; }
 u32 aqua_take_released(void) {
-    if(released_arrays){Array*a=released_arrays;released_arrays=a->dirty_next;a->dirty_next=0;a->exposed=0;return address(a);}
-    if(released_hashes){Hash*h=released_hashes;released_hashes=h->dirty_next;h->dirty_next=0;h->exposed=0;return address(h);}
+    if(pending.released_arrays){Array*a=pending.released_arrays;pending.released_arrays=a->dirty_next;a->dirty_next=0;a->exposed=0;return address(a);}
+    if(pending.released_hashes){Hash*h=pending.released_hashes;pending.released_hashes=h->dirty_next;h->dirty_next=0;h->exposed=0;return address(h);}
     return 0;
 }
 static int keep_released(Block*b) {
     if(!weak_mirrors)return 0;
-    if(b->kind==ARRAYS){Array*a=(Array*)(b+1);if(a->exposed==1){a->exposed=2;a->dirty_next=released_arrays;released_arrays=a;}return a->exposed==2;}
-    if(b->kind==HASHES){Hash*h=(Hash*)(b+1);if(h->exposed==1){h->exposed=2;h->dirty_next=released_hashes;released_hashes=h;}return h->exposed==2;}
+    if(b->kind==ARRAYS){Array*a=(Array*)(b+1);if(a->exposed==1){a->exposed=2;a->dirty_next=pending.released_arrays;pending.released_arrays=a;}return a->exposed==2;}
+    if(b->kind==HASHES){Hash*h=(Hash*)(b+1);if(h->exposed==1){h->exposed=2;h->dirty_next=pending.released_hashes;pending.released_hashes=h;}return h->exposed==2;}
     return 0;
 }
 u32 aqua_array_items(u32 p) { return address(((Array*)pointer(p))->values); }
@@ -215,7 +229,7 @@ u32 aqua_hash_count(u32 p) { return ((Hash*)pointer(p))->count; }
 u32 aqua_hash_resize(u32 p,u32 n) { Hash*h=pointer(p);if(n>h->capacity){Pair*next=allocate(n*sizeof(Pair),RAW);memcpy(next,h->pairs,h->count*sizeof(Pair));release(h->pairs);h->pairs=next;h->capacity=((Block*)next-1)->size/sizeof(Pair);}if(n>h->count)memset(h->pairs+h->count,0,(n-h->count)*sizeof(Pair));h->count=n;return 0; }
 u32 aqua_hash_write_support(void) { return 1; }
 u32 aqua_hash_expose(u32 p) { Hash*h=pointer(p);if(h->exposed!=2)h->exposed=1;return 0; }
-u32 aqua_take_dirty_hash(void) { Hash*h=dirty_hashes;if(!h)return 0;dirty_hashes=h->dirty_next;h->dirty_next=0;h->dirty=0;return address(h); }
+u32 aqua_take_dirty_hash(void) { Hash*h=pending.dirty_hashes;if(!h)return 0;pending.dirty_hashes=h->dirty_next;h->dirty_next=0;h->dirty=0;return address(h); }
 #include "arrays.h"
 #include "hashes.h"
 #include "texts.h"
@@ -363,7 +377,7 @@ static Value flood_fill(Frame*f,Value*args) {
             if(count==capacity){capacity*=2;FillSpan*next=allocate(capacity*sizeof(FillSpan),RAW);memcpy(next,stack,count*sizeof(FillSpan));release(stack);stack=next;}
             for(u32 i=left;i<=right;i++){a->values[row*width+i]=replacement;changed++;}stack[count++]=(FillSpan){row,left,right};column=right+1;
         }
-    }}release(stack);if(a->exposed&&!a->dirty){a->dirty=1;a->dirty_next=dirty_arrays;dirty_arrays=a;}return number(changed,INT);
+    }}release(stack);if(a->exposed&&!a->dirty){a->dirty=1;a->dirty_next=pending.dirty_arrays;pending.dirty_arrays=a;}return number(changed,INT);
 }
 int rt_call(Frame*f,int n) {
     if(n<0||(u32)n>=f->sp){failure(f,"Invalid compiled call.");return 1;}u32 base=f->sp-n-1;Value callee=f->values[base];Value*args=f->values+base+1;
@@ -415,10 +429,10 @@ int rt_hash(Frame*f,int n){Hash*h=pointer(aqua_hash(n));u32 count=0,base=f->sp-n
 int rt_index(Frame*f,int n){Value i=pop(f),v=pop(f),out=value(NULL_VALUE,0,0);if(v.tag==ARRAY&&i.tag==INT){Array*a=pointer(v.ref);if(i.number>=0&&i.number<a->count)out=a->values[(u32)i.number];}else if(v.tag==STRING&&i.tag==INT){Text*t=pointer(v.ref);if(i.number>=0&&i.number<t->length){Text*c=pointer(aqua_text(1));c->data[0]=t->data[(u32)i.number];out=value(STRING,address(c),0);}}else if(v.tag==HASH){if(!numeric(i)&&i.tag!=BOOL&&i.tag!=STRING){named_failure(f,"Unusable as hash key: ",ascii(type_name(i.tag)));return 0;}Hash*h=pointer(v.ref);for(u32 j=0;j<h->count;j++)if(equal(i,h->pairs[j].key,1)){out=h->pairs[j].value;break;}}else {named_failure(f,"Index operator not supported: ",ascii(type_name(v.tag)));return 0;}push(f,out);return 0;}
 int rt_checkArrayWrite(Frame*f,int n){Value i=peek(f,1),a=peek(f,2);if(a.tag==HASH){if(!numeric(i)&&i.tag!=STRING&&i.tag!=BOOL)named_failure(f,"Unusable as hash key: ",ascii(type_name(i.tag)));}else if(a.tag!=ARRAY)failure(f,"Indexed assignment requires an array or hash.");else if(i.tag!=INT)failure(f,"Array assignment index must be an integer.");else if(i.number<0||i.number>=((Array*)pointer(a.ref))->count)failure(f,"Array assignment index is out of bounds.");return 0;}
 int rt_writeIndex(Frame*f,int n){Value v=pop(f);rt_checkArrayWrite(f,0);Value i=pop(f),a=pop(f);if(!f->execution->status){
-    if(a.tag==HASH){Hash*h=pointer(a.ref);u32 j=0;while(j<h->count&&!equal(i,h->pairs[j].key,1))j++;if(j==h->count)aqua_hash_resize(a.ref,h->count+1);h->pairs[j]=(Pair){i,v};if(h->exposed&&!h->dirty){h->dirty=1;h->dirty_next=dirty_hashes;dirty_hashes=h;}}
-    else{Array*x=pointer(a.ref);writable_array(x,x->count);x->values[(u32)i.number]=v;if(x->exposed&&!x->dirty){x->dirty=1;x->dirty_next=dirty_arrays;dirty_arrays=x;}}
+    if(a.tag==HASH){Hash*h=pointer(a.ref);u32 j=0;while(j<h->count&&!equal(i,h->pairs[j].key,1))j++;if(j==h->count)aqua_hash_resize(a.ref,h->count+1);h->pairs[j]=(Pair){i,v};if(h->exposed&&!h->dirty){h->dirty=1;h->dirty_next=pending.dirty_hashes;pending.dirty_hashes=h;}}
+    else{Array*x=pointer(a.ref);writable_array(x,x->count);x->values[(u32)i.number]=v;if(x->exposed&&!x->dirty){x->dirty=1;x->dirty_next=pending.dirty_arrays;pending.dirty_arrays=x;}}
 }push(f,v);return 0;}
-int rt_member(Frame*f,int n){Value m=pop(f),out=empty;Text*t=name(f,n);if(m.tag==MODULE){Binding*b=find(pointer(m.ref),t);if(!b)named_failure(f,"Module member not found: ",t);else out=b->value;}else if(m.tag==NATIVE){if(host_service(2,f->context,m.ref,address(t),0,0,address(&out)))named_failure(f,"Module member not found: ",t);}else named_failure(f,"Cannot access member of ",ascii(type_name(m.tag)));push(f,out);return 0;}
+int rt_member(Frame*f,int n){Value m=pop(f),out=empty;Text*t=name(f,n);if(m.tag==MODULE){Binding*b=find(pointer(m.ref),t);if(!b)named_failure(f,"Module member not found: ",t);else out=b->value;}else if(m.tag==NATIVE){MemberEntry*c=pending.host_era?member_entry(m.ref,address(t)):0;if(c&&c->era==pending.host_era&&c->native==m.ref&&c->name==address(t))out=c->value;else if(host_service(2,f->context,m.ref,address(t),0,0,address(&out)))named_failure(f,"Module member not found: ",t);else if(c&&pending.host_era&&member_cacheable(out.tag)){c->native=m.ref;c->name=address(t);c->era=pending.host_era;c->value=out;}}else named_failure(f,"Cannot access member of ",ascii(type_name(m.tag)));push(f,out);return 0;}
 int rt_resolveMemberFunction(Frame*f,int n){Value m=pop(f);if(m.tag==NATIVE){Value out=empty;if(host_service(3,f->context,m.ref,0,0,0,address(&out))){failure(f,"Cannot access computed member of native value.");return 0;}m=out;}if(m.tag!=MODULE){failure(f,"Computed member requires a module.");return 0;}Value c=constant(f,n);f->execution->current=frame(f->execution,f,f->program,(u32)c.number,pointer(m.ref),f->context);return 0;}
 int rt_enterLoop(Frame*f,int n){invalidate_scopes();Loop*l=allocate(sizeof(Loop),LOOPS);l->previous=f->loops;l->outer=f->scope;l->base=f->sp;l->binding=n<0?0:name(f,n);f->loops=l;f->scope=scope(f->scope);return 0;}
 int rt_loopCondition(Frame*f,int n){Value v=pop(f);if(v.tag!=BOOL){failure(f,"Expected bool from for loop conditionals.");return 0;}return v.number!=0;}
@@ -428,13 +442,13 @@ int rt_leaveLoop(Frame*f,int n){Loop*l=f->loops;if(!l){failure(f,"Invalid compil
 int rt_error(Frame*f,int n){fail(f,name(f,n));return 0;}
 static void mark_ref(void*p){u32 addr=address(p);if(!p||addr<heap_start||addr>=heap_end)return;Block*b=(Block*)p-1;if(b->kind==FREE||b->marked)return;b->marked=mark_pending|1;mark_pending=addr;}
 static void mark_value(Value v){if(v.tag==NATIVE){if(v.ref<65536&&!native_live[v.ref]){native_live[v.ref]=1;marked_native_ids[marked_native_count++]=v.ref;}}else if(v.tag>=STRING&&v.tag<=MODULE||v.tag==ERROR)mark_ref(pointer(v.ref));}
-u32 aqua_collect(void){
+u32 aqua_collect(void){memset(member_cache,0,sizeof member_cache);
     bytes_since_collection=0;heap_growth=0;gc_armed=0;for(Execution*e=executions;e;e=e->next)e->poll=0;
     // Marks are clear here: allocation clears them and the sweep below resets every survivor.
     for(u32 i=0;i<marked_native_count;i++)native_live[marked_native_ids[i]]=0;marked_native_count=0;mark_pending=0;
     for(Execution*e=executions;e;e=e->next)mark_ref(e);for(Pin*p=pins;p;p=p->next)mark_ref(p);for(u32 i=0;i<builtin_context_count;i++)mark_ref(builtin_scopes[builtin_contexts[i]]);
-    for(Array*a=dirty_arrays;a;a=a->dirty_next)mark_ref(a);
-    for(Hash*h=dirty_hashes;h;h=h->dirty_next)mark_ref(h);
+    for(Array*a=pending.dirty_arrays;a;a=a->dirty_next)mark_ref(a);
+    for(Hash*h=pending.dirty_hashes;h;h=h->dirty_next)mark_ref(h);
     while(mark_pending){void*p=pointer(mark_pending);Block*b=(Block*)p-1;mark_pending=b->marked&~1u;b->marked=1;switch(b->kind){
         case ENV:{Scope*s=p;mark_ref(s->outer);mark_ref(s->bindings);mark_ref(s->index);for(u32 i=0;i<s->count;i++){mark_ref(s->bindings[i].name);mark_value(s->bindings[i].value);}break;}
         case CLOSURES:{Closure*c=p;mark_ref(c->scope);mark_ref(c->cache);break;}

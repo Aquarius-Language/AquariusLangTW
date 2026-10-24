@@ -9,7 +9,7 @@ namespace AquariusLang.Wasm;
 /// </summary>
 internal sealed class WasmRuntimeExports(IWasmInstance instance)
 {
-    private Func<int>? weakMirrors, takeReleased;
+    private Func<int>? weakMirrors, takeReleased, pending;
     private Func<int>? value, takeDirtyArray, takeDirtyHash, collectionDue, collectionGeneration, collect, threadModule, threadSnapshotSize;
     private Func<int, int>? pin, unpin, text, scope, scopeCount, arrayCount, arrayValues, array, arrayExpose, hash, hashPairs, hashCount,
         hashExpose, result, releaseExecution, nativeLive, allocate, initialize, threadDecode, threadFreePacket;
@@ -19,6 +19,7 @@ internal sealed class WasmRuntimeExports(IWasmInstance instance)
     private Func<int, int, int, int, int>? execute;
 
     public int WeakMirrors() => (weakMirrors ??= instance.Export("aqua_weak_mirrors"))();
+    public int Pending() => (pending ??= instance.Export("aqua_pending"))();
     public int TakeReleased() => (takeReleased ??= instance.Export("aqua_take_released"))();
     public int Value() => (value ??= instance.Export("aqua_value"))();
     public int TakeDirtyArray() => (takeDirtyArray ??= instance.Export("aqua_take_dirty_array"))();

@@ -265,8 +265,8 @@ public class ArchitectureRulesTest
     private static readonly string[] HostBridges = { "AquariusCore/hosting/wasm-host.mjs", "AquariusCore/wasm/WasmHostRuntime.cs" };
 
     [Theory]
-    [InlineData("AquariusCore/hosting/wasm-host.mjs", "'aqua_stale' 'aqua_take_released' 'aqua_take_dirty_array' 'aqua_take_dirty_hash' 'aqua_array_items' 'aqua_weak_mirrors'")]
-    [InlineData("AquariusCore/wasm/WasmHostRuntime.cs", "exports.Stale( exports.TakeReleased() exports.TakeDirtyArray() exports.TakeDirtyHash() exports.ArrayItems( exports.WeakMirrors()")]
+    [InlineData("AquariusCore/hosting/wasm-host.mjs", "'aqua_stale' 'aqua_take_released' 'aqua_take_dirty_array' 'aqua_take_dirty_hash' 'aqua_array_items' 'aqua_weak_mirrors' 'aqua_pending'")]
+    [InlineData("AquariusCore/wasm/WasmHostRuntime.cs", "exports.Stale( exports.TakeReleased() exports.TakeDirtyArray() exports.TakeDirtyHash() exports.ArrayItems( exports.WeakMirrors() exports.Pending()")]
     public void HostsTranslateRuntimeMirrorDecisions(string host, string runtimeDecisions)
     {
         // The runtime decides which mirrors are stale (aqua_stale), which guest objects were dropped

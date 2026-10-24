@@ -1,4 +1,4 @@
-import {Scope,num,numeric,nativeCall,nativeOwner,isPromiseLike,portableBuiltin} from './values.mjs';
+import {Scope,num,numeric,nativeCall,nativeOwner,isPromiseLike,portableBuiltin,scopeMutations} from './values.mjs';
 import {readManifest} from './wasm-manifest.mjs';
 import {arrayBuiltin} from './array-library.mjs';
 import {hashBuiltin} from './hash-library.mjs';
@@ -46,9 +46,17 @@ class Session {
     this.borrowedArrays=typeof this.exports.aqua_array_items==='function';this.staleTracking=typeof this.exports.aqua_stale==='function';
     // Array and hash mirrors do not pin their guest objects; the guest reports dropped ones (see release()).
     this.weakMirrors=typeof this.exports.aqua_weak_mirrors==='function'&&this.call('aqua_weak_mirrors')===1;
+    // The runtime's work-list heads and host era (RuntimeLayout.Pending*: lists at 0..12, era at 16); 0 without aqua_pending.
+    this.pendingBlock=typeof this.exports.aqua_pending==='function'?this.call('aqua_pending'):0;
   }
-  call(name,...args){return this.exports[name](...args);}
-  view(){const buffer=this.exports.memory.buffer;if(this.memoryView?.buffer!==buffer)this.memoryView=new DataView(buffer);return this.memoryView;}
+  // Whether a runtime work list may be non-empty: read from guest memory instead of calling in to find out.
+  pending(list){return !this.pendingBlock||this.int(this.pendingBlock+list)!==0;}
+  // Before control returns to the guest: host bindings may have changed, so publish the era its member cache checks.
+  publishHostEra(){if(this.pendingBlock)this.int(this.pendingBlock+16,scopeMutations.count>>>0||1);}
+  call(name,...args){this.memoryChecked=false;return this.exports[name](...args);}
+  // Memory grows only while guest code runs, so the buffer is re-read once after each call into the guest or service
+  // entry, not on every access (the Android engine refreshes a grown buffer only when it is read).
+  view(){if(!this.memoryChecked||this.memoryBuffer.byteLength===0){const buffer=this.exports.memory.buffer;if(buffer!==this.memoryBuffer){this.memoryBuffer=buffer;this.memoryView=new DataView(buffer);}this.memoryChecked=true;}return this.memoryView;}
   int(p,n){const v=this.view();if(n===undefined)return v.getUint32(p,true);v.setUint32(p,n,true);}
   raw(p,tag,reference=0,number=0){this.int(p,tag);this.int(p+4,reference);this.view().setFloat64(p+8,number,true);}
   text(value,intern=true){
@@ -61,7 +69,7 @@ class Session {
   // Forget mirrors of arrays and hashes the guest dropped. A retained mirror becomes a plain detached value: the guest
   // holds no reference that could observe it, and passing it back creates a new guest object.
   release(){
-    if(!this.weakMirrors)return;let reference;
+    if(!this.weakMirrors||!this.pending(8)&&!this.pending(12))return;let reference;
     while((reference=this.call('aqua_take_released'))!==0){
       for(const tag of [6,7]){const key=objectKey(tag,reference),mirror=this.objects.get(key)?.deref();if(mirror){const origin=this.runtime.origins.get(mirror);if(origin?.session===this&&origin.reference===reference)this.runtime.origins.delete(mirror);}this.objects.delete(key);}
       this.dirtyArrays.delete(reference);this.arrayOwners.delete(reference);
@@ -104,26 +112,30 @@ class Session {
   detach(){for(const lease of this.scopeLeases){const env=lease.owner.deref();if(!lease.host||!env)continue;const store=this.bindings(lease.pointer);
     for(const name of ['get','create','set'])delete env[name];Object.defineProperty(env,'store',{value:store,writable:true,configurable:true});Object.defineProperty(env,'owned',{value:new Set(store.keys()),writable:true,configurable:true});}}
   arrayOwner(value,owner){const origin=this.runtime.origins.get(value);if(!Array.isArray(value)||origin?.session!==this)return;let owners=this.arrayOwners.get(origin.reference);if(!owners)this.arrayOwners.set(origin.reference,owners=[]);if(!owners.some(w=>w.deref()===owner))owners.push(new WeakRef(owner));}
-  flushDirty(owner=null){let reference;if(this.mutableHashes){this.refreshingDirtyHashes=true;try{while((reference=this.call('aqua_take_dirty_hash'))!==0){const cached=this.objects.get(objectKey(7,reference))?.deref();if(cached)this.refresh(7,reference,cached);}}finally{this.refreshingDirtyHashes=false;}}while((reference=this.call('aqua_take_dirty_array'))!==0)this.dirtyArrays.add(reference);for(const item of this.dirtyArrays){const cached=this.objects.get(objectKey(6,item))?.deref();if(!cached){this.dirtyArrays.delete(item);this.arrayOwners.delete(item);continue;}if(owner&&!this.arrayOwners.get(item)?.some(w=>w.deref()===owner))continue;this.refresh(6,item,cached);this.dirtyArrays.delete(item);}}
+  flushDirty(owner=null){let reference;if(this.mutableHashes){this.refreshingDirtyHashes=true;try{if(this.pending(4))while((reference=this.call('aqua_take_dirty_hash'))!==0){const cached=this.objects.get(objectKey(7,reference))?.deref();if(cached)this.refresh(7,reference,cached);}}finally{this.refreshingDirtyHashes=false;}}if(this.pending(0))while((reference=this.call('aqua_take_dirty_array'))!==0)this.dirtyArrays.add(reference);for(const item of this.dirtyArrays){const cached=this.objects.get(objectKey(6,item))?.deref();if(!cached){this.dirtyArrays.delete(item);this.arrayOwners.delete(item);continue;}if(owner&&!this.arrayOwners.get(item)?.some(w=>w.deref()===owner))continue;this.refresh(6,item,cached);this.dirtyArrays.delete(item);}}
   synchronizeOut(){this.flushDirty();}
   async run(pointer){
     const state={pointer,session:this,pending:null};let sliceStart=performance.now();this.runtime.executions.add(state);this.running.push(state);
-    try{while(true){if(this.runtime.cancelled||this.runtime.host.signal?.aborted)throw new Error('Execution cancelled');const previous=this.dispatchState;this.dispatchState=state;let status;try{status=this.call('aqua_run',pointer,32768);}finally{this.dispatchState=previous;this.release();}
+    try{while(true){if(this.runtime.cancelled||this.runtime.host.signal?.aborted)throw new Error('Execution cancelled');const previous=this.dispatchState;this.dispatchState=state;let status;try{this.publishHostEra();status=this.call('aqua_run',pointer,32768);}finally{this.dispatchState=previous;this.release();}
       if(status===1){this.collect(false);if(performance.now()-sliceStart>=8){if(this.runtime.host.yieldExecution)await this.runtime.host.yieldExecution();else if(typeof window!=='undefined')await new Promise(r=>setTimeout(r,0));sliceStart=performance.now();}continue;}
-      if(status===2){const pending=state.pending;try{const result=await pending.promise;if(this.runtime.cancelled||this.runtime.host.signal?.aborted)throw new Error('Execution cancelled');const cell=this.call('aqua_value');pending.args.forEach((v,i)=>this.write(pending.arguments+i*16,v));this.write(cell,result);this.call('aqua_resume',pointer,cell);}finally{this.runtime.nativeRoots.delete(pending.roots);state.pending=null;}continue;}
+      if(status===2){const pending=state.pending;try{const result=await pending.promise;if(this.runtime.cancelled||this.runtime.host.signal?.aborted)throw new Error('Execution cancelled');const cell=this.call('aqua_value');pending.args.forEach((v,i)=>{if(Array.isArray(v)||v instanceof Map)this.write(pending.arguments+i*16,v);});this.write(cell,result);this.call('aqua_resume',pointer,cell);}finally{this.runtime.nativeRoots.delete(pending.roots);state.pending=null;}continue;}
       const p=this.call('aqua_result',pointer);if(status===3)throw new Error(this.text(this.int(p+4)));return this.read(p);
     }}finally{this.synchronizeOut();this.call('aqua_release_execution',pointer);this.runtime.executions.delete(state);const i=this.running.indexOf(state);if(i>=0)this.running.splice(i,1);}
   }
   service(operation,context,subject,name,arguments_,count,output){
-    this.release();
+    try{return this.serviceCore(operation,context,subject,name,arguments_,count,output);}finally{this.publishHostEra();}
+  }
+  serviceCore(operation,context,subject,name,arguments_,count,output){
+    this.memoryChecked=false;this.release();
     if(operation===4){const result=this.threads.call(subject,arguments_,count);if(isPromiseLike(result)){const roots=[];this.dispatchState.pending={promise:Promise.resolve(result),args:[],arguments:arguments_,roots,synchronize:false};return 1;}this.write(output,result);return 0;}
     if(operation===0){const n=this.text(name),builtins=this.contexts[context];if(n==='import'||n==='匯入'){const fallback=builtins.get(n);this.write(output,(name)=>{if(name==='Thread'||name==='執行緒')return threadModule;if(!fallback)throw new Error('Module not found: '+name);return (fallback[nativeCall]??fallback)(name);});return 0;}if(!builtins.has(n))return 1;this.write(output,builtins.get(n));return 0;}
     if(operation===2){const m=this.natives[subject];if(m?.type!=='module')return 1;this.flushDirty(m.scope);try{const value=m.scope.get(this.text(name));this.write(output,value);this.arrayOwner(value,m.scope);return 0;}catch{return 1;}}
     if(operation===3){const m=this.natives[subject];if(m?.type!=='module')return 1;this.raw(output,9,this.scope(m.scope));return 0;}
-    if(operation!==1)throw new Error('Invalid native service request');const state=this.dispatchState,fn=this.natives[subject],args=Array.from({length:count},(_,i)=>this.read(arguments_+i*16)),roots=[fn,...args];this.runtime.nativeRoots.add(roots);
+    if(operation!==1)throw new Error('Invalid native service request');const state=this.dispatchState,fn=this.natives[subject],args=new Array(count);for(let i=0;i<count;i++)args[i]=this.read(arguments_+i*16);const roots=[fn,...args];this.runtime.nativeRoots.add(roots);
     const synchronize=!fn?.[nativeOwner];
     try{if(synchronize)this.synchronizeOut();else this.flushDirty(fn[nativeOwner].scope);const result=typeof fn==='function'?(fn[nativeCall]??fn)(...args):this.runtime.invoke(fn,args);if(isPromiseLike(result)){state.pending={promise:Promise.resolve(result),args,arguments:arguments_,roots,synchronize};return 1;}
-      args.forEach((v,i)=>this.write(arguments_+i*16,v));this.write(output,result);if(!synchronize)this.arrayOwner(result,fn[nativeOwner].scope);this.runtime.nativeRoots.delete(roots);return 0;
+      // Only arrays and hashes can carry a callee's changes back; scalar argument slots are temporaries the guest drops.
+      args.forEach((v,i)=>{if(Array.isArray(v)||v instanceof Map)this.write(arguments_+i*16,v);});this.write(output,result);if(!synchronize)this.arrayOwner(result,fn[nativeOwner].scope);this.runtime.nativeRoots.delete(roots);return 0;
     }catch(error){this.runtime.nativeRoots.delete(roots);throw error;}
   }
   write(p,v){

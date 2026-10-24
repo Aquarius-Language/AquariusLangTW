@@ -106,6 +106,8 @@ public sealed partial class WasmRuntime : IDisposable
         private readonly HashSet<IObject> writing = new(ReferenceEqualityComparer.Instance);
         private readonly HashSet<int> dirtyArrays = new();
         private readonly bool mutableHashes, staleTracking, borrowedArrays, weakMirrors;
+        /// <summary>Address of the runtime's work-list heads (RuntimeLayout.Pending*), or 0 for runtimes without aqua_pending.</summary>
+        private readonly int pending;
         private bool refreshingDirtyHashes;
         private readonly Dictionary<int, List<WeakReference<AquaEnvironment>>> arrayOwners = new();
         internal Session(WasmProgram program, IWasmEngine engine, int quantum)
@@ -129,6 +131,7 @@ public sealed partial class WasmRuntime : IDisposable
             staleTracking = program.HasExport("aqua_stale"); borrowedArrays = program.HasExport("aqua_array_items");
             // Array and hash mirrors do not pin their guest objects; the guest reports dropped ones (see Release).
             weakMirrors = program.HasExport("aqua_weak_mirrors") && exports.WeakMirrors() == 1;
+            pending = program.HasExport("aqua_pending") ? exports.Pending() : 0;
         }
         ~Session() { try { DisposeCore(); } catch { /* Finalization cannot report native cleanup failures. */ } }
         public void Dispose() { Detach(); DisposeCore(); }
@@ -172,9 +175,13 @@ public sealed partial class WasmRuntime : IDisposable
         }
         // Forget mirrors of arrays and hashes the guest dropped. A retained mirror becomes a plain detached value: the guest
         // holds no reference that could observe it, and passing it back creates a new guest object.
+        // Whether a runtime work list may be non-empty: read from guest memory instead of calling in to find out.
+        private bool Pending(int list) => pending == 0 || Int(pending + list) != 0;
+        // Before control returns to the guest: host bindings may have changed, so publish the era its member cache checks.
+        private void PublishHostEra() { if (pending != 0) { int era = System.Threading.Volatile.Read(ref AquaEnvironment.Mutations); Int(pending + RuntimeLayout.PendingHostEra, era == 0 ? 1 : era); } }
         private void Release()
         {
-            if (!weakMirrors) return;
+            if (!weakMirrors || !Pending(RuntimeLayout.PendingReleasedArrays) && !Pending(RuntimeLayout.PendingReleasedHashes)) return;
             int reference;
             while ((reference = exports.TakeReleased()) != 0) {
                 foreach (int tag in new[] { 6, 7 }) {
@@ -246,10 +253,11 @@ public sealed partial class WasmRuntime : IDisposable
             // 避免修改一個欄位時反覆遞迴走訪整份文件。
             if (mutableHashes) {
                 refreshingDirtyHashes = true;
-                try { while ((reference = exports.TakeDirtyHash()) != 0) Refresh(7, reference); }
+                try { if (Pending(RuntimeLayout.PendingDirtyHashes)) while ((reference = exports.TakeDirtyHash()) != 0) Refresh(7, reference); }
                 finally { refreshingDirtyHashes = false; }
             }
-            while ((reference = exports.TakeDirtyArray()) != 0) dirtyArrays.Add(reference);
+            if (Pending(RuntimeLayout.PendingDirtyArrays)) while ((reference = exports.TakeDirtyArray()) != 0) dirtyArrays.Add(reference);
+            if (dirtyArrays.Count == 0) return;
             foreach (int item in dirtyArrays.ToArray())
             {
                 if (!objects.TryGetValue((6, item), out var cached) || !cached.TryGetTarget(out _)) { dirtyArrays.Remove(item); arrayOwners.Remove(item); continue; }
@@ -278,12 +286,16 @@ public sealed partial class WasmRuntime : IDisposable
         private IObject? Run(int execution)
         {
             (active ??= new()).Add(this);
-            try { while (true) { int status = exports.Run(execution, quantum); Release(); if (status == 1) { Collect(false); continue; }
+            try { while (true) { PublishHostEra(); int status = exports.Run(execution, quantum); Release(); if (status == 1) { Collect(false); continue; }
                 if (status == 2) throw new InvalidOperationException("Unresolved desktop async operation."); return Read(exports.Result(execution)); } }
             finally { SynchronizeOut(); exports.ReleaseExecution(execution); active.RemoveAt(active.Count - 1);
                 if (deferredCollections && !active.Contains(this)) Collect(); }
         }
         private int Service(int operation, int context, int subject, int name, int arguments, int count, int output)
+        {
+            try { return ServiceCore(operation, context, subject, name, arguments, count, output); } finally { PublishHostEra(); }
+        }
+        private int ServiceCore(int operation, int context, int subject, int name, int arguments, int count, int output)
         {
             Release();
             if (operation == 4) return ThreadService(subject, arguments, count, output);
@@ -314,7 +326,8 @@ public sealed partial class WasmRuntime : IDisposable
             bool synchronize = natives[subject] is not BuiltinObj { RetainedEnvironment: not null };
             try { if (synchronize) SynchronizeOut(); else FlushDirtyArrays(((BuiltinObj)natives[subject]!).RetainedEnvironment); IObject? result = natives[subject] switch { BuiltinObj fn => fn.BorrowsArguments ? fn.InvokeBorrowed(args) : fn.Fn(args),
                 FunctionObj fn when Callables.TryGetValue(fn, out var compiled) => compiled.Session.Invoke(compiled.Value, args), _ => new ErrorObj("Not a function.") };
-                if (natives[subject] is not BuiltinObj { PreservesArguments: true }) for (int i = 0; i < count; i++) Write(arguments + i * 16, args[i]); Write(output, result); if (!synchronize) ArrayOwner(result, ((BuiltinObj)natives[subject]!).RetainedEnvironment!); return 0; }
+                // Only arrays and hashes can carry a callee's changes back; scalar argument slots are temporaries the guest drops.
+                if (natives[subject] is not BuiltinObj { PreservesArguments: true }) for (int i = 0; i < count; i++) if (args[i] is ArrayObj or HashObj) Write(arguments + i * 16, args[i]); Write(output, result); if (!synchronize) ArrayOwner(result, ((BuiltinObj)natives[subject]!).RetainedEnvironment!); return 0; }
             finally { nativeArguments.Pop(); }
         }
         private void Write(int address, IObject? value)

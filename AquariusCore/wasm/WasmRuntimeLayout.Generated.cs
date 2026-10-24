@@ -26,6 +26,8 @@ internal static class RuntimeLayout
     internal const int ClosureProgram = 0, ClosureFunction = 4, ClosureScope = 8, ClosureContext = 12, ClosureCache = 16, ClosureCacheEra = 20, ClosureSize = 24;
     /// <summary><c>Frame</c></summary>
     internal const int FrameParent = 0, FrameExecution = 4, FrameProgram = 8, FrameFunction = 12, FrameScope = 16, FrameLoops = 20, FramePc = 24, FrameSp = 28, FrameReturned = 32, FrameContext = 36, FrameCapacity = 40, FramePendingBase = 44, FramePendingCount = 48, FrameBindingCache = 52, FrameValues = 56;
+    /// <summary><c>Pending</c></summary>
+    internal const int PendingDirtyArrays = 0, PendingDirtyHashes = 4, PendingReleasedArrays = 8, PendingReleasedHashes = 12, PendingHostEra = 16, PendingSize = 20;
     /// <summary><c>Execution</c></summary>
     internal const int ExecutionNext = 0, ExecutionCurrent = 4, ExecutionResult = 8, ExecutionBudget = 24, ExecutionStatus = 28, ExecutionNumericDepthDisabled = 32, ExecutionPoll = 36, ExecutionNumericClosure = 40, ExecutionNumericInnermost = 44;
     internal const int VoidTag = 0, IntTag = 1, FloatTag = 2, DoubleTag = 3, BoolTag = 4, StringTag = 5, ArrayTag = 6, HashTag = 7, ClosureTag = 8, ModuleTag = 9, NativeTag = 10, NullTag = 11, BreakTag = 12, ErrorTag = 13, BuiltinTag = 14;

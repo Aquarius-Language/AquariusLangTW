@@ -8,13 +8,16 @@ export const nativeCall = Symbol('Aquarius native call');
 export const nativeOwner = Symbol('Aquarius native owner');
 export const portableBuiltin = Symbol('Aquarius portable builtin');
 export const isPromiseLike = value => value != null && (typeof value === 'object' || typeof value === 'function') && typeof value.then === 'function';
+// Changes to any host scope's bindings. Wasm sessions publish it as the guest's host era, which invalidates the
+// guest's cache of host module members.
+export const scopeMutations={count:1};
 export class Scope {
   constructor(outer = null) { this.outer = outer; this.store = new Map(); this.owned = new Set(); }
-  create(n,v) { this.store.set(n,v); this.owned.add(n); }
+  create(n,v) { scopeMutations.count++; this.store.set(n,v); this.owned.add(n); }
   // Return the binding scope so a stored undefined value is distinct from absence.
   resolve(n) { for(let s=this;s;s=s.outer) if(s.store.has(n)) return s; return null; }
   get(n) { const s=this.resolve(n); if(s)return s.store.get(n); throw new Error(`Identifier not found: ${n}`); }
-  set(n,v) { let s=this; while(s && !s.owned.has(n)) { s.store.set(n,v); s=s.outer; } if(!s) throw new Error(`Identifier not found: ${n}`); s.store.set(n,v); }
+  set(n,v) { scopeMutations.count++; let s=this; while(s && !s.owned.has(n)) { s.store.set(n,v); s=s.outer; } if(!s) throw new Error(`Identifier not found: ${n}`); s.store.set(n,v); }
 }
 export const module = scope => ({type:'module', scope});
 export function inspect(v) {
