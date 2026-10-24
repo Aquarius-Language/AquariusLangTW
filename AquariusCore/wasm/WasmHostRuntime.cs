@@ -104,7 +104,7 @@ public sealed partial class WasmRuntime : IDisposable
         private readonly HashSet<(int Tag, int Reference)> reading = new();
         private readonly HashSet<IObject> writing = new(ReferenceEqualityComparer.Instance);
         private readonly HashSet<int> dirtyArrays = new();
-        private readonly bool mutableHashes;
+        private readonly bool mutableHashes, staleTracking, borrowedArrays, weakMirrors;
         private bool refreshingDirtyHashes;
         private readonly Dictionary<int, List<WeakReference<AquaEnvironment>>> arrayOwners = new();
         internal Session(WasmProgram program, IWasmEngine engine, int quantum)
@@ -124,6 +124,10 @@ public sealed partial class WasmRuntime : IDisposable
             mutableHashes = program.HasExport("aqua_hash_write_support") && Call("aqua_hash_write_support") != 0;
             // Additive exports: older ABI 2 artifacts retain eager collection.
             deferredCollections = program.HasExport("aqua_collection_generation");
+            // ABI 3 runtimes report which mirrored objects changed; ABI 2 artifacts refresh every mirror on read.
+            staleTracking = program.HasExport("aqua_stale"); borrowedArrays = program.HasExport("aqua_array_items");
+            // Array and hash mirrors do not pin their guest objects; the guest reports dropped ones (see Release).
+            weakMirrors = program.HasExport("aqua_weak_mirrors") && exports.WeakMirrors() == 1;
         }
         ~Session() { try { Dispose(); } catch { /* Finalization cannot report native cleanup failures. */ } }
         public void Dispose()
@@ -152,10 +156,24 @@ public sealed partial class WasmRuntime : IDisposable
         private void Lease(IObject value, int address, int tag, int reference)
         {
             Origins.Remove(value); Origins.Add(value, new Origin(this, tag, reference));
-            int pin = exports.Pin(address); leases.Add((new WeakReference<IObject>(value), pin));
+            if (!weakMirrors || tag is not (6 or 7)) leases.Add((new WeakReference<IObject>(value), exports.Pin(address)));
             objects[(tag, reference)] = new(value);
             if (tag == 6) exports.ArrayExpose(reference);
             if (tag == 7 && mutableHashes) exports.HashExpose(reference);
+        }
+        // Forget mirrors of arrays and hashes the guest dropped. A retained mirror becomes a plain detached value: the guest
+        // holds no reference that could observe it, and passing it back creates a new guest object.
+        private void Release()
+        {
+            if (!weakMirrors) return;
+            int reference;
+            while ((reference = exports.TakeReleased()) != 0) {
+                foreach (int tag in new[] { 6, 7 }) {
+                    if (objects.Remove((tag, reference), out var mirror) && mirror.TryGetTarget(out var value) &&
+                        Origins.TryGetValue(value, out var origin) && ReferenceEquals(origin.Session, this) && origin.Reference == reference) Origins.Remove(value);
+                }
+                dirtyArrays.Remove(reference); arrayOwners.Remove(reference);
+            }
         }
         private void Collect(bool force = true)
         {
@@ -164,7 +182,7 @@ public sealed partial class WasmRuntime : IDisposable
             for (int i = scopeLeases.Count - 1; i >= 0; i--) if (!scopeLeases[i].Owner.TryGetTarget(out _)) { exports.Unpin(scopeLeases[i].Pin); scopeLeases.RemoveAt(i); released = true; }
             if (deferredCollections && !force && !released && exports.CollectionDue() == 0) return;
             int generation = deferredCollections ? exports.CollectionGeneration() : 0;
-            exports.Collect();
+            exports.Collect(); Release();
             // Stale trace results must never release live capabilities.
             if (deferredCollections && exports.CollectionGeneration() == generation)
                 throw new InvalidOperationException("Guest collection did not refresh native liveness.");
@@ -252,13 +270,14 @@ public sealed partial class WasmRuntime : IDisposable
         private IObject? Run(int execution)
         {
             (active ??= new()).Add(this);
-            try { while (true) { int status = exports.Run(execution, quantum); if (status == 1) { Collect(false); continue; }
+            try { while (true) { int status = exports.Run(execution, quantum); Release(); if (status == 1) { Collect(false); continue; }
                 if (status == 2) throw new InvalidOperationException("Unresolved desktop async operation."); return Read(exports.Result(execution)); } }
             finally { SynchronizeOut(); exports.ReleaseExecution(execution); active.RemoveAt(active.Count - 1);
                 if (deferredCollections && !active.Contains(this)) Collect(); }
         }
         private int Service(int operation, int context, int subject, int name, int arguments, int count, int output)
         {
+            Release();
             if (operation == 4) return ThreadService(subject, arguments, count, output);
             if (operation == 0) { string key = Text(name); var builtin = contexts[context];
                 if (key is "import" or "匯入" && !builtin.BuiltinFuncs.ContainsKey(key)) {
@@ -328,7 +347,7 @@ public sealed partial class WasmRuntime : IDisposable
                 case 4: return number != 0 ? RepeatedPrimitives.TRUE : RepeatedPrimitives.FALSE; case 5: return new StringObj(Text(reference)); case 10: return natives[reference];
                 case 11: return RepeatedPrimitives.NULL; case 12: return RepeatedPrimitives.BREAK; case 13: return new ErrorObj(Text(reference));
                 case 14: return PortableBuiltin(reference); }
-            if (objects.TryGetValue((tag, reference), out var cached) && cached.TryGetTarget(out var existing)) { if (!refreshingDirtyHashes) Refresh(tag, reference); return existing; }
+            if (objects.TryGetValue((tag, reference), out var cached) && cached.TryGetTarget(out var existing)) { if (!refreshingDirtyHashes && Stale(tag, reference)) Refresh(tag, reference); return existing; }
             IObject result;
             switch (tag) {
                 case 6: var array = new ArrayObj(new IObject[exports.ArrayCount(reference)]); result = array; objects[(tag, reference)] = new(array); Lease(result, address, tag, reference);
@@ -388,6 +407,12 @@ public sealed partial class WasmRuntime : IDisposable
             for (int i = 0; i < elements.Length; i++) elements[i] = new IntegerObj((int)BitConverter.Int64BitsToDouble(BinaryPrimitives.ReadInt64LittleEndian(buffer[(i * 16 + 8)..])));
             return true;
         }
+        // Whether a mirrored array or hash may differ from the guest object: changed in the guest since its dirty list was
+        // taken, or taken but not yet refreshed (owner-filtered flushes leave arrays pending).
+        private bool Stale(int tag, int reference) => !staleTracking || tag switch {
+            6 => dirtyArrays.Remove(reference) || exports.Stale(6, reference) != 0,
+            7 => !mutableHashes || exports.Stale(7, reference) != 0,
+            _ => false };
         private void Refresh(int tag, int reference)
         {
             if (!objects.TryGetValue((tag, reference), out var owner) || !owner.TryGetTarget(out var value) || !reading.Add((tag, reference))) return;
@@ -396,7 +421,7 @@ public sealed partial class WasmRuntime : IDisposable
                 if (value is ArrayObj array)
                 {
                     int count = exports.ArrayCount(reference); if (array.Elements.Length != count) array.Elements = new IObject[count];
-                    int items = exports.ArrayValues(reference);
+                    int items = borrowedArrays ? exports.ArrayItems(reference) : exports.ArrayValues(reference);
                     if (!ReadIntegerElements(items, array.Elements)) for (int i = 0; i < array.Elements.Length; i++) array.Elements[i] = Read(items + i * 16)!;
                 }
                 else if (value is HashObj hash)

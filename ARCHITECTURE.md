@@ -86,8 +86,15 @@ can await GPU mapping, external-library initialization and animation frames.
 Checkpoints bound each browser turn and make cancellation observable in pure loops.
 Every execution owns its value frames, including callback reentry. Native handles
 are traced from guest roots and recycled; transport leases retain externally held
-arrays, modules, closures and projected scopes. Changed host-visible arrays are
-copied back before capability access. Bulk transport remains migration work.
+modules, closures and projected scopes. Array and hash mirrors do not pin their guest
+objects: when the guest drops one, its collector reports it on a released list and the
+host forgets the mirror, which then stays usable as a detached value. Hosts refresh a
+mirror only when the runtime reports it stale (changed since its dirty list was taken),
+and read arrays through borrowed views without copy-on-write. Changed host-visible
+arrays are copied back before capability access. The guest allocator coalesces
+adjacent free blocks and splits larger ones before growing the heap; a collection is
+due after net allocation or heap growth reaches a threshold that shrinks with the
+remaining headroom under the 512 MiB heap limit.
 
 Hosts trace active language scopes, operands, suspended native arguments and
 callback closures at frame boundaries to reclaim unused Processing canvases and

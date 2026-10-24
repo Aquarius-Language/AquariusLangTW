@@ -26,6 +26,21 @@ public class CallConventionTest {
     }
 
     [Fact]
+    public void RetainedArrayMirrorsOutliveTheGuestArraysTheyCameFrom() {
+        // Mirrors do not pin guest arrays: after the guest drops one, a retained mirror is a detached value that returns
+        // to the guest as one new array (the same one each time it is returned).
+        var kept = new List<IObject>();
+        var builtins = new Builtins();
+        builtins.BuiltinFuncs["keep"] = new BuiltinObj(args => { kept.Add(args[0]); return RepeatedPrimitives.NULL; });
+        builtins.BuiltinFuncs["back"] = new BuiltinObj(_ => kept[0]);
+        var result = new CompiledRuntime(builtins).Execute(new LoweringCompiler().Compile(
+            "迴圈(變數 i=0;i<300;i++){keep(Array.Make(8192,i));} 變數 first=back();變數 copy=back();first[0]=99;[Array.Len(first),copy[0],first[0],first==copy];"));
+        Assert.Equal("[8192, 99, 99, 真]", result.Inspect());
+        Assert.Equal(300, kept.Count);
+        Assert.Equal(299, Assert.IsType<IntegerObj>(Assert.IsType<ArrayObj>(kept[299]).Elements[0]).Value);
+    }
+
+    [Fact]
     public void BorrowedNativeArgumentsSurviveCallbackReentryAndNestedCalls() {
         var builtins = new Builtins();
         var machine = new CompiledRuntime(builtins);

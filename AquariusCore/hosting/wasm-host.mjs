@@ -42,6 +42,10 @@ class Session {
     this.instance=await WebAssembly.instantiate(this.program.module,{aquarius_v2:{service:(...a)=>this.service(...a)}});this.exports=this.instance.exports;this.call('aqua_initialize',this.program.metadata.heapStart);
     this.dirtyArrays=new Set();this.arrayOwners=new Map();this.mutableHashes=typeof this.exports.aqua_hash_expose==='function';
     this.deferredCollections=typeof this.exports.aqua_collection_due==='function'&&typeof this.exports.aqua_collection_generation==='function';
+    // ABI 3 runtimes report which mirrored objects changed; ABI 2 artifacts refresh every mirror on read.
+    this.borrowedArrays=typeof this.exports.aqua_array_items==='function';this.staleTracking=typeof this.exports.aqua_stale==='function';
+    // Array and hash mirrors do not pin their guest objects; the guest reports dropped ones (see release()).
+    this.weakMirrors=typeof this.exports.aqua_weak_mirrors==='function'&&this.call('aqua_weak_mirrors')===1;
   }
   call(name,...args){return this.exports[name](...args);}
   view(){const buffer=this.exports.memory.buffer;if(this.memoryView?.buffer!==buffer)this.memoryView=new DataView(buffer);return this.memoryView;}
@@ -53,7 +57,16 @@ class Session {
     if(intern){const cell=this.call('aqua_value');this.raw(cell,5,p);this.call('aqua_pin',cell);this.texts.set(value,p);}return p;
   }
   native(v){if(this.nativeIds.has(v))return this.nativeIds.get(v);const id=this.freeNativeIds.length?this.freeNativeIds.pop():this.natives.length;if(id>=65536)throw new Error('Native resource table capacity exceeded');this.nativeIds.set(v,id);this.natives[id]=v;return id;}
-  lease(v,p,tag,reference){this.runtime.origins.set(v,{session:this,tag,reference});this.objects.set(objectKey(tag,reference),new WeakRef(v));this.leases.push({owner:new WeakRef(v),pin:this.call('aqua_pin',p)});if(tag===6)this.call('aqua_array_expose',reference);if(tag===7&&this.mutableHashes)this.call('aqua_hash_expose',reference);}
+  lease(v,p,tag,reference){this.runtime.origins.set(v,{session:this,tag,reference});this.objects.set(objectKey(tag,reference),new WeakRef(v));if(!this.weakMirrors||(tag!==6&&tag!==7))this.leases.push({owner:new WeakRef(v),pin:this.call('aqua_pin',p)});if(tag===6)this.call('aqua_array_expose',reference);if(tag===7&&this.mutableHashes)this.call('aqua_hash_expose',reference);}
+  // Forget mirrors of arrays and hashes the guest dropped. A retained mirror becomes a plain detached value: the guest
+  // holds no reference that could observe it, and passing it back creates a new guest object.
+  release(){
+    if(!this.weakMirrors)return;let reference;
+    while((reference=this.call('aqua_take_released'))!==0){
+      for(const tag of [6,7]){const key=objectKey(tag,reference),mirror=this.objects.get(key)?.deref();if(mirror){const origin=this.runtime.origins.get(mirror);if(origin?.session===this&&origin.reference===reference)this.runtime.origins.delete(mirror);}this.objects.delete(key);}
+      this.dirtyArrays.delete(reference);this.arrayOwners.delete(reference);
+    }
+  }
   collect(force=true){
     let released=false;
     for(const leases of [this.leases,this.scopeLeases])for(let i=leases.length-1;i>=0;i--)if(!leases[i].owner.deref()){this.call('aqua_unpin',leases[i].pin);leases.splice(i,1);released=true;}
@@ -62,7 +75,7 @@ class Session {
     // before consulting native liveness, including after the guest's own GC.
     if(this.deferredCollections&&!force&&!released&&!this.call('aqua_collection_due'))return;
     const generation=this.deferredCollections?this.call('aqua_collection_generation'):0;
-    this.call('aqua_collect');
+    this.call('aqua_collect');this.release();
     if(this.deferredCollections&&this.call('aqua_collection_generation')===generation)throw new Error('Guest collection did not refresh native liveness');
     for(let i=1;i<this.natives.length;i++){const native=this.natives[i];if(native&&!this.call('aqua_native_live',i)){this.nativeIds.delete(native);this.natives[i]=null;this.freeNativeIds.push(i);}}
   }
@@ -88,13 +101,14 @@ class Session {
   synchronizeOut(){this.flushDirty();this.refreshingDirtyHashes=true;try{for(const lease of this.scopeLeases){const env=lease.owner.deref();if(lease.mirror&&env)for(const [n,v]of this.bindings(lease.pointer))env.create(n,v);}}finally{this.refreshingDirtyHashes=false;}}
   async run(pointer){
     const state={pointer,session:this,pending:null};let sliceStart=performance.now();this.runtime.executions.add(state);this.running.push(state);
-    try{while(true){if(this.runtime.cancelled||this.runtime.host.signal?.aborted)throw new Error('Execution cancelled');const previous=this.dispatchState;this.dispatchState=state;let status;try{status=this.call('aqua_run',pointer,32768);}finally{this.dispatchState=previous;}
+    try{while(true){if(this.runtime.cancelled||this.runtime.host.signal?.aborted)throw new Error('Execution cancelled');const previous=this.dispatchState;this.dispatchState=state;let status;try{status=this.call('aqua_run',pointer,32768);}finally{this.dispatchState=previous;this.release();}
       if(status===1){this.collect(false);if(performance.now()-sliceStart>=8){if(this.runtime.host.yieldExecution)await this.runtime.host.yieldExecution();else if(typeof window!=='undefined')await new Promise(r=>setTimeout(r,0));sliceStart=performance.now();}continue;}
       if(status===2){const pending=state.pending;try{const result=await pending.promise;if(this.runtime.cancelled||this.runtime.host.signal?.aborted)throw new Error('Execution cancelled');const cell=this.call('aqua_value');if(pending.synchronize)this.synchronizeIn();pending.args.forEach((v,i)=>this.write(pending.arguments+i*16,v));this.write(cell,result);this.call('aqua_resume',pointer,cell);}finally{this.runtime.nativeRoots.delete(pending.roots);state.pending=null;}continue;}
       const p=this.call('aqua_result',pointer);if(status===3)throw new Error(this.text(this.int(p+4)));return this.read(p);
     }}finally{this.synchronizeOut();this.call('aqua_release_execution',pointer);this.runtime.executions.delete(state);const i=this.running.indexOf(state);if(i>=0)this.running.splice(i,1);}
   }
   service(operation,context,subject,name,arguments_,count,output){
+    this.release();
     if(operation===4){const result=this.threads.call(subject,arguments_,count);if(isPromiseLike(result)){const roots=[];this.dispatchState.pending={promise:Promise.resolve(result),args:[],arguments:arguments_,roots,synchronize:false};return 1;}this.write(output,result);return 0;}
     if(operation===0){const n=this.text(name),builtins=this.contexts[context];if(n==='import'||n==='匯入'){const fallback=builtins.get(n);this.write(output,(name)=>{if(name==='Thread'||name==='執行緒')return threadModule;if(!fallback)throw new Error('Module not found: '+name);return (fallback[nativeCall]??fallback)(name);});return 0;}if(!builtins.has(n))return 1;this.write(output,builtins.get(n));return 0;}
     if(operation===2){const m=this.natives[subject];if(m?.type!=='module')return 1;this.flushDirty(m.scope);try{const value=m.scope.get(this.text(name));this.write(output,value);this.arrayOwner(value,m.scope);return 0;}catch{return 1;}}
@@ -118,11 +132,19 @@ class Session {
   read(p){
     if(this.int(p)===14)return this.portableBuiltin(this.int(p+4));
     const tag=this.int(p),reference=this.int(p+4),number=this.view().getFloat64(p+8,true);if(tag===0)return undefined;if(tag>=1&&tag<=3)return num(number,['','int','float','double'][tag]);if(tag===4)return number!==0;if(tag===5)return this.text(reference);if(tag===10)return this.natives[reference];if(tag===11)return null;if(tag===12)return {type:'break'};if(tag===13)throw new Error(this.text(reference));
-    const key=objectKey(tag,reference),cached=this.objects.get(key)?.deref();if(cached){if(!this.refreshingDirtyHashes)this.refresh(tag,reference,cached);return cached;}
+    const key=objectKey(tag,reference),cached=this.objects.get(key)?.deref();if(cached){if(!this.refreshingDirtyHashes&&this.stale(tag,reference))this.refresh(tag,reference,cached);return cached;}
     let result;if(tag===6){result=new Array(this.call('aqua_array_count',reference));this.objects.set(key,new WeakRef(result));this.lease(result,p,tag,reference);this.reading.add(key);try{this.readArray(reference,result);}finally{this.reading.delete(key);}return result;}
     if(tag===7){result=new Map();this.objects.set(key,new WeakRef(result));this.lease(result,p,tag,reference);this.refresh(tag,reference,result);return result;}
     if(tag===8){const function_=this.int(reference+4),scope=this.int(reference+8),context=this.int(reference+12);result={type:'closure',function:function_,parameters:this.parameters(function_),env:this.project(scope),builtins:this.contexts[context],program:this.program};}
     else if(tag===9)result={type:'module',scope:this.project(reference)};else throw new Error(`Invalid Wasm value tag: ${tag}`);this.objects.set(key,new WeakRef(result));this.lease(result,p,tag,reference);return result;
+  }
+  // Whether a mirrored array or hash may differ from the guest object: changed in the guest since its dirty list was taken,
+  // or taken but not yet refreshed (owner-filtered flushes leave arrays pending).
+  stale(tag,reference){
+    if(!this.staleTracking)return true;
+    if(tag===6)return this.dirtyArrays.delete(reference)||this.call('aqua_stale',6,reference)!==0;
+    if(tag===7)return !this.mutableHashes||this.call('aqua_stale',7,reference)!==0;
+    return false;
   }
   // A function's parameter names, from its definition in the program data segment.
   parameters(function_){
@@ -154,7 +176,7 @@ class Session {
     }
   }
   readArray(reference,result){
-    result.length=this.call('aqua_array_count',reference);const items=this.call('aqua_array_values',reference);let view=this.view();
+    result.length=this.call('aqua_array_count',reference);const items=this.call(this.borrowedArrays?'aqua_array_items':'aqua_array_values',reference);let view=this.view();
     for(let i=0;i<result.length;i++){
       const p=items+i*16,tag=view.getUint32(p,true);
       if(tag>=1&&tag<=3){const type=tag===1?'int':tag===2?'float':'double',value=view.getFloat64(p+8,true),old=result[i];if(old?.type!==type||!Object.is(old.value,value))result[i]=num(value,type);}

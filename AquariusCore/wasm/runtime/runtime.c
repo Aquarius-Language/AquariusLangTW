@@ -6,7 +6,8 @@ typedef uint32_t u32;
 typedef struct { u32 tag, ref; double number; } Value;
 enum { VOID, INT, FLOAT, DOUBLE, BOOL, STRING, ARRAY, HASH, CLOSURE, MODULE, NATIVE, NULL_VALUE, BREAK_VALUE, ERROR, BUILTIN };
 enum { FREE, RAW, TEXT, VALUES, ENV, BINDINGS, CLOSURES, ARRAYS, HASHES, FRAMES, LOOPS, EXECUTIONS, PINS };
-typedef struct { u32 size, next, kind, marked; } Block;
+/* Blocks tile the heap contiguously from heap_start to heap_end; walk them by address. */
+typedef struct { u32 size, reserved, kind, marked; } Block;
 typedef struct { u32 length; uint16_t data[]; } Text;
 typedef struct { Text *name; u32 hash; Value value; } Binding;
 typedef struct Scope { struct Scope *outer; Binding *bindings; u32 count, capacity, captured; u32 *index,index_capacity; } Scope;
@@ -39,12 +40,12 @@ _Static_assert(sizeof(Function)==40, "Function layout mismatch");
 _Static_assert(sizeof(Value)==16 && sizeof(Binding)==24 && offsetof(Binding,value)==8, "Host value/binding ABI mismatch");
 /* Every offset the C# emitters and hosts use (RuntimeLayout), checked here; see native/generate_runtime_layout.py. */
 #include "layout.h"
-typedef struct Pin { struct Pin *next; Value value; } Pin;
+typedef struct Pin { struct Pin *next, *prev; Value value; } Pin;
 
 __attribute__((import_module("aquarius_v2"), import_name("service")))
 extern int host_service(int operation, int context, int subject, int name, int arguments, int count, int output);
 
-static u32 heap_start, heap_end, blocks, free_heads[26];
+static u32 heap_start, heap_end, free_heads[26];
 static Scope *builtin_scopes[65536];
 static u32 builtin_contexts[65536], builtin_context_count;
 static Execution *executions;
@@ -55,7 +56,10 @@ static Array *dirty_arrays;
 static Hash *dirty_hashes;
 static unsigned char native_live[65536];
 static u32 marked_native_ids[65536], marked_native_count, collection_generation;
-static u32 bytes_since_collection;
+/* Net allocation since the last collection, and heap growth (which explicit releases never offset: freed blocks of
+   a growing array cannot serve its next, larger request until a collection coalesces them). */
+static u32 bytes_since_collection, heap_growth;
+static int collection_due(void);
 /* Collection is due after gc_threshold bytes of allocation that were not explicitly released.
    The threshold grows with the live heap so repeated collections of large live graphs stay amortized. */
 static u32 gc_threshold=8u*1024*1024, gc_armed;
@@ -90,17 +94,26 @@ static void *allocate(u32 n,u32 kind) {
     n=n<=16?16:1u<<(32u-(u32)__builtin_clz(n-1));u32 bucket=allocation_class(n);
     bytes_since_collection+=n;
     // Compiled checkpoints poll Execution.poll instead of calling into the runtime every block.
-    if(!gc_armed&&bytes_since_collection>=gc_threshold){gc_armed=1;for(Execution*e=executions;e;e=e->next)e->poll=1;}
+    if(!gc_armed&&collection_due()){gc_armed=1;for(Execution*e=executions;e;e=e->next)e->poll=1;}
     if(free_heads[bucket]){Block*b=pointer(free_heads[bucket]);free_heads[bucket]=*(u32*)(b+1);b->kind=kind;b->marked=0;initialize_allocation(b+1,b->size,kind);return b+1;}
+    // Split the smallest larger free block before growing the heap; the remainder stays free in its own class.
+    for(u32 k=bucket+1;k<26;k++)if(free_heads[k]){
+        Block*b=pointer(free_heads[k]);free_heads[k]=*(u32*)(b+1);u32 rest=b->size-n;
+        if(rest>=sizeof(Block)+16){Block*r=(Block*)((char*)(b+1)+n);r->size=rest-sizeof(Block);r->reserved=0;r->kind=FREE;r->marked=0;u32 c=allocation_class(r->size);*(u32*)(r+1)=free_heads[c];free_heads[c]=address(r);b->size=n;}
+        b->kind=kind;b->marked=0;initialize_allocation(b+1,b->size,kind);return b+1;
+    }
     if(n>512u*1024*1024-heap_end-sizeof(Block))__builtin_trap();
     u32 end=heap_end+sizeof(Block)+n,available=(u32)__builtin_wasm_memory_size(0)*65536;
     if(end>available&&__builtin_wasm_memory_grow(0,(end-available+65535)/65536)==(size_t)-1)__builtin_trap();
-    Block *b=pointer(heap_end);b->size=n;b->next=blocks;b->kind=kind;b->marked=0;blocks=heap_end;heap_end=end;initialize_allocation(b+1,n,kind);return b+1;
+    heap_growth+=sizeof(Block)+n;if(!gc_armed&&collection_due()){gc_armed=1;for(Execution*e=executions;e;e=e->next)e->poll=1;}
+    Block *b=pointer(heap_end);b->size=n;b->reserved=0;b->kind=kind;b->marked=0;heap_end=end;initialize_allocation(b+1,n,kind);return b+1;
 }
 u32 aqua_initialize(u32 start) { if(!heap_start)heap_start=heap_end=(start+15)&~15u;return heap_start; }
 u32 aqua_allocate(u32 n) { return address(allocate(n,RAW)); }
 u32 aqua_heap_bytes(void) { return heap_end-heap_start; }
-u32 aqua_collection_due(void) { return bytes_since_collection>=gc_threshold; }
+u32 aqua_heap_free(void) { u32 n=0;for(u32 a=heap_start;a<heap_end;a+=sizeof(Block)+((Block*)pointer(a))->size)if(((Block*)pointer(a))->kind==FREE)n+=((Block*)pointer(a))->size;return n; }
+static int collection_due(void) { return bytes_since_collection>=gc_threshold||heap_growth>=gc_threshold; }
+u32 aqua_collection_due(void) { return (u32)collection_due(); }
 u32 aqua_collection_generation(void) { return collection_generation; }
 u32 aqua_value(void) { return address(allocate(sizeof(Value),RAW)); }
 u32 aqua_text(u32 length) { Text *t=allocate(sizeof(Text)+length*2,TEXT);t->length=length;return address(t); }
@@ -168,14 +181,35 @@ u32 aqua_array(u32 n) { return address(array(n)); }
 u32 aqua_array_values(u32 p) { Array*a=pointer(p);writable_array(a,a->count);return address(a->values); }
 u32 aqua_array_count(u32 p) { return ((Array*)pointer(p))->count; }
 u32 aqua_array_resize(u32 p,u32 n) { Array*a=pointer(p);writable_array(a,n);if(n>a->count)memset(a->values+a->count,0,(n-a->count)*sizeof(Value));a->count=n;a->storage->used=n;return 0; }
-u32 aqua_array_expose(u32 p) { ((Array*)pointer(p))->exposed=1;return 0; }
+u32 aqua_array_expose(u32 p) { Array*a=pointer(p);if(a->exposed!=2)a->exposed=1;return 0; }
 u32 aqua_take_dirty_array(void) { Array*a=dirty_arrays;if(!a)return 0;dirty_arrays=a->dirty_next;a->dirty_next=0;a->dirty=0;return address(a); }
+/* Host reads: a borrowed view of an array's values (no copy-on-write), and whether an exposed array or hash
+   changed in the guest since the host last took it from the dirty lists. Hosts refresh a mirror only when stale. */
+/* Weak host mirrors. A host that opts in does not pin mirrored arrays and hashes. When the guest drops an exposed
+   one, the collector keeps its block (exposed=2, children untraced) on a released list until the host takes it and
+   forgets its mirror; the next collection frees it. Hosts take released objects after every run slice, service call
+   and collection, before they could address a mirror's guest object again. */
+static u32 weak_mirrors;static Array*released_arrays;static Hash*released_hashes;
+u32 aqua_weak_mirrors(void) { weak_mirrors=1;return 1; }
+u32 aqua_take_released(void) {
+    if(released_arrays){Array*a=released_arrays;released_arrays=a->dirty_next;a->dirty_next=0;a->exposed=0;return address(a);}
+    if(released_hashes){Hash*h=released_hashes;released_hashes=h->dirty_next;h->dirty_next=0;h->exposed=0;return address(h);}
+    return 0;
+}
+static int keep_released(Block*b) {
+    if(!weak_mirrors)return 0;
+    if(b->kind==ARRAYS){Array*a=(Array*)(b+1);if(a->exposed==1){a->exposed=2;a->dirty_next=released_arrays;released_arrays=a;}return a->exposed==2;}
+    if(b->kind==HASHES){Hash*h=(Hash*)(b+1);if(h->exposed==1){h->exposed=2;h->dirty_next=released_hashes;released_hashes=h;}return h->exposed==2;}
+    return 0;
+}
+u32 aqua_array_items(u32 p) { return address(((Array*)pointer(p))->values); }
+u32 aqua_stale(u32 tag,u32 p) { return tag==ARRAY?((Array*)pointer(p))->dirty:tag==HASH?((Hash*)pointer(p))->dirty:1; }
 u32 aqua_hash(u32 n) { Hash*h=allocate(sizeof(Hash),HASHES);h->count=n;h->pairs=allocate(n*sizeof(Pair),RAW);h->capacity=((Block*)h->pairs-1)->size/sizeof(Pair);return address(h); }
 u32 aqua_hash_pairs(u32 p) { return address(((Hash*)pointer(p))->pairs); }
 u32 aqua_hash_count(u32 p) { return ((Hash*)pointer(p))->count; }
 u32 aqua_hash_resize(u32 p,u32 n) { Hash*h=pointer(p);if(n>h->capacity){Pair*next=allocate(n*sizeof(Pair),RAW);memcpy(next,h->pairs,h->count*sizeof(Pair));release(h->pairs);h->pairs=next;h->capacity=((Block*)next-1)->size/sizeof(Pair);}if(n>h->count)memset(h->pairs+h->count,0,(n-h->count)*sizeof(Pair));h->count=n;return 0; }
 u32 aqua_hash_write_support(void) { return 1; }
-u32 aqua_hash_expose(u32 p) { ((Hash*)pointer(p))->exposed=1;return 0; }
+u32 aqua_hash_expose(u32 p) { Hash*h=pointer(p);if(h->exposed!=2)h->exposed=1;return 0; }
 u32 aqua_take_dirty_hash(void) { Hash*h=dirty_hashes;if(!h)return 0;dirty_hashes=h->dirty_next;h->dirty_next=0;h->dirty=0;return address(h); }
 #include "arrays.h"
 #include "hashes.h"
@@ -247,8 +281,13 @@ u32 aqua_result(u32 e) { return address(&((Execution*)pointer(e))->result); }
 u32 aqua_status(u32 e) { return ((Execution*)pointer(e))->status; }
 u32 aqua_resume(u32 e,u32 v) { Execution*x=pointer(e);x->status=0;x->current->pending_count=0;push(x->current,*(Value*)pointer(v));return 0; }
 u32 aqua_release_execution(u32 ptr) { Execution*e=pointer(ptr);Execution**p=&executions;while(*p&&*p!=e)p=&(*p)->next;if(*p)*p=e->next;for(Frame*f=e->current;f;){Frame*next=f->parent;release_frame(f);f=next;}release(e);return 0; }
-u32 aqua_pin(u32 v) { Pin*p=allocate(sizeof(Pin),PINS);p->value=*(Value*)pointer(v);p->next=pins;pins=p;return address(&p->value); }
-u32 aqua_unpin(u32 v) { Pin**p=&pins;while(*p&&address(&(*p)->value)!=v)p=&(*p)->next;if(*p){Pin*x=*p;*p=x->next;release(x);}return 0; }
+u32 aqua_pin(u32 v) { Pin*p=allocate(sizeof(Pin),PINS);p->value=*(Value*)pointer(v);p->prev=0;p->next=pins;if(pins)pins->prev=p;pins=p;return address(&p->value); }
+/* O(1): the handle is the pin's value; anything that is not a live pin is ignored. */
+u32 aqua_unpin(u32 v) {
+    if(v<heap_start+sizeof(Block)+__builtin_offsetof(Pin,value)||v>=heap_end)return 0;
+    Pin*x=(Pin*)((char*)pointer(v)-__builtin_offsetof(Pin,value));Block*b=(Block*)x-1;if(b->kind!=PINS)return 0;
+    if(x->prev)x->prev->next=x->next;else pins=x->next;if(x->next)x->next->prev=x->prev;release(x);return 0;
+}
 u32 aqua_run(u32 ptr,u32 budget) {
     Execution*e=pointer(ptr);if(e->status==2||e->status==3)return e->status;e->budget=budget;e->status=0;
     while(e->current){Frame*f=e->current;int next=((int(*)(Frame*))(uintptr_t)f->function->table)(f);
@@ -262,7 +301,7 @@ int rt_pc(Frame*f,int unused) { return (int)f->pc; }
 int rt_failed(Frame*f,int unused) { return f->execution->status==3; }
 /* Fuel: a checkpoint consumes its static weight (see WasmFuel), saturating at zero, and yields only once the
    budget is exhausted, so every quantum makes progress even when a weight exceeds the quantum. */
-int rt_checkpoint(Frame*f,int weight) { if(bytes_since_collection>=gc_threshold)aqua_collect();u32 w=weight>1?(u32)weight:1;Execution*e=f->execution;if(!e->budget){e->status=1;return 1;}e->budget=e->budget>w?e->budget-w:0;return 0; }
+int rt_checkpoint(Frame*f,int weight) { if(collection_due())aqua_collect();u32 w=weight>1?(u32)weight:1;Execution*e=f->execution;if(!e->budget){e->status=1;return 1;}e->budget=e->budget>w?e->budget-w:0;return 0; }
 int rt_constant(Frame*f,int n) { push(f,constant(f,n));return 0; }
 int rt_void(Frame*f,int n) { push(f,empty);return 0; }
 int rt_null(Frame*f,int n) { push(f,value(NULL_VALUE,0,0));return 0; }
@@ -385,7 +424,7 @@ int rt_error(Frame*f,int n){fail(f,name(f,n));return 0;}
 static void mark_ref(void*p){u32 addr=address(p);if(!p||addr<heap_start||addr>=heap_end)return;Block*b=(Block*)p-1;if(b->kind==FREE||b->marked)return;b->marked=mark_pending|1;mark_pending=addr;}
 static void mark_value(Value v){if(v.tag==NATIVE){if(v.ref<65536&&!native_live[v.ref]){native_live[v.ref]=1;marked_native_ids[marked_native_count++]=v.ref;}}else if(v.tag>=STRING&&v.tag<=MODULE||v.tag==ERROR)mark_ref(pointer(v.ref));}
 u32 aqua_collect(void){
-    bytes_since_collection=0;gc_armed=0;for(Execution*e=executions;e;e=e->next)e->poll=0;
+    bytes_since_collection=0;heap_growth=0;gc_armed=0;for(Execution*e=executions;e;e=e->next)e->poll=0;
     // Marks are clear here: allocation clears them and the sweep below resets every survivor.
     for(u32 i=0;i<marked_native_count;i++)native_live[marked_native_ids[i]]=0;marked_native_count=0;mark_pending=0;
     for(Execution*e=executions;e;e=e->next)mark_ref(e);for(Pin*p=pins;p;p=p->next)mark_ref(p);for(u32 i=0;i<builtin_context_count;i++)mark_ref(builtin_scopes[builtin_contexts[i]]);
@@ -408,12 +447,19 @@ u32 aqua_collect(void){
     }}u32 reclaimed=0,live=0;
     // One pass sweeps, clears survivor marks and rebuilds the segregated free lists, so tiny scopes
     // cannot consume reusable frames.
-    memset(free_heads,0,sizeof(free_heads));
-    for(Block*b=pointer(blocks);b;b=pointer(b->next)){
-        if(b->kind!=FREE){if(b->marked){b->marked=0;live+=b->size;continue;}reclaimed+=b->size;b->kind=FREE;}
-        u32 bucket=allocation_class(b->size);*(u32*)(b+1)=free_heads[bucket];free_heads[bucket]=address(b);
+    // Adjacent free blocks coalesce, and a free run at the top of the heap returns to the bump allocator.
+    memset(free_heads,0,sizeof(free_heads));Block*run=0;
+    for(u32 a=heap_start;a<heap_end;){Block*b=pointer(a);a+=sizeof(Block)+b->size;
+        if(b->kind!=FREE){if(b->marked){b->marked=0;live+=b->size;run=0;continue;}if(keep_released(b)){live+=b->size;run=0;continue;}reclaimed+=b->size;b->kind=FREE;}
+        if(run)run->size+=sizeof(Block)+b->size;else run=b;
     }
-    gc_threshold=live>8u*1024*1024?live:8u*1024*1024;
+    if(run)heap_end=address(run);
+    for(u32 a=heap_start;a<heap_end;){Block*b=pointer(a);a+=sizeof(Block)+b->size;
+        if(b->kind==FREE){u32 bucket=allocation_class(b->size);*(u32*)(b+1)=free_heads[bucket];free_heads[bucket]=address(b);}
+    }
+    // Allow garbage up to the live size, but no more than a quarter of the remaining headroom under the 512 MiB heap
+    // limit, so large live sets collect more often instead of running out of memory between collections.
+    {u32 limit=512u*1024*1024,headroom=live<limit?(limit-live)/4:0;u32 t=live<headroom?live:headroom;gc_threshold=t>8u*1024*1024?t:8u*1024*1024;}
     if(!++collection_generation)collection_generation=1;return reclaimed;
 }
 u32 aqua_native_live(u32 id){return id<65536?native_live[id]:0;}
