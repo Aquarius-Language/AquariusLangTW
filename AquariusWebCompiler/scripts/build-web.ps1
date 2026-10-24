@@ -23,7 +23,9 @@ try {
         @{ name='resize'; source='AquariusWebCompiler/tests/fixtures/resize'; entry='main.aqua' }
     )) {
         $sourceRoot = [IO.Path]::GetFullPath($project.source)
-        $sources = @(Get-ChildItem -LiteralPath $sourceRoot -Filter '*.aqua' -Recurse | Sort-Object FullName)
+        # Nested TOML projects (Bottle showcases) build on their own; the portable bundle takes the plain sources.
+        $nested = @(Get-ChildItem -LiteralPath $sourceRoot -Filter 'aqua.toml' -Recurse | ForEach-Object { $_.DirectoryName + [IO.Path]::DirectorySeparatorChar })
+        $sources = @(Get-ChildItem -LiteralPath $sourceRoot -Filter '*.aqua' -Recurse | Where-Object { $file = $_.FullName; -not ($nested | Where-Object { $file.StartsWith($_, [StringComparison]::OrdinalIgnoreCase) }) } | Sort-Object FullName)
         $wasm = ".web-build/$($project.name).wasm"
         & $Dotnet AquariusCli/bin/Debug/net8.0/aqua.dll build @($sources.FullName) --root $sourceRoot --assets $sourceRoot --entry $project.entry -o $wasm
         if ($LASTEXITCODE -ne 0) { throw 'Portable wasm compilation failed.' }
