@@ -463,7 +463,7 @@ see the [ONNX interface table](../docs/onnx.md#language-api).
 | `copy` | `複製` | 9 |
 | `cos` | `餘弦` | 1 |
 | `createFont` | `建立字型` | 2 |
-| `createGraphics` | `建立畫布` | 2..3 |
+| `createGraphics` | `建立畫布` | 2..4 |
 | `createImage` | `建立圖片` | 2..3 |
 | `createShader` | `建立著色器` | 2 |
 | `createShape` | `建立圖形` | 0 |
@@ -507,8 +507,10 @@ see the [ONNX interface table](../docs/onnx.md#language-api).
 | `lights` | `燈光` | 0 |
 | `line` | `線段` | 4..6 |
 | `loadImage` | `載入圖片` | 1 |
+| `loadMesh` | `載入網格` | 1 |
 | `loadPixels` | `載入像素` | 0 |
 | `loadShader` | `載入著色器` | 1..2 |
+| `loadTexture` | `載入紋理` | 6 |
 | `log` | `對數` | 1 |
 | `loop` | `持續繪圖` | 0 |
 | `mag` | `長度` | 2..3 |
@@ -665,8 +667,10 @@ see the [ONNX interface table](../docs/onnx.md#language-api).
 | `lightSpecular` | `鏡面光` | 3 |
 | `lights` | `燈光` | 0 |
 | `line` | `線段` | 4..6 |
+| `loadMesh` | `載入網格` | 1 |
 | `loadPixels` | `載入像素` | 0 |
 | `loadShader` | `載入著色器` | 1..2 |
+| `loadTexture` | `載入紋理` | 6 |
 | `modelX` | `模型X` | 2..3 |
 | `modelY` | `模型Y` | 2..3 |
 | `modelZ` | `模型Z` | 2..3 |
@@ -758,6 +762,7 @@ see the [ONNX interface table](../docs/onnx.md#language-api).
 | --- | --- | --- |
 | `set` | `設定` | 2..5 |
 | `setInt` | `設定整數` | 2 |
+| `setTexture` | `設定紋理` | 2 |
 
 ## Processing.Shape
 
@@ -775,11 +780,12 @@ see the [ONNX interface table](../docs/onnx.md#language-api).
 | `rotate` | `旋轉` | 1 |
 | `scale` | `縮放` | 1 |
 | `setFill` | `設定填色` | 1 |
+| `setNormal` | `設定法線` | 4 |
 | `setVertex` | `設定頂點` | 3..4 |
 | `stroke` | `描邊` | 1..4 |
 | `strokeWeight` | `描邊粗細` | 1 |
 | `translate` | `平移` | 2..3 |
-| `vertex` | `頂點` | 2..3 |
+| `vertex` | `頂點` | 2..5 |
 
 ## Processing.Vector
 

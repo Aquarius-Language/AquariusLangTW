@@ -22,6 +22,14 @@ public class PortableWasmTest {
             }
         }
     }
+    [Fact] public void WebsiteCatalogCarriesBothNamesOfFormerlyDriftedFunctions() {
+        using var t=new ApplicationTestDirectory();string wasm=MakeWasm(t),web=t.FilePath("web");WebsiteCompiler.BuildWasm(wasm,web);
+        using var document=JsonDocument.Parse(File.ReadAllText(Path.Combine(web,"program.json")));
+        var catalog=document.RootElement.GetProperty("catalog").EnumerateArray().Select(f=>(f.GetProperty("library").GetString(),f.GetProperty("english").GetString(),f.GetProperty("chinese").GetString())).ToList();
+        foreach(var entry in new[]{("Processing","loadMesh","載入網格"),("Processing.Canvas","loadMesh","載入網格"),("Processing","loadTexture","載入紋理"),
+            ("Processing.Shader","setTexture","設定紋理"),("Processing.Shape","setNormal","設定法線"),("WGPU.Buffer","ReadRange","讀取範圍"),("WGPU.Buffer","WriteRange","寫入範圍")})
+            Assert.Single(catalog,entry);
+    }
     [Fact] public void WebAssetsAreBinaryAndDoNotDuplicateTheWasmMetadata() {
         using var t=new ApplicationTestDirectory();string wasm=MakeWasm(t),web=t.FilePath("web");WebsiteCompiler.BuildWasm(wasm,web);
         using var document=JsonDocument.Parse(File.ReadAllText(Path.Combine(web,"program.json")));

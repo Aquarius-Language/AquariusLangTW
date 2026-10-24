@@ -216,6 +216,7 @@ lights 燈光
 limit 限制長度
 line 線段
 loadImage 載入圖片
+loadMesh 載入網格
 loadPixels 載入像素
 loadShader 載入著色器
 loadTexture 載入紋理
@@ -371,6 +372,9 @@ for plural in ('Buffers','Attribs','Arrays','Framebuffers','Renderbuffers','Samp
 
 def chinese(name):
     if not name.startswith('gl'):
+        if name not in translations:
+            raise SystemExit(f'{name} is registered in code but has no Traditional Chinese alias; add "{name} <alias>" to TRANSLATIONS '
+                             'in native/generate_library_catalog.py and regenerate.')
         return translations[name]
     remaining, output = name[2:], 'gl'
     words = sorted(gl_words, key=len, reverse=True)
@@ -388,41 +392,13 @@ def chinese(name):
     return output
 
 
-# Code-vs-catalog drift that the committed outputs intentionally keep. The generator scans the code,
-# then applies these tables so the checked-in catalog only changes when someone edits them on purpose.
-# Every key must still be produced by the scan; stale rows fail generation so they get cleaned up.
-EXCLUDED = {  # registered in code, absent from both outputs
-    ('Processing','loadMesh'): 'ProcessingShapes.cs registers it, but it was never added to the catalog (no alias).',
-    ('Processing.Canvas','loadMesh'): 'Canvas copy of Processing.loadMesh; likewise never catalogued.',
-}
-CS_OMIT = {  # registered in code and listed in LIBRARY_NAMES.md, absent from LibraryCatalog.Generated.cs
-    ('WGPU.Buffer','ReadRange'): 'WgpuRuntime.cs registers it; the committed runtime catalog lacks it.',
-    ('WGPU.Buffer','WriteRange'): 'WgpuRuntime.cs registers it; the committed runtime catalog lacks it.',
-}
-MD_OMIT = {  # registered in code and in LibraryCatalog.Generated.cs, absent from LIBRARY_NAMES.md
-    ('Processing','loadTexture'): 'Hand-added to the .cs catalog without regenerating the reference.',
-    ('Processing.Canvas','loadTexture'): 'Hand-added to the .cs catalog without regenerating the reference.',
-    ('Processing.Shader','setTexture'): 'Hand-added to the .cs catalog without regenerating the reference.',
-    ('Processing.Shape','setNormal'): 'Hand-added to the .cs catalog without regenerating the reference.',
-}
-MD_ARITY = {  # (min, max) shown in LIBRARY_NAMES.md where it is staler than code and the .cs catalog
-    ('Processing','createGraphics'): (2,3),  # ProcessingModule.cs and the .cs catalog accept 2..4
-    ('Processing.Shape','vertex'): (2,3),  # ProcessingShapes.cs and the .cs catalog accept 2..5
-}
-# LibraryCatalog.Generated.cs is sorted like the reference except where entries were hand-inserted.
-# Each row moves the listed entries, in order, to just after the anchor (None appends at the end).
-CS_PLACEMENT = [
-    (('Processing','redrawAfter'), [('Processing','displayDensity'),('Processing','displayScale'),('Processing','windowMove')]),
-    (('Processing.Shader','setTexture'), [('Processing','loadTexture'),('Processing.Canvas','loadTexture'),('WGPU.Texture','Dispose')]),
-    (('Processing.Shape','vertex'), [('Processing.Shape','setNormal')]),
-    # Legacy WGPU block that predates WGPU.Window/VertexBuffer, kept in its original hand-edited order.
-    (None, [('WGPU.Buffer','Dispose'),('WGPU.Buffer','Read'),('WGPU.Buffer','Write'),('WGPU.Device','CreateBuffer'),
-            ('WGPU.Device','CreateRenderTarget'),('WGPU.Device','CreateShader'),('WGPU.Device','LoadTexture'),
-            ('WGPU.Shader','SetTexture'),('WGPU.Device','Dispatch'),('WGPU.Device','Dispose'),('WGPU.Device','Poll'),
-            ('WGPU.Shader','Dispose'),('WGPU.Shader','Set'),('WGPU.Shader','SetInt'),('WGPU.Target','Clear'),
-            ('WGPU.Target','Dispose'),('WGPU.Target','Draw'),('WGPU.Target','ReadPixels'),('WGPU.Target','GetTexture'),
-            ('WGPU.Target','Save')]),
-]
+# Deliberate differences between the code scan and the outputs. Both outputs are otherwise exactly the scan, so a
+# function registered in code but missing a translation, or a hand edit to either output, fails generation or --check.
+# Each row needs a one-line reason; keys that the scan no longer produces fail generation so stale rows get removed.
+EXCLUDED = {}  # (library, name) -> reason: registered in code, absent from both outputs
+CS_OMIT = {}   # (library, name) -> reason: listed in LIBRARY_NAMES.md only
+MD_OMIT = {}   # (library, name) -> reason: in LibraryCatalog.Generated.cs only
+MD_ARITY = {}  # (library, name) -> (min, max) shown in LIBRARY_NAMES.md instead of the scanned arity
 
 entries, excluded_seen = {}, set()
 def add(module, name, minimum, maximum=None, returns=None):
@@ -440,7 +416,7 @@ RETURNS = {
     ('Processing','createImage'): 'Processing.Image', ('Processing','loadImage'): 'Processing.Image',
     ('Processing','createGraphics'): 'Processing.Canvas', ('Processing','createShape'): 'Processing.Shape',
     ('Processing','createShader'): 'Processing.Shader', ('Processing','loadShader'): 'Processing.Shader',
-    ('Processing','loadTexture'): 'WGPU.Texture',
+    ('Processing','loadTexture'): 'WGPU.Texture', ('Processing','loadMesh'): 'Processing.Shape',
 }
 pattern = re.compile(r'(Bind|PBind|PAction|Action|Mutate|Draw|Transform|Result)\(\s*(?:([\w.]+)\s*,\s*)?"(\w+)"\s*,\s*(\d+)\s*,\s*(?:(\d+)\s*,)?')
 for file in sorted((ROOT / 'AquariusDesktop/graphics').glob('*.cs')):
@@ -547,15 +523,6 @@ for module, functions in sorted(entries.items()):
         arity = str(minimum) if minimum == maximum else f'{minimum}..{maximum}'
         docs.append(f'| `{name}` | `{zh}` | {arity} |')
     docs.append('')
-for anchor, keys in CS_PLACEMENT:
-    moved = []
-    for key in keys:
-        index = next((i for i, row in enumerate(rows) if row[0] == key), None)
-        if index is None: raise ValueError(f'Stale CS_PLACEMENT entry, not in catalog: {key}')
-        moved.append(rows.pop(index))
-    at = len(rows) if anchor is None else next((i+1 for i, row in enumerate(rows) if row[0] == anchor), None)
-    if at is None: raise ValueError(f'Stale CS_PLACEMENT anchor, not in catalog: {anchor}')
-    rows[at:at] = moved
 lines = ['// Generated by native/generate_library_catalog.py; do not edit.',
          'namespace AquariusLang.runtime;', 'public static partial class LibraryCatalog {',
          '    private static readonly LibraryFunction[] definitions = {']

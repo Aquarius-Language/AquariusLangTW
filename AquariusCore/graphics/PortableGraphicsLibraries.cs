@@ -48,8 +48,6 @@ public static class PortableGraphicsLibraries {
         new("GPUMath", "WriteInput", "寫入輸入", 4, 4),
         new("GPUMath", "Calculate", "計算", 3, 3),
         new("GPUMath", "DispatchWGSL", "派送WGSL", 4, 4),
-        new("WGPU.Buffer", "WriteRange", "寫入範圍", 2, 2),
-        new("WGPU.Buffer", "ReadRange", "讀取範圍", 2, 2),
         new("Models", "ParseOBJ", "解析OBJ", 1, 1), new("Models", "ParseMTL", "解析MTL", 1, 1),
         new("Models", "LoadOBJ", "載入OBJ", 1, 1), new("Models", "LoadMTL", "載入MTL", 1, 1),
         new("Models", "LoadAssetOBJ", "載入資產OBJ", 1, 1), new("Models", "LoadAssetMTL", "載入資產MTL", 1, 1),

@@ -56,6 +56,28 @@ public class BilingualLibraryTest {
         Assert.Equal("[2, 2, 3, 3, [2], [2]]", result.Inspect());
     }
 
+    // Formerly outside the generated catalog or missing from LIBRARY_NAMES.md.
+    [Theory]
+    [InlineData("Processing", "loadMesh", "載入網格")][InlineData("Processing.Canvas", "loadMesh", "載入網格")]
+    [InlineData("Processing", "loadTexture", "載入紋理")][InlineData("Processing.Canvas", "loadTexture", "載入紋理")]
+    [InlineData("Processing.Shader", "setTexture", "設定紋理")][InlineData("Processing.Shape", "setNormal", "設定法線")]
+    [InlineData("WGPU.Buffer", "ReadRange", "讀取範圍")][InlineData("WGPU.Buffer", "WriteRange", "寫入範圍")]
+    public void FormerlyDriftedFunctionsAreCatalogedWithBothNames(string library, string english, string chinese) {
+        var descriptor = LibraryCatalog.Find(library, english);
+        Assert.NotNull(descriptor); Assert.Equal(chinese, descriptor!.TraditionalChineseName);
+        Assert.Same(descriptor, LibraryCatalog.Find(library, chinese));
+        Assert.Contains($"| `{english}` | `{chinese}` |", File.ReadAllText(Path.Combine(AquariusTests.architecture.ArchitectureRulesTest.Root, "AquariusDesktop/LIBRARY_NAMES.md")));
+    }
+
+    [Fact] public void ProcessingRegistersMeshAndTextureLoadersUnderBothNames() {
+        using var runtime = new GraphicsRuntime(); Assert.True(runtime.TryImport("Processing", out var module));
+        foreach (var (english, chinese) in new[] { ("loadMesh", "載入網格"), ("loadTexture", "載入紋理") })
+            Assert.Same(Assert.IsType<BuiltinObj>(module._Environment.GetOwned(english)), module._Environment.GetOwned(chinese));
+        using var builtins = new DesktopBuiltins(runtime);
+        var shape = Assert.IsType<ModuleObj>(new CompiledRuntime(builtins).Execute(new LoweringCompiler().Compile("變數 p=匯入(\"Processing\");p.建立圖形();")));
+        Assert.Same(Assert.IsType<BuiltinObj>(shape._Environment.GetOwned("setNormal")), shape._Environment.GetOwned("設定法線"));
+    }
+
     [Fact] public void CatalogNamesAreUniqueValidAndReturnTypesExist() {
         foreach (var group in LibraryCatalog.Functions.GroupBy(f => f.Library)) {
             var names = new HashSet<string>(StringComparer.Ordinal);

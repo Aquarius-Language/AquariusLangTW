@@ -18,6 +18,10 @@ public class BilingualGpuTest {
         var buffer = Assert.IsType<ModuleObj>(objects[1]);
         Assert.IsNotType<ErrorObj>(TextInputTest.Call(buffer, "寫入", new ArrayObj(new IObject[] { new IntegerObj(7), new IntegerObj(9) })));
         Assert.Equal("[7, 9]", TextInputTest.Call(buffer, "Read").Inspect());
+        Assert.IsNotType<ErrorObj>(TextInputTest.Call(buffer, "寫入範圍", new IntegerObj(1), new ArrayObj(new IObject[] { new IntegerObj(5) })));
+        Assert.Equal("[7, 5]", TextInputTest.Call(buffer, "ReadRange", new IntegerObj(0), new IntegerObj(2)).Inspect());
+        Assert.IsNotType<ErrorObj>(TextInputTest.Call(buffer, "WriteRange", new IntegerObj(0), new ArrayObj(new IObject[] { new IntegerObj(3) })));
+        Assert.Equal("[3]", TextInputTest.Call(buffer, "讀取範圍", new IntegerObj(0), new IntegerObj(1)).Inspect());
         var target = Assert.IsType<ModuleObj>(objects[3]);
         TextInputTest.Call(target, "清除", new ArrayObj(new IObject[] { new IntegerObj(1), new IntegerObj(0), new IntegerObj(0), new IntegerObj(1) }));
         var pixels = Assert.IsType<ArrayObj>(TextInputTest.Call(target, "ReadPixels"));
