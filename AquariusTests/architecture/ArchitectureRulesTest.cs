@@ -260,6 +260,29 @@ public class ArchitectureRulesTest
             "only re-export it (export * from '../../AquariusCore/hosting/NAME.mjs'), never copy it. Replace the copy in: " + string.Join(", ", offenders));
     }
 
+    // ---- Host bridge -----------------------------------------------------------------------------------------------
+
+    private static readonly string[] HostBridges = { "AquariusCore/hosting/wasm-host.mjs", "AquariusCore/wasm/WasmHostRuntime.cs" };
+
+    [Theory]
+    [InlineData("AquariusCore/hosting/wasm-host.mjs", "'aqua_stale' 'aqua_take_released' 'aqua_take_dirty_array' 'aqua_take_dirty_hash' 'aqua_array_items' 'aqua_weak_mirrors'")]
+    [InlineData("AquariusCore/wasm/WasmHostRuntime.cs", "exports.Stale( exports.TakeReleased() exports.TakeDirtyArray() exports.TakeDirtyHash() exports.ArrayItems( exports.WeakMirrors()")]
+    public void HostsTranslateRuntimeMirrorDecisions(string host, string runtimeDecisions)
+    {
+        // The runtime decides which mirrors are stale (aqua_stale), which guest objects were dropped
+        // (aqua_take_released) and which changed (aqua_take_dirty_*); hosts only translate values.
+        string source = Read(host);
+        var missing = runtimeDecisions.Split(' ').Where(call => !source.Contains(call, StringComparison.Ordinal)).ToList();
+        var copying = new Regex(@"\b[Ss]ynchronizeIn\b|foreach\s*\(var binding in Bindings\(|for\(const \[n,v\]\s*of this\.bindings\(");
+        var unconditional = new Regex(@"if\s*\(\s*!refreshingDirtyHashes\s*\)\s*Refresh\(|if\(!this\.refreshingDirtyHashes\)this\.refresh\(");
+        var problems = missing.Select(name => "does not consume " + name).ToList();
+        if (copying.IsMatch(source)) problems.Add("copies scope bindings between host and guest");
+        if (unconditional.IsMatch(source)) problems.Add("refreshes cached mirrors without asking the runtime whether they are stale");
+        Assert.True(problems.Count == 0, $"Rule 'Hosts contain no mirroring algorithm': {host} {string.Join("; ", problems)}. Mirror freshness, " +
+            "release and change tracking are runtime decisions (runtime.c exports); host scopes are live views of guest scopes (attach). " +
+            "Use the runtime exports instead of re-reading or copying, as both hosts in " + string.Join(" and ", HostBridges) + " do.");
+    }
+
     // ---- Repository hygiene ----------------------------------------------------------------------------------------
 
     [Fact]
