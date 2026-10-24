@@ -352,6 +352,9 @@ public class ArchitectureRulesTest
     private static (int Code, string Output) Run(string file, string arguments)
     {
         var start = new ProcessStartInfo(file, arguments) { WorkingDirectory = Root, RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false };
+        // A PSModulePath inherited from a different PowerShell edition (pwsh 7 running the tests, Windows PowerShell running
+        // the scripts) hides the child's own built-in modules (Get-FileHash); let each edition compute its default.
+        start.Environment.Remove("PSModulePath");
         using var process = Process.Start(start)!;
         var stdout = process.StandardOutput.ReadToEndAsync(); var stderr = process.StandardError.ReadToEndAsync();
         process.WaitForExit();
