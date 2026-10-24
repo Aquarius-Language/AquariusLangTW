@@ -26,6 +26,25 @@ public class CallConventionTest {
     }
 
     [Fact]
+    public void HostEnvironmentsAreLiveDuringAndAfterExecutionAndPlainAfterDispose() {
+        var environment = AquaEnvironment.NewEnvironment(); environment.Create("x", new IntegerObj(1));
+        var child = AquaEnvironment.NewEnclosedEnvironment(environment);
+        var builtins = new Builtins();
+        builtins.BuiltinFuncs["peek"] = new BuiltinObj(args => environment.Get("x", out _));
+        builtins.BuiltinFuncs["poke"] = new BuiltinObj(_ => { environment.Create("y", new IntegerObj(7)); return RepeatedPrimitives.NULL; });
+        var runtime = new CompiledRuntime(builtins);
+        Assert.Equal("[5, 7]", runtime.Execute(new LoweringCompiler().Compile("x=5;變數 seen=peek();poke();[seen,y];"), environment).Inspect());
+        Assert.Equal("5", environment.Get("x", out _).Inspect());
+        // An unencoded child scope resolves through its guest-backed parent.
+        Assert.Equal("7", child.Get("y", out bool found).Inspect()); Assert.True(found);
+        child.Set("x", new IntegerObj(6)); Assert.Equal("6", environment.Get("x", out _).Inspect());
+        runtime.Dispose();
+        Assert.Equal(new[] { "seen", "x", "y" }, environment.OwnedBindings.Keys.OrderBy(k => k, StringComparer.Ordinal));
+        Assert.Equal("6", environment.Get("x", out _).Inspect());
+        environment.Create("z", new IntegerObj(1)); Assert.Equal("1", environment.GetOwned("z").Inspect());
+    }
+
+    [Fact]
     public void RetainedArrayMirrorsOutliveTheGuestArraysTheyCameFrom() {
         // Mirrors do not pin guest arrays: after the guest drops one, a retained mirror is a detached value that returns
         // to the guest as one new array (the same one each time it is returned).

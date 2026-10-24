@@ -96,7 +96,8 @@ public sealed partial class WasmRuntime : IDisposable
         private readonly Dictionary<(int Tag, int Reference), WeakReference<IObject>> objects = new();
         private sealed record ScopeHandle(int Address);
         private readonly ConditionalWeakTable<AquaEnvironment, ScopeHandle> scopes = new();
-        private readonly List<(WeakReference<AquaEnvironment> Owner, int Address, int Pin, bool Mirror)> scopeLeases = new();
+        // Host marks scopes passed in by the host (detached on dispose); the others are projected guest scopes.
+        private readonly List<(WeakReference<AquaEnvironment> Owner, int Address, int Pin, bool Host)> scopeLeases = new();
         private readonly Dictionary<int, WeakReference<AquaEnvironment>> projectedScopes = new();
         private readonly Dictionary<string, int> texts = new(StringComparer.Ordinal);
         private readonly List<(WeakReference<IObject> Owner, int Pin)> leases = new();
@@ -129,8 +130,16 @@ public sealed partial class WasmRuntime : IDisposable
             // Array and hash mirrors do not pin their guest objects; the guest reports dropped ones (see Release).
             weakMirrors = program.HasExport("aqua_weak_mirrors") && exports.WeakMirrors() == 1;
         }
-        ~Session() { try { Dispose(); } catch { /* Finalization cannot report native cleanup failures. */ } }
-        public void Dispose()
+        ~Session() { try { DisposeCore(); } catch { /* Finalization cannot report native cleanup failures. */ } }
+        public void Dispose() { Detach(); DisposeCore(); }
+        // Host scopes become plain again with their final bindings once the session ends.
+        private void Detach()
+        {
+            if (disposed) return;
+            foreach (var lease in scopeLeases.ToArray())
+                if (lease.Host && lease.Owner.TryGetTarget(out var environment)) environment.Detach(Bindings(lease.Address));
+        }
+        private void DisposeCore()
         {
             if (disposed) return;
             CloseThreads();
@@ -198,7 +207,9 @@ public sealed partial class WasmRuntime : IDisposable
             if (scopes.TryGetValue(environment, out var existing)) return existing.Address;
             int outer = environment.Outer == null ? 0 : EncodeScope(environment.Outer), scope = exports.Scope(outer); scopes.Add(environment, new(scope));
             int root = exports.Value(); WriteRaw(root, 9, scope); scopeLeases.Add((new(environment), scope, exports.Pin(root), true));
-            foreach (var binding in environment.OwnedBindings) Set(scope, binding.Key, binding.Value); return scope;
+            // A host scope becomes a live view of its guest scope, so neither side copies bindings per call.
+            foreach (var binding in environment.OwnedBindings) Set(scope, binding.Key, binding.Value);
+            projectedScopes[scope] = new(environment); Attach(environment, scope); return scope;
         }
         private void Set(int scope, string name, IObject? value) { int cell = exports.Value(); Write(cell, value); exports.ScopeSet(scope, Text(name), cell); }
         private IReadOnlyDictionary<string, IObject> Bindings(int scope)
@@ -212,12 +223,16 @@ public sealed partial class WasmRuntime : IDisposable
             int outer = Int(scope);
             var environment = outer == 0 ? AquaEnvironment.NewEnvironment() : AquaEnvironment.NewEnclosedEnvironment(Project(outer)); projectedScopes[scope] = new(environment); scopes.Add(environment, new(scope));
             int root = exports.Value(); WriteRaw(root, 9, scope); scopeLeases.Add((new(environment), scope, exports.Pin(root), false));
+            Attach(environment, scope); return environment;
+        }
+        // Backs an environment with a guest scope: its owned bindings, lookups and assignments read and write guest memory.
+        private void Attach(AquaEnvironment environment, int scope)
+        {
             environment.ExternalBindings = () => Bindings(scope);
             environment.ExternalLookup = name => { int cell = exports.ScopeGet(scope, Text(name)); return (cell != 0, cell == 0 ? null : Read(cell)); };
             environment.ExternalCreate = (name, value) => Set(scope, name, value);
-            environment.ExternalSet = (name, value) => { int cell = exports.Value(); Write(cell, value); if (exports.ScopeAssign(scope, Text(name), cell) == 0) throw new KeyNotFoundException($"Identifier not found: {name}"); }; return environment;
+            environment.ExternalSet = (name, value) => { int cell = exports.Value(); Write(cell, value); if (exports.ScopeAssign(scope, Text(name), cell) == 0) throw new KeyNotFoundException($"Identifier not found: {name}"); };
         }
-        private void SynchronizeIn() { foreach (var pair in scopeLeases.ToArray()) if (pair.Mirror && pair.Owner.TryGetTarget(out var environment)) foreach (var binding in environment.OwnedBindings) Set(pair.Address, binding.Key, binding.Value); }
         private void ArrayOwner(IObject? value, AquaEnvironment owner)
         {
             if (value is not ArrayObj || !Origins.TryGetValue(value, out var origin) || !ReferenceEquals(origin.Session, this)) return;
@@ -242,14 +257,8 @@ public sealed partial class WasmRuntime : IDisposable
                 Refresh(6, item); dirtyArrays.Remove(item);
             }
         }
-        private void SynchronizeOut()
-        {
-            FlushDirtyArrays();
-            // 已變更的集合已同步；範圍只需更新繫結，既有子物件共用同一投影。
-            refreshingDirtyHashes = true;
-            try { foreach (var pair in scopeLeases.ToArray()) if (pair.Mirror && pair.Owner.TryGetTarget(out var environment)) foreach (var binding in Bindings(pair.Address)) environment.Create(binding.Key, binding.Value); }
-            finally { refreshingDirtyHashes = false; }
-        }
+        // Host scopes are live views of guest scopes; only changed host-visible arrays and hashes are copied out.
+        private void SynchronizeOut() => FlushDirtyArrays();
         internal IObject? Execute(int function, AquaEnvironment? environment, Builtins builtins)
         {
             if (!contextIds.TryGetValue(builtins, out int context)) {
@@ -259,12 +268,11 @@ public sealed partial class WasmRuntime : IDisposable
             }
             // Anonymous executions have no observable host scope to mirror or pin.
             int scope = environment == null ? exports.Scope(0) : EncodeScope(environment);
-            if (active?.Contains(this) != true) SynchronizeIn();
             return Run(exports.Execute(Program.Metadata.ProgramAddress, function, scope, context));
         }
         internal IObject? Invoke(int callable, IObject[] arguments)
         {
-            if (active?.Contains(this) != true) SynchronizeIn(); int args = exports.Allocate(checked(arguments.Length * 16)); for (int i = 0; i < arguments.Length; i++) Write(args + i * 16, arguments[i]);
+            int args = exports.Allocate(checked(arguments.Length * 16)); for (int i = 0; i < arguments.Length; i++) Write(args + i * 16, arguments[i]);
             return Run(exports.Invoke(Int(callable + 4), args, arguments.Length));
         }
         private IObject? Run(int execution)
@@ -306,7 +314,7 @@ public sealed partial class WasmRuntime : IDisposable
             bool synchronize = natives[subject] is not BuiltinObj { RetainedEnvironment: not null };
             try { if (synchronize) SynchronizeOut(); else FlushDirtyArrays(((BuiltinObj)natives[subject]!).RetainedEnvironment); IObject? result = natives[subject] switch { BuiltinObj fn => fn.BorrowsArguments ? fn.InvokeBorrowed(args) : fn.Fn(args),
                 FunctionObj fn when Callables.TryGetValue(fn, out var compiled) => compiled.Session.Invoke(compiled.Value, args), _ => new ErrorObj("Not a function.") };
-                if (synchronize) SynchronizeIn(); if (natives[subject] is not BuiltinObj { PreservesArguments: true }) for (int i = 0; i < count; i++) Write(arguments + i * 16, args[i]); Write(output, result); if (!synchronize) ArrayOwner(result, ((BuiltinObj)natives[subject]!).RetainedEnvironment!); return 0; }
+                if (natives[subject] is not BuiltinObj { PreservesArguments: true }) for (int i = 0; i < count; i++) Write(arguments + i * 16, args[i]); Write(output, result); if (!synchronize) ArrayOwner(result, ((BuiltinObj)natives[subject]!).RetainedEnvironment!); return 0; }
             finally { nativeArguments.Pop(); }
         }
         private void Write(int address, IObject? value)

@@ -20,13 +20,13 @@ export class WasmRuntime {
     const metadata=readManifest(module);
     const program={module,metadata};program.session=new Session(this,program);await program.session.initialize();this.program=program;return program;
   }
-  async execute(index,env=new Scope(),builtins=this.host.builtins,program=null){program??=await this.ready();const s=program.session,context=s.contexts.length;s.contexts.push(builtins);const scope=s.scope(env);if(!s.running.length)s.synchronizeIn();return s.run(s.call('aqua_execute',program.metadata.programAddress,index,scope,context));}
+  async execute(index,env=new Scope(),builtins=this.host.builtins,program=null){program??=await this.ready();const s=program.session,context=s.contexts.length;s.contexts.push(builtins);const scope=s.scope(env);return s.run(s.call('aqua_execute',program.metadata.programAddress,index,scope,context));}
   async invoke(fn,args=[]){
     if(typeof fn==='function'){const roots=[fn,...args];this.nativeRoots.add(roots);try{return await(fn[nativeCall]??fn)(...args);}finally{this.nativeRoots.delete(roots);}}
     const origin=this.origins.get(fn);if(fn?.type!=='closure'||!origin)throw new Error('Not a compiled function');if(args.length!==fn.parameters.length)throw new Error(`Function expects ${fn.parameters.length} arguments, got ${args.length}.`);
-    const s=origin.session;if(!s.running.length)s.synchronizeIn();const values=s.call('aqua_allocate',args.length*16);args.forEach((v,i)=>s.write(values+i*16,v));return s.run(s.call('aqua_invoke',origin.reference,values,args.length));
+    const s=origin.session;const values=s.call('aqua_allocate',args.length*16);args.forEach((v,i)=>s.write(values+i*16,v));return s.run(s.call('aqua_invoke',origin.reference,values,args.length));
   }
-  async dispose(){this.cancelled=true;if(this.program)await this.program.session.threads.dispose();}
+  async dispose(){this.cancelled=true;if(this.program){await this.program.session.threads.dispose();this.program.session.detach();}}
   reachable(roots=[]){
     const seen=new Set(),pending=[],add=v=>{if(v&&(typeof v==='object'||typeof v==='function')&&!numeric(v)&&!seen.has(v)){seen.add(v);pending.push(v);}};
     for(const root of roots)add(root);for(const root of this.nativeRoots)add(root);for(const e of this.executions)for(const root of e.session.nativeReachable())add(root);
@@ -80,11 +80,16 @@ class Session {
     for(let i=1;i<this.natives.length;i++){const native=this.natives[i];if(native&&!this.call('aqua_native_live',i)){this.nativeIds.delete(native);this.natives[i]=null;this.freeNativeIds.push(i);}}
   }
   *nativeReachable(){this.collect();for(let i=1;i<this.natives.length;i++)if(this.call('aqua_native_live',i))yield this.natives[i];}
-  scope(env){if(this.scopes.has(env))return this.scopes.get(env);const p=this.call('aqua_scope',env.outer?this.scope(env.outer):0);this.scopes.set(env,p);const root=this.call('aqua_value');this.raw(root,9,p);this.scopeLeases.push({owner:new WeakRef(env),pointer:p,pin:this.call('aqua_pin',root),mirror:true});for(const n of env.owned)this.set(p,n,env.store.get(n));return p;}
+  // A host scope passed to execute becomes a live view of its guest scope, so neither side copies bindings per call.
+  // dispose() turns it back into a plain scope holding the final bindings.
+  scope(env){if(this.scopes.has(env))return this.scopes.get(env);const p=this.call('aqua_scope',env.outer?this.scope(env.outer):0);this.scopes.set(env,p);const root=this.call('aqua_value');this.raw(root,9,p);this.scopeLeases.push({owner:new WeakRef(env),pointer:p,pin:this.call('aqua_pin',root),host:true});for(const n of env.owned)this.set(p,n,env.store.get(n));this.projected.set(p,new WeakRef(env));this.attach(env,p);return p;}
   set(scope,n,v){const cell=this.call('aqua_value');this.write(cell,v);this.call('aqua_scope_set',scope,this.text(n),cell);}
   bindings(scope){const result=new Map(),count=this.call('aqua_scope_count',scope);for(let i=0;i<count;i++){const p=this.call('aqua_scope_binding',scope,i);result.set(this.text(this.int(p)),this.read(p+8));}return result;}
   project(scope){
-    const cached=this.projected.get(scope)?.deref();if(cached)return cached;const outer=this.int(scope),env=new Scope(outer?this.project(outer):null);this.projected.set(scope,new WeakRef(env));this.scopes.set(env,scope);const root=this.call('aqua_value');this.raw(root,9,scope);this.scopeLeases.push({owner:new WeakRef(env),pointer:scope,pin:this.call('aqua_pin',root),mirror:false});const session=this;
+    const cached=this.projected.get(scope)?.deref();if(cached)return cached;const outer=this.int(scope),env=new Scope(outer?this.project(outer):null);this.projected.set(scope,new WeakRef(env));this.scopes.set(env,scope);const root=this.call('aqua_value');this.raw(root,9,scope);this.scopeLeases.push({owner:new WeakRef(env),pointer:scope,pin:this.call('aqua_pin',root),host:false});return this.attach(env,scope);
+  }
+  // Backs a Scope with a guest scope: its owned bindings, lookups and assignments read and write guest memory.
+  attach(env,scope){const session=this;
     class Bindings extends Map {
       get size(){return session.call('aqua_scope_count',scope);}
       get(n){return session.bindings(scope).get(n);}has(n){return session.bindings(scope).has(n);}
@@ -92,18 +97,20 @@ class Session {
       clear(){for(const n of this.keys())this.delete(n);}entries(){return session.bindings(scope).entries();}keys(){return session.bindings(scope).keys();}values(){return session.bindings(scope).values();}
       [Symbol.iterator](){return this.entries();}forEach(fn,thisArg){for(const [n,v] of this)fn.call(thisArg,v,n,this);}
     }
-    const store=new Bindings();Object.defineProperty(env,'store',{value:store});Object.defineProperty(env,'owned',{get:()=>{const names=new Set(store.keys());names.delete=n=>store.delete(n);return names;}});
+    const store=new Bindings();Object.defineProperty(env,'store',{value:store,configurable:true});Object.defineProperty(env,'owned',{get:()=>{const names=new Set(store.keys());names.delete=n=>store.delete(n);return names;},configurable:true});
     env.get=n=>{const p=this.call('aqua_scope_get',scope,this.text(n));if(!p)throw new Error(`Identifier not found: ${n}`);return this.read(p);};env.create=(n,v)=>this.set(scope,n,v);env.set=(n,v)=>{const cell=this.call('aqua_value');this.write(cell,v);if(!this.call('aqua_scope_assign',scope,this.text(n),cell))throw new Error(`Identifier not found: ${n}`);};return env;
   }
-  synchronizeIn(){for(const lease of this.scopeLeases){const env=lease.owner.deref();if(lease.mirror&&env)for(const n of env.owned)this.set(lease.pointer,n,env.store.get(n));}}
+  // Host scopes become plain again with their final bindings once the session ends.
+  detach(){for(const lease of this.scopeLeases){const env=lease.owner.deref();if(!lease.host||!env)continue;const store=this.bindings(lease.pointer);
+    for(const name of ['get','create','set'])delete env[name];Object.defineProperty(env,'store',{value:store,writable:true,configurable:true});Object.defineProperty(env,'owned',{value:new Set(store.keys()),writable:true,configurable:true});}}
   arrayOwner(value,owner){const origin=this.runtime.origins.get(value);if(!Array.isArray(value)||origin?.session!==this)return;let owners=this.arrayOwners.get(origin.reference);if(!owners)this.arrayOwners.set(origin.reference,owners=[]);if(!owners.some(w=>w.deref()===owner))owners.push(new WeakRef(owner));}
   flushDirty(owner=null){let reference;if(this.mutableHashes){this.refreshingDirtyHashes=true;try{while((reference=this.call('aqua_take_dirty_hash'))!==0){const cached=this.objects.get(objectKey(7,reference))?.deref();if(cached)this.refresh(7,reference,cached);}}finally{this.refreshingDirtyHashes=false;}}while((reference=this.call('aqua_take_dirty_array'))!==0)this.dirtyArrays.add(reference);for(const item of this.dirtyArrays){const cached=this.objects.get(objectKey(6,item))?.deref();if(!cached){this.dirtyArrays.delete(item);this.arrayOwners.delete(item);continue;}if(owner&&!this.arrayOwners.get(item)?.some(w=>w.deref()===owner))continue;this.refresh(6,item,cached);this.dirtyArrays.delete(item);}}
-  synchronizeOut(){this.flushDirty();this.refreshingDirtyHashes=true;try{for(const lease of this.scopeLeases){const env=lease.owner.deref();if(lease.mirror&&env)for(const [n,v]of this.bindings(lease.pointer))env.create(n,v);}}finally{this.refreshingDirtyHashes=false;}}
+  synchronizeOut(){this.flushDirty();}
   async run(pointer){
     const state={pointer,session:this,pending:null};let sliceStart=performance.now();this.runtime.executions.add(state);this.running.push(state);
     try{while(true){if(this.runtime.cancelled||this.runtime.host.signal?.aborted)throw new Error('Execution cancelled');const previous=this.dispatchState;this.dispatchState=state;let status;try{status=this.call('aqua_run',pointer,32768);}finally{this.dispatchState=previous;this.release();}
       if(status===1){this.collect(false);if(performance.now()-sliceStart>=8){if(this.runtime.host.yieldExecution)await this.runtime.host.yieldExecution();else if(typeof window!=='undefined')await new Promise(r=>setTimeout(r,0));sliceStart=performance.now();}continue;}
-      if(status===2){const pending=state.pending;try{const result=await pending.promise;if(this.runtime.cancelled||this.runtime.host.signal?.aborted)throw new Error('Execution cancelled');const cell=this.call('aqua_value');if(pending.synchronize)this.synchronizeIn();pending.args.forEach((v,i)=>this.write(pending.arguments+i*16,v));this.write(cell,result);this.call('aqua_resume',pointer,cell);}finally{this.runtime.nativeRoots.delete(pending.roots);state.pending=null;}continue;}
+      if(status===2){const pending=state.pending;try{const result=await pending.promise;if(this.runtime.cancelled||this.runtime.host.signal?.aborted)throw new Error('Execution cancelled');const cell=this.call('aqua_value');pending.args.forEach((v,i)=>this.write(pending.arguments+i*16,v));this.write(cell,result);this.call('aqua_resume',pointer,cell);}finally{this.runtime.nativeRoots.delete(pending.roots);state.pending=null;}continue;}
       const p=this.call('aqua_result',pointer);if(status===3)throw new Error(this.text(this.int(p+4)));return this.read(p);
     }}finally{this.synchronizeOut();this.call('aqua_release_execution',pointer);this.runtime.executions.delete(state);const i=this.running.indexOf(state);if(i>=0)this.running.splice(i,1);}
   }
@@ -116,7 +123,7 @@ class Session {
     if(operation!==1)throw new Error('Invalid native service request');const state=this.dispatchState,fn=this.natives[subject],args=Array.from({length:count},(_,i)=>this.read(arguments_+i*16)),roots=[fn,...args];this.runtime.nativeRoots.add(roots);
     const synchronize=!fn?.[nativeOwner];
     try{if(synchronize)this.synchronizeOut();else this.flushDirty(fn[nativeOwner].scope);const result=typeof fn==='function'?(fn[nativeCall]??fn)(...args):this.runtime.invoke(fn,args);if(isPromiseLike(result)){state.pending={promise:Promise.resolve(result),args,arguments:arguments_,roots,synchronize};return 1;}
-      if(synchronize)this.synchronizeIn();args.forEach((v,i)=>this.write(arguments_+i*16,v));this.write(output,result);if(!synchronize)this.arrayOwner(result,fn[nativeOwner].scope);this.runtime.nativeRoots.delete(roots);return 0;
+      args.forEach((v,i)=>this.write(arguments_+i*16,v));this.write(output,result);if(!synchronize)this.arrayOwner(result,fn[nativeOwner].scope);this.runtime.nativeRoots.delete(roots);return 0;
     }catch(error){this.runtime.nativeRoots.delete(roots);throw error;}
   }
   write(p,v){

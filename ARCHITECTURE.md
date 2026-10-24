@@ -86,7 +86,10 @@ can await GPU mapping, external-library initialization and animation frames.
 Checkpoints bound each browser turn and make cancellation observable in pure loops.
 Every execution owns its value frames, including callback reentry. Native handles
 are traced from guest roots and recycled; transport leases retain externally held
-modules, closures and projected scopes. Array and hash mirrors do not pin their guest
+modules, closures and projected scopes. A host scope passed to an execution becomes a live
+view of its guest scope (lookups and assignments go to guest memory), so native calls copy
+no bindings in either direction; disposing the runtime leaves it a plain scope with the
+final bindings. Array and hash mirrors do not pin their guest
 objects: when the guest drops one, its collector reports it on a released list and the
 host forgets the mirror, which then stays usable as a detached value. Hosts refresh a
 mirror only when the runtime reports it stale (changed since its dirty list was taken),

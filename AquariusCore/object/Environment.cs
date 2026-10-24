@@ -44,6 +44,8 @@ namespace AquariusLang.Object {
         public IObject Get(string name, out bool hasVar) {
             if (ExternalLookup != null) { var found = ExternalLookup(name); hasVar = found.Found; return found.Value!; }
             for (Environment scope = this; scope != null; scope = scope.outer) {
+                // A guest-backed outer scope resolves the rest of the chain itself.
+                if (scope.ExternalLookup != null) { var found = scope.ExternalLookup(name); hasVar = found.Found; return found.Value!; }
                 if (scope.store.TryGetValue(name, out var value)) {
                     hasVar = true;
                     return value;
@@ -85,6 +87,7 @@ namespace AquariusLang.Object {
             while (!scope.Owns(name)) {
                 scope.store[name] = val;
                 scope = scope.outer;
+                if (scope?.ExternalSet != null) { scope.ExternalSet(name, val); return; }
             }
 
             scope.store[name] = val;
@@ -96,6 +99,12 @@ namespace AquariusLang.Object {
         /// </summary>
         /// <param name="name"></param>
         /// <param name="val"></param>
+        /// <summary>Ends guest backing: the scope keeps these bindings as its own plain values.</summary>
+        internal void Detach(IReadOnlyDictionary<string, IObject> bindings) {
+            ExternalLookup = null; ExternalSet = null; ExternalCreate = null; ExternalBindings = null;
+            owned = new Dictionary<string, IObject>(bindings); store = new Dictionary<string, IObject>(bindings);
+        }
+
         public void Create(string name, IObject val) {
             if (ExternalCreate != null) { ExternalCreate(name, val); return; }
             owned[name] = val;
