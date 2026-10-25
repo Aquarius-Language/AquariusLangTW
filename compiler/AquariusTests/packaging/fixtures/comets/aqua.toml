@@ -1,0 +1,12 @@
+manifest_version = 2
+
+[library]
+name = "comets"
+version = "1.0.0"
+description = "Test fixture: a module that imports another library's module and a default library's native module"
+license = "MIT"
+platforms = ["windows", "linux", "android", "web"]
+
+[[modules]]
+names = "Comets|彗星"
+source = "Comets.aqua"

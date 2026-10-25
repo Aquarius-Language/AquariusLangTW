@@ -7,28 +7,11 @@ node_modules/
 editors/vscode/dist/
 editors/vscode/server/
 *.vsix
-.graphics-build/
-native/build/
-AquariusDesktop/runtimes/
 /dist
-.build-home/
-.web-build/
-.pbr-build/
-AquariusWebCompiler/browser/vendor-*
 TestResults/
-build-targets/
+# Toolchains, SDKs, build trees and runtime packs (scripts/install-toolchain.ps1, scripts/build-runtime.ps1)
 .native-build/
-.android-build/
-AquariusAndroid/template/app/src/main/jniLibs/
-AquariusAndroid/template/app/src/main/assets/aquarius/icudtl.dat
-AquariusCore/hosting/vendor-*
-AquariusCore/external/jolt/vendor-*
-AquariusWebCompiler/browser/physics-core.mjs
-AquariusWebCompiler/browser/audio-core.mjs
-AquariusCore/external/onnx/ort*
-.array-build/
 .aqua/
-.build-validation
 .performance/
 .performance-*.log
 /宣傳影片
@@ -38,4 +21,3 @@ AquariusCore/external/onnx/ort*
 *.DotSettings.user
 *.suo
 *.user
-

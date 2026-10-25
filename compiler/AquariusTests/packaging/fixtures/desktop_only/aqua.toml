@@ -1,0 +1,12 @@
+manifest_version = 2
+
+[library]
+name = "desktop_only"
+version = "1.0.0"
+description = "Test fixture: a library that supports only desktop platforms"
+license = "MIT"
+platforms = ["windows", "linux"]
+
+[[modules]]
+names = "DesktopOnly|桌面限定"
+source = "DesktopOnly.aqua"

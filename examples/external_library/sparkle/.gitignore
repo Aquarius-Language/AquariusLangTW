@@ -1,0 +1,6 @@
+# Build trees and the binaries `aqua library build` produces.
+/build/
+/native/windows-*/
+/native/linux-*/
+/native/android-*/
+/native/web/

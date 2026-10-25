@@ -1,0 +1,16 @@
+manifest_version = 2
+
+[library]
+name = "stars"
+version = "1.0.0"
+description = "Test fixture: Aquarius-source modules that import each other by relative paths"
+license = "MIT"
+platforms = ["windows", "linux", "android", "web"]
+
+[[modules]]
+names = "Stars|星星"
+source = "aqua/Stars.aqua"
+
+[[modules]]
+names = "StarChart|星圖"
+source = "aqua/chart/Chart.aqua"

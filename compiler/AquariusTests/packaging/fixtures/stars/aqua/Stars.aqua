@@ -1,0 +1,4 @@
+# A library module: imported by name (Stars / 星星); it imports a file of its own library by a relative path.
+變數 刻度 = 匯入("shared/亮度.aqua");
+變數 名稱 = "星星";
+變數 亮度, brightness = 函式(等級) { 刻度.倍數(等級); };

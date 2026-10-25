@@ -26,6 +26,6 @@
 
 這個範例使用輪詢 HTTP 展示每次請求／回應；網路函式庫另提供 WebSocket、SSE、
 原始 TCP／TLS 和 UDP。一般瀏覽器不開放原始 TCP／UDP，請先用 `網路.支援(...)` 查詢。
-`協定驗證.aqua` 是開發用的 DNS／TCP／UDP／WebSocket 檢查；執行前需在編譯器原始碼目錄
-啟動 `node AquariusWebCompiler/tests/network-echo.mjs`，並啟動本專案後端。
+`協定驗證.aqua` 是開發用的 DNS／TCP／UDP／WebSocket 檢查；執行前需在 127.0.0.1 提供 TCP 8871 與 UDP 8872
+回聲服務（例如 `ncat -l 8871 -k -e cat` 與 `ncat -u -l 8872 -k -e cat`），並啟動本專案後端。
 範例的工作階段存於記憶體，重啟後清除；正式部署請設定 HTTPS 憑證及明確的來源政策。

@@ -1,0 +1,4 @@
+變數 閃耀 = 匯入("閃耀");
+印出(閃耀.閃耀("星泉", 2));
+印出("fingerprint:", 閃耀.fingerprint("Hello, Aquarius!"));
+印出("SPARKLE_APP_OK");

@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- The language server (LSP over stdio): diagnostics, completion, hover, definitions and symbols for .aqua sources
+       and aqua.toml manifests. Library modules come from the runtime's catalog and the library manifests. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <RollForward>Major</RollForward>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../AquariusBottle/AquariusBottle.csproj" />
+    <ProjectReference Include="../AquariusBuild/AquariusBuild.csproj" />
+    <InternalsVisibleTo Include="AquariusTests" />
+  </ItemGroup>
+</Project>

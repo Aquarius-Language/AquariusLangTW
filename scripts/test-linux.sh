@@ -1,16 +1,13 @@
 #!/usr/bin/env bash
+# Linux check (Ubuntu or WSL): builds the linux-x64 runtime pack with the pinned LLVM (AQUARIUS_LLVM, see
+# scripts/install-toolchain.sh), then builds and tests the compiler against it.
 set -euo pipefail
 root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 cd "$root"
-npm ci --prefix AquariusWebCompiler
-npm run --prefix AquariusWebCompiler prepare:browser
-bash native/build.sh
-bash scripts/publish-apphost.sh
+build=${AQUARIUS_RUNTIME_BUILD:-"$root/.native-build/build/linux-x64"}
+cmake -S runtime -B "$build" -G 'Unix Makefiles' -DCMAKE_TOOLCHAIN_FILE="$root/runtime/sdk/cmake/toolchains/linux-x64.cmake" -DCMAKE_BUILD_TYPE=Release
+cmake --build "$build" -j"$(nproc)"
+rm -rf .native-build/install/linux-x64
+cmake --install "$build" --prefix .native-build/install/linux-x64
 dotnet build AquariusLang.sln -m:1 --nologo
-export AQUARIUS_OPENGL_TESTS=1 AQUARIUS_WGPU_TESTS=1 AQUARIUS_WEBCAM_SMOKE=1
-dotnet test AquariusTests -m:1 --no-build --logger 'trx;LogFileName=linux.trx'
-export AQUARIUS_COMPILER_DLL="$root/AquariusCli/bin/linux/Debug/net8.0/aqua.dll"
-npm test --prefix AquariusWebCompiler
-if [[ ${AQUARIUS_TEST_PROJECTS:-0} == 1 ]]; then
-    python3 scripts/test-linux-projects.py --executables --examples
-fi
+dotnet test compiler/AquariusTests -m:1 --no-build --logger 'trx;LogFileName=linux.trx'

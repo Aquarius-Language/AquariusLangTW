@@ -1,0 +1,16 @@
+manifest_version = 2
+
+[library]
+name = "sparkle"
+version = "1.0.0"
+description = "An external library example: a C part (text checksums) and an Aquarius module built on it."
+license = "MIT"
+platforms = ["windows", "linux", "android", "web"]
+
+[native]
+modules = ["SparkleNative|閃耀原生"]
+source = "native"
+
+[[modules]]
+names = "Sparkle|閃耀"
+source = "aqua/Sparkle.aqua"

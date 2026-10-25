@@ -4,7 +4,7 @@ AquariusLang is a bilingual Traditional Chinese / English programming language.
 Chinese and English keywords map to the same frontend tokens and AST; a file or
 module can mix both freely. `else if` and `否則如果` share the same conditional
 branch representation. All hosts therefore execute the same Wasm semantics.
-See [bilingual syntax and language behavior](AquariusCore/LANGUAGE.md#bilingual-syntax).
+See [bilingual syntax and language behavior](compiler/AquariusCompiler/LANGUAGE.md#bilingual-syntax).
 
 Networking contracts, optional platform capabilities, bilingual client/socket APIs and
 the desktop HTTP(S) server are documented in [Network / 網路](docs/networking.md).
@@ -21,7 +21,7 @@ dependencies, and completing cross-platform deployment. The [implementation stat
 distinguishes completed runtime changes from remaining library and toolchain work. Future computational
 libraries must follow the [Wasm inclusion requirement](docs/external-libraries.md#requirement-for-future-libraries).
 
-Optional project management lives in [AquariusBottle](AquariusBottle/README.md).
+Optional project management lives in [AquariusBottle](compiler/AquariusBottle/README.md).
 The CLI and language server share its TOML schema, semantic version constraints,
 local/GitHub sources, immutable global snapshots, dependency locks and read-only
 editor inspection. Project builds stage declared sources and assets into the

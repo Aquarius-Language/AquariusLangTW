@@ -1,0 +1,11 @@
+# The library's Aquarius module: friendly names over the native part.
+變數 原生 = 匯入("SparkleNative");
+
+變數 指紋, fingerprint = 函式(文字) {
+    回傳 原生.checksum(文字);
+};
+變數 閃耀, sparkle = 函式(文字, 次數) {
+    回傳 "✦ " + 原生.repeat(文字, 次數) + " ✦";
+};
+變數 版本 = 原生.VERSION;
+var version = 版本;

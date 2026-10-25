@@ -15,14 +15,14 @@ Linux x86_64／WSL2 的建置、測試與獨立執行檔輸出：見 [Linux 桌�
 - **統一入口**：`aqua` 提供編譯、桌面執行、網頁輸出與互動模式（REPL）。
 - **雙語語法**：`變數`／`var`、`函式`／`function`、`回傳`／`return` 等關鍵字完全等價，中文與英文腳本可互相匯入。
 - **跨平台網路**：[Network／網路](docs/networking.md)提供雙語 HTTP(S)、Cookie、可取消請求、WebSocket、原生 TCP／TLS／UDP，以及桌面的路由、HTTPS、公開前端、SSE 和工作階段；見[繁體中文前後端範例](examples/network_lab/README.md)。
-- **專案與第三方套件**：[Bottle / TOML 專案管理](AquariusBottle/README.md)提供 `aqua new`、`aqua bottle install/restore/uninstall`、本機／GitHub 安裝、版本鎖定、全域快取與相依資產封裝；見 [可執行範例](examples/bottle_showcase/README.md)。
+- **專案與第三方套件**：[Bottle / TOML 專案管理](compiler/AquariusBottle/README.md)提供 `aqua new`、`aqua bottle install/restore/uninstall`、本機／GitHub 安裝、版本鎖定、全域快取與相依資產封裝；見 [可執行範例](examples/bottle_showcase/README.md)。
 - **可攜編譯成果**：將模組、圖片與著色器等資源一起封裝，執行與網頁輸出不需原始碼。
 - **動態連結**：[核心動態函式庫 / DynamicLibrary](docs/dynamic-linking.md)以雙語介面載入 Windows DLL、Linux／Android SO、網頁 JavaScript 與跨平台 Wasm。
 - **雙語函式庫**：腳本與桌面原生函式支援繁體中文／英文名稱，共用函式與閉包。
 - **圖學與物理**：核心保留跨平台 WebGPU 介面；Jolt 已移至獨立的 `Aqua_JoltPhysics` TOML Bottle 函式庫。
 - **PBR 與模型匯入**：[核心 Models／PBR 函式庫](docs/pbr-models.md)在 Wasm 解析 OBJ／MTL，並以共用 WGSL 提供金屬度／粗糙度即時渲染。
 - **可攜紋理與 HDR**：[具名 shader 紋理、cube mip chains 與線性浮點 render targets](docs/wgpu-textures.md)共用 Windows、WebGPU 與 Android Vulkan 契約。
-- **跨平台音訊**：[音訊抽象與函式庫](AquariusCore/audio/README.md)共用 miniaudio WebAssembly 解碼與混音，支援音檔、音調、循環、聲像、音高及無硬體的離線樣本輸出。
+- **跨平台音訊**：[音訊抽象與函式庫](libraries/audio/README.md)共用 miniaudio WebAssembly 解碼與混音，支援音檔、音調、循環、聲像、音高及無硬體的離線樣本輸出。
 - **模型推論**：[ONNX Runtime 雙語介面](docs/onnx.md)提供可擴充的核心契約與自動選擇各平台最佳執行提供者：Windows／Linux 的 CUDA、TensorRT（選用，於 `aqua.toml` 設定 `[onnx] cuda = true`），macOS 的 Core ML，網頁的 WebGPU／WebNN，Android 的 WebGPU／NNAPI／XNNPACK，以及跨平台 WebGPU 與 CPU；附 [繁體中文姿態範例](examples/mediapipe/README.md)。
 - **GPU 數學**：[核心 GPUMath／GPU數學 雙語函式庫](docs/gpu-math.md)接受自訂 WGSL 運算式、計算函式及完整著色器，共用桌面、瀏覽器與 Android WebGPU，支援保留緩衝區、範圍傳輸及管線快取。
 
@@ -190,7 +190,7 @@ Windows 執行檔內含 Wasmtime、.NET 執行階段、圖學／影像主機與�
 使用者只需複製 `.exe`，不需另行安裝星泉或 .NET。首次執行時會將執行階段解開到使用者快取。
 正式版編譯器附帶 `build-targets/win-x64`；從原始碼開發時先執行
 `./native/build.ps1`、`./scripts/publish-apphost.ps1`，再重新建置 CLI。
-自行呼叫 Python 等外部程式時仍需提供該外部程式。平台擴充設計見 [部署後端](AquariusBuild/README.md)。
+自行呼叫 Python 等外部程式時仍需提供該外部程式。平台擴充設計見 [部署後端](compiler/AquariusBuild/README.md)。
 
 網頁使用瀏覽器原生 WebAssembly 引擎與非同步主機服務，WebGPU 保持共用的 WGSL ABI。
 Jolt 的 Emscripten glue、Wasm 與綁定由獨立 `Aqua_JoltPhysics` Bottle 函式庫持有；
@@ -199,8 +199,8 @@ Jolt 的 Emscripten glue、Wasm 與綁定由獨立 `Aqua_JoltPhysics` Bottle 函
 
 請透過 localhost 或 HTTPS 提供網站；圖學需要瀏覽器可用的 WebGPU adapter。
 桌面外部程序與尚未實作的瀏覽器 API 呼叫時會回報錯誤。
-完整指令見 [統一 CLI](AquariusCli/README.md)、[編譯成果格式](AquariusPackaging/README.md)
-及 [網頁編譯器](AquariusWebCompiler/README.md)。
+完整指令見 [統一 CLI](compiler/AquariusCli/README.md)、[編譯成果格式](compiler/AquariusCompiler/README.md)
+及 [網頁編譯器](web-glue/README.md)。
 
 `aqua` 結束碼：**0** 成功、**1** 編譯／執行／檔案錯誤、**2** 指令或選項錯誤。
 ## 語法
@@ -275,8 +275,8 @@ for (變數 索引 = 0; 索引 < 5; 索引++) {
 除以 `1000.0d` 可換算成秒。時鐘起點由執行平台決定，不是日期或 Unix 時間戳記。
 `型別(值)`／`typeOf(value)` 回傳 `integer`、`double`、`string`、`array`、`hash`、`null` 等型別標記，
 方便處理 JSON 等動態資料，例如 `如果 (型別(資料["錯誤"]) == "hash") { ... }`。
-詳細語意見 [語言核心指南](AquariusCore/LANGUAGE.md)，名稱對照見
-[函式庫雙語名稱](AquariusDesktop/LIBRARY_NAMES.md)。
+詳細語意見 [語言核心指南](compiler/AquariusCompiler/LANGUAGE.md)，名稱對照見
+[函式庫雙語名稱](docs/external-libraries.md)。
 
 ## 函式庫與範例
 
@@ -285,11 +285,11 @@ for (變數 索引 = 0; 索引 < 5; 索引++) {
 
 | 功能 | 說明與文件 | 範例 |
 | --- | --- | --- |
-| WGPU／wgpu | [WGSL 繪圖、GPU 計算、緩衝區與像素讀回](AquariusDesktop/graphics/WGPU.md)；桌面使用 Silk.NET／wgpu-native。 | [計算](examples/wgpu_compute/README.md)、[離屏三角形](examples/wgpu_triangle/README.md) |
-| Processing | [wgpu 2D／3D 繪圖](AquariusDesktop/graphics/Processing.md)、圖片、文字、動畫與事件、離屏畫布、自訂著色器。 | [六面板展示](examples/processing_showcase/README.md)、[色彩映射介面](examples/color_mapping/README.md) |
+| WGPU／wgpu | [WGSL 繪圖、GPU 計算、緩衝區與像素讀回](libraries/graphics/README.md)；桌面使用 Silk.NET／wgpu-native。 | [計算](examples/wgpu_compute/README.md)、[離屏三角形](examples/wgpu_triangle/README.md) |
+| Processing | [wgpu 2D／3D 繪圖](libraries/graphics/README.md)、圖片、文字、動畫與事件、離屏畫布、自訂著色器。 | [六面板展示](examples/processing_showcase/README.md)、[色彩映射介面](examples/color_mapping/README.md) |
 | OpenGL | [GLFW、GLAD、OpenGL 3.3 core、GLM 與 STBImage](native/README.md)；完整保留桌面 OpenGL 函式庫。 | [旋轉材質立方體](examples/opengl_cube/README.md) |
 | Aqua_JoltPhysics | 第三方 TOML 函式庫，提供世界、剛體、重力、力與衝量；使用 DynamicLibrary 載入同一份 Jolt Wasm。 | [物理驗證](examples/jolt_physics/README.md) |
-| 文字輸入 | [Unicode 字素編輯、輸入事件與 Windows IME](AquariusDesktop/graphics/TextInput.md)。 | [多語輸入](examples/multilingual_input/README.md) |
+| 文字輸入 | [Unicode 字素編輯、輸入事件與 Windows IME](libraries/graphics/README.md)。 | [多語輸入](examples/multilingual_input/README.md) |
 | 雙語語法與函式 | 繁體中文／英文／混合語法、閉包、遞迴、控制流程與雙名稱函式。 | [星艦遠征](examples/starship_expedition/README.md)、[雙語函式庫](examples/bilingual_library/README.md) |
 
 桌面視窗功能需先建置原生橋接。Jolt 請透過 Bottle 安裝；核心的 `Terminal`／`終端機` 提供跨平台腳本執行介面。
@@ -333,7 +333,7 @@ Wasm 函式使用編譯後的控制流程與可恢復呼叫框架，星泉遞迴
 node AquariusWebCompiler/tests/browser-smoke.mjs
 ```
 
-GPU 單元測試的啟用方式、測試報告與效能量測見 [編譯器測試說明](AquariusTests/README.md)。
+GPU 單元測試的啟用方式、測試報告與效能量測見 [編譯器測試說明](compiler/AquariusTests/README.md)。
 瀏覽器測試也可設定 `$env:AQUARIUS_BROWSER = 'msedge'` 使用已安裝的 Edge。
 Linux／macOS 的原生建置與發佈方式見 [原生指南](native/README.md)；
 本 README 的批次打包流程固定使用 Windows x64。
@@ -359,7 +359,7 @@ Linux／macOS 的原生建置與發佈方式見 [原生指南](native/README.md)
 [VS Code 擴充套件](https://marketplace.visualstudio.com/items?itemName=aquariuslang.aquariuslang-tw)
 提供語法上色、片段、即時診斷、雙語補全、懸停說明、定義跳轉與符號列表。
 安裝、設定、VSIX 打包及執行階段需求見 [VS Code 操作指南](editors/vscode/README.md)。
-其他 LSP 編輯器可參考 [語言伺服器說明](AquariusLanguageServer/README.md)；伺服器分析語法，不執行程式。
+其他 LSP 編輯器可參考 [語言伺服器說明](compiler/AquariusLanguageServer/README.md)；伺服器分析語法，不執行程式。
 
 [星泉介紹網站](https://aquarius-language.github.io/AquariusLangTW/) 的原始碼與本機操作位於
 [website](website/README.md)，GitHub Pages 設定見 [網站部署指南](website/docs/github-pages.md)。

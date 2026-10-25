@@ -1,0 +1,5 @@
+# Uses the stars library (another library's Aquarius-source module) and the terminal library (a native module).
+變數 星 = 匯入("Stars");
+變數 終端 = 匯入("Terminal");
+變數 軌道, orbit = 函式() { 星.亮度(4) + 2; };
+變數 終端型別 = 型別(終端);

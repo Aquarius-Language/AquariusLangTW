@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- The language compiler: lexer, parser, lowering, WebAssembly emission, application packaging (ABI 4 metadata)
+       and the library manifests it reads. It embeds the guest runtime the emitted modules link against. -->
+  <PropertyGroup>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <RootNamespace>AquariusLang.Compiler</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Tomlyn" Version="0.19.0" />
+    <EmbeddedResource Include="../../runtime/guest/runtime.wasm" LogicalName="AquariusLang.Wasm.runtime.wasm" />
+    <EmbeddedResource Include="../../runtime/guest/layout.def" LogicalName="AquariusLang.Wasm.layout.def" />
+    <InternalsVisibleTo Include="AquariusTests" />
+  </ItemGroup>
+</Project>

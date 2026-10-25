@@ -3,7 +3,7 @@
 Build the GLFW bridge with `./native/build.ps1`, then run:
 
 ```powershell
-dotnet run --project AquariusDesktop -- examples/processing_wgpu/main.aqua
+aqua run examples/processing_wgpu/main.aqua
 ```
 
 This sketch composites a lit P3D cube into a P2D canvas. Space pauses and Esc exits.

@@ -2,8 +2,7 @@
 
 This executable TOML project uses a local third-party library under
 `libraries/greeting`. That library declares its own TOML dependency under
-`dependencies/numbers`, plus a text asset and an actual dynamically loaded Wasm
-library. Both dependency levels and all declared assets enter the per-user Bottle
+`dependencies/numbers` and a text asset. Both dependency levels and all declared assets enter the per-user Bottle
 cache. The application runs from its single `.wasm` after installation even if the
 original library directories are unavailable.
 
@@ -23,14 +22,13 @@ aqua build . --target web -o dist/web
 aqua bottle install ./libraries/greeting/aqua.toml --project . --version "> 0.17, <= 0.21"
 
 # Build from the repository without publishing:
-# dotnet ../../AquariusCli/bin/Debug/net8.0/aqua.dll build .
+# dotnet ../../compiler/AquariusCli/bin/Debug/net8.0/aqua.dll build .
 ```
 
-Expected output contains `20 + 22 = 42`, `BOTTLE_DYNAMIC_LINK_OK` and
-`BOTTLE_SHOWCASE_OK`. Serve `dist/web` over HTTP to run in a browser.
+Expected output contains `20 + 22 = 42` and `BOTTLE_SHOWCASE_OK`. Serve `dist/web` over HTTP to run in a browser.
 Windows/Linux executable packaging uses `--target windows -o dist/showcase.exe`
 or `--target linux -o dist/showcase` with the usual installed runtime packs.
-Android project generation uses `--target android -o dist/android-project`.
+Android packaging uses `--target android -o dist/showcase.apk`.
 
 To try offline installation, restore first, temporarily move `libraries` outside
 this project, and rebuild with `--locked --offline`. Move it back before editing
@@ -50,13 +48,10 @@ system temporary directory, records the exact commit in the lock, caches only
 declared files, and removes the checkout. No registry service is needed. The URL
 above is illustrative; this showcase uses local sources and makes no GitHub calls.
 
-The included `native/showcase.wasm` is the repository's small dynamic-linking test
-fixture, built from the accompanying `library.c` and `aquarius_library.h` (MIT).
-Its `echo` export uses Aquarius's documented dynamic library ABI. Native DLL/SO
-assets use the same manifest declarations, optionally with `platforms` and `target`
-to place files at a specific application path; those builds require an explicit
-platform target.
+These are manifest_version 1 libraries, imported by path from `/bottles/NAME/`. A library with C/C++
+code is a manifest_version 2 library with a `[native]` part; see [the external library example](../external_library/README.md)
+and [libraries and external libraries](../../docs/external-libraries.md).
 
 專案與函式庫名稱不可有空白。函式庫必須宣告版本與支援平台；所有相依套件都必須
-指定版本條件。文字資產與動態函式庫均以函式庫根目錄為相對路徑宣告，快取與封裝後
-仍可由函式庫的 `目前工作目錄` 找到。LSP 支援 TOML 診斷與套件匯入的成員補全。
+指定版本條件。文字資產以函式庫根目錄為相對路徑宣告，快取與封裝後位於
+`bottles/<名稱>/` 之下。LSP 支援 TOML 診斷與套件匯入的成員補全。

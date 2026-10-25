@@ -1,5 +1,5 @@
 ﻿#requires -Version 5.1
-# -CUDA：桌面執行檔加入選用的 NVIDIA CUDA／TensorRT 推論提供者（需 build-targets/win-x64-cuda 執行環境套件）。
+# -CUDA：桌面執行檔加入選用的 NVIDIA CUDA／TensorRT 推論提供者（需以 scripts/build-runtime.ps1 -OnnxCuda 建置的 windows-x64-cuda 執行環境套件）。
 param([switch]$略過桌面, [switch]$驗證圖形加速, [switch]$Android, [switch]$APK, [switch]$CUDA)
 $ErrorActionPreference = 'Stop'
 $命令 = Get-Command aqua -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1

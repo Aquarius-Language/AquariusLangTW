@@ -14,10 +14,10 @@
 請先安裝具備裝置擷取支援的 FFmpeg，確認執行檔位於搜尋路徑，或設定 `AQUARIUS_FFMPEG`。開啟實體裝置前，請確認作業系統已允許桌面應用程式使用攝影機。
 
 ```powershell
-dotnet run --project AquariusDesktop -- examples/webcam/冒煙測試.aqua
-dotnet run --project AquariusDesktop -- examples/webcam/裝置清單.aqua
-dotnet run --project AquariusDesktop -- examples/webcam/影格驗證.aqua
-dotnet run --project AquariusDesktop -- examples/webcam/main.aqua
+aqua run examples/webcam/冒煙測試.aqua
+aqua run examples/webcam/裝置清單.aqua
+aqua run examples/webcam/影格驗證.aqua
+aqua run examples/webcam/main.aqua
 ```
 
 影格驗證會立即關閉裝置，即時展示則持續擷取到視窗關閉。錯誤訊息會說明不支援、找不到裝置、權限、模式不支援或逾時等問題。

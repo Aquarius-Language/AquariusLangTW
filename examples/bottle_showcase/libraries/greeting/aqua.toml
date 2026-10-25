@@ -8,13 +8,10 @@ entry = "main.aqua"
 sources = ["main.aqua"]
 platforms = ["windows", "linux", "web", "android"]
 license = "MIT"
-description = "A local library with text assets, a transitive dependency and a dynamic Wasm library."
+description = "A local library with a text asset and a transitive dependency."
 
 [dependencies]
 bottle_numbers = { path = "dependencies/numbers/aqua.toml", version = ">= 1.0, < 2.0" }
 
 [[assets]]
 source = "assets"
-
-[[assets]]
-source = "native/showcase.wasm"

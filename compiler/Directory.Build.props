@@ -1,0 +1,16 @@
+<Project>
+  <!-- Every project of the compiler: one framework and language level. -->
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <LangVersion>12</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+  <!-- WSL and Windows can build the same checkout without sharing NuGet assets,
+       generated assembly attributes or native apphosts. -->
+  <PropertyGroup Condition="$([MSBuild]::IsOSPlatform('Linux'))">
+    <BaseIntermediateOutputPath>obj/linux/</BaseIntermediateOutputPath>
+    <BaseOutputPath>bin/linux/</BaseOutputPath>
+    <DefaultItemExcludes>$(DefaultItemExcludes);bin/**;obj/**</DefaultItemExcludes>
+  </PropertyGroup>
+</Project>

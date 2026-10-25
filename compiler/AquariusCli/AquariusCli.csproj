@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- The aqua command: build, run, new, bottle, library build and repl. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <AssemblyName>aqua</AssemblyName>
+    <ApplicationManifest Condition="'$(OS)' == 'Windows_NT'">application.manifest</ApplicationManifest>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../AquariusBottle/AquariusBottle.csproj" />
+    <ProjectReference Include="../AquariusBuild/AquariusBuild.csproj" />
+    <InternalsVisibleTo Include="AquariusTests" />
+  </ItemGroup>
+</Project>

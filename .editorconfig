@@ -1,3 +1,0 @@
-# Windows PowerShell 5.1 needs a BOM to decode the Chinese release fixtures.
-[scripts/package-release.ps1]
-charset = utf-8-bom

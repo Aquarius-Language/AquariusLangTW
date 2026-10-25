@@ -1,0 +1,8 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Build targets: Windows and Linux executables, the web site and the Android APK, made from an application .wasm
+       and the runtime packs of the installation. -->
+  <ItemGroup>
+    <ProjectReference Include="../AquariusCompiler/AquariusCompiler.csproj" />
+    <InternalsVisibleTo Include="AquariusTests" />
+  </ItemGroup>
+</Project>

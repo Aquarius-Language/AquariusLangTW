@@ -1,0 +1,6 @@
+# The library imported by both names, through its Aquarius module and its native module.
+變數 s = 匯入("Sparkle");
+變數 閃 = 匯入("閃耀");
+印出(s.fingerprint("AquariusLang"), 閃.指紋("星泉"));
+印出(s.sparkle("ab", 3));
+印出(閃.版本, 匯入("閃耀原生").checksum(""));

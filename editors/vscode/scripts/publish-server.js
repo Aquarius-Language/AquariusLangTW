@@ -2,7 +2,7 @@
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const extensionRoot = path.join(__dirname, '..');
-const project = path.resolve(extensionRoot, '..', '..', 'AquariusLanguageServer', 'AquariusLanguageServer.csproj');
+const project = path.resolve(extensionRoot, '..', '..', 'compiler', 'AquariusLanguageServer', 'AquariusLanguageServer.csproj');
 const args = [
   'publish', project, '--configuration', 'Release', '--output', path.join(extensionRoot, 'server'),
   '--self-contained', 'false', '-p:UseAppHost=false', '-p:RollForward=Major', '--nologo'

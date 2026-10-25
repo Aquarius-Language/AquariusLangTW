@@ -20,8 +20,8 @@ Author: 林天牧 / Temple Lin.
 - **Portable applications:** compiled modules, images, shaders and other assets
   travel together; deployed applications do not need source files.
 - **Bilingual libraries:** Chinese and English function names share functions
-  and captured closures. See the [library naming reference](AquariusDesktop/LIBRARY_NAMES.md).
-- **Projects and packages:** [Bottle](AquariusBottle/README.md) provides TOML
+  and captured closures. See the [library naming reference](docs/external-libraries.md).
+- **Projects and packages:** [Bottle](compiler/AquariusBottle/README.md) provides TOML
   manifests, local/GitHub dependencies, version locks, global caching and asset
   packaging. See the [showcase](examples/bottle_showcase/README.md).
 - **Threads:** [Thread / 執行緒](docs/threading.md) provides isolated workers,
@@ -33,7 +33,7 @@ Author: 林天牧 / Temple Lin.
   physics is supplied by the independent `Aqua_JoltPhysics` Bottle library.
 - **Models and PBR:** [OBJ/MTL parsing and shared WGSL rendering](docs/pbr-models.md),
   plus [named shader textures, cube mip chains and floating render targets](docs/wgpu-textures.md).
-- **Audio:** [shared miniaudio Wasm decoding and mixing](AquariusCore/audio/README.md),
+- **Audio:** [shared miniaudio Wasm decoding and mixing](libraries/audio/README.md),
   including files, tones, loops, panning, pitch and offline sample output.
 - **Inference:** [ONNX Runtime](docs/onnx.md) contracts and platform execution
   providers, including optional CUDA/TensorRT through `[onnx] cuda = true` in
@@ -184,8 +184,8 @@ External programs such as Python remain separate requirements when an applicatio
 
 Serve websites over localhost or HTTPS. Graphics requires a WebGPU adapter.
 Platform-specific host services report unsupported capabilities when unavailable.
-See the [CLI](AquariusCli/README.md), [application format](AquariusPackaging/README.md),
-[build targets](AquariusBuild/README.md) and [web compiler](AquariusWebCompiler/README.md).
+See the [CLI](compiler/AquariusCli/README.md), [application format](compiler/AquariusCompiler/README.md),
+[build targets](compiler/AquariusBuild/README.md) and [web compiler](web-glue/README.md).
 CLI exit codes are **0** for success, **1** for compilation/runtime/file failures,
 and **2** for invalid commands or options.
 
@@ -258,7 +258,7 @@ time measurements; subtract two readings and divide by `1000.0d` for seconds.
 `currentDate()` / `目前日期()` returns the host's local date as `yyyy-MM-dd`.
 `typeOf(value)` / `型別(值)` returns stable tags such as `integer`, `double`,
 `string`, `array`, `hash` and `null`.
-See the [language guide](AquariusCore/LANGUAGE.md) for detailed semantics.
+See the [language guide](compiler/AquariusCompiler/LANGUAGE.md) for detailed semantics.
 
 ## Libraries and examples
 
@@ -268,11 +268,11 @@ desktop release packages include it.
 
 | Feature | Documentation | Examples |
 | --- | --- | --- |
-| WebGPU | [WGSL rendering, compute, buffers and pixel readback](AquariusDesktop/graphics/WGPU.md) | [Compute](examples/wgpu_compute/README.md), [triangle](examples/wgpu_triangle/README.md) |
-| Processing | [2D/3D drawing, text, images, events and shaders](AquariusDesktop/graphics/Processing.md) | [Showcase](examples/processing_showcase/README.md), [color mapping](examples/color_mapping/README.md) |
+| WebGPU | [WGSL rendering, compute, buffers and pixel readback](libraries/graphics/README.md) | [Compute](examples/wgpu_compute/README.md), [triangle](examples/wgpu_triangle/README.md) |
+| Processing | [2D/3D drawing, text, images, events and shaders](libraries/graphics/README.md) | [Showcase](examples/processing_showcase/README.md), [color mapping](examples/color_mapping/README.md) |
 | OpenGL | [GLFW, GLAD, OpenGL 3.3 core, GLM and STBImage](native/README.md) | [Textured cube](examples/opengl_cube/README.md) |
 | Physics | Independent `Aqua_JoltPhysics` TOML package using DynamicLibrary | [Jolt](examples/jolt_physics/README.md) |
-| Text input | [Unicode editing, events and Windows IME](AquariusDesktop/graphics/TextInput.md) | [Multilingual input](examples/multilingual_input/README.md) |
+| Text input | [Unicode editing, events and Windows IME](libraries/graphics/README.md) | [Multilingual input](examples/multilingual_input/README.md) |
 | Bilingual language | Chinese, English and mixed syntax, closures and recursion | [Starship](examples/starship_expedition/README.md), [bilingual functions](examples/bilingual_library/README.md), [arrays in both syntaxes](examples/arrays/README.md) |
 | Camera | [Core contracts and platform implementations](docs/webcam.md) | [Webcam](examples/webcam/README.md) |
 
@@ -300,7 +300,7 @@ dotnet run --project AquariusCli -- run .web-build/increment.wasm
 dotnet run --project AquariusCli -- repl
 ```
 
-The [test guide](AquariusTests/README.md) describes syntax, Wasm, cross-engine,
+The [test guide](compiler/AquariusTests/README.md) describes syntax, Wasm, cross-engine,
 CLI and packaging checks, plus opt-in GPU tests. Bilingual tests cover every
 keyword, mixed declarations and branches, loops, closures, recursion, modules,
 errors, source ranges and source-free Wasm execution.
@@ -346,7 +346,7 @@ The [VS Code extension](https://marketplace.visualstudio.com/items?itemName=aqua
 provides bilingual highlighting, snippets, live diagnostics, completion, hover,
 definitions and symbols. See the [VS Code guide](editors/vscode/README.md) for
 installation, configuration and VSIX packaging. Other editors can use the
-[language server](AquariusLanguageServer/README.md), which analyzes source without executing it.
+[language server](compiler/AquariusLanguageServer/README.md), which analyzes source without executing it.
 
 The [AquariusLang introduction website](https://aquarius-language.github.io/AquariusLangTW/)
 has [source and local instructions](website/README.md) and a

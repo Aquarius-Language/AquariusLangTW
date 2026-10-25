@@ -1,0 +1,2 @@
+# Not a module of the manifest: bundled because Stars.aqua imports it.
+變數 倍數, scale = 函式(x) { x * 10; };

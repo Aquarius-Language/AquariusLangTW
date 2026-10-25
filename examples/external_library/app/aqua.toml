@@ -1,0 +1,11 @@
+manifest_version = 2
+
+[project]
+name = "sparkle_app"
+version = "1.0.0"
+entry = "main.aqua"
+sources = ["main.aqua"]
+platforms = ["windows", "linux", "android", "web"]
+
+[dependencies]
+sparkle = { path = "../sparkle", version = "1.0.0" }

@@ -1,8 +1,0 @@
-[project]
-name="MarbleRunFixture"
-type="executable"
-entry="main.aqua"
-sources=["."]
-platforms=["windows","linux","web","android"]
-[dependencies]
-Aqua_JoltPhysics="1.0.0"

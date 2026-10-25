@@ -17,7 +17,7 @@ From the repository root, after building the native library:
 
 ```powershell
 ./native/build.ps1
-dotnet run --project AquariusDesktop -- examples/opengl_cube/main.aqua
+aqua run examples/opengl_cube/main.aqua
 ```
 
 Press **Esc** or close the window to exit. Press **Space** to pause/resume
@@ -29,7 +29,7 @@ For a reproducible finite run and a captured frame:
 ```powershell
 $env:AQUARIUS_GRAPHICS_FRAMES = '120'
 $env:AQUARIUS_GRAPHICS_CAPTURE = "$PWD/cube.ppm"
-dotnet run --project AquariusDesktop -- examples/opengl_cube/main.aqua
+aqua run examples/opengl_cube/main.aqua
 Remove-Item Env:AQUARIUS_GRAPHICS_FRAMES, Env:AQUARIUS_GRAPHICS_CAPTURE
 ```
 

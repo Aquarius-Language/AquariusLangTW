@@ -50,7 +50,7 @@ Install [.NET 8 SDK](https://dotnet.microsoft.com/download/dotnet/8.0), Node.js 
 and npm. From the repository root:
 
 ```powershell
-dotnet build AquariusLanguageServer/AquariusLanguageServer.csproj -c Release
+dotnet build compiler/AquariusLanguageServer/AquariusLanguageServer.csproj -c Release
 cd editors/vscode
 npm ci
 npm run check
@@ -71,7 +71,7 @@ For a custom server build, set these **user/machine** settings if needed:
 ```json
 {
   "aquarius.dotnetPath": "C:\\Program Files\\dotnet\\dotnet.exe",
-  "aquarius.serverPath": "C:\\OfficialProjects\\AquariusLangTW\\AquariusLanguageServer\\bin\\Release\\net8.0\\AquariusLanguageServer.dll",
+  "aquarius.serverPath": "D:\\src\\AquariusLangTW\\compiler\\AquariusLanguageServer\\bin\\Release\\net8.0\\AquariusLanguageServer.dll",
   "aquarius.trace.server": "off"
 }
 ```
@@ -81,34 +81,27 @@ absolute paths appropriate to that host. Paths may contain spaces.
 
 ## Run a program
 
-Editor language support does not run or debug programs. To execute using this
-repository's VM desktop host, install the .NET 8 SDK (which includes the runtime)
-and run this from the repository root:
+Editor language support does not run or debug programs. Run them with the `aqua` command of an AquariusLang
+distribution, or a repository build of `compiler/AquariusCli` with runtime packs from `scripts/build-runtime.ps1`:
 
 ```powershell
-dotnet run --project AquariusDesktop -- examples/increment.aqua
+aqua run examples/increment.aqua
 ```
 
-Or run an already-built VM host:
-
-```powershell
-dotnet AquariusDesktop/bin/Debug/net8.0/AquariusDesktop.dll examples/increment.aqua
-```
+The language server lists library modules from the runtime of the installation it finds: `AQUARIUS_HOME`, the
+`aqua` on `PATH`, or the repository it was built in.
 
 ## Tests
 
 From the repository root:
 
 ```powershell
-dotnet test AquariusLang.sln
-dotnet build AquariusLanguageServer/AquariusLanguageServer.csproj -c Release
-node --test AquariusLanguageServer/tests/lsp.test.js
+dotnet test compiler/AquariusTests --filter FullyQualifiedName~LanguageServer
 ```
 
-The protocol tests launch the actual server and cover lifecycle, byte framing,
+The protocol tests (compiler/AquariusTests/languageserver) launch the actual server and cover lifecycle, byte framing,
 Unicode positions, scopes, edits, diagnostics, malformed/incomplete input, and
-every repository example. `AQUARIUS_DOTNET` optionally selects a dotnet executable;
-`AQUARIUS_SERVER` optionally selects a server DLL.
+every repository example.
 
 After `npm run vscode:prepublish`, the extension can also be tested with an
 installed VS Code, from this directory:

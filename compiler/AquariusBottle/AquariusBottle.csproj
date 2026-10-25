@@ -1,0 +1,7 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Bottle, the package manager: TOML projects, local and GitHub libraries (with native parts), the per-user cache. -->
+  <ItemGroup>
+    <ProjectReference Include="../AquariusCompiler/AquariusCompiler.csproj" />
+    <InternalsVisibleTo Include="AquariusTests" />
+  </ItemGroup>
+</Project>

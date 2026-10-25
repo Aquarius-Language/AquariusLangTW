@@ -1,115 +1,127 @@
-# External libraries and platform capabilities
+# Libraries and external libraries
 
-## Requirement for future libraries
+Everything an AquariusLang program imports by name comes from a **library**: a folder with an `aqua.toml` manifest
+(`manifest_version = 2`) and up to two parts.
 
-Every future included computational library, its Aquarius binding and its transitive
-computational dependencies must execute in Wasm. Use an approved core-Wasm ABI or
-a supported Wasm component interface, with explicit imports/exports, versions,
-memory ownership, capabilities and desktop/browser validation. A `.wasm` file
-that delegates its algorithms to C# or JavaScript does not meet this requirement.
+- A **native part** in C or C++ that registers modules with the runtime through the SDK (`runtime/sdk`,
+  `aqua_add_library`, `AQUA_LIBRARY(...)`).
+- **Aquarius-source modules**: `.aqua` files the compiler bundles into the applications that import them.
 
-Host adapters provide necessary OS, browser and GPU services. Browser JavaScript
-may load modules, transport buffers/handles and deliver asynchronous events; it
-must not implement portable library algorithms. Retain C# only for a documented
-native integration that still needs it. A library without a compatible Wasm build
-must be ported/rebuilt or deferred, rather than replaced with a managed/native
-algorithm provider or subprocess.
+The default libraries live in `libraries/<name>/`; their native parts are linked into every runtime pack. An
+**external library** is the same folder shape shipped as a Bottle package: its native part is a prebuilt binary per
+target that applications load at startup.
 
-These requirements govern compiler-bundled computational libraries. Explicitly
-installed third-party Bottle packages may select native or Wasm implementations
-through DynamicLibrary, according to application requirements. They do not enter
-the bundled registry.
-See the [complete migration checklist](wasm-architecture-migration.md) for ABI,
-linking, packaging and existing-library migration work.
+## The manifest
 
-## Current implementation
+```toml
+manifest_version = 2
 
-ONNX Runtime is the explicitly documented native inference integration described in
-[the ONNX guide](onnx.md): core owns contract version 2 (provider catalog, device
-selection policy, tensor contract) and browser assets; desktop executes native ORT
-providers (CUDA, TensorRT, Core ML, the WebGPU/Dawn plugin and optional OpenVINO/QNN
-plugins), Android uses NNAPI/WebGPU/XNNPACK and browsers use ORT WebGPU/WebNN/Wasm.
-It uses `HostCapability` and is a narrow exception to the future-library Wasm rule.
+[library]
+name = "sqlite"                         # the library (and Bottle package) name
+version = "1.0.0"
+description = "SQLite for AquariusLang"
+license = "MIT"
+platforms = ["windows", "linux", "android", "web"]
 
-MediaPipe pose preprocessing and postprocessing use `CoreWasm` ABI 1 and the
-same isolated `pose.wasm` on desktop and browser. Its adapters compose two ONNX
-sessions and bulk image/tensor transfers; pose math is never implemented in host
-code. See the pose pipeline section of the ONNX guide.
+[native]                                # optional: the C/C++ part
+name = "sqlite"                         # file names below; [a-z0-9_], defaults to the library name
+modules = ["SQLiteNative|資料庫原生"]    # every module it registers, exactly as passed to aqua_define_module
+source = "native"                       # external libraries: the CMake folder that calls aqua_add_library(sqlite ...)
 
-Processing tessellation uses `CoreWasm` ABI 1: `geometry.wasm`, built from
-`AquariusCore/graphics/geometry.c` by `scripts/build-geometry-wasm.ps1`, imports
-nothing and serves the desktop canvas (`GeometryKernel`) and the browser and Android
-canvas (`geometry-core.mjs`). Hosts write a state block (stroke style, colors,
-rect/ellipse modes, curve detail, the model-view-projection matrix) and input
-coordinates, run a `geo_*` operation and upload its packed vertex ranges (12 floats
-per vertex). Triangulation with contour holes, stroke joins and caps, ellipses,
-rounded rectangles, curves and box/sphere meshes are never implemented in host code.
+[[modules]]                             # optional: Aquarius-source modules, one table each
+names = "SQLite|資料庫"                  # import names, English first, then Traditional Chinese
+source = "aqua/SQLite.aqua"
 
-Core owns library identities, pinned versions, contract versions, portable assets,
-argument validation, language registration, aliases and object ownership rules.
-Platform projects provide adapters and execution engines. Core has no Wasmtime,
-ClearScript, Silk.NET or native-library package dependencies.
+[android]
+permissions = ["android.permission.INTERNET"]   # requested by APKs of applications that need the library
 
-[DynamicLibrary / 動態函式庫](dynamic-linking.md) is an explicit OS/browser
-loading capability for application-supplied libraries. Its versioned buffer ABI
-supports native DLL/SO wrappers, standalone ES module factories and import-free
-Wasm modules through one bilingual API. It does not admit arbitrary computational
-libraries into the bundled catalog or replace the dependency/feature manifests
-required below. New bundled portable computations still follow the Wasm rule.
+[dependencies]                          # external libraries only: other Bottle libraries
+[[assets]]                              # external libraries only: files the library reads at run time
+source = "data"
+```
 
-`ExternalLibraryDescriptor` distinguishes three profiles:
+`aqua new NAME --type library` creates this shape with one Aquarius-source module. Module names are unique across all
+the libraries an application can see.
 
-| Profile | Deployment and execution |
+## How the compiler links libraries
+
+A library is **needed** by an application when
+
+1. the program, or a library module it bundles, imports one of the library's modules by a literal name
+   (`匯入("SQLite")`, `import("Audio")`), or
+2. the project declares it for imports by computed names: `libraries = ["sqlite"]` in `[project]`.
+
+For every needed library the compiler bundles the imported Aquarius-source modules at
+`.aquarius/<library>/<source>` (and the library's `.aqua` files they import by relative path), scans them the same
+way, and writes application metadata ABI 4: the import names of the bundled modules and the native libraries the
+application needs. Default libraries are listed too (the web loads only the side modules an application lists). The
+supported platforms of an application are narrowed to those all its needed libraries support, so building a desktop-only
+library's application for the web fails at build time.
+
+## Native parts of external libraries
+
+Prebuilt binaries live in the library folder, one per target:
+
+```text
+native/windows-x64/aqua_sqlite.dll
+native/linux-x64/libaqua_sqlite.so
+native/android-arm64-v8a/libaqua_sqlite.so
+native/android-x86_64/libaqua_sqlite.so
+native/web/sqlite.wasm                  # a side module sharing the application's memory
+```
+
+Build them with the pinned toolchain:
+
+```powershell
+aqua library build path/to/sqlite --targets windows-x64,web,android-arm64-v8a,android-x86_64
+# on Linux (or in WSL): aqua library build path/to/sqlite --targets linux-x64
+```
+
+`aqua library build` configures `[native] source` with `sdk/cmake/toolchains/<target>.cmake` (CMake and Ninja from
+`PATH`, or `AQUARIUS_CMAKE` / `AQUARIUS_NINJA`), builds it under `build/<target>/` and copies the binary to
+`native/<target>/`. The toolchain is installed by `scripts/install-toolchain.ps1` (or `.sh`); a distribution keeps the
+pins in `scripts/toolchain.json` and installs toolchains under `~/.aquarius/native-build` unless
+`AQUARIUS_NATIVE_BUILD` says otherwise. The SDK guide is `runtime/sdk/README.md` (`sdk/README.md` in a distribution).
+
+A minimal native part:
+
+```cmake
+# native/CMakeLists.txt
+cmake_minimum_required(VERSION 3.20)
+project(aqua_sqlite C)
+include(AquariusLibrary)
+aqua_add_library(sqlite SOURCES src/sqlite.c)
+```
+
+```c
+// native/src/sqlite.c
+#include <aqua/aqua.h>
+static void version(aqua_call *call) { aqua_return_cstring(call, "3.54.1"); }
+AQUA_LIBRARY(sqlite) {
+    aqua_class *module = aqua_define_module(library, "SQLiteNative|資料庫原生");
+    aqua_define_function(module, "version|版本", version, "");
+}
+```
+
+## Installing and shipping
+
+`aqua bottle install` snapshots a library into the per-user cache with its manifest, Aquarius sources, assets and the
+`native/<target>/` binaries. Builds of applications that need it ship the binaries:
+
+| Target | Where the binary goes |
 | --- | --- |
-| `CoreWasm` | Memory-only libraries with an explicit Wasm ABI. Audio and MediaPipe pose implement their ABI 1; application dynamic modules can use the separate DynamicLibrary buffer ABI 1. General dependency linking remains future work. The CLR factory registry rejects this profile. |
-| `Emscripten` | A Wasm module plus generated JavaScript glue; requires an Emscripten-capable host. |
-| `HostCapability` | A platform API such as WebGPU, windowing or user documents; represented by a core contract. |
+| Windows, Linux executables | `libraries/` beside the executable (the runtime also looks beside the runtime) |
+| Android APK | `lib/<abi>/libaqua_<name>.so` |
+| Website | `runtime/libraries/<name>.wasm` |
+| `aqua run` | passed as `aquarius --library <file>` |
 
-`ExternalLibraryRegistry` belongs to a host session. Registration checks the
-contract type and version, rejects duplicate adapters, creates each adapter lazily,
-and disposes owned instances in reverse creation order. Resolving an unavailable
-capability fails explicitly. Engine choice never silently falls back to another
-library implementation.
+Programs inside a library folder (its `tests/*.aqua`) compile as plain programs that can import the library:
+`aqua build tests/case.aqua --root tests -o case.wasm` links the library itself, and `aqua run tests/case.aqua` loads
+its native binary for the host.
 
-Audio uses pinned miniaudio 0.11.25 in `AquariusCore/audio/audio.wasm`, with no
-host imports and explicit allocation, sound ownership, control and PCM rendering
-exports. Core embeds the Wasm, JS ABI adapter and license. Desktop executes it
-in Wasmtime and sends PCM to a miniaudio device ring; browser playback executes
-the same Wasm in an AudioWorklet. Neither host implements decoder or mixer
-algorithms. The library ABI is documented in [the audio guide](../AquariusCore/audio/README.md).
+## Version 1 projects
 
-Computational libraries cannot be registered as CLR factories with a `CoreWasm`
-label. New computational Emscripten adapters are rejected by the bundled CLR registry.
-Applications can explicitly install a third-party DynamicLibrary package.
-
-Jolt is distributed separately as `Aqua_JoltPhysics` 1.0.0, built from pinned
-JoltPhysics.js 0.24.0. Its TOML manifest owns Aquarius bindings, bundled Emscripten
-glue/Wasm and licenses. Desktop, browser and Android load it through the generic
-DynamicLibrary factory ABI. Core has no Jolt descriptor, physics contracts, assets,
-language catalog entries or default host registrations. World/body ownership and
-numerical tests belong to that package. The Marble project imports
-`/bottles/Aqua_JoltPhysics/main.aqua` and resolves it through Bottle.
-
-`Aqua_OpenCV` is another independent Bottle library. Its native C++ bridge retains
-matrix data behind handles; its portable backend uses real OpenCV Wasm. Backend
-capability lists and measured kernel times are exposed to callers. Platform asset
-filters select the implementation, and cache snapshots retain all declared
-alternatives. See [Bottle](../AquariusBottle/README.md) and
-[dynamic libraries](dynamic-linking.md).
-
-WebGPU retains `IWgpuBackend` and device/resource contracts in core, with shared
-WGSL shaders, layouts and the 1,120-byte Processing uniform ABI. Desktop implements
-the contract with Silk.NET/wgpu-native; browsers implement it with WebGPU. Future
-output platforms should implement this contract for their primary graphics layer.
-
-For a new library, first satisfy the Wasm requirement above and define a versioned,
-language-neutral ABI. Declare its Wasm/data/license assets and deployment names,
-dependencies, required features, capability imports, ownership and error transport.
-Add cross-platform behavior, validation, linking and disposal tests. The existing
-CLR-interface registry and Emscripten hosting are transitional mechanisms; the
-checklist identifies the changes needed for general Wasm library inclusion.
-Do not infer compatibility from the `.wasm` extension alone.
-
-Upstream: [JoltPhysics.js](https://github.com/jrouwe/JoltPhysics.js),
-[Wasmtime .NET](https://github.com/bytecodealliance/wasmtime-dotnet),
-[ClearScript](https://github.com/ClearFoundry/ClearScript).
+`manifest_version = 1` manifests (`[project]` with `type = "executable"` or `"library"`) still build. Their library
+sources are imported by path from `/bottles/NAME/...`, as before. A version 1 library has no native part; the
+`DynamicLibrary` / `動態函式庫` module that loaded application-supplied DLLs, ES modules and Wasm files at run time is
+gone: a library with native code is now a version 2 library with a `[native]` part.
