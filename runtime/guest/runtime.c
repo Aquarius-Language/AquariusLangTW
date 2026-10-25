@@ -26,6 +26,7 @@ enum { PROMOTED_SCOPE=1 };
 #define NUMERIC_HITS(fn) (((fn)->flags>>16)&0xff)
 #define NUMERIC_MISSES(fn) ((fn)->flags>>24)
 #define UNDECLARED 0xffffffffu
+#define HEAP_LIMIT (2048u*1024*1024) /* the guest heap's ceiling: the compiler declares a 2 GiB memory maximum */
 typedef struct { u32 count; Function *functions; } Program;
 /* cache: binding cache shared by promoted-scope calls of this closure (their frame scope is the closure scope). */
 typedef struct { Program *program; u32 function; Scope *scope; u32 context; u32 *cache, cache_era; } Closure;
@@ -120,14 +121,14 @@ static __attribute__((noinline)) void *allocate_slow(u32 n,u32 bucket,u32 kind) 
         b->kind=kind;b->marked=0;initialize_allocation(b+1,b->size,kind);return b+1;
     }
     own_memory();
-    if(n>512u*1024*1024-heap_end-sizeof(Block))__builtin_trap();
+    if(n>HEAP_LIMIT-heap_end-sizeof(Block))__builtin_trap();
     u32 end=heap_end+sizeof(Block)+n;
     if(end>heap_limit){if(__builtin_wasm_memory_grow(0,(end-heap_limit+65535)/65536)==(size_t)-1)__builtin_trap();heap_limit=(u32)__builtin_wasm_memory_size(0)*65536;}
     if(end>heap_high){heap_growth+=end-(heap_high>heap_end?heap_high:heap_end);heap_high=end;arm_collection();}
     Block *b=pointer(heap_end);b->size=n;b->reserved=0;b->kind=kind;b->marked=0;heap_end=end;initialize_allocation(b+1,n,kind);return b+1;
 }
 static inline __attribute__((always_inline)) void *allocate(u32 n,u32 kind) {
-    if(n>512u*1024*1024)__builtin_trap();
+    if(n>HEAP_LIMIT)__builtin_trap();
     n=n<=16?16:1u<<(32u-(u32)__builtin_clz(n-1));u32 bucket=allocation_class(n);
     bytes_since_collection+=n;
     // Compiled checkpoints poll Execution.poll instead of calling into the runtime every block.
@@ -135,7 +136,7 @@ static inline __attribute__((always_inline)) void *allocate(u32 n,u32 kind) {
     if(free_mask>>bucket&1){Block*b=pop_free(bucket);b->kind=kind;b->marked=0;initialize_allocation(b+1,b->size,kind);return b+1;}
     // Bump directly while no free run could serve the request and the heap has room.
     if(!carving&&!(free_mask>>bucket)){u32 end=heap_end+sizeof(Block)+n;
-        if(end<=heap_limit&&n<=512u*1024*1024-heap_end-sizeof(Block)){if(end>heap_high){heap_growth+=end-(heap_high>heap_end?heap_high:heap_end);heap_high=end;if(heap_growth/2>=gc_threshold)arm_collection();}
+        if(end<=heap_limit&&n<=HEAP_LIMIT-heap_end-sizeof(Block)){if(end>heap_high){heap_growth+=end-(heap_high>heap_end?heap_high:heap_end);heap_high=end;if(heap_growth/2>=gc_threshold)arm_collection();}
             Block*b=pointer(heap_end);b->size=n;b->reserved=0;b->kind=kind;b->marked=0;heap_end=end;initialize_allocation(b+1,n,kind);return b+1;}}
     return allocate_slow(n,bucket,kind);
 }
@@ -512,9 +513,9 @@ u32 aqua_collect(void){memset(member_cache,0,sizeof member_cache);
         if(run)run->size+=sizeof(Block)+b->size;else run=b;
     }
     if(run)heap_end=address(run);
-    // Allow garbage up to the live size, but no more than a quarter of the remaining headroom under the 512 MiB heap
-    // limit, so large live sets collect more often instead of running out of memory between collections.
-    {u32 limit=512u*1024*1024,headroom=live<limit?(limit-live)/4:0;u32 t=live<headroom?live:headroom;gc_threshold=t>8u*1024*1024?t:8u*1024*1024;}
+    // Allow garbage up to the live size, but no more than a quarter of the remaining headroom under the heap limit,
+    // so large live sets collect more often instead of running out of memory between collections.
+    {u32 limit=HEAP_LIMIT,headroom=live<limit?(limit-live)/4:0;u32 t=live<headroom?live:headroom;gc_threshold=t>8u*1024*1024?t:8u*1024*1024;}
     if(!++collection_generation)collection_generation=1;return reclaimed;
 }
 u32 aqua_native_live(u32 id){return id<65536?native_live[id]:0;}

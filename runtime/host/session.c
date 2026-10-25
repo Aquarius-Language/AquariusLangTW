@@ -64,7 +64,8 @@ uint32_t handle_new(aqua_runtime *rt, handle_kind kind, aqua_class *cls, void *d
     handle *h = &rt->handles[id];
     memset(h, 0, sizeof *h);
     h->kind = kind; h->cls = cls; h->data = data;
-    h->generation = rt->collection_generation;
+    /* The guest may have collected since the last sweep: a handle made now postdates that collection. */
+    h->generation = guest(rt, GUEST_collection_generation, 0, 0, 0, 0);
     return id;
 }
 handle *handle_get(aqua_runtime *rt, uint32_t id) {
@@ -141,7 +142,12 @@ aqua_value member_value(aqua_runtime *rt, uint32_t self, uint32_t member_index, 
     const member *m = &h->cls->members[member_index];
     *cacheable = true;
     switch (m->kind) {
-    case MEMBER_FUNCTION: { aqua_value v = {AQUA_NATIVE, bound_handle(rt, self, member_index), 0}; return v; }
+    case MEMBER_FUNCTION: {
+        aqua_value v = {AQUA_NATIVE, bound_handle(rt, self, member_index), 0};
+        /* Handed to the guest after its latest collection: keep it through the sweep of that collection. */
+        if (v.ref) rt->handles[v.ref].generation = guest(rt, GUEST_collection_generation, 0, 0, 0, 0);
+        return v;
+    }
     case MEMBER_INT: return aqua_int((int32_t)m->number);
     case MEMBER_DOUBLE: return aqua_double(m->number);
     case MEMBER_BOOL: return aqua_bool(m->number != 0);

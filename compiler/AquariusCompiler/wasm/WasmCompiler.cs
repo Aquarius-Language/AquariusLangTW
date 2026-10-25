@@ -138,7 +138,9 @@ public sealed class WasmCompiler
             foreach (var item in numeric) item.Plan.WriteType(w);
             foreach (var integer in integers) integer?.WriteType(w);
         });
-        using (var memory = new MemoryStream()) { using var w = new BinaryWriter(memory); U(w, 1); U(w, 1); U(w, Math.Max(256, checked((data.End + 65535) / 65536))); U(w, 8192); runtime.Sections[5] = memory.ToArray(); }
+        // Memory may grow to 2 GiB: library data (Processing pixel arrays, images, tensors) lives in the guest's memory
+        // now, and every u32 address plus size stays below 4 GiB.
+        using (var memory = new MemoryStream()) { using var w = new BinaryWriter(memory); U(w, 1); U(w, 1); U(w, Math.Max(256, checked((data.End + 65535) / 65536))); U(w, 32768); runtime.Sections[5] = memory.ToArray(); }
         runtime.Sections[3] = WasmRuntimeImage.Extend(runtime.Sections[3], bodies.Count + extraFunctions, w => {
             foreach (var _ in bodies) U(w, runtime.TypeCount);
             for (int p = 0; p < numeric.Count; p++) {
