@@ -89,6 +89,9 @@ extern registry host_registry;
 /* Registers a library through its entry point; external libraries pass their aqua_library_entry. */
 aqua_library *registry_add(const char *name, void (*entry)(aqua_library *));
 aqua_library *registry_add_external(const char *name, uint32_t (*entry)(aqua_library *, uint32_t));
+/* Loads an external native library (aqua_<name>.dll, libaqua_<name>.so) and registers its modules under <name>. */
+bool library_load(const char *path, char **error);
+void registry_ensure(void);
 aqua_class *registry_module(const char *name);   /* a module by any alias */
 int32_t class_member(const aqua_class *c, const char *name);
 void class_define_value(aqua_class *owner, const char *names, aqua_value value);

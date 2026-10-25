@@ -55,6 +55,35 @@ aqua_library *registry_add_external(const char *name, uint32_t (*entry)(aqua_lib
     return library;
 }
 
+/* The library's name from its file: aqua_sqlite.dll and libaqua_sqlite.so are "sqlite". */
+static char *library_name(const char *path) {
+    const char *base = path;
+    for (const char *p = path; *p; p++) if (*p == '/' || *p == '\\') base = p + 1;
+    if (strncmp(base, "lib", 3) == 0) base += 3;
+    if (strncmp(base, "aqua_", 5) == 0) base += 5;
+    size_t length = strcspn(base, ".");
+    char *name = malloc(length + 1);
+    memcpy(name, base, length);
+    name[length] = 0;
+    return name;
+}
+
+bool library_load(const char *path, char **error) {
+    registry_ensure();
+    void *handle = platform_library_open(path, error);
+    if (!handle) return false;
+    uint32_t (*entry)(aqua_library *, uint32_t) = (uint32_t (*)(aqua_library *, uint32_t))platform_library_symbol(handle, "aqua_library_entry");
+    char *name = library_name(path);
+    bool loaded = entry && registry_add_external(name, entry);
+    if (!loaded && error) {
+        char message[1024];
+        snprintf(message, sizeof message, entry ? "%s does not support this runtime (library API %d)." : "%s is not an AquariusLang library (no aqua_library_entry).", path, AQUA_API_VERSION);
+        *error = strdup(message);
+    }
+    free(name);
+    return loaded;
+}
+
 static aqua_class *new_class(aqua_library *library, const char *names, bool module, void (*finalize)(aqua_runtime *, void *)) {
     aqua_class *c = calloc(1, sizeof *c);
     c->library = library; c->names = copy(names); c->module = module; c->finalize = finalize;

@@ -1,6 +1,6 @@
 /* The desktop launcher (Windows and Linux): runs an application .wasm, or the application embedded in this executable
    by `aqua build --target windows|linux` (overlay format 2, compiler/AquariusPackaging/ExecutableBundle.cs).
-     aquarius app.wasm [--entry script.aqua] [--documents file ...] [argument ...]
+     aquarius [--library file ...] app.wasm [--entry script.aqua] [--documents file ...] [argument ...]
      aquarius --catalog        bilingual names and arities of every built-in module, as JSON (editor tooling)
      aquarius --runtime-info   this runtime pack's identity, as JSON (build targets)                                */
 #include "desktop.h"
@@ -190,10 +190,17 @@ int desktop_main(int count, char **arguments) {
     }
     if (strcmp(arguments[1], "--catalog") == 0) return catalog();
     if (strcmp(arguments[1], "--runtime-info") == 0) return runtime_info();
-    const char *path = arguments[1];
-    int next = 2;
-    if (strcmp(path, "--entry") == 0 && count >= 4) { entry = arguments[2]; path = arguments[3]; next = 4; }
-    else if (count >= 4 && strcmp(arguments[2], "--entry") == 0) { entry = arguments[3]; next = 4; }
+    int first = 1;
+    /* External native libraries to register before the application starts (aqua_<name>.dll, libaqua_<name>.so). */
+    for (; first + 1 < count && strcmp(arguments[first], "--library") == 0; first += 2) {
+        char *error = NULL;
+        if (!library_load(arguments[first + 1], &error)) { say(2, error ? error : "Cannot load the library."); say(2, "\n"); free(error); return 1; }
+    }
+    if (first >= count) { say(2, "Missing the application .wasm file.\n"); return 2; }
+    const char *path = arguments[first];
+    int next = first + 1;
+    if (strcmp(path, "--entry") == 0 && count >= first + 3) { entry = arguments[first + 1]; path = arguments[first + 2]; next = first + 3; }
+    else if (count >= first + 3 && strcmp(arguments[first + 1], "--entry") == 0) { entry = arguments[first + 2]; next = first + 3; }
     if (next < count && strcmp(arguments[next], "--documents") == 0) next++;
     module = platform_read_file(path, &length);
     if (!module) { say(2, "Cannot read "); say(2, path); say(2, "\n"); return 1; }

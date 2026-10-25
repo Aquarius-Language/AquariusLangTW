@@ -235,9 +235,11 @@ bool platform_execute(aqua_runtime *rt, const char *program, const char *const *
 }
 
 void *platform_library_open(const char *path, char **error) {
-    wchar_t *wide = windows_wide(path);
+    /* The library's own folder is searched for its dependencies, which needs an absolute path. */
+    wchar_t *wide = windows_wide(path), full[32768];
     for (wchar_t *p = wide; *p; p++) if (*p == L'/') *p = L'\\';
-    HMODULE module = LoadLibraryExW(wide, NULL, LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_DEFAULT_DIRS);
+    DWORD length = GetFullPathNameW(wide, 32768, full, NULL);
+    HMODULE module = LoadLibraryExW(length && length < 32768 ? full : wide, NULL, LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_DEFAULT_DIRS);
     free(wide);
     if (!module && error) {
         char text[512];
