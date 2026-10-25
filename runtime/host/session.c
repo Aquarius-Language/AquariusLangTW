@@ -315,11 +315,26 @@ aqua_value host_import(aqua_runtime *rt, uint32_t context, aqua_value name) {
         }
     }
     uint32_t index = (uint32_t)application_module(&rt->app, path);
+    /* A module importing one whose import is still running (or the running entry) would recurse forever. */
+    bool cycle = !rt->finished && index == rt->entry_module;
+    for (uint32_t i = 0; i < rt->import_depth && !cycle; i++) cycle = rt->importing[i] == index;
+    if (cycle || rt->import_depth == 64) {
+        char chain[2048];
+        size_t used = (size_t)snprintf(chain, sizeof chain, "%s", rt->app.modules[rt->entry_module].path);
+        for (uint32_t i = 0; i < rt->import_depth && used < sizeof chain; i++)
+            used += (size_t)snprintf(chain + used, sizeof chain - used, " -> %s", rt->app.modules[rt->importing[i]].path);
+        if (used < sizeof chain) snprintf(chain + used, sizeof chain - used, " -> %s", rt->app.modules[index].path);
+        result = host_error(rt, cycle ? "匯入: 循環匯入 / Circular import: %s" : "匯入: Imports nested too deeply: %s", chain);
+        free(path); free(text);
+        return result;
+    }
     uint32_t scope = guest(rt, GUEST_scope, 0, 0, 0, 0);
     aqua_value module_value = {AQUA_MODULE, scope, 0};
     aqua_ref keep = aqua_retain(rt, module_value);
     aqua_value outcome;
+    rt->importing[rt->import_depth++] = index;
     bool ok = run_module(rt, index, scope, &outcome);
+    rt->import_depth--;
     aqua_release(rt, keep);
     free(path); free(text);
     return ok ? module_value : outcome;

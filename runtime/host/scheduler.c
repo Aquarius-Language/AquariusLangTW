@@ -71,7 +71,9 @@ static void process_posts(aqua_runtime *rt) {
 
 /* Runs a task that is not on the loop's list until it finishes. Waiting for a deferred result is allowed natively,
    where the platform keeps delivering posted work; the web cannot block its only thread. */
+static void delivered(aqua_runtime *rt, bool ok, aqua_value result, void *data) { (void)rt; (void)ok; (void)result; (void)data; }
 static bool run_to_end(aqua_runtime *rt, task *t) {
+    if (!t->done) t->done = delivered; /* the caller receives the result (an import's error is reported once, by it) */
     while (!t->finished) {
         uint32_t status = run_slice(rt, t);
         if (status != G_STATUS_Suspended || t->finished) continue;
@@ -263,6 +265,7 @@ bool runtime_start(aqua_runtime *rt, const char *entry) {
     /* Members the guest may cache never change while the runtime lives (live properties are marked uncacheable),
        so one era serves the whole run. */
     if (pending) guest_set_u32(rt, pending + G_Pending_HostEra, 1);
+    rt->entry_module = (uint32_t)module;
     uint32_t context = context_new(rt, rt->app.modules[module].path);
     uint32_t scope = guest(rt, GUEST_scope, 0, 0, 0, 0);
     task *t = calloc(1, sizeof *t);

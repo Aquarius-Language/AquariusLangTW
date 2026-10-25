@@ -41,7 +41,7 @@ public class PortableModulesTest {
         LanguageCases.ExpectErrors(sources.ToArray());
     }
 
-    [RuntimeFact(Skip = RuntimeBug.PortableImportIdentity)]
+    [RuntimeFact]
     public void ImportAndNamesExposeBothLanguages() {
         var cases = new List<(string, string, string)>();
         foreach (var (english, chinese, count) in new[] { ("Hash", "雜湊", 10), ("String", "字串", 16) }) {

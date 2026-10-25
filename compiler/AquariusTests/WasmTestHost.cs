@@ -143,21 +143,3 @@ public sealed class RuntimeTheoryAttribute : TheoryAttribute
 {
     public RuntimeTheoryAttribute() { if (!WasmTestHost.Available) Skip = WasmTestHost.MissingRuntime; }
 }
-
-/// <summary>Native runtime bugs these tests found (the runtime belongs to runtime/, outside the compiler). Each skipped
-/// test keeps the correct expectation; remove the skip when the runtime is fixed.</summary>
-internal static class RuntimeBug
-{
-    public const string PortableImportIdentity = "Runtime bug: 匯入 of a portable module (Array/陣列, Hash, String) builds a new module " +
-        "object on every call (runtime/guest/runtime.c portable_module), so 匯入(\"Array\")==匯入(\"陣列\") is 假.";
-    public const string WorkerRefusals = "Runtime bug: runtime/host/threads.c worker_service answers 1 (\"pending\") for services it refuses, " +
-        "so a worker starting or waiting for threads, or calling a captured host function, fails with \"Invalid worker execution status\".";
-    public const string ModuleErrorTwice = "Runtime bug: an imported module's runtime error is printed twice (runtime/host/scheduler.c run_module's " +
-        "task has no done callback, so task_finish prints it before the importer does).";
-    public const string CircularImports = "Runtime bug: a circular import traps the guest (empty ERROR, then WebAssembly traps) instead of a " +
-        "language error naming the cycle.";
-    public const string FunctionCount = "Runtime bug: runtime/host/application.c does not compare the metadata's function count with the " +
-        "program's function table, so such a module runs.";
-    public const string DamagedExecutable = "Runtime bug: runtime/platform/desktop/main.c treats an executable whose overlay checksum or " +
-        "version is wrong as the bare runtime (usage text, exit 2) instead of reporting a damaged application (exit 1).";
-}

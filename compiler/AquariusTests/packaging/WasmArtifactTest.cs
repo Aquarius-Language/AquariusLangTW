@@ -145,7 +145,7 @@ public class WasmArtifactTest
 
     public static TheoryData<string> RuntimeDamages() { var all = new TheoryData<string>(); foreach (var row in Damages()) if ((string)row[0] != "functionCount") all.Add((string)row[0]); return all; }
 
-    [RuntimeFact(Skip = RuntimeBug.FunctionCount)]
+    [RuntimeFact]
     public void TheNativeRuntimeRejectsAWrongFunctionCount() => TheNativeRuntimeRejectsTheSameMetadataWithoutRunningTheProgram("functionCount");
 
     [RuntimeTheory, MemberData(nameof(RuntimeDamages))]

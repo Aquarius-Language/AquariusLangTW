@@ -106,8 +106,8 @@ public class ThreadTest
     // Workers cannot start or wait for threads. (The native host currently fails these, and captured host functions, with
     // "Invalid worker execution status.": runtime/host/threads.c worker_service answers 1, which the guest reads as
     // "pending", for every service it refuses.)
-    [InlineData("變數 h=Thread.Start(函式(){回傳 Thread.Start(函式(){});});Thread.Result(h);", "other threads", Skip = RuntimeBug.WorkerRefusals)]
-    [InlineData("變數 h=Thread.Start(函式(){Thread.Wait(1);});Thread.Result(h);", "other threads", Skip = RuntimeBug.WorkerRefusals)]
+    [InlineData("變數 h=Thread.Start(函式(){回傳 Thread.Start(函式(){});});Thread.Result(h);", "other threads")]
+    [InlineData("變數 h=Thread.Start(函式(){Thread.Wait(1);});Thread.Result(h);", "other threads")]
     public void InvalidCallsAndWorkerFailuresAreReported(string source, string message)
     {
         var value = WasmTestHost.Eval(source);
@@ -141,7 +141,7 @@ public class ThreadTest
         Assert.Equal("1\n", run.Output);
     }
 
-    [RuntimeFact(Skip = RuntimeBug.WorkerRefusals)]
+    [RuntimeFact]
     public void WorkerCannotInvokeCapturedHostCapability()
     {
         // A host function captured from the main program (here 印出) must fail in the worker without running, with the

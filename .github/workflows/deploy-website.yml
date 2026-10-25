@@ -32,9 +32,11 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
-      - uses: ./.github/actions/wasm-toolchain
+      - uses: ./.github/actions/toolchain
+        with:
+          targets: linux-x64
       - name: Architecture rules
-        run: dotnet test AquariusTests --filter "Category=Architecture"
+        run: dotnet test compiler/AquariusTests --filter "Category=Architecture"
 
   build:
     name: Build website

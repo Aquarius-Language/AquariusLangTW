@@ -14,7 +14,7 @@ public class DesktopImportTest {
         Assert.Throws<CompilationException>(() => WasmTestHost.RunModules(modules, "main.aqua"));
     }
 
-    [RuntimeFact(Skip = RuntimeBug.ModuleErrorTwice)]
+    [RuntimeFact]
     public void ImportPropagatesRuntimeErrorsBeforeLaterSideEffects() {
         var run = WasmTestHost.RunModules(new Dictionary<string, string> {
             ["main.aqua"] = "印出(\"before\");變數 b = 匯入(\"bad.aqua\");印出(\"after\");",

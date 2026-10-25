@@ -1,4 +1,4 @@
-name: Standalone Windows applications
+name: Windows and web
 on: [push, pull_request]
 jobs:
   windows:
@@ -11,21 +11,22 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
-          cache: npm
-          cache-dependency-path: AquariusWebCompiler/package-lock.json
-      - uses: ./.github/actions/wasm-toolchain
-      - name: Prepare runtime dependencies
+      - uses: ./.github/actions/toolchain
+        with:
+          targets: windows-x64,web
+      - name: Runtime packs (Clang + MinGW, and the web side modules)
+        shell: pwsh
+        run: ./scripts/build-runtime.ps1 -Targets windows-x64,web
+      - name: Compiler, packaging, CLI and architecture tests
+        run: dotnet test compiler/AquariusTests -c Release -m:1 --logger "trx;LogFileName=windows.trx"
+      - name: Library tests on Windows and in Chromium
         shell: pwsh
         run: |
-          npm ci --prefix AquariusWebCompiler
-          npm run --prefix AquariusWebCompiler prepare:browser
-          ./native/build.ps1
-          ./scripts/publish-apphost.ps1
-      - name: Test package exports and relocated standalone executables
-        shell: pwsh
-        run: dotnet test AquariusTests -m:1 --filter "FullyQualifiedName~Packaging|Category=Architecture" --logger "trx;LogFileName=windows.trx"
+          npm ci --prefix scripts
+          npx --prefix scripts playwright install chromium
+          ./scripts/test-libraries.ps1 -Targets windows-x64,web
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: windows-executable-test-results
-          path: AquariusTests/TestResults/*.trx
+          name: windows-test-results
+          path: compiler/AquariusTests/TestResults/*.trx

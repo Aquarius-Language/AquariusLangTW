@@ -116,7 +116,7 @@ bool application_parse(application *app, uint8_t *bytes, size_t length, char **e
         return fail(error, "Expected a WebAssembly 1.0 application module.");
     section metadata = {0}, assets = {0}, s;
     bool has_metadata = false, has_assets = false;
-    uint32_t data_segment_length = 0; bool has_program = false;
+    uint32_t data_segment_length = 0, program_functions = 0; bool has_program = false;
     for (size_t position = 8; next_section(bytes, length, &position, &s);) {
         if (s.id == 0xff) return fail(error, "Truncated WebAssembly section.");
         if (section_named(&s, "aquarius.application")) {
@@ -138,7 +138,10 @@ bool application_parse(application *app, uint8_t *bytes, size_t length, char **e
                 } else if (flags != 1) break;
                 uint32_t n = read_unsigned(&r);
                 if (r.failed || n > r.end - r.position) break;
-                if ((uint32_t)address == PROGRAM_ADDRESS) { data_segment_length = n; has_program = true; }
+                if ((uint32_t)address == PROGRAM_ADDRESS) {
+                    data_segment_length = n; has_program = true;
+                    if (n >= 4) memcpy(&program_functions, bytes + r.position, 4); /* Program.count: the function table's size */
+                }
                 r.position += n;
             }
         }
@@ -228,7 +231,7 @@ bool application_parse(application *app, uint8_t *bytes, size_t length, char **e
         size_t position = assets.payload;
         for (uint32_t i = 0; i < app->asset_count; i++) { app->assets[i].data = bytes + position; position += app->assets[i].length; }
     }
-    if (!has_program || app->heap_start != app->program_address + data_segment_length)
+    if (!has_program || app->heap_start != app->program_address + data_segment_length || program_functions != app->function_count)
         return fail(error, "Application metadata does not match its memory layout.");
     return true;
 }

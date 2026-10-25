@@ -25,10 +25,13 @@ static void say(int stream, const char *text) { platform_write(stream, text, str
 static const char overlay_magic[16] = {'A', 'Q', 'U', 'A', 'R', 'I', 'U', 'S', '-', 'A', 'P', 'P', '-', 'V', '2', '!'};
 
 /* The application appended to this executable, or NULL. `entry` receives the overlay's entry script, if any. */
-static uint8_t *embedded_application(const uint8_t *file, size_t length, size_t *wasm_length, char **entry) {
+/* The application embedded in this executable, or NULL; *damaged when an overlay is present but fails its checks. */
+static uint8_t *embedded_application(const uint8_t *file, size_t length, size_t *wasm_length, char **entry, bool *damaged) {
+    *damaged = false;
     if (length < OVERLAY_FOOTER) return NULL;
     const uint8_t *footer = file + length - OVERLAY_FOOTER;
     if (memcmp(footer + 48, overlay_magic, 16) != 0) return NULL;
+    *damaged = true;
     int32_t version, metadata_length; int64_t wasm_size;
     memcpy(&version, footer, 4); memcpy(&metadata_length, footer + 4, 4); memcpy(&wasm_size, footer + 8, 8);
     if (version != 2 || metadata_length < 0 || metadata_length > 65536 || wasm_size <= 0 || wasm_size > 272ll * 1024 * 1024 ||
@@ -37,6 +40,7 @@ static uint8_t *embedded_application(const uint8_t *file, size_t length, size_t 
     uint8_t digest[32];
     sha256(wasm, (size_t)(wasm_size + metadata_length), digest);
     if (memcmp(digest, footer + 16, 32) != 0) return NULL;
+    *damaged = false;
     /* Metadata: {"EntryPoint":"path.aqua"} */
     const char *metadata = (const char *)(wasm + wasm_size);
     const char *key = NULL;
@@ -129,7 +133,7 @@ static int catalog(void) {
 }
 
 static int runtime_info(void) {
-    say(1, "{\"format\":\"aquarius-runtime-pack\",\"version\":2,\"platform\":\"" AQUA_PLATFORM_NAME "\",\"wasmAbiVersion\":3,\"overlayVersion\":2,\"apiVersion\":");
+    say(1, "{\"format\":\"aquarius-runtime-pack\",\"version\":2,\"platform\":\"" AQUA_PLATFORM_NAME "\",\"wasmAbiVersion\":4,\"overlayVersion\":2,\"apiVersion\":");
     char n[16]; snprintf(n, sizeof n, "%d", AQUA_API_VERSION); say(1, n);
     say(1, "}\n");
     return 0;
@@ -212,8 +216,14 @@ int desktop_main(int count, char **arguments) {
     uint8_t *self_bytes = self ? platform_read_file(self, &self_length) : NULL;
     char *entry = NULL;
     size_t length = 0;
-    uint8_t *module = self_bytes ? embedded_application(self_bytes, self_length, &length, &entry) : NULL;
+    bool damaged = false;
+    uint8_t *module = self_bytes ? embedded_application(self_bytes, self_length, &length, &entry, &damaged) : NULL;
     free(self_bytes);
+    if (damaged) {
+        say(2, "This application is damaged: its embedded program does not match its checksum or format. Reinstall it.\n");
+        free(self);
+        return 1;
+    }
     if (module) {
         /* A standalone application: every argument is a launch argument (documents opened with it). */
         char *directory = directory_of(self);
@@ -223,7 +233,8 @@ int desktop_main(int count, char **arguments) {
     }
     free(self);
     if (count < 2 || strcmp(arguments[1], "--help") == 0 || strcmp(arguments[1], "-h") == 0) {
-        say(count < 2 ? 2 : 1, "aquarius app.wasm [--entry script.aqua] [--documents file ...] [argument ...]\naquarius --catalog | --runtime-info\n");
+        say(count < 2 ? 2 : 1, "aquarius [--library file ...] app.wasm [--entry script.aqua] [--documents file ...] [argument ...]\n"
+            "aquarius [--library file ...] --catalog | --runtime-info\n");
         return count < 2 ? 2 : 0;
     }
     if (strcmp(arguments[1], "--catalog") == 0) return catalog();

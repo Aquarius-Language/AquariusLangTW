@@ -63,7 +63,7 @@ public class ArrayLibraryTest {
         LanguageCases.ExpectErrors(cases);
     }
 
-    [RuntimeFact(Skip = RuntimeBug.PortableImportIdentity)]
+    [RuntimeFact]
     public void ImportAndNamesExposeBothLanguages() {
         var module = Module("Array");
         Assert.Equal(14, module.Functions.Length);

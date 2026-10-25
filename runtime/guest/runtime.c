@@ -56,6 +56,7 @@ static u32 heap_limit;
 /* A free block being carved sequentially like the bump region; it is on no free list and always a valid FREE block. */
 static Block *carving;
 static Scope *builtin_scopes[65536];
+static Scope *portable_modules[4]; /* Thread, Array, Hash, String: one module each, so every import is the same value */
 static u32 builtin_contexts[65536], builtin_context_count;
 static Execution *executions;
 static Pin *pins;
@@ -319,7 +320,7 @@ u32 aqua_invoke(u32 closure,u32 arguments,u32 count) {
 }
 u32 aqua_thread_enter(u32 closure,u32 arguments,u32 count) {
     // The snapshot carries the parent's heap limit; this instance owns only the memory it reserved.
-    executions=0;pins=0;memset(builtin_scopes,0,sizeof(builtin_scopes));builtin_context_count=0;heap_limit=(u32)__builtin_wasm_memory_size(0)*65536;
+    executions=0;pins=0;memset(builtin_scopes,0,sizeof(builtin_scopes));memset(portable_modules,0,sizeof(portable_modules));builtin_context_count=0;heap_limit=(u32)__builtin_wasm_memory_size(0)*65536;
     return aqua_invoke(closure,arguments,count);
 }
 u32 aqua_thread_snapshot_size(void) { return heap_end; }
@@ -365,7 +366,8 @@ static Scope *portable_module(Text*t,const uint16_t**alias) {
     const uint16_t *const *names[]={thread_module_names,array_module_names,hash_module_names,text_module_names};
     for(u32 i=0;i<4;i++)for(u32 j=0;j<2;j++)if(text_is(t,names[i][j])){
         *alias=names[i][1-j];
-        return i==0?thread_library():i==1?array_library():i==2?hash_library():text_library();
+        if(!portable_modules[i])portable_modules[i]=i==0?thread_library():i==1?array_library():i==2?hash_library():text_library();
+        return portable_modules[i];
     }
     return 0;
 }
@@ -480,7 +482,7 @@ u32 aqua_collect(void){memset(member_cache,0,sizeof member_cache);
     bytes_since_collection=0;heap_growth=0;gc_armed=0;for(Execution*e=executions;e;e=e->next)e->poll=0;
     // Marks are clear here: allocation clears them and the sweep below resets every survivor.
     for(u32 i=0;i<marked_native_count;i++)native_live[marked_native_ids[i]]=0;marked_native_count=0;mark_pending=0;
-    for(Execution*e=executions;e;e=e->next)mark_ref(e);for(Pin*p=pins;p;p=p->next)mark_ref(p);for(u32 i=0;i<builtin_context_count;i++)mark_ref(builtin_scopes[builtin_contexts[i]]);
+    for(Execution*e=executions;e;e=e->next)mark_ref(e);for(Pin*p=pins;p;p=p->next)mark_ref(p);for(u32 i=0;i<builtin_context_count;i++)mark_ref(builtin_scopes[builtin_contexts[i]]);for(u32 i=0;i<4;i++)if(portable_modules[i])mark_ref(portable_modules[i]);
     for(Array*a=pending.dirty_arrays;a;a=a->dirty_next)mark_ref(a);
     for(Hash*h=pending.dirty_hashes;h;h=h->dirty_next)mark_ref(h);
     while(mark_pending){void*p=pointer(mark_pending);Block*b=(Block*)p-1;mark_pending=b->marked&~1u;b->marked=1;switch(b->kind){

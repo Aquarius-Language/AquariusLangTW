@@ -169,6 +169,8 @@ struct aqua_runtime {
     uint32_t *refs_free; uint32_t refs_free_count;
     double start_ms;
     int exit_code; bool finished, exiting;
+    uint32_t entry_module;            /* the module runtime_start ran */
+    uint32_t importing[64], import_depth; /* modules whose import is running, innermost last */
     char *materialized;              /* directory holding assets as files (desktop) */
     char **asset_files;              /* materialized path per asset, created on first request */
     void *platform;                  /* platform layer data */

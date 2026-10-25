@@ -142,7 +142,7 @@ public class ExecutableTargetTest
         Assert.Empty(Directory.GetFiles(t.FilePath("dist"), "*.tmp"));
     }
 
-    [ExecutableFact(Skip = RuntimeBug.DamagedExecutable)]
+    [ExecutableFact]
     public void RuntimeErrorsAndDamagedPayloadsExitWithOne()
     {
         using var t = new TestFolder();

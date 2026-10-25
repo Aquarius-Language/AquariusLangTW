@@ -38,6 +38,21 @@ typedef struct worker {
 typedef struct thread_state { worker *workers[THREAD_LIMIT]; uint32_t count; } thread_state;
 aqua_class *thread_class; /* defined by core_library */
 
+static uint32_t call(engine *e, guest_export name, uint32_t a, uint32_t b, uint32_t c);
+
+/* A worker asked for something only the main program has (a host function, another thread): the call fails with a
+   language error in the worker, which Thread.Result reports. */
+static int32_t refuse(worker *w, int32_t output) {
+    static const char message[] = "Worker cannot access host handles or start/wait for other threads.";
+    uint32_t length = sizeof message - 1;
+    uint32_t text = call(w->instance, GUEST_text, length, 0, 0);
+    uint8_t *memory = engine_memory(w->instance, NULL);
+    for (uint32_t i = 0; i < length; i++) { uint16_t unit = (uint8_t)message[i]; memcpy(memory + text + G_Text_Data + i * 2, &unit, 2); }
+    aqua_value error = {AQUA_ERROR, text, 0};
+    memcpy(memory + output, &error, sizeof error);
+    return 0;
+}
+
 static int32_t worker_service(void *data, const int32_t a[7]) {
     worker *w = data;
     int32_t operation = a[0], name = a[3], arguments = a[4], output = a[6];
@@ -61,7 +76,7 @@ static int32_t worker_service(void *data, const int32_t a[7]) {
     else if (operation == 4 && a[2] == 106) {
         double ms; memcpy(&ms, memory + arguments + 8, 8);
         result = aqua_bool(!platform_signal_wait(w->cancel, (int32_t)ms));
-    } else return 1;
+    } else return refuse(w, output);
     memcpy(memory + output, &result, sizeof result);
     return 0;
 }

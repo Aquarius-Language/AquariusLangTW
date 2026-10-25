@@ -164,7 +164,7 @@ public class WasmApplicationTest
         Assert.StartsWith("ERROR: ", result.Output); Assert.Contains(message, result.Output);
     }
 
-    [RuntimeTheory(Skip = RuntimeBug.CircularImports)]
+    [RuntimeTheory]
     [InlineData("匯入(\"main.aqua\");", null)]
     [InlineData("匯入(\"lib/module.aqua\");", "匯入(\"../main.aqua\");")]
     public void CircularImportsReportALanguageError(string main, string? module)
