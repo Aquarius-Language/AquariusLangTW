@@ -1,15 +1,15 @@
-# Builds AquariusCore/wasm/runtime/runtime.wasm with the pinned LLVM/Clang toolchain (install-wasm-toolchain.ps1).
+# Builds runtime/guest/runtime.wasm with the pinned LLVM/Clang toolchain (install-toolchain.ps1).
 # -Check rebuilds into .native-build and fails unless the result is byte-identical to the committed runtime.
 # scripts/build-wasm-runtime.sh is the Linux/macOS equivalent and must stay flag-for-flag identical.
 param([string]$Output = '', [switch]$Check)
 $ErrorActionPreference = 'Stop'
-. (Join-Path $PSScriptRoot 'wasm-toolchain.ps1')
+. (Join-Path $PSScriptRoot 'toolchain.ps1')
 Assert-AquaToolchain
 $repository = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
-if (-not $Output) { $Output = Join-Path $repository 'AquariusCore/wasm/runtime/runtime.wasm' }
+if (-not $Output) { $Output = Join-Path $repository 'runtime/guest/runtime.wasm' }
 if ($Check) { $expectedHash = (Get-FileHash -LiteralPath $Output -Algorithm SHA256).Hash; $Output = Join-Path $repository '.native-build/runtime-check.wasm' }
 New-Item -ItemType Directory -Path (Split-Path $Output) -Force | Out-Null
-$runtimeSource = Join-Path $repository 'AquariusCore/wasm/runtime/runtime.c'
+$runtimeSource = Join-Path $repository 'runtime/guest/runtime.c'
 $sourceText = Get-Content -LiteralPath $runtimeSource -Raw
 $sourceText += Get-Content -LiteralPath (Join-Path (Split-Path $runtimeSource) 'threads.h') -Raw
 $names = @([regex]::Matches($sourceText, '\b(?:u32|int)\s+((?:aqua_|rt_)\w+)\s*\(') | ForEach-Object { $_.Groups[1].Value })

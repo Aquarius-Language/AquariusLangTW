@@ -112,7 +112,7 @@ internal sealed class WasmBodyEmitter
     private void ToDouble() => Op(0xb7);   // f64.convert_i32_s
 
     private static bool HasRef(int tag) => tag is Unknown or (>= 5 and <= 10) or 13 or 14;
-    private static bool IsNumeric(int tag) => tag is IntTag or FloatTag or DoubleTag;
+    private static bool IsNumeric(int tag) => tag == IntTag || tag == FloatTag || tag == DoubleTag;
 
     // ---- state -----------------------------------------------------------------------------------
     private int[] Tags(int at) => plan.StackTags[at] ?? throw new InvalidOperationException("Unreachable instruction.");
@@ -496,7 +496,7 @@ internal sealed class WasmBodyEmitter
         deadTop = new bool[count];
         for (int b = 0; b < count; b++) {
             int i = starts[b];
-            while (i < n && code[i].Code == IrOperation.JumpIfBreak && plan.Depth[i] >= 0 && plan.StackTags[i]![^1] is not (Unknown or BreakTag)) i++;
+            while (i < n && code[i].Code == IrOperation.JumpIfBreak && plan.Depth[i] >= 0 && plan.StackTags[i]![^1] != Unknown && plan.StackTags[i]![^1] != BreakTag) i++;
             deadTop[b] = i < n && plan.Depth[i] >= 0 && code[i].Code == IrOperation.Pop && (BlockOf(i) < 0 || i == starts[b]);
         }
 
@@ -719,7 +719,7 @@ internal sealed class WasmBodyEmitter
                 loc[a] = Loc.Reg; loc[b] = Loc.Mem;
             }
             if (ta == BoolTag && tb == BoolTag) { Logic(); return; }
-            if (ta is not (BoolTag or Unknown) || tb is not (BoolTag or Unknown)) { Slow(); return; }
+            if (ta != BoolTag && ta != Unknown || tb != BoolTag && tb != Unknown) { Slow(); return; }
             BoolTest(a, ta); BoolTest(b, tb); Op(0x71);
             Branch(() => { Logic(); return false; }, () => { Slow(); return false; }, b);
             return;
@@ -888,7 +888,7 @@ internal sealed class WasmBodyEmitter
         int a = d - 2, i = d - 1; var tags = Tags(pc); int ta = tags[a], ti = tags[i];
         Ensure(a, ta); Ensure(i, ti);
         void Slow() { Helper("index", 0, d, 2); LoadValue(a, F, StackOffset(a), Unknown); loc[a] = Loc.Both; }
-        if (ta is not (ArrayTag or Unknown) || ti is not (IntTag or Unknown)) { Slow(); loc[i] = Loc.Mem; return; }
+        if (ta != ArrayTag && ta != Unknown || ti != IntTag && ti != Unknown) { Slow(); loc[i] = Loc.Mem; return; }
         if (ta == Unknown) { Get(T(a)); I32(ArrayTag); Op(0x46); } else I32(1);
         if (ti == Unknown) { Get(T(i)); I32(IntTag); Op(0x46); Op(0x71); }
         Branch(() => {
@@ -912,7 +912,7 @@ internal sealed class WasmBodyEmitter
     {
         int a = d - 2, i = d - 1; var tags = Tags(pc); int ta = tags[a], ti = tags[i];
         Ensure(a, ta); Ensure(i, ti);
-        if (ta is not (ArrayTag or Unknown) || ti is not (IntTag or Unknown)) { Helper("checkArrayWrite", 0, d, 0); return; }
+        if (ta != ArrayTag && ta != Unknown || ti != IntTag && ti != Unknown) { Helper("checkArrayWrite", 0, d, 0); return; }
         ArrayWriteTest(a, ta, i, ti); Op(0x45);
         Branch(() => { Helper("checkArrayWrite", 0, d, 0); return false; }, null);
     }
@@ -921,7 +921,7 @@ internal sealed class WasmBodyEmitter
         int a = d - 3, i = d - 2, v = d - 1; var tags = Tags(pc); int ta = tags[a], ti = tags[i], tv = tags[v];
         Ensure(a, ta); Ensure(i, ti); Ensure(v, tv);
         void Slow() { Helper("writeIndex", 0, d, 3); LoadValue(a, F, StackOffset(a), tv); loc[a] = Loc.Both; }
-        if (ta is not (ArrayTag or Unknown) || ti is not (IntTag or Unknown)) { Slow(); return; }
+        if (ta != ArrayTag && ta != Unknown || ti != IntTag && ti != Unknown) { Slow(); return; }
         // Owned, unexposed storage needs no copy-on-write or host dirty tracking.
         ArrayWriteTest(a, ta, i, ti);
         If(0x7f); Get(R(a)); LoadI32(ArrayStorage); LoadI32(ArrayStorageReferences); I32(1); Op(0x46); Get(R(a)); LoadI32(ArrayExposed); Op(0x45); Op(0x71); Else(); I32(0); End();

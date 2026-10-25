@@ -5,7 +5,9 @@
 typedef uint32_t u32;
 typedef struct { u32 tag, ref; double number; } Value;
 enum { VOID, INT, FLOAT, DOUBLE, BOOL, STRING, ARRAY, HASH, CLOSURE, MODULE, NATIVE, NULL_VALUE, BREAK_VALUE, ERROR, BUILTIN };
-enum { FREE, RAW, TEXT, VALUES, ENV, BINDINGS, CLOSURES, ARRAYS, HASHES, FRAMES, LOOPS, EXECUTIONS, PINS };
+/* FOREIGN blocks are never collected: memory reserved for the host (aqua_reserve) and pages another module of the same
+   memory grew (web side modules' libc), which the heap steps over. */
+enum { FREE, RAW, TEXT, VALUES, ENV, BINDINGS, CLOSURES, ARRAYS, HASHES, FRAMES, LOOPS, EXECUTIONS, PINS, FOREIGN };
 /* Blocks tile the heap contiguously from heap_start to heap_end; walk them by address. */
 typedef struct { u32 size, reserved, kind, marked; } Block;
 typedef struct { u32 length; uint16_t data[]; } Text;
@@ -38,7 +40,7 @@ _Static_assert(offsetof(Frame, values)==56, "Compiler frame ABI mismatch");
 _Static_assert(offsetof(Execution, status)==28 && offsetof(Execution, budget)==24 && offsetof(Execution, poll)==36 && offsetof(Execution, numeric_closure)==40, "Compiler execution ABI mismatch");
 _Static_assert(sizeof(Function)==40, "Function layout mismatch");
 _Static_assert(sizeof(Value)==16 && sizeof(Binding)==24 && offsetof(Binding,value)==8, "Host value/binding ABI mismatch");
-/* Every offset the C# emitters and hosts use (RuntimeLayout), checked here; see native/generate_runtime_layout.py. */
+/* Every offset the native host and the C# emitters use is listed in layout.def and checked here by layout.h. */
 /* Host synchronization block (see aqua_pending): host-visible work lists and the host environment era. */
 typedef struct { Array *dirty_arrays; Hash *dirty_hashes; Array *released_arrays; Hash *released_hashes; u32 host_era; } Pending;
 #include "layout.h"
@@ -48,6 +50,9 @@ __attribute__((import_module("aquarius_v2"), import_name("service")))
 extern int host_service(int operation, int context, int subject, int name, int arguments, int count, int output);
 
 static u32 heap_start, heap_end, free_heads[26], free_mask; /* bit c: free_heads[c] is not empty */
+/* End of the memory this heap grew. The bump allocator never passes it, so pages another module sharing this memory
+   grew (the web host's libc) are stepped over instead of reused; see own_memory. */
+static u32 heap_limit;
 /* A free block being carved sequentially like the bump region; it is on no free list and always a valid FREE block. */
 static Block *carving;
 static Scope *builtin_scopes[65536];
@@ -97,6 +102,14 @@ static void initialize_allocation(void *p,u32 n,u32 kind) {
 /* Allocation slow paths stay out of line so the common cases (an exact-size free block, or bumping the heap end)
    inline into the hot constructors. */
 static void arm_collection(void) { if(!gc_armed&&collection_due()){gc_armed=1;for(Execution*e=executions;e;e=e->next)e->poll=1;} }
+/* When another module sharing this memory grew it since the heap last did, its pages lie between heap_limit and the
+   memory's end: cover them (and the heap's unused tail) with a FOREIGN block and continue the heap after them. */
+static void own_memory(void) {
+    u32 size=(u32)__builtin_wasm_memory_size(0)*65536;
+    if(size==heap_limit)return;
+    Block*b=pointer(heap_end);b->size=size-heap_end-sizeof(Block);b->reserved=0;b->kind=FOREIGN;b->marked=0;
+    heap_end=heap_limit=size;
+}
 static __attribute__((noinline)) void *allocate_slow(u32 n,u32 bucket,u32 kind) {
     // Carve the largest free run before growing the heap: sequential allocation with no list operations.
     if(!carving||carving->size<n){u32 larger=free_mask&~((2u<<bucket)-1u);if(larger){if(carving)push_free(carving);carving=pop_free(31u-(u32)__builtin_clz(larger));}}
@@ -105,9 +118,10 @@ static __attribute__((noinline)) void *allocate_slow(u32 n,u32 bucket,u32 kind) 
         if(rest>=sizeof(Block)+16){Block*r=(Block*)((char*)(b+1)+n);r->size=rest-sizeof(Block);r->reserved=0;r->kind=FREE;r->marked=0;carving=r;b->size=n;}
         b->kind=kind;b->marked=0;initialize_allocation(b+1,b->size,kind);return b+1;
     }
+    own_memory();
     if(n>512u*1024*1024-heap_end-sizeof(Block))__builtin_trap();
-    u32 end=heap_end+sizeof(Block)+n,available=(u32)__builtin_wasm_memory_size(0)*65536;
-    if(end>available&&__builtin_wasm_memory_grow(0,(end-available+65535)/65536)==(size_t)-1)__builtin_trap();
+    u32 end=heap_end+sizeof(Block)+n;
+    if(end>heap_limit){if(__builtin_wasm_memory_grow(0,(end-heap_limit+65535)/65536)==(size_t)-1)__builtin_trap();heap_limit=(u32)__builtin_wasm_memory_size(0)*65536;}
     if(end>heap_high){heap_growth+=end-(heap_high>heap_end?heap_high:heap_end);heap_high=end;arm_collection();}
     Block *b=pointer(heap_end);b->size=n;b->reserved=0;b->kind=kind;b->marked=0;heap_end=end;initialize_allocation(b+1,n,kind);return b+1;
 }
@@ -120,12 +134,14 @@ static inline __attribute__((always_inline)) void *allocate(u32 n,u32 kind) {
     if(free_mask>>bucket&1){Block*b=pop_free(bucket);b->kind=kind;b->marked=0;initialize_allocation(b+1,b->size,kind);return b+1;}
     // Bump directly while no free run could serve the request and the heap has room.
     if(!carving&&!(free_mask>>bucket)){u32 end=heap_end+sizeof(Block)+n;
-        if(end<=(u32)__builtin_wasm_memory_size(0)*65536&&n<=512u*1024*1024-heap_end-sizeof(Block)){if(end>heap_high){heap_growth+=end-(heap_high>heap_end?heap_high:heap_end);heap_high=end;if(heap_growth/2>=gc_threshold)arm_collection();}
+        if(end<=heap_limit&&n<=512u*1024*1024-heap_end-sizeof(Block)){if(end>heap_high){heap_growth+=end-(heap_high>heap_end?heap_high:heap_end);heap_high=end;if(heap_growth/2>=gc_threshold)arm_collection();}
             Block*b=pointer(heap_end);b->size=n;b->reserved=0;b->kind=kind;b->marked=0;heap_end=end;initialize_allocation(b+1,n,kind);return b+1;}}
     return allocate_slow(n,bucket,kind);
 }
-u32 aqua_initialize(u32 start) { if(!heap_start)heap_start=heap_end=(start+15)&~15u;return heap_start; }
+u32 aqua_initialize(u32 start) { if(!heap_start){heap_start=heap_end=(start+15)&~15u;heap_limit=(u32)__builtin_wasm_memory_size(0)*65536;}return heap_start; }
 u32 aqua_allocate(u32 n) { return address(allocate(n,RAW)); }
+/* Memory the host keeps for the life of the instance (the web host's module data and stacks): never collected or moved. */
+u32 aqua_reserve(u32 n) { Block*b=(Block*)allocate(n,RAW)-1;b->kind=FOREIGN;bytes_since_collection=bytes_since_collection>b->size?bytes_since_collection-b->size:0;return address(b+1); }
 u32 aqua_heap_bytes(void) { return heap_end-heap_start; }
 u32 aqua_heap_free(void) { u32 n=0;for(u32 a=heap_start;a<heap_end;a+=sizeof(Block)+((Block*)pointer(a))->size)if(((Block*)pointer(a))->kind==FREE)n+=((Block*)pointer(a))->size;return n; }
 /* Net allocation leads; growth triggers only at twice the threshold, so it backs up net allocation when releases keep
@@ -207,9 +223,10 @@ static Pending pending;
 u32 aqua_pending(void) { return address(&pending); }
 /* Members of host modules (NATIVE) resolved through host service 2, cached per (module, name) while the host's
    environment era is unchanged. Hosts write a nonzero era into the pending block whenever control returns to the
-   guest after host bindings may have changed; era 0 (an older host) disables the cache. Only values the guest does
-   not own are cached (host functions and scalars), and every collection clears the cache so a native id the guest
-   no longer references can be freed and reused. */
+   guest after host bindings may have changed; era 0 disables the cache. Service 2 returns 0 for a member the guest may
+   cache and 2 for a live property it must ask for on every read. Only values the guest does not own are cached (host
+   functions and scalars), and every collection clears the cache so a native id the guest no longer references can be
+   freed and reused. */
 typedef struct { u32 native, name, era, pad; Value value; } MemberEntry;
 static MemberEntry member_cache[256];
 static MemberEntry *member_entry(u32 native,u32 name) { return &member_cache[(native*2654435761u^name>>2)&255]; }
@@ -301,7 +318,8 @@ u32 aqua_invoke(u32 closure,u32 arguments,u32 count) {
     for(u32 i=0;i<count;i++)declare(e->current->scope,fn->parameters[i],a[i]);return address(e);
 }
 u32 aqua_thread_enter(u32 closure,u32 arguments,u32 count) {
-    executions=0;pins=0;memset(builtin_scopes,0,sizeof(builtin_scopes));builtin_context_count=0;
+    // The snapshot carries the parent's heap limit; this instance owns only the memory it reserved.
+    executions=0;pins=0;memset(builtin_scopes,0,sizeof(builtin_scopes));builtin_context_count=0;heap_limit=(u32)__builtin_wasm_memory_size(0)*65536;
     return aqua_invoke(closure,arguments,count);
 }
 u32 aqua_thread_snapshot_size(void) { return heap_end; }
@@ -340,6 +358,9 @@ int rt_null(Frame*f,int n) { push(f,value(NULL_VALUE,0,0));return 0; }
 int rt_pop(Frame*f,int n) { pop(f);return 0; }
 int rt_duplicate(Frame*f,int n) { push(f,peek(f,1));return 0; }
 /* Built-in portable modules: each has an English and a Traditional Chinese global name. */
+static Scope *portable_module(Text*t,const uint16_t**alias);
+/* The portable module (Thread, Array, Hash, String or a Chinese name) a host import resolves to, or 0. */
+u32 aqua_portable_module(u32 name) { const uint16_t*alias=0;return address(portable_module(pointer(name),&alias)); }
 static Scope *portable_module(Text*t,const uint16_t**alias) {
     const uint16_t *const *names[]={thread_module_names,array_module_names,hash_module_names,text_module_names};
     for(u32 i=0;i<4;i++)for(u32 j=0;j<2;j++)if(text_is(t,names[i][j])){
@@ -445,7 +466,7 @@ int rt_writeIndex(Frame*f,int n){Value v=pop(f);rt_checkArrayWrite(f,0);Value i=
     if(a.tag==HASH){Hash*h=pointer(a.ref);u32 j=0;while(j<h->count&&!equal(i,h->pairs[j].key,1))j++;if(j==h->count)aqua_hash_resize(a.ref,h->count+1);h->pairs[j]=(Pair){i,v};if(h->exposed&&!h->dirty){h->dirty=1;h->dirty_next=pending.dirty_hashes;pending.dirty_hashes=h;}}
     else{Array*x=pointer(a.ref);writable_array(x,x->count);x->values[(u32)i.number]=v;if(x->exposed&&!x->dirty){x->dirty=1;x->dirty_next=pending.dirty_arrays;pending.dirty_arrays=x;}}
 }push(f,v);return 0;}
-int rt_member(Frame*f,int n){Value m=pop(f),out=empty;Text*t=name(f,n);if(m.tag==MODULE){Binding*b=find(pointer(m.ref),t);if(!b)named_failure(f,"Module member not found: ",t);else out=b->value;}else if(m.tag==NATIVE){MemberEntry*c=pending.host_era?member_entry(m.ref,address(t)):0;if(c&&c->era==pending.host_era&&c->native==m.ref&&c->name==address(t))out=c->value;else if(host_service(2,f->context,m.ref,address(t),0,0,address(&out)))named_failure(f,"Module member not found: ",t);else if(c&&pending.host_era&&member_cacheable(out.tag)){c->native=m.ref;c->name=address(t);c->era=pending.host_era;c->value=out;}}else named_failure(f,"Cannot access member of ",ascii(type_name(m.tag)));push(f,out);return 0;}
+int rt_member(Frame*f,int n){Value m=pop(f),out=empty;Text*t=name(f,n);if(m.tag==MODULE){Binding*b=find(pointer(m.ref),t);if(!b)named_failure(f,"Module member not found: ",t);else out=b->value;}else if(m.tag==NATIVE){MemberEntry*c=pending.host_era?member_entry(m.ref,address(t)):0;if(c&&c->era==pending.host_era&&c->native==m.ref&&c->name==address(t))out=c->value;else{int found=host_service(2,f->context,m.ref,address(t),0,0,address(&out));if(found!=0&&found!=2)named_failure(f,"Module member not found: ",t);else if(found==0&&c&&pending.host_era&&member_cacheable(out.tag)){c->native=m.ref;c->name=address(t);c->era=pending.host_era;c->value=out;}}}else named_failure(f,"Cannot access member of ",ascii(type_name(m.tag)));push(f,out);return 0;}
 int rt_resolveMemberFunction(Frame*f,int n){Value m=pop(f);if(m.tag==NATIVE){Value out=empty;if(host_service(3,f->context,m.ref,0,0,0,address(&out))){failure(f,"Cannot access computed member of native value.");return 0;}m=out;}if(m.tag!=MODULE){failure(f,"Computed member requires a module.");return 0;}Value c=constant(f,n);f->execution->current=frame(f->execution,f,f->program,(u32)c.number,pointer(m.ref),f->context);return 0;}
 int rt_enterLoop(Frame*f,int n){invalidate_scopes();Loop*l=allocate(sizeof(Loop),LOOPS);l->previous=f->loops;l->outer=f->scope;l->base=f->sp;l->binding=n<0?0:name(f,n);f->loops=l;f->scope=scope(f->scope);return 0;}
 int rt_loopCondition(Frame*f,int n){Value v=pop(f);if(v.tag!=BOOL){failure(f,"Expected bool from for loop conditionals.");return 0;}return v.number!=0;}
@@ -483,7 +504,7 @@ u32 aqua_collect(void){memset(member_cache,0,sizeof member_cache);
     memset(free_heads,0,sizeof(free_heads));free_mask=0;carving=0;Block*run=0;
     for(u32 a=heap_start;a<heap_end;){Block*b=pointer(a);a+=sizeof(Block)+b->size;
         if(b->kind!=FREE){
-            if(b->marked||keep_released(b)){b->marked=0;live+=b->size;if(run){push_free(run);run=0;}continue;}
+            if(b->kind==FOREIGN||b->marked||keep_released(b)){b->marked=0;live+=b->size;if(run){push_free(run);run=0;}continue;}
             reclaimed+=b->size;b->kind=FREE;
         }
         if(run)run->size+=sizeof(Block)+b->size;else run=b;

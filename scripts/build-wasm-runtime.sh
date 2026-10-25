@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# Builds AquariusCore/wasm/runtime/runtime.wasm on Linux/WSL/macOS with the pinned LLVM/Clang 23.1.3 toolchain.
+# Builds runtime/guest/runtime.wasm on Linux/WSL/macOS with the pinned LLVM/Clang 23.1.3 toolchain.
 # Mirrors scripts/build-wasm-runtime.ps1 flag for flag, so both produce the committed bytes.
-# Install the toolchain with `pwsh scripts/install-wasm-toolchain.ps1`, or set AQUARIUS_LLVM to an LLVM 23.1.3 root.
+# Install the toolchain with `pwsh scripts/install-toolchain.ps1`, or set AQUARIUS_LLVM to an LLVM 23.1.3 root.
 #   scripts/build-wasm-runtime.sh [--check | output.wasm]
 set -euo pipefail
 repository=$(cd "$(dirname "$0")/.." && pwd)
-source="$repository/AquariusCore/wasm/runtime/runtime.c"
-committed="$repository/AquariusCore/wasm/runtime/runtime.wasm"
+source="$repository/runtime/guest/runtime.c"
+committed="$repository/runtime/guest/runtime.wasm"
 check=0; output=$committed
 if [ "${1:-}" = "--check" ]; then check=1; output="$repository/.native-build/runtime-check.wasm"; elif [ -n "${1:-}" ]; then output=$1; fi
 case "$(uname -s)-$(uname -m)" in
@@ -16,7 +16,7 @@ case "$(uname -s)-$(uname -m)" in
 esac
 llvm=${AQUARIUS_LLVM:-"$repository/.native-build/toolchains/llvm-23.1.3-$platform"}
 clang="$llvm/bin/clang"
-if [ ! -x "$clang" ]; then echo "Pinned clang not found at $clang. Run: pwsh scripts/install-wasm-toolchain.ps1" >&2; exit 1; fi
+if [ ! -x "$clang" ]; then echo "Pinned clang not found at $clang. Run: pwsh scripts/install-toolchain.ps1" >&2; exit 1; fi
 if ! "$clang" --version | head -n1 | grep -q 'clang version 23\.1\.3\b'; then echo "Expected clang 23.1.3: $("$clang" --version | head -n1)" >&2; exit 1; fi
 mkdir -p "$(dirname "$output")"
 exports=()
