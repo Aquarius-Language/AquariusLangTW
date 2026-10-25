@@ -32,8 +32,8 @@ foreach(folder IN LISTS library_folders)
     add_subdirectory("${AQUA_LIBRARY_ROOT}/${folder}" "libraries/${folder}")
 endforeach()
 
-set(host_sources host/api.c host/application.c host/calls.c host/core.c host/format.c host/guest.c host/registry.c
-    host/scheduler.c host/session.c host/values.c)
+set(host_sources host/api.c host/application.c host/calls.c host/core.c host/format.c host/guest.c host/image.c
+    host/registry.c host/scheduler.c host/session.c host/values.c)
 
 # The default libraries the host registers at startup, as X(name) entries for host/session.c.
 get_property(default_libraries GLOBAL PROPERTY AQUA_DEFAULT_LIBRARIES)
@@ -113,7 +113,7 @@ elseif(AQUA_TARGET MATCHES "^android-")
     install(TARGETS aquarius LIBRARY DESTINATION .)
 elseif(AQUA_TARGET STREQUAL "web")
     # The host core as a side module; the glue links it after libc and before the libraries.
-    add_library(aquarius SHARED ${host_sources} host/engine_web.c host/threads_web.c platform/web/platform.c)
+    add_library(aquarius SHARED ${host_sources} host/engine_web.c host/threads_web.c platform/web/platform.c platform/web/window.c)
     target_include_directories(aquarius PRIVATE sdk/include "${CMAKE_CURRENT_BINARY_DIR}/generated")
     set_target_properties(aquarius PROPERTIES OUTPUT_NAME aquarius)
     get_property(web_libraries GLOBAL PROPERTY AQUA_WEB_LIBRARIES)

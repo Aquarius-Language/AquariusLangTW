@@ -10,6 +10,7 @@ WEB_IMPORT(now) double web_now(void);
 WEB_IMPORT(write) void web_write(int32_t stream, const char *text, size_t length);
 WEB_IMPORT(wake) void web_wake(void);
 WEB_IMPORT(closing) void web_closing(void);
+WEB_IMPORT(environment) char *web_environment(const char *name);
 
 static aqua_runtime *runtime;
 
@@ -21,7 +22,8 @@ void platform_unlock(void *lock) { (void)lock; }
 void platform_lock_destroy(void *lock) { (void)lock; }
 void platform_wake(aqua_runtime *rt) { (void)rt; web_wake(); }
 void platform_wait(aqua_runtime *rt, double timeout_ms) { (void)rt; (void)timeout_ms; } /* never blocks: run_to_end refuses to wait */
-const char *platform_environment(const char *name) { (void)name; return NULL; }
+/* The page's runtime settings (startApplication's environment option); values stay valid for the page's life. */
+const char *platform_environment(const char *name) { return web_environment(name); }
 void *platform_library_open(const char *path, char **error) { (void)path; if (error) *error = strdup("Native libraries load through the web glue."); return NULL; }
 void *platform_library_symbol(void *library, const char *name) { (void)library; (void)name; return NULL; }
 bool platform_write_file(const char *path, const uint8_t *data, size_t length) { (void)path; (void)data; (void)length; return false; }
@@ -32,7 +34,8 @@ bool platform_execute(aqua_runtime *rt, const char *program, const char *const *
     (void)rt; (void)program; (void)arguments; (void)count; (void)error;
     return false;
 }
-void platform_runtime_closing(aqua_runtime *rt) { (void)rt; web_closing(); }
+void web_windows_close(aqua_runtime *rt);
+void platform_runtime_closing(aqua_runtime *rt) { web_windows_close(rt); web_closing(); }
 
 /* ---- Exports the glue drives ---- */
 

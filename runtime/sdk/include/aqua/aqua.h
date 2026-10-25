@@ -59,6 +59,13 @@
 #define AQUA_EXPORT __attribute__((visibility("default")))
 #endif
 
+/* Web only: declares a function of the unified web glue (web-glue/<domain>), e.g.
+       AQUA_WEB_IMPORT(net_fetch) int32_t web_fetch(const char *url, ...);
+   C APIs the glue implements under their standard names (webgpu.h, OpenGL ES) need no declaration. A library exports
+   the C functions the glue calls back with AQUA_WEB_EXPORT(name). */
+#define AQUA_WEB_IMPORT(name) __attribute__((import_module("aqua_web"), import_name(#name)))
+#define AQUA_WEB_EXPORT(name) __attribute__((export_name(#name)))
+
 #ifdef __cplusplus
 extern "C" {
 #endif

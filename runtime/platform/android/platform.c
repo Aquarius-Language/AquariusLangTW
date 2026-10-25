@@ -128,3 +128,8 @@ void android_main(struct android_app *app) {
     ANativeActivity_finish(app->activity);
     while (!app->destroyRequested) android_poll(-1);
 }
+
+/* ---- aqua/android.h ---- */
+JNIEnv *aqua_android_jni(void) { return android_jni(); }
+jobject aqua_android_activity(void) { return android_activity(); }
+void *aqua_android_assets(void) { return native_app->activity->assetManager; }

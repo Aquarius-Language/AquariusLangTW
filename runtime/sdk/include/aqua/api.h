@@ -1,9 +1,10 @@
-/* The function table the runtime hands external native libraries: every function of aqua.h and window.h, in the
+/* The function table the runtime hands external native libraries: every function of aqua.h, window.h and image.h, in the
    order api.def lists them. Only the runtime (runtime/host/api.c) and aqua_api_stub.c include this. */
 #ifndef AQUA_API_H
 #define AQUA_API_H
 #include "aqua.h"
 #include "window.h"
+#include "image.h"
 
 typedef struct aqua_api_table {
     uint32_t version;

@@ -103,6 +103,7 @@ static void execute_file(aqua_call *call) {
 
 extern aqua_class *thread_class; /* runtime/host/threads.c or threads_web.c */
 void thread_finalize(aqua_runtime *rt, void *data);
+void image_library(aqua_library *library); /* runtime/host/image.c */
 
 void core_library(aqua_library *library) {
     aqua_class *globals = aqua_define_class(library, "globals", NULL);
@@ -119,6 +120,7 @@ void core_library(aqua_library *library) {
     aqua_define_function(globals, "isWeb|是網頁", is_web, "");
     aqua_define_function(globals, "execFile|執行檔案", execute_file, "sa");
     aqua_define_property(globals, "currWorkingDir|目前工作目錄", working_directory);
+    image_library(library);
     /* Portable builtins: the guest runtime executes these ids itself (runtime/guest/runtime.c rt_call). */
     static const char *const portable[] = {"len|長度", "last|最後一個", "rest|其餘", "push|加入", "floodFill|區域填色"};
     for (uint32_t i = 0; i < 5; i++) { aqua_value token = {AQUA_BUILTIN, i + 1, 0}; class_define_value(globals, portable[i], token); }

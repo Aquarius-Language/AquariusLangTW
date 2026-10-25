@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AquariusLang</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #101418; color: #e8eef2; font: 14px/1.4 system-ui, sans-serif; }
+  #surfaces { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; }
+  #surfaces canvas { max-width: 100%; max-height: 100%; outline: none; }
+  #output { margin: 0; padding: 12px; white-space: pre-wrap; font-family: ui-monospace, monospace; position: relative; }
+  #error { color: #ff8a80; padding: 0 12px; white-space: pre-wrap; position: relative; }
+</style>
+</head>
+<body>
+<div id="surfaces"></div>
+<pre id="output"></pre>
+<div id="error"></div>
+<script type="module" src="app.mjs"></script>
+</body>
+</html>

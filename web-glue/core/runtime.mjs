@@ -10,6 +10,11 @@ registerGlue('core', (context) => ({
     write: (stream, pointer, length) => context.write(stream, context.bytes.slice(pointer, pointer + length)),
     wake: () => context.wake(),
     closing: () => context.closing?.(),
+    // The page's settings for the runtime (frame limits, test switches): a malloc'd string, or 0.
+    environment: (name) => {
+        const value = context.environment?.[context.text(name)];
+        return value === undefined || value === null ? 0 : context.allocate(String(value))[0];
+    },
 }));
 
 const decoder = new TextDecoder();
@@ -37,6 +42,7 @@ function lineWriter(output) {
  *   asset?: (name: string) => Promise<Uint8Array>,      bytes of an asset stored beside the program
  *   entry?: string, directory?: string,
  *   output?: (stream: number, line: string) => void,    1 output, 2 errors
+ *   environment?: Object<string, string>,                values platform code reads as environment variables
  *   signal?: AbortSignal,
  * }} options
  * @returns {Promise<{exitCode: number}>} once the application finishes
@@ -54,6 +60,7 @@ export async function startApplication(options) {
     const program = await WebAssembly.compile(programBytes);
 
     const context = new GlueContext();
+    context.environment = options.environment ?? {};
     const writer = lineWriter(options.output ?? ((stream, line) => (stream === 2 ? console.error : console.log)(line)));
     context.write = (stream, bytes) => writer.write(stream, bytes);
     let service = () => { throw new Error('The host core is not linked yet.'); };
