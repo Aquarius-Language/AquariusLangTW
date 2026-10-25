@@ -1,0 +1,13 @@
+無憑證 Network.Listen: InvalidArgument: HTTPS requires PFX certificate / HTTPS 需要 PFX 憑證。
+密碼錯誤 Network.Listen: InvalidArgument: Invalid PFX password / PFX 密碼錯誤。
+缺檔 Network.Listen: InvalidArgument: Cannot read certificate / 無法讀取憑證：certs/missing.pfx
+來源 Network.Listen: InvalidArgument: Expected HTTP(S) listener origin / 需要 HTTP(S) 監聽來源。
+certs/localhost.pfx 真 0 TLS TLS validation failed / TLS 驗證失敗。 假
+連接安全傳輸 Network.ConnectTLS: TLS: TLS validation failed / TLS 驗證失敗。
+伺服器未收到請求 假
+certs/localhost-3des.pfx 真 0 TLS TLS validation failed / TLS 驗證失敗。 假
+連接安全傳輸 Network.ConnectTLS: TLS: TLS validation failed / TLS 驗證失敗。
+伺服器未收到請求 假
+certs/localhost.pem 真 0 TLS TLS validation failed / TLS 驗證失敗。 假
+連接安全傳輸 Network.ConnectTLS: TLS: TLS validation failed / TLS 驗證失敗。
+伺服器未收到請求 假

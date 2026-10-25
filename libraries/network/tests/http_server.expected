@@ -1,0 +1,36 @@
+路由 200 你好，星泉 middleware 真 null
+萬用 a/b.txt
+中介 401 blocked
+JSON 200 {收到: {訊息: 繁體, 陣列: [1, 2.5, 真, null]}, 方法: POST, 類型: application/json; charset=utf-8}
+表單 {a: 1 2, 名: 星泉}
+查詢 星 泉||/query?a=1&b=%E6%98%9F+%E6%B3%89
+設定Cookie token=%E5%80%BC%201; Path=/; SameSite=Lax; HttpOnly
+Cookie [值 1]
+清除後 []
+工作階段 1 2
+失敗 500 Internal Server Error / 伺服器內部錯誤
+仍正常 你好，仍然
+找不到 404 Not Found / 找不到資源
+方法 405 GET Method Not Allowed / 方法不允許
+重新導向 200 你好，導向 /hello/%E5%B0%8E%E5%90%91
+手動導向 302 /hello/導向 假
+HTTP錯誤 422 假 HTTP HTTP 422 假 示範
+上限 0 LimitExceeded LimitExceeded / 回應本文過大。
+逾時 0 Timeout Operation timed out or cancelled / 操作逾時或已取消。 真
+排隊的請求 真
+輪詢 null 假
+取消 Cancelled Request cancelled / 請求已取消。 真
+來源 403 Origin denied / 來源遭拒。
+跨來源 200 https://trusted.example true Origin
+預檢 204 GET, HEAD, POST, PUT, PATCH, DELETE, OPTIONS content-type
+靜態 200 <p>星泉</p> text/html; charset=utf-8 66
+未修改 304 
+子目錄 text/css; charset=utf-8
+穿越 404 404
+gzip 200 4263  真
+deflate 4263 真
+串流前 0 []
+串流 200 [event: message, id: 1, data: 第一, data: 第二, , event: done, data: 完成, ] text/event-stream; charset=utf-8 no-cache
+串流本文 event: message|id: 1|data: 第一|data: 第二||event: done|data: 完成||
+關閉後 Network.Server.Poll: Closed: Resource closed / 資源已關閉。
+用戶端關閉後 Closed

@@ -1,0 +1,20 @@
+# needs: sockets (Windows, Linux, Android); run from libraries/network/tests (reads certs/)
+# HTTPS servers from PKCS#12 (AES and 3DES) and PEM identities; clients verify certificates against the system's
+# trusted roots, so this test's private CA is refused, as the old library refused untrusted peers.
+變數 網路 = 匯入("網路");
+變數 字串 = 匯入("字串");
+變數 錯誤 = 函式(動作) { 回傳 網路.嘗試(動作).錯誤.訊息; };
+印出("無憑證", 錯誤(函式() { 回傳 網路.監聽("https://127.0.0.1:0"); }));
+印出("密碼錯誤", 錯誤(函式() { 回傳 網路.監聽("https://127.0.0.1:0", {"憑證":"certs/localhost.pfx", "憑證密碼":"wrong"}); }));
+印出("缺檔", 錯誤(函式() { 回傳 網路.監聽("https://127.0.0.1:0", {"憑證":"certs/missing.pfx"}); }));
+印出("來源", 錯誤(函式() { 回傳 網路.監聽("https://127.0.0.1:0/path", {"憑證":"certs/localhost.pfx"}); }));
+迴圈 (變數 i = 0; i < 3; i++) {
+    變數 檔案 = ["certs/localhost.pfx", "certs/localhost-3des.pfx", "certs/localhost.pem"][i];
+    變數 伺服器 = 網路.監聽("https://127.0.0.1:0", {"憑證":檔案, "憑證密碼":"aquarius"});
+    變數 埠 = 網路.解析網址(伺服器.位址).連接埠;
+    變數 回應 = 網路.取得(字串.取代(伺服器.位址, "127.0.0.1", "localhost") + "/", {"逾時":5000});
+    印出(檔案, 字串.開頭是(伺服器.位址, "https://127.0.0.1:"), 回應.狀態碼, 回應.錯誤.種類, 回應.錯誤.訊息, 回應.錯誤.可重試);
+    印出("連接安全傳輸", 錯誤(函式() { 回傳 網路.連接安全傳輸("localhost", 埠, {"逾時":5000}); }));
+    印出("伺服器未收到請求", 伺服器.處理下一筆(0));
+    伺服器.關閉();
+}

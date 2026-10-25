@@ -5,6 +5,7 @@ import './window/window.mjs';
 import './audio/audio.mjs';
 import './camera/camera.mjs';
 import './webgpu/webgpu.mjs';
+import './network/network.mjs';
 import './storage/storage.mjs';
 import './files/files.mjs';
 import './clipboard/clipboard.mjs';

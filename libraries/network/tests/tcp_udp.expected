@@ -1,0 +1,23 @@
+監聽 真 null
+位址 真 真 真
+位元組 [0, 255, 1, 42]
+文字 星泉
+結束 []
+已關閉 Network.Stream.Read: Closed: Resource closed / 資源已關閉。
+讀取大小 Network.Stream.Read: InvalidArgument: Invalid read size / 讀取大小無效。
+寫入型別 Network.Stream.Write: InvalidArgument: Expected a byte array / 需要位元組陣列。
+對方關閉後 []
+接受逾時 null Network.Listener.Accept: InvalidArgument: Invalid timeout / 逾時須介於 0..300000。
+監聽關閉 Network.Listener.Accept: Closed: Resource closed / 資源已關閉。
+連接埠 Network.ConnectTCP: InvalidArgument: Invalid port / 連接埠必須介於 1..65535。
+拒絕 真
+IP Network.ListenTCP: InvalidArgument: Invalid IP address / IP 位址無效：not-an-ip
+資料報 [1, 0, 255] 127.0.0.1 真
+文字資料報 星泉
+JSON資料報 {"json":true}
+過大 Network.Datagram.Receive: LimitExceeded: LimitExceeded / 資料報超過讀取上限。
+傳送上限 Network.Datagram.Send: InvalidArgument: Datagram too large / 資料報過大。
+多點傳送 真
+資料報關閉 Network.Datagram.Receive: Closed: Resource closed / 資源已關閉。
+DNS 真 [127.0.0.1]
+DNS失敗 Network.Resolve: Network: No such host is known / 找不到主機。 (does-not-exist.invalid)

@@ -1,0 +1,13 @@
+取得 200 你好，星泉 真 null
+JSON 200 {收到: {訊息: 繁體, 數字: [1, 2.5]}, 方法: POST} application/json; charset=utf-8
+提交 {雜湊: 本文}
+錯誤 422 假 HTTP HTTP 422 假
+位元組 [0, 255, 1, 2]
+逾時 0 Timeout Operation timed out or cancelled / 操作逾時或已取消。
+操作 你好，操作 真
+取消 Cancelled
+串流 200 [event: message, id: 1, data: 星泉, , event: done, data: 完成, ] 真
+文字 回聲：你好 真 假
+位元組 [0, 255, 7] 假
+關閉後 Network.WebSocket.SendText: Closed: Resource closed / 資源已關閉。
+錯誤網址 Network.ConnectWebSocket: InvalidArgument: Expected ws:// or wss:// / 需要 WebSocket 網址。

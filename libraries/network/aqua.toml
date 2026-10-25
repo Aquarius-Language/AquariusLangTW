@@ -1,0 +1,14 @@
+manifest_version = 2
+
+[library]
+name = "network"
+version = "1.0.0"
+description = "Network|網路: HTTP(S) clients and streams, WebSocket, TCP/TLS, UDP, DNS and an HTTP(S) server with routes, sessions, static files and SSE."
+license = "MIT"
+platforms = ["windows", "linux", "android", "web"]
+
+[native]
+modules = ["Network|網路"]
+
+[android]
+permissions = ["android.permission.INTERNET", "android.permission.ACCESS_NETWORK_STATE"]

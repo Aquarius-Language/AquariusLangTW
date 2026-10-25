@@ -1,0 +1,12 @@
+非升級 Network.Writer.UpgradeWebSocket: InvalidArgument: Expected WebSocket upgrade / 需要 WebSocket 升級請求。
+伺服器收到 你好 真 假
+用戶收到 [0, 255] 假
+伺服器收到 [1, 2, 3] 假
+用戶收到 再見
+用戶關閉後 Network.WebSocket.Receive: Closed: Resource closed / 資源已關閉。
+傳送上限 Network.WebSocket.SendText: InvalidArgument: Message too large
+接收上限 Network.WebSocket.Receive: LimitExceeded: LimitExceeded / WebSocket 訊息過大。
+握手失敗 Network.ConnectWebSocket: Network: The server returned status code '404' when status code '101' was expected.
+關閉代碼 Network.WebSocket.Close: InvalidArgument: Invalid close status or reason / 關閉代碼或原因無效。
+服務結束 完成
+伺服器收到關閉 [真, [], 真]
