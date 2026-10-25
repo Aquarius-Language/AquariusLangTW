@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The manifest of AquariusLang Android applications. Packaging replaces @PACKAGE@, @LABEL@, @VERSION_CODE@,
+     @VERSION_NAME@ and @PERMISSIONS@ (uses-permission lines the application's libraries declare). -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="@PACKAGE@"
+    android:versionCode="@VERSION_CODE@" android:versionName="@VERSION_NAME@">
+    <uses-sdk android:minSdkVersion="29" android:targetSdkVersion="36" />
+@PERMISSIONS@
+    <uses-feature android:name="android.hardware.vulkan.level" android:version="1" android:required="false" />
+    <application android:label="@LABEL@" android:hasCode="true" android:allowBackup="false"
+        android:extractNativeLibs="false" android:theme="@android:style/Theme.Material.NoActionBar">
+        <activity android:name="org.aquariuslang.runtime.AquariusActivity" android:exported="true"
+            android:launchMode="singleTask" android:windowSoftInputMode="adjustResize"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden|keyboard|density|uiMode">
+            <meta-data android:name="android.app.lib_name" android:value="aquarius" />
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>

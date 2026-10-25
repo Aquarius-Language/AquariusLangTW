@@ -5,6 +5,7 @@
 #include <android/log.h>
 #include <android_native_app_glue.h>
 #include <jni.h>
+#include <pthread.h>
 #include <stdlib.h>
 #include <string.h>
 #include "../../host/host.h"
@@ -14,6 +15,7 @@
 
 static struct android_app *native_app;
 static aqua_runtime *runtime;
+static pthread_mutex_t runtime_lock = PTHREAD_MUTEX_INITIALIZER; /* Java threads posting vs. the runtime ending */
 
 struct android_app *android_application(void) { return native_app; }
 JNIEnv *android_jni(void) {
@@ -27,6 +29,8 @@ jobject android_activity(void) { return native_app->activity->clazz; }
 static char lines[2][4096];
 static size_t line_length[2];
 static void emit(int stream) {
+    /* A CR before the newline (text from CRLF sources) would show as an extra line in logcat. */
+    if (line_length[stream] && lines[stream][line_length[stream] - 1] == '\r') line_length[stream]--;
     lines[stream][line_length[stream]] = 0;
     __android_log_write(stream ? ANDROID_LOG_WARN : ANDROID_LOG_INFO, "Aquarius", lines[stream]);
     line_length[stream] = 0;
@@ -106,7 +110,10 @@ void android_main(struct android_app *app) {
     if (!module) { __android_log_write(ANDROID_LOG_ERROR, "Aquarius", "AQUARIUS_ANDROID_ERROR assets/aquarius/program.wasm is missing"); ANativeActivity_finish(app->activity); return; }
     runtime_options options = {app->activity->internalDataPath, NULL, NULL, 0, NULL};
     char *error = NULL;
-    runtime = runtime_create(module, length, &options, &error);
+    aqua_runtime *created = runtime_create(module, length, &options, &error);
+    pthread_mutex_lock(&runtime_lock);
+    runtime = created;
+    pthread_mutex_unlock(&runtime_lock);
     if (!runtime) {
         __android_log_print(ANDROID_LOG_ERROR, "Aquarius", "AQUARIUS_ANDROID_ERROR %s", error ? error : "cannot load the native_app");
         free(module);
@@ -124,8 +131,10 @@ void android_main(struct android_app *app) {
     }
     platform_flush();
     __android_log_write(code ? ANDROID_LOG_ERROR : ANDROID_LOG_INFO, "Aquarius", code ? "AQUARIUS_ANDROID_ERROR exit 1" : "AQUARIUS_ANDROID_OK");
-    runtime_destroy(runtime);
+    pthread_mutex_lock(&runtime_lock);
     runtime = NULL;
+    pthread_mutex_unlock(&runtime_lock);
+    runtime_destroy(created);
     ANativeActivity_finish(app->activity);
     while (!app->destroyRequested) android_poll(-1);
 }
@@ -134,17 +143,141 @@ void android_main(struct android_app *app) {
 JNIEnv *aqua_android_jni(void) { return android_jni(); }
 jobject aqua_android_activity(void) { return android_activity(); }
 void *aqua_android_assets(void) { return native_app->activity->assetManager; }
-/* Activity results, permissions and insets arrive through the APK's activity (to be added with the Android exporter);
-   until then they report unavailable. */
+jmethodID android_activity_method(const char *name, const char *signature) {
+    JNIEnv *env = android_jni();
+    jclass activity_class = (*env)->GetObjectClass(env, android_activity());
+    jmethodID method = (*env)->GetMethodID(env, activity_class, name, signature);
+    if ((*env)->ExceptionCheck(env)) (*env)->ExceptionClear(env);
+    (*env)->DeleteLocalRef(env, activity_class);
+    return method;
+}
+
+/* ---- Activity results, permissions and input-method text from AquariusActivity.java ----
+   Java calls these natives on the UI thread; each posts its event to the runtime thread, where requests live. */
+typedef struct request {
+    int32_t id;
+    aqua_android_result result;
+    void (*permission)(bool granted, void *data);
+    void *data;
+    struct request *next;
+} request;
+static request *requests;
+static int32_t next_request = 1;
+
+typedef struct completion { int32_t id, result; bool granted; jobject intent; } completion;
+static void complete(aqua_runtime *rt, void *data) {
+    (void)rt;
+    completion *c = data;
+    for (request **p = &requests; *p; p = &(*p)->next) {
+        if ((*p)->id != c->id) continue;
+        request *r = *p;
+        *p = r->next;
+        if (r->result) r->result(c->result, c->intent, r->data);
+        else r->permission(c->granted, r->data);
+        free(r);
+        break;
+    }
+    if (c->intent) (*android_jni())->DeleteGlobalRef(android_jni(), c->intent);
+    free(c);
+}
+static void post(void (*task)(aqua_runtime *, void *), void *data) {
+    pthread_mutex_lock(&runtime_lock);
+    if (runtime) aqua_post(runtime, task, data);
+    pthread_mutex_unlock(&runtime_lock);
+}
+
+JNIEXPORT void JNICALL Java_org_aquariuslang_runtime_AquariusActivity_nativeActivityResult(JNIEnv *env, jclass c, jint id, jint result, jobject intent) {
+    (void)c;
+    completion *done = calloc(1, sizeof *done);
+    done->id = id; done->result = result;
+    done->intent = intent ? (*env)->NewGlobalRef(env, intent) : NULL;
+    post(complete, done);
+}
+JNIEXPORT void JNICALL Java_org_aquariuslang_runtime_AquariusActivity_nativePermissionResult(JNIEnv *env, jclass c, jint id, jboolean granted) {
+    (void)env; (void)c;
+    completion *done = calloc(1, sizeof *done);
+    done->id = id; done->granted = granted;
+    post(complete, done);
+}
+
+typedef struct ime_event { int kind; int32_t value; bool down; char *text; } ime_event;
+static void ime(aqua_runtime *rt, void *data) {
+    (void)rt;
+    ime_event *e = data;
+    if (e->kind == 0) android_ime_text(e->text);
+    else if (e->kind == 1) android_ime_composition(e->text, e->value);
+    else android_ime_key(e->value, e->down);
+    free(e->text);
+    free(e);
+}
+static char *java_text(JNIEnv *env, jstring text) {
+    if (!text) return NULL;
+    const char *utf8 = (*env)->GetStringUTFChars(env, text, NULL);
+    char *copy = strdup(utf8);
+    (*env)->ReleaseStringUTFChars(env, text, utf8);
+    return copy;
+}
+JNIEXPORT void JNICALL Java_org_aquariuslang_runtime_AquariusActivity_nativeText(JNIEnv *env, jclass c, jstring text) {
+    (void)c;
+    ime_event *e = calloc(1, sizeof *e);
+    e->kind = 0; e->text = java_text(env, text);
+    if (e->text) post(ime, e); else free(e);
+}
+JNIEXPORT void JNICALL Java_org_aquariuslang_runtime_AquariusActivity_nativeComposition(JNIEnv *env, jclass c, jstring text, jint cursor) {
+    (void)c;
+    ime_event *e = calloc(1, sizeof *e);
+    e->kind = 1; e->text = java_text(env, text); e->value = cursor;
+    post(ime, e);
+}
+JNIEXPORT void JNICALL Java_org_aquariuslang_runtime_AquariusActivity_nativeKey(JNIEnv *env, jclass c, jint code, jboolean down) {
+    (void)env; (void)c;
+    ime_event *e = calloc(1, sizeof *e);
+    e->kind = 2; e->value = code; e->down = down;
+    post(ime, e);
+}
+
+static request *add_request(void) {
+    request *r = calloc(1, sizeof *r);
+    r->id = next_request++;
+    if (next_request > 0xffff) next_request = 1;
+    r->next = requests;
+    requests = r;
+    return r;
+}
+
 bool aqua_android_start_activity(jobject intent, aqua_android_result done, void *data) {
-    (void)intent; (void)done; (void)data;
-    return false;
+    jmethodID start = android_activity_method("startForResult", "(Landroid/content/Intent;I)V");
+    if (!start) return false;
+    request *r = add_request();
+    r->result = done; r->data = data;
+    JNIEnv *env = android_jni();
+    (*env)->CallVoidMethod(env, android_activity(), start, intent, (jint)r->id);
+    return true;
 }
+
 void aqua_android_request_permission(const char *permission, void (*done)(bool granted, void *data), void *data) {
-    (void)permission;
-    done(false, data);
+    jmethodID ask = android_activity_method("requestPermission", "(Ljava/lang/String;I)V");
+    if (!ask) { done(false, data); return; }
+    request *r = add_request();
+    r->permission = done; r->data = data;
+    JNIEnv *env = android_jni();
+    jstring name = (*env)->NewStringUTF(env, permission);
+    (*env)->CallVoidMethod(env, android_activity(), ask, name, (jint)r->id);
+    (*env)->DeleteLocalRef(env, name);
 }
+
 void aqua_android_insets(float *left, float *top, float *right, float *bottom, bool *keyboard_visible) {
     *left = *top = *right = *bottom = 0;
     *keyboard_visible = false;
+    jmethodID insets = android_activity_method("insets", "()[F");
+    if (!insets) return;
+    JNIEnv *env = android_jni();
+    jfloatArray values = (*env)->CallObjectMethod(env, android_activity(), insets);
+    if (!values) return;
+    float v[5] = {0};
+    (*env)->GetFloatArrayRegion(env, values, 0, 5, v);
+    (*env)->DeleteLocalRef(env, values);
+    float scale = aqua_window_content_scale(NULL);
+    *left = v[0] / scale; *top = v[1] / scale; *right = v[2] / scale; *bottom = v[3] / scale;
+    *keyboard_visible = v[4] != 0;
 }

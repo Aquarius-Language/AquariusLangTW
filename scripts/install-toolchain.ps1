@@ -1,6 +1,6 @@
 # Installs the pinned native toolchain (versions and SHA-256 in scripts/toolchain.json): the official LLVM release
 # for this host (clang, wasm-ld, ld.lld; WebAssembly and x86 backends), the wasi-sdk WASI sysroot and compiler-rt,
-# the llvm-mingw MinGW-w64 sysroot on Windows hosts, and the prebuilt Wasmtime C API and wgpu-native SDKs for each
+# the llvm-mingw MinGW-w64 sysroot on Windows hosts, a JDK for Android targets, and the prebuilt Wasmtime C API and wgpu-native SDKs for each
 # requested target. Archives are verified, then unpacked into the gitignored .native-build. install-toolchain.sh does
 # the same on Linux/macOS without PowerShell. Prints clang's path.
 #   -Targets windows-x64,android-arm64-v8a   SDK targets to install (default: the desktop target of this host).
@@ -49,6 +49,10 @@ foreach ($target in Get-ChildItem -LiteralPath $AquaToolchain.CompilerRt -Direct
     if (-not (Test-Path -LiteralPath $destination)) { Copy-Item -LiteralPath $target.FullName -Destination $destination -Recurse }
 }
 if ($Targets -contains 'windows-x64') { Install-Archive $AquaPins.mingw.url $AquaPins.mingw.sha256 $AquaToolchain.MinGW }
+if ($Targets -match '^android-') {
+    $jdk = $AquaPins.jdk.($AquaToolchain.Platform)
+    Install-Archive ($AquaPins.jdk.base + $jdk.file) $jdk.sha256 $AquaToolchain.Jdk
+}
 foreach ($target in $Targets) {
     if ($target -eq 'web') { continue }
     if ($target -notin $AquaTargets) { throw "Unknown target: $target (known: $($AquaTargets -join ', '))" }

@@ -25,6 +25,7 @@ $AquaToolchain = [pscustomobject]@{
     Sysroot = Join-Path $aquaToolchains $AquaPins.sysroot.directory
     CompilerRt = Join-Path $aquaToolchains $AquaPins.compilerRt.directory
     MinGW = Join-Path $aquaToolchains $AquaPins.mingw.directory
+    Jdk = Join-Path $aquaToolchains $AquaPins.jdk.directory.Replace('{platform}', $aquaPlatform)
 }
 # Wasm feature baseline of every built binary: lime1 (bulk-memory-opt, call-indirect-overlong, extended-const, multivalue,
 # mutable-globals, nontrapping-fptoint, sign-ext). Freestanding builds that relied on -mbulk-memory still pass it.

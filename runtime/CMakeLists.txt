@@ -111,6 +111,33 @@ elseif(AQUA_TARGET MATCHES "^android-")
         target_link_libraries(aquarius PRIVATE aqua_${name})
     endforeach()
     install(TARGETS aquarius LIBRARY DESTINATION .)
+
+    # The activity (platform/android/java): compiled against the pinned SDK platform with the pinned JDK, dexed for APKs.
+    string(JSON android_platform GET "${AQUA_PINS}" androidSdk platform)
+    string(JSON android_build_tools GET "${AQUA_PINS}" androidSdk buildTools)
+    string(JSON jdk_directory GET "${AQUA_PINS}" jdk directory)
+    string(REPLACE "{platform}" "${AQUA_HOST}" jdk_directory "${jdk_directory}")
+    set(jdk "${AQUA_TOOLCHAINS}/${jdk_directory}")
+    get_filename_component(android_sdk "${AQUA_NDK}/../.." ABSOLUTE)
+    if(DEFINED ENV{ANDROID_HOME})
+        set(android_sdk "$ENV{ANDROID_HOME}")
+    endif()
+    set(android_jar "${android_sdk}/platforms/android-${android_platform}/android.jar")
+    set(d8 "${android_sdk}/build-tools/${android_build_tools}/d8${AQUA_SCRIPT}")
+    foreach(tool IN ITEMS "${jdk}/bin/javac${AQUA_EXE}" "${android_jar}" "${d8}")
+        if(NOT EXISTS "${tool}")
+            message(FATAL_ERROR "${tool} is missing: run scripts/install-toolchain.ps1 -Targets ${AQUA_TARGET} and install platform ${android_platform} and build-tools ${android_build_tools} with sdkmanager.")
+        endif()
+    endforeach()
+    file(GLOB_RECURSE java_sources CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/platform/android/java/*.java")
+    add_custom_command(OUTPUT classes.dex
+        COMMAND "${CMAKE_COMMAND}" -E rm -rf java-classes
+        COMMAND "${jdk}/bin/javac${AQUA_EXE}" --release 17 -encoding UTF-8 -Xlint:-options -classpath "${android_jar}" -d java-classes ${java_sources}
+        COMMAND "${jdk}/bin/jar${AQUA_EXE}" cf java-classes.jar -C java-classes .
+        COMMAND "${CMAKE_COMMAND}" -E env "JAVA_HOME=${jdk}" "${d8}" --release --min-api ${AQUA_ANDROID_API} --lib "${android_jar}" --output . java-classes.jar
+        DEPENDS ${java_sources} VERBATIM)
+    add_custom_target(aquarius_activity ALL DEPENDS classes.dex)
+    install(FILES "${CMAKE_CURRENT_BINARY_DIR}/classes.dex" platform/android/AndroidManifest.xml DESTINATION .)
 elseif(AQUA_TARGET STREQUAL "web")
     # The host core as a side module; the glue links it after libc and before the libraries.
     add_library(aquarius SHARED ${host_sources} host/engine_web.c host/threads_web.c platform/web/platform.c platform/web/window.c)

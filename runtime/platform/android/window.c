@@ -58,6 +58,16 @@ static int32_t glfw_key(int32_t code) {
     return -1;
 }
 
+static void key_event(int32_t code, int32_t action, int32_t meta) {
+    if (!window) return;
+    int32_t key = glfw_key(code);
+    aqua_window_event e = {AQUA_EVENT_KEY};
+    e.key = key; e.scancode = code; e.action = action;
+    e.mods = (meta & AMETA_SHIFT_ON ? 1 : 0) | (meta & AMETA_CTRL_ON ? 2 : 0) | (meta & AMETA_ALT_ON ? 4 : 0);
+    if (key >= 0 && key < 512) window->keys[key] = action != 0;
+    emit(&e);
+}
+
 static int32_t on_input(struct android_app *a, AInputEvent *event) {
     (void)a;
     if (!window) return 0;
@@ -100,18 +110,39 @@ static int32_t on_input(struct android_app *a, AInputEvent *event) {
             if (action == AKEY_EVENT_ACTION_UP) { aqua_window_event e = {AQUA_EVENT_BACK}; emit(&e); }
             return 1;
         }
-        int32_t key = glfw_key(code);
-        aqua_window_event e = {AQUA_EVENT_KEY};
-        e.key = key; e.scancode = code;
-        e.action = action == AKEY_EVENT_ACTION_DOWN ? (AKeyEvent_getRepeatCount(event) ? 2 : 1) : 0;
-        int32_t meta = AKeyEvent_getMetaState(event);
-        e.mods = (meta & AMETA_SHIFT_ON ? 1 : 0) | (meta & AMETA_CTRL_ON ? 2 : 0) | (meta & AMETA_ALT_ON ? 4 : 0);
-        if (key >= 0 && key < 512) window->keys[key] = e.action != 0;
-        emit(&e);
+        key_event(code, action == AKEY_EVENT_ACTION_DOWN ? (AKeyEvent_getRepeatCount(event) ? 2 : 1) : 0, AKeyEvent_getMetaState(event));
         return 1;
     }
     return 0;
 }
+
+/* ---- Input-method text from AquariusActivity's editor, posted to the runtime thread by platform.c ---- */
+static bool composing;
+void android_ime_text(const char *utf8) {
+    aqua_window_event e = {AQUA_EVENT_TEXT};
+    e.text = utf8;
+    emit(&e);
+}
+void android_ime_composition(const char *utf8, int32_t cursor) {
+    if (!utf8) {
+        if (!composing) return;
+        composing = false;
+        aqua_window_event e = {AQUA_EVENT_COMPOSITION_END};
+        e.text = "";
+        emit(&e);
+        return;
+    }
+    if (!composing) {
+        composing = true;
+        aqua_window_event start = {AQUA_EVENT_COMPOSITION_START};
+        start.text = "";
+        emit(&start);
+    }
+    aqua_window_event e = {AQUA_EVENT_COMPOSITION_UPDATE};
+    e.text = utf8; e.cursor = cursor;
+    emit(&e);
+}
+void android_ime_key(int32_t code, bool down) { key_event(code, down ? 1 : 0, 0); }
 
 static void on_command(struct android_app *a, int32_t command) {
     (void)a;
@@ -224,10 +255,12 @@ void aqua_window_unlisten(aqua_window *w, aqua_window_listener run, void *data) 
         }
 }
 
-/* The soft keyboard, through InputMethodManager on the activity's decor view. */
+/* The soft keyboard: AquariusActivity's input editor (composition-aware), else InputMethodManager on the decor view. */
 static void soft_keyboard(bool show) {
     JNIEnv *env = android_jni();
     jobject activity = android_activity();
+    jmethodID show_keyboard = android_activity_method("showKeyboard", "(Z)V");
+    if (show_keyboard) { (*env)->CallVoidMethod(env, activity, show_keyboard, (jboolean)show); return; }
     jclass context = (*env)->FindClass(env, "android/content/Context");
     jstring service_name = (*env)->NewStringUTF(env, "input_method");
     jobject manager = (*env)->CallObjectMethod(env, activity, (*env)->GetMethodID(env, context, "getSystemService", "(Ljava/lang/String;)Ljava/lang/Object;"), service_name);
@@ -251,7 +284,7 @@ void aqua_window_text_input(aqua_window *w, bool enabled) {
     soft_keyboard(enabled);
 }
 void aqua_window_text_rect(aqua_window *w, int32_t x, int32_t y, int32_t width, int32_t height) { (void)w; (void)x; (void)y; (void)width; (void)height; }
-bool aqua_window_composition_supported(aqua_window *w) { (void)w; return false; }
+bool aqua_window_composition_supported(aqua_window *w) { (void)w; return android_activity_method("showKeyboard", "(Z)V") != NULL; }
 bool aqua_window_surface(aqua_window *w, aqua_surface *s) {
     (void)w;
     memset(s, 0, sizeof *s);
