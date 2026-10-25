@@ -1,0 +1,17 @@
+{"name":"繁體 😀","values":[1,2.5,true,null,"a\\b"],"big":1e+21,"small":1e-7,"neg":-0.5}
+{繁: [1, 1, 100, 0, 2147483648, 真, null, 😀	], dup: 2}
+integer double double integer double null
+{"繁":[1,1,100,0,2147483648,true,null,"😀\t"],"dup":2}
+[真, 3, 42, 假, 假, 4]
+0 null Invalid document length, schema or checksum.
+Expected a byte array.
+65 81 68 49 2 35 35
+2 繁😀 [1, 2, 3]
+Invalid document header or version.
+Invalid document length, schema or checksum.
+Expected bytes in 0..255.
+7
+Invalid document length, schema or checksum.
+128
+真
+ERROR: ParseJson: InvalidData: The JSON value's depth exceeds the maximum depth of 64.

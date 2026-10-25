@@ -12,7 +12,7 @@
 extern "C" {
 #endif
 
-typedef enum aqua_alpha { AQUA_ALPHA_NONE = 0, AQUA_ALPHA_STRAIGHT = 1, AQUA_ALPHA_PREMULTIPLIED = 2 } aqua_alpha;
+typedef enum aqua_alpha { AQUA_ALPHA_OPAQUE = 0, AQUA_ALPHA_STRAIGHT = 1, AQUA_ALPHA_PREMULTIPLIED = 2 } aqua_alpha;
 
 typedef struct aqua_image {
     int32_t width, height;

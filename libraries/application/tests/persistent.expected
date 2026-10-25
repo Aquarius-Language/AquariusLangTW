@@ -1,0 +1,11 @@
+persistent:/notes notes 0 aquarius:application:notes 假
+真 繁體 😀
+真 0 11 string 1
+2 first.txt 0 sub 1
+[1, 2] 繁體 😀
+假 2
+繁體 😀!
+key.one [5, 6]
+null 假 saved
+假
+ERROR: Delete: Conflict: Directory not empty

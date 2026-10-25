@@ -1,0 +1,10 @@
+manifest_version = 2
+[library]
+name = "application"
+version = "1.0.0"
+description = "Files, paths, image codecs (PNG, JPEG, BMP, GIF, TIFF), JSON/AQD1 documents, compression and ZIP, storage, clipboard, pickers, printing, accessibility, cancellation and text editing"
+license = "MIT"
+platforms = ["windows", "linux", "android", "web"]
+
+[native]
+modules = ["Files", "Paths", "Images", "Serialization|序列化", "Storage", "Clipboard", "Application", "Tasks", "TextEdit"]

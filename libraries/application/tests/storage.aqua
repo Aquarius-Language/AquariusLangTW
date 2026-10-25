@@ -1,0 +1,30 @@
+# Storage keys, preferences (AQD1 schema 1) and recent resources (20 at most, deduplicated by persistent identity).
+# The test runner points AQUARIUS_STORAGE_ROOT at an empty directory (the web uses the page's own IndexedDB).
+var storage = import("Storage");
+var files = import("Files");
+var settings = storage.SettingsDirectory();
+var data = storage.DataDirectory();
+print(settings.name, settings.kind, data.name, data.kind, settings.persistentIdentity);
+print(storage.Read("missing.key"), storage.GetPreference("theme"), storage.Recent());
+storage.Write("raw-value_1", [1, 2, 3]);
+print(storage.Read("raw-value_1"));
+storage.Write("raw-value_1", [4]);
+print(storage.讀取("raw-value_1"));
+storage.Delete("raw-value_1");
+storage.Delete("raw-value_1");
+print(storage.Read("raw-value_1"));
+storage.SetPreference("theme", {"name": "dark", "size": 12, "tags": ["a", "繁"]});
+print(storage.GetPreference("theme"));
+var theme = files.Resolve(settings.id + "/theme");
+print(files.Stat(theme).exists, import("Serialization").ParseBinary(files.ReadBytes(theme)).schema);
+storage.SetPreference("future", 1);
+var raw = storage.Read("future");
+raw[4] = 2;
+storage.Write("future", import("Serialization").Binary(1, 2));
+
+var temp = files.Temporary(true);
+for (var i = 0; i < 22; i++) { storage.Remember(files.Resolve(temp.id + "/item" + import("String").From(i % 21))); }
+var recent = storage.Recent();
+print(len(recent), recent[0]["name"], recent[1]["name"], recent[19]["name"], recent[0]["kind"], typeOf(recent[0]["persistentIdentity"]) == typeOf(temp.persistentIdentity));
+temp.Dispose();
+storage.GetPreference("future");

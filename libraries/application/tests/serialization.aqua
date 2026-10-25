@@ -1,0 +1,48 @@
+# JSON text, AQD1 documents (schema, CRC-32, strict UTF-8) and TryParseBinary that never stops the script.
+var data = import("Serialization");
+var 序列 = import("序列化");
+var q = import("String").FromCode(34);
+var none = data.ParseJson("null");
+
+print(data.Json({"name": "繁體 😀", "values": [1, 2.5d, true, none, "a\b"], "big": 1000000000000000000000.0d, "small": 0.0000001d, "neg": -0.5d}));
+var text = "{" + q + "繁" + q + ": [1, 1.0, 1e2, -0, 2147483648, true, null, " + q + "😀\t" + q + "], " + q + "dup" + q + ": 1, " + q + "dup" + q + ": 2}";
+var parsed = data.ParseJson(text);
+print(parsed);
+print(typeOf(parsed["繁"][0]), typeOf(parsed["繁"][1]), typeOf(parsed["繁"][2]), typeOf(parsed["繁"][3]), typeOf(parsed["繁"][4]), typeOf(parsed["繁"][6]));
+print(data.Json(parsed));
+
+# TryParseBinary keeps a valid document and reports failures as data.
+var 位元 = 序列.二進位序列化(42, 3);
+var 好 = 序列.嘗試解析二進位(位元);
+位元[len(位元) - 1] = 0;
+var 壞 = 序列.嘗試解析二進位(位元);
+var 錯型 = 序列.嘗試解析二進位("錯誤");
+print([好.ok, 好.schema, 好.value, 壞.ok, 錯型.ok, 4]);
+print(壞.schema, typeOf(壞.value), 壞.error);
+print(錯型.error);
+
+# Documents keep Unicode text and nested values; the header is AQD1, schema, length, CRC-32.
+var document = data.Binary({"text": "繁😀", "values": [1, 2, 3]}, 2);
+print(document[0], document[1], document[2], document[3], document[4], document[8], len(document) - 16);
+var read = data.ParseBinary(document);
+print(read.schema, read.value["text"], read.value["values"]);
+print(data.TryParseBinary([65, 81, 68, 57]).error);
+print(data.TryParseBinary([65, 81, 68, 49, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 123, 125]).error);
+print(data.TryParseBinary([1, 2, 300]).error);
+
+# Rejected JSON values and texts.
+var check = function(value) {
+    var result = data.TryParseBinary(value);
+    return result.error;
+};
+print(data.TryParseBinary(data.Binary([1, 2], 7)).schema);
+print(check([65, 81, 68, 49, 1, 0, 0, 0, 2, 0, 0, 0, 30, 20, 30, 89, 1, 2]));
+
+# Depth limit: 64 containers parse and serialize, 65 fail.
+var deep = "";
+for (var i = 0; i < 64; i++) { deep = deep + "["; }
+for (var i = 0; i < 64; i++) { deep = deep + "]"; }
+print(len(data.Json(data.ParseJson(deep))));
+print(data.TryParseBinary(data.Binary(data.ParseJson(deep), 1)).ok);
+data.ParseJson("[" + deep + "]");
+print("unreachable");

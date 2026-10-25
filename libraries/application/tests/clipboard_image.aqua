@@ -1,0 +1,9 @@
+# (windows only) Needs the Windows clipboard: images travel as PNG and DIBV5, the optional text as Unicode text.
+var clipboard = import("Clipboard");
+var images = import("Images");
+clipboard.WriteImage(images.Create(2, 1, [255, 0, 0, 255, 0, 0, 255, 128]), "caption");
+print(clipboard.Formats(), clipboard.ReadText());
+var image = clipboard.ReadImage();
+print(image.width, image.height, image.Pixels());
+clipboard.WriteText("text only");
+print(clipboard.ReadImage(), clipboard.Formats());

@@ -1,0 +1,5 @@
+boolean 真 真 boolean string
+boolean boolean boolean
+真 真 真 boolean boolean
+[] []
+ERROR: Accessibility: InvalidData: Invalid accessibility node list.

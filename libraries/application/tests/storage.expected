@@ -1,0 +1,9 @@
+settings 1 data 1 null
+null null []
+[1, 2, 3]
+[4]
+null
+{name: dark, size: 12, tags: [a, 繁]}
+真 1
+20 item0 item20 item2 0 真
+ERROR: GetPreference: Unsupported: Settings use a newer schema.

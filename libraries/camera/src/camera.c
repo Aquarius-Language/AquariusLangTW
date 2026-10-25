@@ -260,7 +260,7 @@ static aqua_value take_frame(camera_session *s) {
     aqua_runtime *rt = s->state->rt;
     frame_object *f = calloc(1, sizeof *f);
     camera_lock(&s->lock);
-    aqua_value image = aqua_image_new(rt, s->latest_width, s->latest_height, s->latest, AQUA_ALPHA_NONE);
+    aqua_value image = aqua_image_new(rt, s->latest_width, s->latest_height, s->latest, AQUA_ALPHA_OPAQUE);
     f->width = s->latest_width; f->height = s->latest_height;
     f->sequence = (double)s->sequence; f->timestamp = s->timestamp;
     s->delivered = s->sequence;

@@ -1,0 +1,24 @@
+3 grapheme
+真 2
+2 {text: 中文, cursorScalar: 1} {anchor: 2, caret: 2, start: 2, end: 2}
+3 null
+2 13 3 2
+甲字 0
+3 2
+假
+星泉夢 旅😀 真 星泉夢  真 星泉夢
+真  假 真 星泉夢 3
+星 真 星泉夢 真
+假
+真 星泉夢x
+hello brave 
+brave  真 hello brave 
+10
+{anchor: 11, caret: 23, start: 11, end: 23}
+真 29 真 0
+真 {anchor: 0, caret: 6, start: 0, end: 6} 真 {anchor: 0, caret: 29, start: 0, end: 29}
+真 0 真 29
+真 0 假 假
+假 {text: にほん, cursorScalar: 3}
+null 真 假
+ERROR: Select: InvalidData: Specified argument was out of the range of valid values. (Parameter 'caret')

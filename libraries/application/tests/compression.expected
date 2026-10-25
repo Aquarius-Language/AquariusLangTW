@@ -1,0 +1,13 @@
+[Gzip, 真, 真, 真, 真, 真, 真]
+[Zlib, 真, 真, 真, 真, 真, 真]
+[Deflate, 真, 真, 真, 真, 真, 真]
+[Brotli, 真, 真, 真, 真, 真, 真]
+31 139 120
+[] []
+真
+80 75 3 4
+[1, 2, 3] [] {schema: example}
+metadata.aqd;images/繁.bin;check.txt;empty;
+cbf43926
+1000
+ERROR: Decompress: InvalidData: Invalid compressed container checksum, header or length (one gzip member is supported).

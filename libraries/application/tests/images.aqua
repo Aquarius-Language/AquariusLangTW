@@ -1,0 +1,77 @@
+# The five codecs: requested format, explicit frames and pages, exact PNG/TIFF pixels, metadata (orientation,
+# resolution, source pixel format, palettes) and the documented alpha and metadata-loss rules.
+var images = import("Images");
+var 圖片 = import("Images");
+var twoFrameGif = [71, 73, 70, 56, 55, 97, 1, 0, 1, 0, 129, 0, 0, 255, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 44, 0, 0, 0, 0, 1, 0, 1, 0, 0, 8, 4, 0, 1, 4, 4, 0, 33, 249, 4, 1, 0, 0, 1, 0, 44, 0, 0, 0, 0, 1, 0, 1, 0, 129, 0, 0, 255, 0, 0, 0, 0, 0, 0, 0, 0, 0, 8, 4, 0, 1, 4, 4, 0, 59];
+var twoPageTiff = [73, 73, 42, 0, 8, 0, 0, 0, 11, 0, 0, 1, 4, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 1, 4, 0, 1, 0, 0, 0, 1, 0, 0, 0, 2, 1, 3, 0, 4, 0, 0, 0, 146, 0, 0, 0, 3, 1, 3, 0, 1, 0, 0, 0, 1, 0, 0, 0, 6, 1, 3, 0, 1, 0, 0, 0, 2, 0, 0, 0, 17, 1, 4, 0, 1, 0, 0, 0, 154, 0, 0, 0, 21, 1, 3, 0, 1, 0, 0, 0, 4, 0, 0, 0, 22, 1, 4, 0, 1, 0, 0, 0, 1, 0, 0, 0, 23, 1, 4, 0, 1, 0, 0, 0, 4, 0, 0, 0, 28, 1, 3, 0, 1, 0, 0, 0, 1, 0, 0, 0, 82, 1, 3, 0, 1, 0, 0, 0, 2, 0, 0, 0, 168, 0, 0, 0, 8, 0, 8, 0, 8, 0, 8, 0, 255, 0, 0, 255, 0, 0, 73, 73, 42, 0, 8, 0, 0, 0, 11, 0, 0, 1, 4, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 1, 4, 0, 1, 0, 0, 0, 1, 0, 0, 0, 2, 1, 3, 0, 4, 0, 0, 0, 50, 1, 0, 0, 3, 1, 3, 0, 1, 0, 0, 0, 1, 0, 0, 0, 6, 1, 3, 0, 1, 0, 0, 0, 2, 0, 0, 0, 17, 1, 4, 0, 1, 0, 0, 0, 58, 1, 0, 0, 21, 1, 3, 0, 1, 0, 0, 0, 4, 0, 0, 0, 22, 1, 4, 0, 1, 0, 0, 0, 1, 0, 0, 0, 23, 1, 4, 0, 1, 0, 0, 0, 4, 0, 0, 0, 28, 1, 3, 0, 1, 0, 0, 0, 1, 0, 0, 0, 82, 1, 3, 0, 1, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 8, 0, 8, 0, 8, 0, 8, 0, 0, 0, 255, 255, 0, 0];
+var subframeGif = [71, 73, 70, 56, 55, 97, 2, 0, 1, 0, 129, 0, 0, 255, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 33, 249, 4, 4, 0, 0, 0, 0, 44, 0, 0, 0, 0, 2, 0, 1, 0, 0, 8, 5, 0, 1, 0, 8, 8, 0, 33, 249, 4, 5, 0, 0, 2, 0, 44, 1, 0, 0, 0, 1, 0, 1, 0, 129, 255, 0, 0, 0, 0, 255, 0, 0, 0, 0, 0, 0, 8, 4, 0, 3, 4, 4, 0, 59];
+var orientedTiff = [73, 73, 42, 0, 8, 0, 0, 0, 15, 0, 0, 1, 4, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 1, 4, 0, 1, 0, 0, 0, 1, 0, 0, 0, 2, 1, 3, 0, 4, 0, 0, 0, 194, 0, 0, 0, 3, 1, 3, 0, 1, 0, 0, 0, 1, 0, 0, 0, 6, 1, 3, 0, 1, 0, 0, 0, 2, 0, 0, 0, 17, 1, 4, 0, 1, 0, 0, 0, 218, 0, 0, 0, 18, 1, 3, 0, 1, 0, 0, 0, 6, 0, 0, 0, 21, 1, 3, 0, 1, 0, 0, 0, 4, 0, 0, 0, 22, 1, 4, 0, 1, 0, 0, 0, 1, 0, 0, 0, 23, 1, 4, 0, 1, 0, 0, 0, 4, 0, 0, 0, 26, 1, 5, 0, 1, 0, 0, 0, 202, 0, 0, 0, 27, 1, 5, 0, 1, 0, 0, 0, 210, 0, 0, 0, 28, 1, 3, 0, 1, 0, 0, 0, 1, 0, 0, 0, 40, 1, 3, 0, 1, 0, 0, 0, 2, 0, 0, 0, 82, 1, 3, 0, 1, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 8, 0, 8, 0, 8, 0, 8, 0, 128, 50, 2, 0, 232, 3, 0, 0, 0, 119, 1, 0, 232, 3, 0, 0, 1, 2, 3, 255];
+var dibBmp = [66, 77, 62, 0, 0, 0, 0, 0, 0, 0, 54, 0, 0, 0, 40, 0, 0, 0, 2, 0, 0, 0, 1, 0, 0, 0, 1, 0, 32, 0, 0, 0, 0, 0, 8, 0, 0, 0, 196, 14, 0, 0, 196, 14, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 30, 20, 10, 0, 3, 2, 1, 0];
+
+print(images.Formats(), 圖片.格式());
+var source = images.Create(2, 1, [255, 0, 0, 255, 0, 255, 0, 128]);
+print(source.width, source.height, source.pixelFormat, source.alpha, source.metadata, source.Pixels());
+var formats = images.Formats();
+for (var i = 0; i < len(formats); i++) {
+    var encoded = images.Encode(source, formats[i], {"background": 16777215});
+    var info = images.Inspect(encoded);
+    var decoded = images.Decode(encoded, 0);
+    var palette = decoded.metadata["palette"];
+    print(formats[i], info.format, info.width, info.height, info.frames, len(decoded.Pixels()), decoded.metadata["sourcePixelFormat"], palette == images.Inspect(encoded).metadata["palette"], typeOf(palette));
+}
+print(images.Decode(images.Encode(source, "Png", {}), 0).Pixels(), images.Decode(images.Encode(source, "tiff", {"compression": 0}), 0).Pixels());
+print(images.Decode(images.Encode(source, "Tiff", {"compression": 9}), 0).Pixels(), images.Decode(images.Encode(source, "png", {"Compression": 1}), 0).Pixels());
+
+# Multiple frames and pages require a valid selection; GIF frames decode to the displayed canvas.
+print(images.Inspect(twoFrameGif).frames, images.Decode(twoFrameGif, 1).Pixels(), images.Decode(twoFrameGif, 0).Pixels());
+print(images.Inspect(twoPageTiff).frames, images.Decode(twoPageTiff, 1).Pixels(), images.Decode(twoPageTiff, 0).Pixels());
+var canvas = images.Decode(subframeGif, 1);
+print(canvas.width, canvas.Pixels(), images.Inspect(subframeGif).width);
+
+# Orientation and resolution survive PNG, JPEG and TIFF; pixels stay in stored orientation.
+var oriented = images.Decode(orientedTiff, 0);
+print(oriented.metadata, oriented.Pixels());
+var keep = ["Png", "Jpeg", "Tiff"];
+for (var i = 0; i < len(keep); i++) {
+    var m = images.Inspect(images.Encode(oriented, keep[i], {})).metadata;
+    print(keep[i], m["orientation"], m["dpiX"] > 143.9d, m["dpiX"] < 144.1d, m["dpiY"] > 95.9d, m["dpiY"] < 96.1d);
+}
+print(images.Inspect(images.Encode(oriented, "Bmp", {"allowMetadataLoss": true})).metadata);
+print(images.Inspect(images.Encode(oriented, "Gif", {"allowMetadataLoss": true})).metadata);
+
+# GIF keeps binary transparency; BMP reads clipboard-style 32-bit pixels with zero alpha as opaque.
+var cutout = images.Create(2, 1, [10, 20, 30, 255, 0, 0, 0, 0]);
+print(images.Decode(images.Encode(cutout, "Gif", {}), 0).Pixels());
+var dib = images.Decode(dibBmp, 0);
+print(dib.Pixels(), dib.metadata["sourcePixelFormat"], dib.metadata["dpiX"] > 96.0d);
+
+# JPEG quality changes the size; the EXIF orientation is always written.
+var gradient = [];
+var arrays = import("Array");
+gradient = arrays.Make(64 * 64 * 4, 255);
+for (var i = 0; i < 64 * 64; i++) { gradient[i * 4] = i % 256; gradient[i * 4 + 1] = (i * 7) % 256; }
+var picture = images.Create(64, 64, gradient);
+print(len(images.Encode(picture, "Jpeg", {"quality": 10})) < len(images.Encode(picture, "Jpeg", {"quality": 95})));
+print(images.Inspect(images.Encode(picture, "Jpeg", {})).metadata);
+
+# A quantized GIF (more than 256 colors), a palette TIFF (libtiff's RGBA conversion) and an RLE8 bitmap.
+var many = images.Decode(images.Encode(picture, "Gif", {}), 0);
+print(many.width, many.height, len(many.metadata["palette"]) <= 256, many.Pixels()[3]);
+var tiff = [];
+var u16 = function(v) { arrays.Append(tiff, v % 256); arrays.Append(tiff, v / 256); };
+var u32 = function(v) { u16(v % 65536); u16(v / 65536); };
+var entry = function(tag, kind, count, value) { u16(tag); u16(kind); u32(count); u32(value); };
+arrays.AppendArray(tiff, [73, 73, 42, 0]);
+u32(8);
+u16(10);
+entry(256, 4, 1, 2); entry(257, 4, 1, 1); entry(258, 3, 1, 8); entry(259, 3, 1, 1); entry(262, 3, 1, 3);
+entry(273, 4, 1, 134 + 1536); entry(277, 3, 1, 1); entry(278, 4, 1, 1); entry(279, 4, 1, 2); entry(320, 3, 768, 134);
+u32(0);
+for (var c = 0; c < 768; c++) { if (c == 0 || c == 256 + 2 || c == 512 + 1) { u16(65535); } else { u16(0); } }
+arrays.AppendArray(tiff, [0, 1]);
+var indexed = images.Decode(tiff, 0);
+print(indexed.Pixels(), indexed.metadata["sourcePixelFormat"], len(indexed.metadata["palette"]), indexed.metadata["palette"][1]);
+var rle = images.Decode([66, 77, 76, 0, 0, 0, 0, 0, 0, 0, 66, 0, 0, 0, 40, 0, 0, 0, 3, 0, 0, 0, 2, 0, 0, 0, 1, 0, 8, 0, 1, 0, 0, 0, 10, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 255, 0, 0, 255, 0, 0, 2, 1, 1, 2, 0, 0, 3, 2, 0, 1], 0);
+print(rle.Pixels(), rle.metadata["palette"]);
+
+images.Encode(source, "Jpeg", {});

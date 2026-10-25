@@ -1,0 +1,6 @@
+cancellation 假 假
+[1, 2, 3]
+真 假
+[1]
+[4]
+ERROR: Decompress: Cancelled: The operation was canceled.

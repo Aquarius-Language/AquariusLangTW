@@ -1,0 +1,19 @@
+# Cancellation tokens: UseCancellation applies a token to the calls after it; a cancelled token fails them with
+# Cancelled; UseCancellation(null) clears it.
+var tasks = import("Tasks");
+var data = import("Serialization");
+var token = tasks.CreateCancellation();
+var 權杖 = tasks.建立取消權杖();
+print(typeOf(token), token.IsCancelled(), 權杖.已取消());
+tasks.UseCancellation(token);
+print(data.Decompress(data.Compress([1, 2, 3], "Gzip"), "Gzip"));
+權杖.取消();
+print(權杖.IsCancelled(), token.IsCancelled());
+tasks.UseCancellation(權杖);
+print(data.Json([1]));
+tasks.UseCancellation(data.ParseJson("null"));
+print(data.Decompress(data.Compress([4], "Zlib"), "Zlib"));
+token.Dispose();
+tasks.UseCancellation(權杖);
+data.Decompress(data.Compress([5], "Zlib"), "Zlib");
+print("unreachable");

@@ -1,0 +1,12 @@
+/* The fields of the library's records (app_record): every name a record hash may hold. A record answers the fields
+ * its hash has; reading another fails like a missing member. Kept to the fields the old runtime's records exposed. */
+RECORD_FIELD(paths) RECORD_FIELD(streams) RECORD_FIELD(seek) RECORD_FIELD(directories) RECORD_FIELD(atomicReplace)
+RECORD_FIELD(persistent)
+RECORD_FIELD(exists) RECORD_FIELD(kind) RECORD_FIELD(length) RECORD_FIELD(modified)
+RECORD_FIELD(format) RECORD_FIELD(width) RECORD_FIELD(height) RECORD_FIELD(frames) RECORD_FIELD(metadata)
+RECORD_FIELD(schema) RECORD_FIELD(value) RECORD_FIELD(ok) RECORD_FIELD(error)
+RECORD_FIELD(text) RECORD_FIELD(selection) RECORD_FIELD(composition)
+RECORD_FIELD(image) RECORD_FIELD(multiple)
+RECORD_FIELD(files) RECORD_FIELD(codecs) RECORD_FIELD(persistentStorage) RECORD_FIELD(pickers) RECORD_FIELD(directoryPicker)
+RECORD_FIELD(printing) RECORD_FIELD(imageAcquisition) RECORD_FIELD(fontEnumeration) RECORD_FIELD(accessibility)
+RECORD_FIELD(fileAssociations) RECORD_FIELD(activation)

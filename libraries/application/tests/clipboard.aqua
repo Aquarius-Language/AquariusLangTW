@@ -1,0 +1,15 @@
+# (desktop only) Needs the desktop clipboard (Windows, or Linux with a display); not run on the web, where the clipboard needs a
+# focused page and the user's permission. Writes text and an image, then reads them back.
+var clipboard = import("Clipboard");
+var images = import("Images");
+clipboard.WriteText("繁體 😀 clipboard");
+print(clipboard.ReadText());
+var editing = import("TextEdit");
+var editor = editing.Create("copy me");
+editor.Select(0, 4);
+editor.Copy();
+print(clipboard.ReadText());
+editor.Select(7, 7);
+editor.Paste();
+print(editor.State().text);
+print(editor.Shortcut("x", 2), editor.State().text, clipboard.ReadText());

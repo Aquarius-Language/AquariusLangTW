@@ -1,0 +1,57 @@
+# Gzip, Zlib, raw Deflate and Brotli round trips at every level, container validation, expansion limits, and ZIP
+# archives with name, size and CRC-32 checks (CRC-32 of "123456789" is cbf43926).
+var data = import("Serialization");
+var arrays = import("Array");
+var zeros = arrays.Make(10000, 0);
+var counting = arrays.Make(5000, 0);
+for (var i = 0; i < 5000; i++) { counting[i] = (i * 73) % 256; }
+
+var same = function(a, b) {
+    if (len(a) != len(b)) { return false; }
+    for (var i = 0; i < len(a); i++) { if (a[i] != b[i]) { return false; } }
+    return true;
+};
+var formats = ["Gzip", "Zlib", "Deflate", "Brotli"];
+var levels = ["Optimal", "Fastest", "SmallestSize", "NoCompression"];
+for (var f = 0; f < len(formats); f++) {
+    var row = [formats[f]];
+    for (var l = 0; l < len(levels); l++) {
+        var packed = data.Compress(counting, formats[f], levels[l]);
+        arrays.Append(row, same(data.Decompress(packed, formats[f]), counting));
+    }
+    var small = data.Compress(zeros, formats[f]);
+    arrays.Append(row, same(data.Decompress(small, formats[f]), zeros));
+    arrays.Append(row, len(small) < 200);
+    print(row);
+}
+print(data.Compress([1, 2, 3], "gzip")[0], data.Compress([1, 2, 3], "gzip")[1], data.Compress([1, 2, 3], "ZLIB")[0]);
+print(data.Decompress(data.Compress([], "Brotli"), "Brotli"), data.Decompress(data.Compress([], "Deflate"), "Deflate"));
+
+var corrupt = function(format) {
+    var packed = data.Compress(counting, format);
+    packed[len(packed) - 2] = (packed[len(packed) - 2] + 1) % 256;
+    return packed;
+};
+print(len(data.Compress(zeros, "Gzip")) > 18);
+
+# ZIP archives: names, contents and CRC-32 in the local header.
+var archive = data.Archive({"metadata.aqd": data.Binary({"schema": "example"}, 1), "images/繁.bin": [1, 2, 3], "check.txt": [49, 50, 51, 52, 53, 54, 55, 56, 57], "empty": []});
+print(archive[0], archive[1], archive[2], archive[3]);
+var resources = data.ReadArchive(archive);
+print(resources["images/繁.bin"], resources["empty"], data.ParseBinary(resources["metadata.aqd"]).value);
+var names = "";
+var keys = import("Hash").Keys(resources);
+for (var i = 0; i < len(keys); i++) { names = names + keys[i] + ";"; }
+print(names);
+var hex = function(n) {
+    var digits = "0123456789abcdef";
+    var text = import("String");
+    return text.Slice(digits, n / 16, n / 16 + 1) + text.Slice(digits, n % 16, n % 16 + 1);
+};
+var big = arrays.Make(1000, 0);
+for (var i = 0; i < 1000; i++) { big[i] = i % 7; }
+var single = data.Archive({"check.txt": [49, 50, 51, 52, 53, 54, 55, 56, 57]});
+print(hex(single[17]) + hex(single[16]) + hex(single[15]) + hex(single[14]));
+print(len(data.ReadArchive(data.Archive({"big": big}))["big"]));
+
+data.Decompress(corrupt("Gzip"), "Gzip");

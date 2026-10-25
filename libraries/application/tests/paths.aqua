@@ -1,0 +1,11 @@
+# Lexical slash paths with drive and UNC roots: no file system access, drive-relative paths fail.
+var paths = import("Paths");
+print(paths.Normalize("a/../b//./c"), paths.Normalize("../a/../../b"), paths.Normalize("C:\a\..\b"), paths.Normalize("//server/share/../../a"));
+print(paths.Normalize(""), paths.Normalize("/"), paths.Normalize("/.."), paths.Normalize("c:/x/./y/"), paths.Normalize("a\b\c"));
+print(paths.Join(["a", "b"]), paths.Join(["a", "/b"]), paths.Join(["C:/root", "x", "../y"]), paths.Join([]), paths.Join(["a", "//srv/sh", "z"]));
+print(paths.Relative("/a", "/b/c"), paths.Relative("C:/a/b", "C:/a/b/c/d"), paths.Relative("x/y", "x"), paths.Relative("/a", "/a"));
+print(paths.Parent("C:/file"), paths.Parent("/a/b"), paths.Parent("a"), paths.Parent("//server/share/f"), paths.Parent("/"));
+print(paths.Name("C:/dir/report.final.txt"), paths.Name("/"), paths.Name("."), paths.Name("//server/share"));
+print(paths.Extension(".hidden"), paths.Extension("archive.tar.gz"), paths.Extension("noext"), paths.Extension("dir.d/file"));
+print(paths.正規化("甲/./乙/../丙"), paths.組合(["甲", "乙"]), paths.檔名("甲/乙.txt"), paths.副檔名("甲/乙.txt"), paths.父目錄("甲/乙"), paths.相對路徑("甲", "甲/乙"));
+paths.Relative("C:/a", "/a");

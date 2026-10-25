@@ -1,0 +1,73 @@
+# Files on a temporary directory: resources, atomic saves, strict encodings, streams, enumeration, copy/move/delete,
+# images through files, and the end of a temporary lease. Works the same on the desktop and the web (temporary:/).
+var files = import("Files");
+var images = import("Images");
+var temp = files.Temporary(true);
+print(temp.kind, files.Stat(temp).exists, files.Stat(temp).kind, typeOf(temp.provider), typeOf(temp.id));
+var child = function(name) { return files.Resolve(temp.id + "/" + name); };
+var doc = child("doc.txt");
+print(doc.name, doc.kind, files.Stat(doc).exists, files.Stat(doc).length);
+print(files.SaveText(doc, "繁😀", "utf-8", true), files.ReadText(doc, "utf-8"), files.Stat(doc).length, files.ReadBytes(doc));
+print(files.SaveText(doc, "繁😀", "UTF-16LE"), files.ReadBytes(doc), files.ReadText(doc, "utf-16le"));
+print(files.SaveText(doc, "A😀", "utf-16be"), files.ReadBytes(doc), files.ReadText(doc, "utf-16be"));
+print(files.SaveText(doc, "plain", "ascii"), files.ReadText(doc, "ASCII"));
+files.SaveBytes(doc, [239, 187, 191, 65]);
+print(len(files.ReadText(doc, "utf-8")), import("String").Code(files.ReadText(doc, "utf-8"), 0));
+
+# Streams: read with seeking, overwrite, append (no seeking before the old end), create.
+files.SaveText(doc, "繁😀", "utf-8");
+var stream = files.Open(doc, "Read");
+print(stream.canRead, stream.canWrite, stream.canSeek, stream.Seek(3, "Begin"), stream.Read(1), stream.Read(100), stream.Read(5));
+print(stream.Seek(-2, "End"), stream.Read(2), stream.Seek(0, "begin"), stream.Read(3));
+stream.Close();
+stream.Close();
+var writer = files.Open(doc, "OpenWrite");
+writer.Write([65, 66, 67]);
+writer.Flush();
+writer.Close();
+print(files.ReadBytes(doc));
+var appender = files.Open(doc, "Append");
+print(appender.canRead, appender.canWrite, appender.Seek(0, "Current"));
+appender.Write([33]);
+appender.Close();
+print(files.ReadBytes(doc));
+var creator = files.Open(child("new.bin"), "Create");
+creator.Write([1, 2, 3, 4]);
+print(creator.Seek(1, "Begin"));
+creator.Write([9]);
+creator.Close();
+print(files.ReadBytes(child("new.bin")));
+
+# Directories: create, enumerate (sorted), copy (files and whole directories), move, delete.
+files.CreateDirectory(child("sub"));
+files.SaveBytes(files.Resolve(temp.id + "/sub/inner.bin"), [7, 8]);
+files.Copy(doc, child("copy.txt"));
+files.Move(child("copy.txt"), child("moved.txt"));
+files.Copy(child("sub"), child("sub2"));
+var names = function(directory) {
+    var list = files.Enumerate(directory);
+    var out = [];
+    var arrays = import("Array");
+    for (var i = 0; i < len(list); i++) { arrays.Append(out, list[i].name + ":" + import("String").From(list[i].kind)); }
+    return out;
+};
+print(names(temp), names(child("sub2")));
+print(files.ReadBytes(files.Resolve(temp.id + "/sub2/inner.bin")), files.ReadBytes(child("moved.txt")));
+files.Copy(child("new.bin"), child("moved.txt"), true);
+print(files.ReadBytes(child("moved.txt")));
+files.Delete(child("moved.txt"));
+files.Delete(child("sub2"), true);
+print(names(temp), files.Stat(child("moved.txt")).exists);
+
+# Images through files.
+var picture = images.Create(1, 1, [9, 8, 7, 255]);
+print(images.Save(child("picture.png"), picture, "Png", {}), images.Load(child("picture.png"), 0).Pixels(), images.Inspect(files.ReadBytes(child("picture.png"))).format);
+
+# A temporary file lease, then the end of both leases.
+var single = files.Temporary(false);
+print(single.kind, files.Stat(single).exists, files.Stat(single).length);
+single.Dispose();
+single.Dispose();
+temp.Dispose();
+print(files.Stat(single).exists, files.Stat(temp).exists);
+files.SaveText(doc, "😀", "ascii");

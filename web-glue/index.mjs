@@ -5,5 +5,10 @@ import './window/window.mjs';
 import './audio/audio.mjs';
 import './camera/camera.mjs';
 import './webgpu/webgpu.mjs';
+import './storage/storage.mjs';
+import './files/files.mjs';
+import './clipboard/clipboard.mjs';
+import './print/print.mjs';
+import './accessibility/accessibility.mjs';
 
 export { startApplication } from './core/runtime.mjs';

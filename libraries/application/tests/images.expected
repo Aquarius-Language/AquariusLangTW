@@ -1,0 +1,26 @@
+[Png, Jpeg, Bmp, Gif, Tiff] [Png, Jpeg, Bmp, Gif, Tiff]
+2 1 RGBA8 Straight {orientation: 1, dpiX: null, dpiY: null, sourcePixelFormat: RGBA8, palette: null} [255, 0, 0, 255, 0, 255, 0, 128]
+Png 0 2 1 1 8 TrueColorAlpha, 8 bits/channel 真 null
+Jpeg 1 2 1 1 8 TrueColor, 8 bits/channel 真 null
+Bmp 2 2 1 1 8 TrueColor, 8 bits/channel 真 null
+Gif 3 2 1 1 8 Palette, 8 bits/channel 假 array
+Tiff 4 2 1 1 8 TrueColorAlpha, 8 bits/channel 真 null
+[255, 0, 0, 255, 0, 255, 0, 128] [255, 0, 0, 255, 0, 255, 0, 128]
+[255, 0, 0, 255, 0, 255, 0, 128] [255, 0, 0, 255, 0, 255, 0, 128]
+2 [0, 0, 255, 255] [255, 0, 0, 255]
+2 [0, 0, 255, 255] [255, 0, 0, 255]
+2 [255, 0, 0, 255, 0, 0, 255, 255] 2
+{orientation: 6, dpiX: 144, dpiY: 96, sourcePixelFormat: TrueColorAlpha, 8 bits/channel, palette: null} [1, 2, 3, 255]
+Png 6 真 真 真 真
+Jpeg 6 真 真 真 真
+Tiff 6 真 真 真 真
+{orientation: 1, dpiX: 143.99259999999998, dpiY: 96.012, sourcePixelFormat: TrueColor, 8 bits/channel, palette: null}
+{orientation: 1, dpiX: null, dpiY: null, sourcePixelFormat: Palette, 8 bits/channel, palette: null}
+[10, 20, 30, 255, 0, 0, 0, 0]
+[10, 20, 30, 255, 1, 2, 3, 255] TrueColor, 8 bits/channel 真
+真
+{orientation: 1, dpiX: null, dpiY: null, sourcePixelFormat: TrueColor, 8 bits/channel, palette: null}
+64 64 真 255
+[255, 0, 0, 255, 0, 0, 255, 255] Palette, 8 bits/channel 256 65535
+[0, 255, 0, 255, 0, 255, 0, 255, 0, 255, 0, 255, 255, 0, 0, 255, 255, 0, 0, 255, 0, 255, 0, 255] [255, 4278190335, 16711935]
+ERROR: Encode: InvalidData: This conversion requires an explicit opaque RGB background.

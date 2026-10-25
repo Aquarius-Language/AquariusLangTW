@@ -18,7 +18,7 @@ static void width(aqua_call *call) { aqua_return_int(call, self(call)->width); }
 static void height(aqua_call *call) { aqua_return_int(call, self(call)->height); }
 static void pixel_format(aqua_call *call) { aqua_return_cstring(call, self(call)->pixel_format ? self(call)->pixel_format : "Rgba32"); }
 static void alpha(aqua_call *call) {
-    static const char *const names[] = {"None", "Straight", "Premultiplied"};
+    static const char *const names[] = {"Opaque", "Straight", "Premultiplied"};
     aqua_return_cstring(call, names[self(call)->alpha]);
 }
 static void metadata(aqua_call *call) {

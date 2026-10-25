@@ -1,0 +1,12 @@
+# Application services without a person: capability records, launch documents (none here) and option validation.
+var application = import("Application");
+var files = import("Files");
+var clipboard = import("Clipboard");
+var caps = application.Capabilities();
+print(typeOf(caps.files["available"]), caps.files["available"], caps.codecs["available"], typeOf(caps.pickers["available"]), typeOf(caps.activation["restriction"]));
+var clip = clipboard.Capabilities();
+print(typeOf(clip.text["available"]), typeOf(clip.image["available"]), typeOf(clip.multiple["available"]));
+var fileCaps = files.Capabilities();
+print(fileCaps.streams, fileCaps.seek, fileCaps.directories, typeOf(fileCaps.paths), typeOf(fileCaps.persistent));
+print(application.LaunchFiles(), application.啟動檔案());
+application.Accessibility([{"id": "a", "role": "status", "label": "first"}, {"id": "a", "role": "status", "label": "again"}]);

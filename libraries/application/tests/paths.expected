@@ -1,0 +1,9 @@
+b/c ../../b C:/b //server/share/a
+. / / C:/x/y a/b/c
+a/b /b C:/root/y . //srv/sh/z
+../b/c c/d .. .
+C:/ /a . //server/share/ /
+report.final.txt   
+ .gz  
+甲/丙 甲/乙 乙.txt .txt 甲 乙
+ERROR: Relative: InvalidData: Paths have different roots.

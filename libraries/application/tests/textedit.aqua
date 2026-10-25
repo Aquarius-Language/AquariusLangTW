@@ -1,0 +1,66 @@
+# Editor positions are extended graphemes; composition stays apart from the text; undo coalesces typing.
+var editing = import("TextEdit");
+var text = import("String");
+var acute = text.FromCode(769);
+var family = "👨‍👩‍👧‍👦";
+
+var editor = editing.Create("e" + acute + family + "繁");
+print(editor.State().length, editor.positionUnit);
+editor.Select(3, 3);
+editor.Backspace();
+print(editor.State().text == "e" + acute + family, editor.State().length);
+editor.Composition("中文", 1);
+editor.Backspace();
+var state = editor.State();
+print(state.length, state.composition, state.selection);
+editor.Commit("字");
+print(editor.State().length, editor.State().composition);
+print(editor.Convert(1, "Grapheme", "Utf16"), editor.Convert(2, "grapheme", "utf16"), editor.Convert(4, "Utf16", "UnicodeScalar"), editor.Convert(13, "UTF16", "Grapheme"));
+editor.Select(0, 2);
+editor.Insert("甲");
+editor.Move(-1, "word", false);
+print(editor.State().text, editor.State().selection["caret"]);
+print(editing.Convert("a😀b", 2, "UnicodeScalar", "Utf16"), editing.轉換位置("a😀b", 3, "Utf16", "Grapheme"));
+
+# Undo and redo: consecutive typing coalesces; a space, a selection change or a deletion starts a new step.
+var undo = editing.Create("");
+print(undo.CanUndo());
+var typed = ["星", "泉", "夢", " ", "旅", "😀"];
+for (var i = 0; i < len(typed); i++) { undo.Insert(typed[i]); }
+print(undo.State().text, undo.Undo(), undo.State().text, undo.Undo(), undo.State().text);
+print(undo.Undo(), undo.State().text, undo.Undo(), undo.Redo(), undo.State().text, undo.State().selection["caret"]);
+undo.Backspace();
+undo.Backspace();
+print(undo.State().text, undo.Undo(), undo.State().text, undo.CanRedo());
+undo.Insert("x");
+print(undo.CanRedo());
+undo.Select(1, 1);
+undo.Insert("y");
+print(undo.Undo(), undo.State().text);
+
+var words = editing.Create("hello brave world");
+words.Move(1, "document", false);
+words.DeleteWord(-1);
+print(words.State().text);
+words.Move(-1, "document", false);
+words.DeleteWord(1);
+print(words.State().text, words.Undo(), words.State().text);
+
+# Lines, words, shortcuts (no clipboard): arrows, Home/End, Ctrl+A, Ctrl+Z, Ctrl+Shift+Z, Ctrl+Backspace.
+var lines = editing.Create("first line" + text.FromCode(10) + "second_line 2 here");
+lines.Move(1, "line", false);
+print(lines.State().selection["caret"]);
+lines.Move(1, "grapheme", false);
+lines.Move(1, "word", true);
+print(lines.State().selection);
+print(lines.Shortcut("End", 0), lines.State().selection["caret"], lines.Shortcut("Home", 2), lines.State().selection["caret"]);
+print(lines.Shortcut("ArrowRight", 3), lines.State().selection, lines.Shortcut("a", 2), lines.State().selection);
+print(lines.Shortcut("Backspace", 0), len(lines.State().text), lines.Shortcut("Z", 2), len(lines.State().text));
+print(lines.Shortcut("z", 3), len(lines.State().text), lines.Shortcut("F5", 0), lines.Shortcut("b", 2));
+lines.Composition("にほん", 3, "Utf16");
+print(lines.Shortcut("ArrowLeft", 0), lines.State().composition);
+lines.CancelComposition();
+print(lines.State().composition, lines.CanUndo(), lines.CanRedo());
+
+var hint = editing.Create("ab");
+hint.Select(0, 5);
