@@ -138,7 +138,7 @@ void *aqua_window_native(aqua_window *window);
 
 #if defined(AQUA_OS_WINDOWS)
 /* Windows only: sees each message of the window procedure first (WM_GETOBJECT for accessibility, ...). Setting
-   *handled returns the hook's result instead of the default processing. Linked libraries only (not in the table). */
+   *handled returns the hook's result instead of the default processing. */
 typedef intptr_t (*aqua_window_message_hook)(aqua_window *window, uint32_t message, uintptr_t wparam, intptr_t lparam, bool *handled, void *data);
 void aqua_window_add_message_hook(aqua_window *window, aqua_window_message_hook hook, void *data);
 void aqua_window_remove_message_hook(aqua_window *window, aqua_window_message_hook hook, void *data);

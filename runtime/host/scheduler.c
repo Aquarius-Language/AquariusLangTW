@@ -297,6 +297,8 @@ double runtime_turn(aqua_runtime *rt, double budget_ms) {
         if (now >= deadline) break;
     }
     if (rt->exiting) return -1;
+    /* A tick may have settled a deferred call (aqua_resolve), making its task runnable again. */
+    for (task *t = rt->tasks; t && !runnable; t = t->next) runnable = !t->finished && !t->pending && t->execution;
     if (runnable || atomic_load(&rt->post_flag)) return 0;
     if (!rt->tasks && !rt->timers && rt->finished) return -1;
     if (rt->timers) { double wait = rt->timers->due - aqua_now_ms(rt); return wait > 0 ? wait : 0; }

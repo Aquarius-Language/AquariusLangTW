@@ -1,7 +1,7 @@
 /* Every function of aqua.h that an external native library reaches through the runtime's function table, in table
    order. The runtime fills the table (runtime/host/api.c) and aqua_api_stub.c forwards each declaration to it, so this
-   list, aqua.h and both expansions are checked against each other by the compiler. Append new functions at the end and
-   raise AQUA_API_VERSION; never reorder. Variadic functions travel as their va_list forms (aqua_vfail, aqua_vreject).
+   list, aqua.h and both expansions are checked against each other by the compiler. Append new functions before the
+   platform-specific block at the end and raise AQUA_API_VERSION; never reorder. Variadic functions travel as their va_list forms (aqua_vfail, aqua_vreject).
      AQUA_API(return type, name, (parameters), (arguments))   AQUA_API_VOID(name, (parameters), (arguments)) */
 AQUA_API(const char *, aqua_type_name, (aqua_value v), (v))
 AQUA_API(aqua_value, aqua_text, (aqua_runtime *rt, const char *utf8, size_t length), (rt, utf8, length))
@@ -140,3 +140,16 @@ AQUA_API(aqua_image *, aqua_image_of, (aqua_runtime *rt, aqua_value value), (rt,
 AQUA_API_VOID(aqua_image_describe, (aqua_runtime *rt, aqua_image *image, aqua_value metadata, const char *pixel_format), (rt, image, metadata, pixel_format))
 AQUA_API(aqua_value, aqua_window_object, (aqua_window *window), (window))
 AQUA_API(aqua_window *, aqua_window_of, (aqua_runtime *rt, aqua_value value), (rt, value))
+/* Platform-specific functions, last: the table of each target ends with that target's entries. */
+#if defined(AQUA_OS_WINDOWS)
+AQUA_API_VOID(aqua_window_add_message_hook, (aqua_window *window, aqua_window_message_hook hook, void *data), (window, hook, data))
+AQUA_API_VOID(aqua_window_remove_message_hook, (aqua_window *window, aqua_window_message_hook hook, void *data), (window, hook, data))
+#elif defined(AQUA_OS_ANDROID)
+AQUA_API(JNIEnv *, aqua_android_jni, (void), ())
+AQUA_API(jobject, aqua_android_activity, (void), ())
+AQUA_API(void *, aqua_android_assets, (void), ())
+AQUA_API(bool, aqua_android_start_activity, (jobject intent, aqua_android_result done, void *data), (intent, done, data))
+AQUA_API_VOID(aqua_android_request_permission, (const char *permission, void (*done)(bool granted, void *data), void *data), (permission, done, data))
+AQUA_API_VOID(aqua_android_insets, (float *left, float *top, float *right, float *bottom, bool *keyboard_visible), (left, top, right, bottom, keyboard_visible))
+AQUA_API(struct aqua_window *, aqua_android_window, (void), ())
+#endif
