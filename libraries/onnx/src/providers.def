@@ -1,0 +1,14 @@
+/* The execution provider catalog: every provider identity a script can name on any platform, with its Traditional
+ * Chinese constant. The identifier is the language-visible value and the English constant (ONNX.CUDA == "CUDA").
+ * Platforms implement any subset (devices.def); a new provider is added here once and then declared by the targets
+ * that support it.  PROVIDER(identifier, Traditional Chinese constant)                                              */
+PROVIDER(CPU, "中央處理器")          /* ONNX Runtime's default CPU kernels (MLAS) */
+PROVIDER(CUDA, "輝達CUDA")           /* NVIDIA CUDA/cuDNN on Windows and Linux x64 */
+PROVIDER(TensorRT, "輝達TensorRT")   /* NVIDIA TensorRT engines (FP16, engine cache); CUDA runs the remaining nodes */
+PROVIDER(CoreML, "蘋果CoreML")       /* Apple Core ML on the Neural Engine and Metal GPU */
+PROVIDER(WebGPU, "網頁圖形加速")     /* portable GPU kernels through Dawn (D3D12/Vulkan/Metal) or the browser's WebGPU */
+PROVIDER(WebNN, "網頁神經網路")      /* the browser's Web Neural Network API */
+PROVIDER(NNAPI, "安卓神經網路")      /* Android Neural Networks API vendor drivers (NPU/DSP/GPU) */
+PROVIDER(XNNPACK, "行動處理器加速")  /* XNNPACK-optimized ARM/x86 CPU kernels for mobile */
+PROVIDER(OpenVINO, "英特爾OpenVINO") /* the Intel OpenVINO plugin for Intel CPU, GPU and NPU */
+PROVIDER(QNN, "高通QNN")             /* the Qualcomm AI Engine Direct plugin for Snapdragon NPU (HTP) and GPU */

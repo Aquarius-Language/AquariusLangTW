@@ -1,0 +1,491 @@
+Compile the full (ONNX format) build without C++ exceptions.
+
+Minimal builds never compile these files; a full build needs them:
+- gsl::narrow exists only with exceptions; onnxruntime::narrow is ONNX Runtime's exception-free equivalent.
+- Raw try/catch become ORT_TRY/ORT_CATCH, with handlers that read the exception inside ORT_HANDLE_EXCEPTION (the
+  pattern ONNX Runtime uses elsewhere). Without exceptions the handlers are compiled out.
+- JSON parsing in the model package code uses nlohmann::json's non-throwing parse (a discarded value on error) and
+  strtoll instead of std::stoll.
+
+diff --git a/onnxruntime/core/framework/kernel_type_str_resolver.cc b/onnxruntime/core/framework/kernel_type_str_resolver.cc
+--- a/onnxruntime/core/framework/kernel_type_str_resolver.cc
++++ b/onnxruntime/core/framework/kernel_type_str_resolver.cc
+@@ -167,7 +167,7 @@
+         auto fbs_arg = fbs::CreateArgTypeAndIndex(
+             builder,
+             arg.first == ArgType::kInput ? fbs::ArgType::INPUT : fbs::ArgType::OUTPUT,
+-            gsl::narrow<uint32_t>(arg.second));
++            narrow<uint32_t>(arg.second));
+         fbs_args.push_back(fbs_arg);
+       }
+ 
+diff --git a/onnxruntime/core/graph/runtime_optimization_record_container.cc b/onnxruntime/core/graph/runtime_optimization_record_container.cc
+--- a/onnxruntime/core/graph/runtime_optimization_record_container.cc
++++ b/onnxruntime/core/graph/runtime_optimization_record_container.cc
+@@ -57,7 +57,7 @@
+ 
+   const auto fbs_node_indices = builder.CreateVector<uint32_t>(
+       nodes_to_optimize_indices.nodes.size(),
+-      [&](size_t i) { return gsl::narrow<uint32_t>(nodes_to_optimize_indices.nodes[i]); });
++      [&](size_t i) { return narrow<uint32_t>(nodes_to_optimize_indices.nodes[i]); });
+ 
+   const auto fbs_nodes_to_optimize =
+       fbs::CreateNodesToOptimizeIndices(builder,
+diff --git a/onnxruntime/core/optimizer/attention_fusion.cc b/onnxruntime/core/optimizer/attention_fusion.cc
+--- a/onnxruntime/core/optimizer/attention_fusion.cc
++++ b/onnxruntime/core/optimizer/attention_fusion.cc
+@@ -142,9 +142,9 @@
+   num_heads = reshape_dims[3];
+   head_size = reshape_dims[4];
+ 
+-  try {
++  ORT_TRY {
+     hidden_size = SafeInt<int64_t>(num_heads) * head_size;
+-  } catch (const OnnxRuntimeException&) {
++  } ORT_CATCH(const OnnxRuntimeException&) {
+     return false;
+   }
+ 
+@@ -748,25 +748,25 @@
+     const float* k_weight = k_initializer.data<float>();
+     const float* v_weight = v_initializer.data<float>();
+     std::vector<float> result;
+-    result.reserve(gsl::narrow<size_t>(element_count));
++    result.reserve(narrow<size_t>(element_count));
+     if (is_matmul) {
+       optimizer_utils::MergeMatMulWeightsByRow<float>(q_weight, k_weight, v_weight, result, hidden_size, hidden_size, hidden_size);
+     } else {
+       optimizer_utils::MergeWeights1d<float>(q_weight, k_weight, v_weight, result, hidden_size, hidden_size);
+     }
+-    utils::SetRawDataInTensorProto(initializer, result.data(), gsl::narrow<size_t>(element_count) * sizeof(float));
++    utils::SetRawDataInTensorProto(initializer, result.data(), narrow<size_t>(element_count) * sizeof(float));
+   } else {  // data_type == ONNX_NAMESPACE::TensorProto_DataType_FLOAT16
+     const MLFloat16* q_weight = q_initializer.data<MLFloat16>();
+     const MLFloat16* k_weight = k_initializer.data<MLFloat16>();
+     const MLFloat16* v_weight = v_initializer.data<MLFloat16>();
+     std::vector<MLFloat16> result;
+-    result.reserve(gsl::narrow<size_t>(element_count));
++    result.reserve(narrow<size_t>(element_count));
+     if (is_matmul) {
+       optimizer_utils::MergeMatMulWeightsByRow<MLFloat16>(q_weight, k_weight, v_weight, result, hidden_size, hidden_size, hidden_size);
+     } else {
+       optimizer_utils::MergeWeights1d<MLFloat16>(q_weight, k_weight, v_weight, result, hidden_size, hidden_size);
+     }
+-    utils::SetRawDataInTensorProto(initializer, result.data(), gsl::narrow<size_t>(element_count) * sizeof(MLFloat16));
++    utils::SetRawDataInTensorProto(initializer, result.data(), narrow<size_t>(element_count) * sizeof(MLFloat16));
+   }
+ 
+   return graph_utils::AddInitializerWithOrtValue(graph, initializer);
+diff --git a/onnxruntime/core/optimizer/embed_layer_norm_fusion.cc b/onnxruntime/core/optimizer/embed_layer_norm_fusion.cc
+--- a/onnxruntime/core/optimizer/embed_layer_norm_fusion.cc
++++ b/onnxruntime/core/optimizer/embed_layer_norm_fusion.cc
+@@ -446,7 +446,7 @@
+ bool CheckEmbeddingData(const T* data, int64_t batch_size, int64_t element_count) {
+   // check that all batches has same data.
+   size_t data_length = SafeInt<size_t>(batch_size) * element_count;
+-  for (size_t i = gsl::narrow<size_t>(element_count); i < data_length; i++) {
++  for (size_t i = narrow<size_t>(element_count); i < data_length; i++) {
+     if (data[i] != data[i % element_count]) {
+       return false;
+     }
+@@ -480,13 +480,13 @@
+     if (!CheckEmbeddingData(data, batch_size, element_count)) {
+       return nullptr;
+     }
+-    utils::SetRawDataInTensorProto(initializer, data, gsl::narrow<size_t>(element_count) * sizeof(float));
++    utils::SetRawDataInTensorProto(initializer, data, narrow<size_t>(element_count) * sizeof(float));
+   } else {  // data_type == ONNX_NAMESPACE::TensorProto_DataType_FLOAT16
+     const MLFloat16* data = old_initializer.data<MLFloat16>();
+     if (!CheckEmbeddingData(data, batch_size, element_count)) {
+       return nullptr;
+     }
+-    utils::SetRawDataInTensorProto(initializer, data, gsl::narrow<size_t>(element_count) * sizeof(MLFloat16));
++    utils::SetRawDataInTensorProto(initializer, data, narrow<size_t>(element_count) * sizeof(MLFloat16));
+   }
+ 
+   NodeArg& node_arg = graph_utils::AddInitializerWithOrtValue(graph, initializer);
+diff --git a/onnxruntime/core/optimizer/group_query_attention_fusion.cc b/onnxruntime/core/optimizer/group_query_attention_fusion.cc
+--- a/onnxruntime/core/optimizer/group_query_attention_fusion.cc
++++ b/onnxruntime/core/optimizer/group_query_attention_fusion.cc
+@@ -44,7 +44,7 @@
+ 
+   int64_t element_count = input_hidden_size * output_hidden_size;
+   std::vector<MLFloat16> merged_qkv_weight;
+-  merged_qkv_weight.reserve(gsl::narrow<size_t>(element_count));
++  merged_qkv_weight.reserve(narrow<size_t>(element_count));
+ 
+   optimizer_utils::MergeMatMulWeightsByRow(q_data, k_data, v_data, merged_qkv_weight, input_hidden_size, q_hidden_size, kv_hidden_size);
+   utils::SetRawDataInTensorProto(qkv_weight_initializer, merged_qkv_weight.data(), element_count * sizeof(MLFloat16));
+@@ -119,11 +119,11 @@
+ 
+   int64_t element_count = output_hidden_size * blocks * block_size;
+   std::vector<uint8_t> merged_qkv_weight;
+-  merged_qkv_weight.reserve(gsl::narrow<size_t>(element_count));
++  merged_qkv_weight.reserve(narrow<size_t>(element_count));
+ 
+   int64_t scale_elements_count = output_hidden_size * blocks;
+   std::vector<MLFloat16> merged_qkv_scale;
+-  merged_qkv_scale.reserve(gsl::narrow<size_t>(scale_elements_count));
++  merged_qkv_scale.reserve(narrow<size_t>(scale_elements_count));
+ 
+   optimizer_utils::MergeMatMulWeightsByBlocks(q_data, k_data, v_data, merged_qkv_weight, q_hidden_size, kv_hidden_size, blocks, block_size);
+   optimizer_utils::MergeMatMulWeightsByBlocks(q_scale_data, k_scale_data, v_scale_data, merged_qkv_scale, q_hidden_size, kv_hidden_size, blocks, 1);
+@@ -156,7 +156,7 @@
+     qkv_zp_initializer.set_data_type(q_zero_point_tensor->data_type());
+ 
+     std::vector<uint8_t> merged_qkv_zp;
+-    merged_qkv_zp.reserve(gsl::narrow<size_t>(zp_elements_count));
++    merged_qkv_zp.reserve(narrow<size_t>(zp_elements_count));
+ 
+     optimizer_utils::MergeMatMulWeightsByBlocks(q_zero_points_data, k_zero_points_data, v_zero_points_data,
+                                                 merged_qkv_zp, q_hidden_size, kv_hidden_size, zero_point_blocks, 1);
+diff --git a/onnxruntime/core/optimizer/nchwc_transformer.cc b/onnxruntime/core/optimizer/nchwc_transformer.cc
+--- a/onnxruntime/core/optimizer/nchwc_transformer.cc
++++ b/onnxruntime/core/optimizer/nchwc_transformer.cc
+@@ -437,7 +437,7 @@
+     for (size_t i = 2; i < 4; i++) {
+       reordered_filter_size *= conv_W_dims[i];
+     }
+-    InlinedVector<float> reordered_filter(gsl::narrow<size_t>(reordered_filter_size));
++    InlinedVector<float> reordered_filter(narrow<size_t>(reordered_filter_size));
+ 
+     // Reorder the weights tensor statically.
+     if (reorder_filter_OIHWBo) {
+@@ -473,7 +473,7 @@
+     } else {
+       Initializer conv_B{graph_, *conv_B_tensor_proto, graph_.ModelPath()};
+ 
+-      InlinedVector<float> aligned_bias(gsl::narrow<size_t>(nchwc_output_channels));
++      InlinedVector<float> aligned_bias(narrow<size_t>(nchwc_output_channels));
+       ORT_ENFORCE(output_channels <= nchwc_output_channels, "Buffer overflow");
+       std::copy_n(conv_B.data<float>(), output_channels, aligned_bias.data());
+ 
+@@ -482,7 +482,7 @@
+       nchwc_conv_B_tensor_proto.set_data_type(ONNX_NAMESPACE::TensorProto_DataType_FLOAT);
+       nchwc_conv_B_tensor_proto.set_name(graph_.GenerateNodeArgName("reorder"));
+       utils::SetRawDataInTensorProto(nchwc_conv_B_tensor_proto, aligned_bias.data(),
+-                                     gsl::narrow<size_t>(nchwc_output_channels) * sizeof(float));
++                                     narrow<size_t>(nchwc_output_channels) * sizeof(float));
+ 
+       nchwc_conv_B_tensor_proto.add_dims(nchwc_output_channels);
+ 
+@@ -837,14 +837,14 @@
+   const size_t nchwc_block_size = MlasNchwcGetBlockSize();
+   const int64_t nchwc_channels = (channels + static_cast<int64_t>(nchwc_block_size) - 1) & ~static_cast<int64_t>(nchwc_block_size - 1);
+ 
+-  InlinedVector<float> padded_scale(gsl::narrow<size_t>(nchwc_channels), 1.0f);
++  InlinedVector<float> padded_scale(narrow<size_t>(nchwc_channels), 1.0f);
+   std::copy_n(mul_scale.data<float>(), channels, padded_scale.data());
+ 
+   ONNX_NAMESPACE::TensorProto nchwc_conv_W_tensor_proto;
+   nchwc_conv_W_tensor_proto.set_data_type(ONNX_NAMESPACE::TensorProto_DataType_FLOAT);
+   nchwc_conv_W_tensor_proto.set_name(graph_.GenerateNodeArgName("mul_scale"));
+   utils::SetRawDataInTensorProto(nchwc_conv_W_tensor_proto, padded_scale.data(),
+-                                 gsl::narrow<size_t>(nchwc_channels) * sizeof(float));
++                                 narrow<size_t>(nchwc_channels) * sizeof(float));
+   nchwc_conv_W_tensor_proto.add_dims(nchwc_channels);
+   nchwc_conv_W_tensor_proto.add_dims(1);
+   nchwc_conv_W_tensor_proto.add_dims(1);
+@@ -1128,7 +1128,7 @@
+   const size_t nchwc_block_size = MlasNchwcGetBlockSize();
+   const int64_t nchwc_channels = (channels + nchwc_block_size - 1) & ~(nchwc_block_size - 1);
+ 
+-  InlinedVector<float> padded_buffer(gsl::narrow<size_t>(nchwc_channels));
++  InlinedVector<float> padded_buffer(narrow<size_t>(nchwc_channels));
+ 
+   std::copy_n(bn_scale.data<float>(), channels, padded_buffer.data());
+ 
+@@ -1136,7 +1136,7 @@
+   nchwc_conv_W_tensor_proto.set_data_type(ONNX_NAMESPACE::TensorProto_DataType_FLOAT);
+   nchwc_conv_W_tensor_proto.set_name(graph_.GenerateNodeArgName("bn_scale"));
+   utils::SetRawDataInTensorProto(nchwc_conv_W_tensor_proto, padded_buffer.data(),
+-                                 gsl::narrow<size_t>(nchwc_channels) * sizeof(float));
++                                 narrow<size_t>(nchwc_channels) * sizeof(float));
+   nchwc_conv_W_tensor_proto.add_dims(nchwc_channels);
+   nchwc_conv_W_tensor_proto.add_dims(1);
+   nchwc_conv_W_tensor_proto.add_dims(1);
+@@ -1150,7 +1150,7 @@
+   nchwc_conv_B_tensor_proto.set_data_type(ONNX_NAMESPACE::TensorProto_DataType_FLOAT);
+   nchwc_conv_B_tensor_proto.set_name(graph_.GenerateNodeArgName("bn_B"));
+   utils::SetRawDataInTensorProto(nchwc_conv_B_tensor_proto, padded_buffer.data(),
+-                                 gsl::narrow<size_t>(nchwc_channels) * sizeof(float));
++                                 narrow<size_t>(nchwc_channels) * sizeof(float));
+   nchwc_conv_B_tensor_proto.add_dims(nchwc_channels);
+ 
+   auto* nchwc_conv_B_arg = &graph_utils::AddInitializerWithOrtValue(graph_, nchwc_conv_B_tensor_proto);
+diff --git a/onnxruntime/core/optimizer/utils.cc b/onnxruntime/core/optimizer/utils.cc
+--- a/onnxruntime/core/optimizer/utils.cc
++++ b/onnxruntime/core/optimizer/utils.cc
+@@ -175,11 +175,11 @@
+   const auto data_type = tensor_proto->data_type();
+   if (data_type == ONNX_NAMESPACE::TensorProto_DataType_INT64) {
+     const int64_t* val = init_const.data<int64_t>();
+-    data.reserve(data.size() + gsl::narrow<size_t>(init_const.size()));
++    data.reserve(data.size() + narrow<size_t>(init_const.size()));
+     data.insert(data.end(), val, val + init_const.size());
+   } else if (data_type == ONNX_NAMESPACE::TensorProto_DataType_INT32) {
+     const int32_t* val = init_const.data<int32_t>();
+-    data.reserve(data.size() + gsl::narrow<size_t>(init_const.size()));
++    data.reserve(data.size() + narrow<size_t>(init_const.size()));
+     for (size_t i = 0; i < init_const.size(); i++) {
+       data.push_back(static_cast<int64_t>(val[i]));
+     }
+diff --git a/onnxruntime/core/framework/allocation_planner.cc b/onnxruntime/core/framework/allocation_planner.cc
+--- a/onnxruntime/core/framework/allocation_planner.cc
++++ b/onnxruntime/core/framework/allocation_planner.cc
+@@ -2569,7 +2569,7 @@
+   }
+   std::ifstream if_stream(config_file_);
+   if (if_stream.is_open()) {
+-    try {
++    ORT_TRY {
+       json json_config = json::parse(if_stream);
+       if (json_config["type"] != Type()) {
+         EXIT_ON_ERR("Partitioner type is not DeviceBasedPartitioner");
+@@ -2584,8 +2584,10 @@
+         const std::string type_str = device_type;
+         device_types_.push_back(static_cast<OrtDevice::DeviceType>(std::atoi(type_str.c_str())));
+       }
+-    } catch (const std::exception& ex) {
+-      EXIT_ON_ERR(ex.what());
++    } ORT_CATCH(const std::exception& ex) {
++      std::string message;
++      ORT_HANDLE_EXCEPTION([&]() { message = ex.what(); });
++      EXIT_ON_ERR(message);
+     }
+     if_stream.close();
+     ORT_ENFORCE(node_names_by_stream_.size() == device_types_.size(),
+@@ -2623,7 +2625,9 @@
+     }
+   }
+   ORT_CATCH(const std::exception& ex) {
+-    LOGS(logger_, WARNING) << "Caught exception during saving DeviceBasedPartitioner config: " << ex.what();
++    ORT_HANDLE_EXCEPTION([&]() {
++      LOGS(logger_, WARNING) << "Caught exception during saving DeviceBasedPartitioner config: " << ex.what();
++    });
+   }
+ }
+ 
+@@ -2635,7 +2639,7 @@
+   if (!config_file.empty()) {
+     std::ifstream f(config_file);
+     if (f.is_open()) {
+-      try {
++      ORT_TRY {
+         json json_config = json::parse(f);
+         if (json_config.contains("type")) {
+           auto type = json_config["type"];
+@@ -2643,8 +2647,8 @@
+             partitioner_type = IGraphPartitioner::GraphPartitioningStrategy::DeviceBasedPartition;
+           }
+         }
+-      } catch (const std::exception& ex) {
+-        LOGS(logger, WARNING) << "Caught exception when reading partition config file: " << ex.what();
++      } ORT_CATCH(const std::exception& ex) {
++        ORT_HANDLE_EXCEPTION([&]() { LOGS(logger, WARNING) << "Caught exception when reading partition config file: " << ex.what(); });
+       }
+       f.close();
+     }
+diff --git a/onnxruntime/core/framework/graph_partitioner.cc b/onnxruntime/core/framework/graph_partitioner.cc
+--- a/onnxruntime/core/framework/graph_partitioner.cc
++++ b/onnxruntime/core/framework/graph_partitioner.cc
+@@ -1164,7 +1164,7 @@
+   {
+     const GraphViewer graph_viewer(ep_graph);
+     for (const auto& ep : execution_providers) {
+-      try {
++      ORT_TRY {
+         // Generate the compatibility string for this EP
+         std::string compatibility_string = ep->GetCompiledModelCompatibilityInfo(graph_viewer);
+         if (!compatibility_string.empty()) {
+@@ -1180,8 +1180,10 @@
+           }
+           LOGS(logger, VERBOSE) << "Added EP compatibility info for " << ep->Type() << " with key: " << metadata_key;
+         }
+-      } catch (const std::exception& ex) {
+-        LOGS(logger, WARNING) << "Failed to generate compatibility string for EP " << ep->Type() << ": " << ex.what();
++      } ORT_CATCH(const std::exception& ex) {
++        ORT_HANDLE_EXCEPTION([&]() {
++          LOGS(logger, WARNING) << "Failed to generate compatibility string for EP " << ep->Type() << ": " << ex.what();
++        });
+       }
+     }
+   }
+diff --git a/onnxruntime/core/optimizer/constant_folding.cc b/onnxruntime/core/optimizer/constant_folding.cc
+--- a/onnxruntime/core/optimizer/constant_folding.cc
++++ b/onnxruntime/core/optimizer/constant_folding.cc
+@@ -487,9 +487,9 @@
+       // This prevents malicious models from causing excessive memory allocation during constant folding.
+       if (max_output_size > 0) {
+         int64_t estimated_size = -1;
+-        try {
++        ORT_TRY {
+           estimated_size = EstimateNodeOutputSizeInBytes(*node, graph);
+-        } catch (const std::exception&) {
++        } ORT_CATCH(const std::exception&) {
+           // SafeInt overflow means the size is astronomically large - definitely skip
+           LOGS(logger, WARNING) << "Integer overflow while estimating output size of "
+                                 << node->OpType() << " node '" << node->Name()
+@@ -595,12 +595,14 @@
+       // Skip the current node if Compute fails so one bad constant-fold candidate does not abort
+       // the entire constant folding pass.
+       Status compute_status = Status::OK();
+-      try {
++      ORT_TRY {
+         compute_status = kernel->Compute(&op_kernel_context);
+-      } catch (const std::exception& ex) {
+-        LOGS(logger, WARNING) << "Exception during constant folding of " << node->OpType()
+-                              << " node '" << node->Name() << "': " << ex.what()
+-                              << ". Skipping constant folding for this node.";
++      } ORT_CATCH(const std::exception& ex) {
++        ORT_HANDLE_EXCEPTION([&]() {
++          LOGS(logger, WARNING) << "Exception during constant folding of " << node->OpType()
++                                << " node '" << node->Name() << "': " << ex.what()
++                                << ". Skipping constant folding for this node.";
++        });
+         continue;
+       }
+ 
+@@ -622,7 +624,7 @@
+       if (max_output_size > 0) {
+         SafeInt<int64_t> actual_total_size = 0;
+         bool size_exceeded = false;
+-        try {
++        ORT_TRY {
+           for (size_t fetch_idx = 0; fetch_idx < fetches.size(); ++fetch_idx) {
+             if (fetches[fetch_idx].IsAllocated() && fetches[fetch_idx].IsTensor()) {
+               const auto& tensor = fetches[fetch_idx].Get<Tensor>();
+@@ -630,7 +632,7 @@
+             }
+           }
+           size_exceeded = actual_total_size > max_output_size;
+-        } catch (const std::exception&) {
++        } ORT_CATCH(const std::exception&) {
+           // SafeInt overflow means total size is astronomically large
+           size_exceeded = true;
+         }
+diff --git a/onnxruntime/core/session/plugin_ep/ep_library_plugin.cc b/onnxruntime/core/session/plugin_ep/ep_library_plugin.cc
+--- a/onnxruntime/core/session/plugin_ep/ep_library_plugin.cc
++++ b/onnxruntime/core/session/plugin_ep/ep_library_plugin.cc
+@@ -71,7 +71,7 @@
+   // Current implementation assumes any error is permanent so does not leave pieces around to re-attempt Unload.
+   if (handle_) {
+     if (!factories_.empty()) {
+-      try {
++      ORT_TRY {
+         for (size_t idx = 0, end = factories_.size(); idx < end; ++idx) {
+           auto* factory = factories_[idx];
+           if (factory == nullptr) {
+@@ -89,8 +89,8 @@
+         }
+ 
+         factories_.clear();
+-      } catch (const std::exception& ex) {
+-        LOGS_DEFAULT(ERROR) << "Failed releasing EP factories from " << library_path_ << ": " << ex.what();
++      } ORT_CATCH(const std::exception& ex) {
++        ORT_HANDLE_EXCEPTION([&]() { LOGS_DEFAULT(ERROR) << "Failed releasing EP factories from " << library_path_ << ": " << ex.what(); });
+       }
+     }
+ 
+diff --git a/onnxruntime/core/session/model_package/model_package_context.cc b/onnxruntime/core/session/model_package/model_package_context.cc
+--- a/onnxruntime/core/session/model_package/model_package_context.cc
++++ b/onnxruntime/core/session/model_package/model_package_context.cc
+@@ -417,11 +417,10 @@
+       if (const ::ModelExecutorInfoEntry* ei =
+               ::ModelVariantInfo_FindExecutorInfo(variant, "ort")) {
+         if (ei->json != nullptr && ei->json[0] != '\0') {
+-          try {
+-            ort_obj = json::parse(ei->json);
+-          } catch (const std::exception& e) {
++          ort_obj = json::parse(ei->json, nullptr, false);
++          if (ort_obj->is_discarded()) {
+             ORT_THROW("Failed to parse executor_info[\"ort\"] JSON for variant '",
+-                      ort_variant.variant_name, "' in component '", component_name, "': ", e.what());
++                      ort_variant.variant_name, "' in component '", component_name, "'");
+           }
+         }
+       }
+@@ -505,11 +504,10 @@
+ 
+       // Variant-scope additional_metadata.
+       if (variant->additional_metadata_json != nullptr) {
+-        try {
+-          ort_variant.consumer_metadata = json::parse(variant->additional_metadata_json);
+-        } catch (const std::exception& e) {
++        ort_variant.consumer_metadata = json::parse(variant->additional_metadata_json, nullptr, false);
++        if (ort_variant.consumer_metadata->is_discarded()) {
+           ORT_THROW("Failed to parse additional_metadata JSON for variant '", ort_variant.variant_name,
+-                    "' in component '", component_name, "': ", e.what());
++                    "' in component '", component_name, "'");
+         }
+       }
+ 
+diff --git a/model_package/src/manifest_parser.cc b/model_package/src/manifest_parser.cc
+--- a/model_package/src/manifest_parser.cc
++++ b/model_package/src/manifest_parser.cc
+@@ -99,11 +99,9 @@
+ ModelPackageStatus* ParseJsonFile(const fs::path& path, ordered_json* out) {
+   std::string contents;
+   if (auto* s = ReadFileToString(path, &contents)) return s;
+-  try {
+-    *out = ordered_json::parse(contents);
+-  } catch (const ordered_json::parse_error& e) {
+-    return MakeStatus(MODEL_PACKAGE_ERR_SCHEMA,
+-                      "Failed to parse JSON at '" + path.string() + "': " + e.what());
++  *out = ordered_json::parse(contents, nullptr, false);
++  if (out->is_discarded()) {
++    return MakeStatus(MODEL_PACKAGE_ERR_SCHEMA, "Failed to parse JSON at '" + path.string() + "'.");
+   }
+   return nullptr;
+ }
+@@ -450,12 +448,10 @@
+     const std::string minor_str = (dot == std::string::npos) ? std::string("0") : sv.substr(dot + 1);
+     auto parse_part = [](const std::string& s, int64_t* out) -> bool {
+       if (s.empty() || s.find_first_not_of("0123456789") != std::string::npos) return false;
+-      try {
+-        *out = std::stoll(s);
+-      } catch (const std::exception&) {
+-        return false;
+-      }
+-      return true;
++      errno = 0;
++      char* end = nullptr;
++      *out = std::strtoll(s.c_str(), &end, 10);
++      return errno == 0 && end != nullptr && *end == '\0';
+     };
+     if (dot != std::string::npos && minor_str.find('.') != std::string::npos) {
+       return MakeStatus(MODEL_PACKAGE_ERR_SCHEMA,
+@@ -628,13 +624,9 @@
+     std::ostringstream buf;
+     buf << f.rdbuf();
+     std::string contents = buf.str();
+-    try {
+-      auto _ = ordered_json::parse(contents);
+-      (void)_;
+-    } catch (const std::exception& e) {
++    if (ordered_json::parse(contents, nullptr, false).is_discarded()) {
+       return MakeStatus(MODEL_PACKAGE_ERR_SCHEMA,
+-                        std::string("Failed to parse executor_info JSON at '") +
+-                            resolved.string() + "': " + e.what());
++                        std::string("Failed to parse executor_info JSON at '") + resolved.string() + "'.");
+     }
+     *dst_json = std::move(contents);
+     return nullptr;
+diff --git a/model_package/src/authoring.cc b/model_package/src/authoring.cc
+--- a/model_package/src/authoring.cc
++++ b/model_package/src/authoring.cc
+@@ -37,11 +37,9 @@
+ }
+ 
+ ModelPackageStatus* ParseJsonString(const char* json, const char* where, ordered_json* out) {
+-  try {
+-    *out = ordered_json::parse(json);
+-  } catch (const ordered_json::parse_error& e) {
+-    return MakeStatus(MODEL_PACKAGE_ERR_SCHEMA,
+-                      std::string(where) + ": JSON parse error: " + e.what());
++  *out = ordered_json::parse(json, nullptr, false);
++  if (out->is_discarded()) {
++    return MakeStatus(MODEL_PACKAGE_ERR_SCHEMA, std::string(where) + ": JSON parse error.");
+   }
+   return nullptr;
+ }

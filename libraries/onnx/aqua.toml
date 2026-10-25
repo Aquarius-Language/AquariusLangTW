@@ -1,0 +1,10 @@
+manifest_version = 2
+[library]
+name = "onnx"
+version = "1.0.0"
+description = "ONNX Runtime inference (ranked CPU/GPU/NPU execution providers) and the MediaPipe pose tracker"
+license = "MIT"
+platforms = ["windows", "linux", "android", "web"]
+
+[native]
+modules = ["ONNX|推論引擎|ONNXRuntime", "MediaPipe|姿態追蹤"]

@@ -1,0 +1,134 @@
+Build ONNX Runtime for WebAssembly with a WASI toolchain (wasm32-wasip1) instead of Emscripten.
+
+- onnxruntime_WASI marks such builds. They have no shared libraries or dlopen, so the shared provider bridge
+  (provider_bridge_ort.cc, onnxruntime_providers_shared) is left out exactly as in minimal builds, and the stubs that
+  minimal builds use for its C API functions apply (ORT_NO_SHARED_PROVIDERS).
+- onnxruntime_DISABLE_EXCEPTIONS is allowed in full builds (ONNX format models need them); patches 0002 and 0003 make
+  the code compile without exceptions. An engine error ONNX Runtime would throw then aborts instead.
+- ONNX's tensor.h throws directly; it now uses ONNX's own ONNX_THROW_EX, which honours ONNX_NO_EXCEPTIONS (an extra
+  hunk in ONNX Runtime's patch for ONNX).
+
+diff --git a/cmake/CMakeLists.txt b/cmake/CMakeLists.txt
+--- a/cmake/CMakeLists.txt
++++ b/cmake/CMakeLists.txt
+@@ -10,6 +10,12 @@
+ # Project
+ project(onnxruntime C CXX ASM)
+ 
++# WebAssembly through a WASI toolchain without Emscripten (AquariusLang): no shared libraries, no JavaScript glue.
++if (CMAKE_SYSTEM_PROCESSOR STREQUAL "wasm32" AND NOT CMAKE_SYSTEM_NAME STREQUAL "Emscripten")
++  set(onnxruntime_WASI ON)
++  add_compile_definitions(ORT_NO_SHARED_PROVIDERS)
++endif()
++
+ include(onnxruntime_language_standard_versions.cmake)
+ 
+ # We don't use C++20 modules yet.
+@@ -202,7 +208,7 @@
+ option(onnxruntime_ENABLE_SESSION_THREADPOOL_CALLBACKS "Enable per-session thread pool work callbacks." OFF)
+ cmake_dependent_option(onnxruntime_DISABLE_RTTI "Disable RTTI" ON "NOT onnxruntime_ENABLE_PYTHON;NOT onnxruntime_USE_CUDA" OFF)
+ # For now onnxruntime_DISABLE_EXCEPTIONS will only work with onnxruntime_MINIMAL_BUILD, more changes (ONNX, non-CPU EP, ...) are required to run this standalone
+-cmake_dependent_option(onnxruntime_DISABLE_EXCEPTIONS "Disable exception handling. Requires onnxruntime_MINIMAL_BUILD currently." ON "onnxruntime_MINIMAL_BUILD;NOT onnxruntime_ENABLE_PYTHON" OFF)
++cmake_dependent_option(onnxruntime_DISABLE_EXCEPTIONS "Disable exception handling." ON "NOT onnxruntime_ENABLE_PYTHON" OFF)
+ # Even when onnxruntime_DISABLE_ABSEIL is ON, ONNX Runtime still needs to link to abseil.
+ option(onnxruntime_DISABLE_ABSEIL "Do not use Abseil data structures in ONNX Runtime source code. Redefine Inlined containers to STD containers." OFF)
+ 
+diff --git a/cmake/adjust_global_compile_flags.cmake b/cmake/adjust_global_compile_flags.cmake
+--- a/cmake/adjust_global_compile_flags.cmake
++++ b/cmake/adjust_global_compile_flags.cmake
+@@ -156,10 +156,6 @@
+ # If this is only enabled in an onnxruntime_ORT_MODEL_FORMAT_ONLY build we don't need ONNX changes
+ # as we (currently) only pull in data_type_utils.cc/h which doesn't throw
+ if (onnxruntime_DISABLE_EXCEPTIONS)
+-  if (NOT onnxruntime_MINIMAL_BUILD)
+-    message(FATAL_ERROR "onnxruntime_MINIMAL_BUILD required for onnxruntime_DISABLE_EXCEPTIONS")
+-  endif()
+-
+   if (onnxruntime_ENABLE_PYTHON)
+     # pybind11 highly depends on C++ exceptions.
+     message(FATAL_ERROR "onnxruntime_ENABLE_PYTHON must be disabled for onnxruntime_DISABLE_EXCEPTIONS")
+diff --git a/cmake/onnxruntime_providers_cpu.cmake b/cmake/onnxruntime_providers_cpu.cmake
+--- a/cmake/onnxruntime_providers_cpu.cmake
++++ b/cmake/onnxruntime_providers_cpu.cmake
+@@ -217,7 +217,7 @@
+ if (NOT onnxruntime_MINIMAL_BUILD AND NOT onnxruntime_EXTENDED_MINIMAL_BUILD
+                                   AND NOT ${CMAKE_SYSTEM_NAME} MATCHES "Darwin|iOS|visionOS|tvOS"
+                                   AND NOT CMAKE_SYSTEM_NAME STREQUAL "Android"
+-                                  AND NOT CMAKE_SYSTEM_NAME STREQUAL "Emscripten")
++                                  AND NOT CMAKE_SYSTEM_NAME STREQUAL "Emscripten" AND NOT onnxruntime_WASI)
+   file(GLOB onnxruntime_providers_shared_cc_srcs CONFIGURE_DEPENDS
+   "${ONNXRUNTIME_ROOT}/core/providers/shared/*.h"
+   "${ONNXRUNTIME_ROOT}/core/providers/shared/*.cc"
+diff --git a/cmake/onnxruntime_session.cmake b/cmake/onnxruntime_session.cmake
+--- a/cmake/onnxruntime_session.cmake
++++ b/cmake/onnxruntime_session.cmake
+@@ -50,6 +50,10 @@
+   list(REMOVE_ITEM onnxruntime_session_srcs ${onnxruntime_session_src_exclude})
+ endif()
+ 
++if (onnxruntime_WASI)
++  list(REMOVE_ITEM onnxruntime_session_srcs "${ONNXRUNTIME_ROOT}/core/session/provider_bridge_ort.cc")
++endif()
++
+ source_group(TREE ${REPO_ROOT} FILES ${onnxruntime_session_srcs})
+ 
+ onnxruntime_add_static_library(onnxruntime_session ${onnxruntime_session_srcs})
+diff --git a/cmake/patches/onnx/onnx.patch b/cmake/patches/onnx/onnx.patch
+--- a/cmake/patches/onnx/onnx.patch
++++ b/cmake/patches/onnx/onnx.patch
+@@ -46,3 +46,31 @@
+          .SetDoc(GroupNormalization_ver18_doc)
+          .Attr("epsilon", "The epsilon value to use to avoid division by zero.", AttributeProto::FLOAT, 1e-5f)
+          .Attr(
++diff --git a/onnx/common/tensor.h b/onnx/common/tensor.h
++--- a/onnx/common/tensor.h
+++++ b/onnx/common/tensor.h
++@@ -13,6 +13,7 @@
++ #include <vector>
++ 
++ #include "onnx/common/assertions.h"
+++#include "onnx/common/common.h"
++ #include "onnx/common/safe_math.h"
++ #include "onnx/onnx_pb.h"
++ 
++@@ -51,14 +52,14 @@
++   /// if tensor is a scalar, the sizes is empty, but the element number is actually 1.
++   /// size_from_dim() cannot handle this case, while elem_num() handles it correctly
++   int64_t elem_num() const {
++-    return safe_dim_product(sizes_, [](const char* msg) { throw tensor_error(msg); });
+++    return safe_dim_product(sizes_, [](const char* msg) { ONNX_THROW_EX(tensor_error(msg)); });
++   }
++   int64_t size_from_dim(int dim) const {
++     if (dim < 0) {
++       dim += static_cast<int>(sizes_.size());
++     }
++     ONNX_ASSERT(dim >= 0 && (size_t)dim < sizes_.size())
++-    return safe_dim_product(sizes_.begin() + dim, sizes_.end(), [](const char* msg) { throw tensor_error(msg); });
+++    return safe_dim_product(sizes_.begin() + dim, sizes_.end(), [](const char* msg) { ONNX_THROW_EX(tensor_error(msg)); });
++   }
++ 
++   int32_t elem_type() const {
+diff --git a/onnxruntime/core/session/provider_registration.cc b/onnxruntime/core/session/provider_registration.cc
+--- a/onnxruntime/core/session/provider_registration.cc
++++ b/onnxruntime/core/session/provider_registration.cc
+@@ -386,7 +386,7 @@
+  * Stubs for EP functions from OrtApis that are implemented in provider_bridge_ort.cc in a full build.
+  * That file is not included in a minimal build.
+  */
+-#if defined(ORT_MINIMAL_BUILD)
++#if defined(ORT_MINIMAL_BUILD) || defined(ORT_NO_SHARED_PROVIDERS)
+ ORT_API_STATUS_IMPL(OrtApis::SessionOptionsAppendExecutionProvider_CUDA,
+                     _In_ OrtSessionOptions* options, _In_ const OrtCUDAProviderOptions* provider_options) {
+   ORT_UNUSED_PARAMETER(options);
+diff --git a/onnxruntime/core/session/ort_env.cc b/onnxruntime/core/session/ort_env.cc
+--- a/onnxruntime/core/session/ort_env.cc
++++ b/onnxruntime/core/session/ort_env.cc
+@@ -37,7 +37,7 @@
+ 
+ OrtEnv::~OrtEnv() {
+ // We don't support any shared providers in the minimal build yet
+-#if !defined(ORT_MINIMAL_BUILD)
++#if !defined(ORT_MINIMAL_BUILD) && !defined(ORT_NO_SHARED_PROVIDERS)
+   UnloadSharedProviders();
+ #endif
+ 

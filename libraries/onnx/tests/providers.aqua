@@ -1,0 +1,39 @@
+# The provider catalog, preference and type constants, this machine's ranked device list and selection parsing.
+# Only facts that hold on every machine are printed: the device table itself depends on the GPUs and drivers present.
+var onnx = import("ONNX");
+print(onnx.CPU, onnx.中央處理器, onnx.CUDA, onnx.輝達CUDA, onnx.TensorRT, onnx.輝達TensorRT, onnx.CoreML, onnx.蘋果CoreML);
+print(onnx.WebGPU, onnx.網頁圖形加速, onnx.WebNN, onnx.網頁神經網路, onnx.NNAPI, onnx.安卓神經網路, onnx.XNNPACK, onnx.行動處理器加速);
+print(onnx.OpenVINO, onnx.英特爾OpenVINO, onnx.QNN, onnx.高通QNN);
+print(onnx.Auto, onnx.自動, onnx.GPU, onnx.圖形處理器, onnx.NPU, onnx.神經處理器);
+print(onnx.Float32, onnx.浮點32, onnx.Float64, onnx.浮點64, onnx.Int32, onnx.整數32, onnx.UInt8, onnx.無號整數8, onnx.Bool, onnx.布林);
+
+# CPU closes the ranked list and is always available; every unavailable device explains why.
+var list = onnx.取得後端清單();
+var last = list[len(list) - 1];
+print(last.後端, last.裝置, last.可用, last.自動選用, last.原因 == "", typeOf(last.名稱));
+var explained = true;
+for (var i = 0; i < len(list); i++) {
+    var device = list[i];
+    if (!device.Available && device.Reason == "") { explained = false; }
+    if (!device.Available && device.Automatic) { explained = false; }
+}
+print("explained", explained);
+
+# Names are bilingual, provider ids case-insensitive; a one-element list may hold a preference.
+print(onnx.IsSupported(onnx.CPU), onnx.是否支援("中央處理器"), onnx.IsSupported("cpu"), onnx.IsSupported(["CPU"]));
+print(onnx.IsSupported(onnx.Auto), onnx.IsSupported("自動"), onnx.IsSupported(["Auto"]));
+print(onnx.IsSupported("CoreML"), onnx.IsSupported("WebNN"), onnx.IsSupported(["QNN", "CPU"]));
+
+# Y = X + B over float32[2] (the old tests' add.onnx, 111 bytes); Auto ends its chain with the CPU.
+var model = [8,8,18,14,65,113,117,97,114,105,117,115,32,116,101,115,116,115,58,87,10,14,10,1,88,10,1,66,18,1,89,34,3,
+    65,100,100,18,18,65,113,117,97,114,105,117,115,32,79,78,78,88,32,116,101,115,116,90,15,10,1,88,18,10,10,8,8,1,18,4,
+    10,2,8,2,90,15,10,1,66,18,10,10,8,8,1,18,4,10,2,8,2,98,15,10,1,89,18,10,10,8,8,1,18,4,10,2,8,2,66,2,16,13];
+var automatic = onnx.CreateSession(model);
+var chain = automatic.後端清單;
+print(chain[len(chain) - 1], typeOf(automatic.後端), typeOf(automatic.裝置));
+var y = automatic.Run(["X", "B"], [onnx.CreateTensor(onnx.Float32, [2], [1, 2]), onnx.CreateTensor(onnx.Float32, [2], [3, 4])], ["Y"]);
+print(y[0].GetData());
+automatic.釋放();
+var cpu = onnx.建立工作階段(model, [onnx.中央處理器]);
+print(cpu.Backend, cpu.Device, cpu.Providers);
+cpu.Dispose();

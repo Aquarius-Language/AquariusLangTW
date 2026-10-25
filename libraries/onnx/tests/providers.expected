@@ -1,0 +1,13 @@
+CPU CPU CUDA CUDA TensorRT TensorRT CoreML CoreML
+WebGPU WebGPU WebNN WebNN NNAPI NNAPI XNNPACK XNNPACK
+OpenVINO OpenVINO QNN QNN
+Auto Auto GPU GPU NPU NPU
+float32 float32 float64 float64 int32 int32 uint8 uint8 bool bool
+CPU CPU 真 真 真 string
+explained 真
+真 真 真 真
+真 真 真
+假 假 假
+CPU string string
+[4, 6]
+CPU CPU [CPU]

@@ -1,0 +1,24 @@
+# Needs the MediaPipe models as models/ (--assets models, or beside the test on native targets; README "Tests") and Images.
+# The tracker on the CPU: creation, an empty frame (no person, so no landmarks), detection pacing after a loss, reset and
+# release.
+var pose = import("姿態追蹤");
+var images = import("Images");
+var detector = currWorkingDir + "/models/人物偵測.onnx";
+var landmarks = currWorkingDir + "/models/姿態.onnx";
+var tracker = pose.CreatePoseTracker(detector, landmarks, "CPU");
+print(tracker.Backend, tracker.後端);
+var blank = images.Create(1, 1, [0, 0, 0, 255]);
+var first = tracker.Analyze(blank, 0);
+print(first.HasPose, first.有人物, first.Confidence, first.Landmarks, first.DetectionRan, first.TotalMilliseconds >= 0, first.模型耗時 >= 0);
+# A lost person is looked for again only after 150 ms.
+var next = tracker.分析(blank, 33);
+print(next.HasPose, next.執行人物偵測, len(next.關鍵點));
+var later = tracker.Analyze(blank, 200);
+print(later.HasPose, later.DetectionRan);
+tracker.Reset();
+print(tracker.Analyze(blank, 0).DetectionRan);
+tracker.Dispose();
+tracker.釋放();
+var automatic = pose.建立姿態追蹤器(detector, landmarks);
+print(typeOf(automatic.Backend));
+automatic.釋放();

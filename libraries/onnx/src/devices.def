@@ -1,0 +1,27 @@
+/* The execution devices of each target, best first: the order Auto (and the GPU/NPU preferences) tries them and the
+ * order GetProviders lists them. Ranking from the old hosts: vendor-optimized GPU paths first, the portable WebGPU path
+ * next, NPUs after GPUs (NPU support is model dependent) and CPU last.
+ *   DEVICE(id, provider, hardware class, use, strategy)
+ *   use       AUTOMATIC  preferences may choose it
+ *             EXPLICIT   only when a script names it (TensorRT builds an engine for seconds to minutes on first use)
+ *             DEVICE     automatic on real devices, explicit only on the Android emulator, where ONNX Runtime's
+ *                        accelerated providers can abort the process on MediaPipe graphs after the probe passes
+ *   strategy  how backend_ort.c probes the device and appends its provider to a session
+ * Adding a provider to a target is one row here (plus its strategy in backend_ort.c when it is new). */
+#if defined(AQUA_OS_WINDOWS) || defined(AQUA_OS_LINUX)
+DEVICE("CUDA", CUDA, GPU, AUTOMATIC, CUDA)               /* ONNX Runtime's CUDA 13 build (AQUA_ONNX_CUDA) */
+DEVICE("OpenVINO/GPU", OpenVINO, GPU, AUTOMATIC, OPENVINO) /* optional plugin placed beside the program */
+DEVICE("WebGPU/GPU", WebGPU, GPU, AUTOMATIC, WEBGPU_PLUGIN) /* the WebGPU plugin: Dawn on D3D12 or Vulkan */
+DEVICE("OpenVINO/NPU", OpenVINO, NPU, AUTOMATIC, OPENVINO)
+DEVICE("TensorRT", TensorRT, GPU, EXPLICIT, TENSORRT)
+DEVICE("OpenVINO/CPU", OpenVINO, CPU, EXPLICIT, OPENVINO)
+#elif defined(AQUA_OS_ANDROID)
+DEVICE("WebGPU", WebGPU, GPU, DEVICE, WEBGPU)            /* built into the Android package: Dawn on Vulkan */
+DEVICE("NNAPI", NNAPI, NPU, DEVICE, NNAPI)
+DEVICE("XNNPACK", XNNPACK, CPU, DEVICE, XNNPACK)
+#elif defined(AQUA_OS_WEB)
+DEVICE("WebGPU", WebGPU, GPU, AUTOMATIC, UNAVAILABLE)    /* listed with the reason they are not available */
+DEVICE("WebNN/GPU", WebNN, GPU, AUTOMATIC, UNAVAILABLE)
+DEVICE("WebNN/NPU", WebNN, NPU, AUTOMATIC, UNAVAILABLE)
+#endif
+DEVICE("CPU", CPU, CPU, AUTOMATIC, CPU)

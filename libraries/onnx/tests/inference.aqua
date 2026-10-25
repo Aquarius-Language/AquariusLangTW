@@ -1,0 +1,79 @@
+# End-to-end CPU inference with a model this test writes itself (ONNX models are protobuf messages): all five tensor
+# types, a dynamic axis, several outputs in the requested order, metadata and session records.
+var onnx = import("ONNX");
+
+# ---- A minimal protobuf writer -------------------------------------------------------------------------------------
+var concat = function(a, b) {
+    var result = a;
+    for (var i = 0; i < len(b); i++) { result = push(result, b[i]); }
+    return result;
+};
+var varint = function(n) {
+    var bytes = [];
+    var rest = n;
+    for (var i = 0; rest >= 128; i++) { bytes = push(bytes, rest % 128 + 128); rest = rest / 128; }
+    return push(bytes, rest);
+};
+var number = function(field, value) { return concat(varint(field * 8), varint(value)); };
+var message = function(field, bytes) { return concat(concat(varint(field * 8 + 2), varint(len(bytes))), bytes); };
+
+# ASCII names: X B Y C N K I F D P U, the op types and the dynamic axis "n".
+var X = [88]; var B = [66]; var Y = [89]; var C = [67]; var N = [78]; var K = [75]; var I = [73];
+var F = [70]; var D = [68]; var P = [80]; var U = [85]; var axis = [110];
+var Add = [65, 100, 100]; var Not = [78, 111, 116]; var Neg = [78, 101, 103]; var Mul = [77, 117, 108];
+var Identity = [73, 100, 101, 110, 116, 105, 116, 121];
+
+# ONNX element types: 1 float, 2 uint8, 6 int32, 9 bool, 11 double.
+var dims = function(values) {
+    var shape = [];
+    for (var i = 0; i < len(values); i++) {
+        if (typeOf(values[i]) == "integer") { shape = concat(shape, message(1, number(1, values[i]))); }
+        else { shape = concat(shape, message(1, message(2, values[i]))); }
+    }
+    return shape;
+};
+var value = function(name, element, shape) {
+    return concat(message(1, name), message(2, message(1, concat(number(1, element), message(2, dims(shape))))));
+};
+var node = function(inputs, output, op) {
+    var bytes = [];
+    for (var i = 0; i < len(inputs); i++) { bytes = concat(bytes, message(1, inputs[i])); }
+    return concat(concat(bytes, message(2, output)), message(4, op));
+};
+var graph = concat(concat(concat(concat(concat(
+    message(1, node([X, B], Y, Add)), message(1, node([C], N, Not))), message(1, node([K], I, Neg))),
+    message(1, node([F, F], D, Mul))), message(1, node([P], U, Identity))), message(2, [116]));
+var inputs = [[X, 1, [2]], [B, 1, [2]], [C, 9, [3]], [K, 6, [axis]], [F, 11, [2]], [P, 2, [2, 2]]];
+var outputs = [[Y, 1, [2]], [N, 9, [3]], [I, 6, [axis]], [D, 11, [2]], [U, 2, [2, 2]]];
+for (var i = 0; i < len(inputs); i++) { graph = concat(graph, message(11, value(inputs[i][0], inputs[i][1], inputs[i][2]))); }
+for (var i = 0; i < len(outputs); i++) { graph = concat(graph, message(12, value(outputs[i][0], outputs[i][1], outputs[i][2]))); }
+var model = concat(concat(number(1, 8), message(7, graph)), message(8, number(2, 13)));
+
+# ---- Session -----------------------------------------------------------------------------------------------------
+var session = onnx.CreateSession(model, onnx.CPU);
+print(session.Backend, session.Device, session.Providers);
+var info = session.GetInputs();
+for (var i = 0; i < len(info); i++) { print("input", info[i].Name, info[i].Type, info[i].Shape); }
+info = session.取得輸出資訊();
+for (var i = 0; i < len(info); i++) { print("output", info[i].名稱, info[i].型別, info[i].形狀); }
+
+var x = onnx.CreateTensor(onnx.Float32, [2], [1, 2]);
+var b = onnx.建立張量(onnx.浮點32, [2], [3, 0.5d]);
+var c = onnx.CreateTensor(onnx.Bool, [3], [true, false, true]);
+var k = onnx.CreateTensor(onnx.Int32, [4], [1, -2, 3, 2147483647]);
+var f = onnx.CreateTensor(onnx.Float64, [2], [1.5d, -0.25d]);
+var p = onnx.CreateTensor(onnx.UInt8, [2, 2], [0, 1, 254, 255]);
+print(x.GetType(), x.GetShape(), x.Name == "", p.取得型別(), p.取得形狀(), k.GetData());
+
+# Outputs come back in the requested order, named after the model outputs.
+var results = session.Run(["P", "F", "K", "C", "B", "X"], [p, f, k, c, b, x], ["U", "Y", "N", "I", "D"]);
+for (var i = 0; i < len(results); i++) {
+    print(results[i].Name, results[i].GetType(), results[i].GetShape(), results[i].GetData());
+}
+var again = session.推論(["X", "B", "C", "K", "F", "P"], [b, x, c, onnx.CreateTensor(onnx.Int32, [0], []), f, p], ["I", "Y"]);
+print(again[0].GetShape(), again[0].GetData(), again[1].取得資料());
+# Inputs are snapshots: reading them after a run gives the original data.
+print(x.GetData(), b.GetData());
+session.Dispose();
+session.釋放();
+print("released", session.Backend);
