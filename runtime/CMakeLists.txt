@@ -5,6 +5,9 @@
 #   web                         aquarius.wasm plus one side module per library, loaded by ../web-glue
 cmake_minimum_required(VERSION 3.20)
 project(aquarius C CXX)
+if(AQUA_TARGET STREQUAL "windows-x64")
+    enable_language(RC) # the executable's manifest
+endif()
 if(NOT AQUA_TARGET)
     message(FATAL_ERROR "Configure with a toolchain file from runtime/sdk/cmake/toolchains (or cmake --preset <target>).")
 endif()
@@ -81,7 +84,7 @@ if(AQUA_TARGET STREQUAL "windows-x64" OR AQUA_TARGET STREQUAL "linux-x64")
     endif()
     aqua_sdk_directory(wasmtime ${AQUA_TARGET} wasmtime_sdk)
     if(AQUA_TARGET STREQUAL "windows-x64")
-        set(platform_sources platform/windows/platform.c)
+        set(platform_sources platform/windows/platform.c platform/windows/aquarius.rc)
         set(platform_libraries ws2_32 userenv ntdll bcrypt ole32 shell32 advapi32 kernel32 synchronization)
     else()
         set(platform_sources platform/linux/platform.c platform/posix/posix.c)
