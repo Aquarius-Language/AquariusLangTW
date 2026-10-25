@@ -1,5 +1,6 @@
 # aqua_add_library(<name> SOURCES <files...> [INCLUDE_DIRECTORIES <dirs...>] [LINK_LIBRARIES <libs...>]
-#                  [DEFINITIONS <defs...>] [NATIVE_SOURCES <files...>] [WEB_SOURCES <files...>])
+#                  [DEFINITIONS <defs...>] [NATIVE_SOURCES <files...>] [WEB_SOURCES <files...>]
+#                  [PLATFORMS <windows|linux|android|web...>])
 #
 # Builds an AquariusLang library from one source tree for the current target (AQUA_TARGET, set by the toolchain file):
 #   - Default libraries, inside the runtime build (AQUA_RUNTIME_BUILD): a static library the native runtime links and
@@ -8,6 +9,8 @@
 #     aqua_<name>.wasm (a side module sharing the application's memory) on the web.
 # NATIVE_SOURCES and WEB_SOURCES are added only for those targets; prefer preprocessor branches on AQUA_OS_* inside
 # shared files when the code differs only in a few calls.
+# PLATFORMS limits a library to those platforms (the part of AQUA_TARGET before the first "-"); on any other target it
+# builds nothing, so configuring with every library skips it.
 include_guard(GLOBAL)
 if(AQUA_TARGET STREQUAL "web")
     # CMake's Generic platform resets these after the toolchain file: side modules are shared libraries named <name>.wasm.
@@ -19,7 +22,12 @@ if(AQUA_TARGET STREQUAL "web")
 endif()
 
 function(aqua_add_library name)
-    cmake_parse_arguments(ARG "" "" "SOURCES;INCLUDE_DIRECTORIES;LINK_LIBRARIES;DEFINITIONS;NATIVE_SOURCES;WEB_SOURCES" ${ARGN})
+    cmake_parse_arguments(ARG "" "" "SOURCES;INCLUDE_DIRECTORIES;LINK_LIBRARIES;DEFINITIONS;NATIVE_SOURCES;WEB_SOURCES;PLATFORMS" ${ARGN})
+    string(REGEX REPLACE "-.*" "" platform "${AQUA_TARGET}")
+    if(ARG_PLATFORMS AND NOT platform IN_LIST ARG_PLATFORMS)
+        message(STATUS "Library ${name} skipped: it supports ${ARG_PLATFORMS}, not ${AQUA_TARGET}.")
+        return()
+    endif()
     set(target aqua_${name})
     set(sources ${ARG_SOURCES})
     if(AQUA_TARGET STREQUAL "web")

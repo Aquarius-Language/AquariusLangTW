@@ -1,0 +1,26 @@
+# No window: constants, typed data, 64-bit values and the text helpers of the GL, GLFW and GLAD modules.
+var gl = import("GL");
+var glfw = import("GLFW");
+var glad = import("GLAD");
+
+print("constants", gl.GL_TRIANGLES, gl.GL_COLOR_BUFFER_BIT + gl.GL_DEPTH_BUFFER_BIT, gl.GL_INVALID_INDEX, gl.GL_VERSION_3_3, typeOf(gl.GL_FLOAT));
+print("glfw", glfw.GLFW_KEY_ESCAPE, glfw.GLFW_KEY_A, glfw.GLFW_KEY_0, glfw.GLFW_PRESS, glfw.GLFW_VISIBLE, typeOf(glfw.GLFW_SAMPLES));
+
+var vertices = gl.FloatData([1, -2.5d, 0.25f]);
+var indices = gl.UIntData([0, 1, 4294967295.0d]);
+var bytes = gl.ByteData([0, 127, 255]);
+print("lengths", gl.ByteLength(vertices), gl.ByteLength(indices), gl.ByteLength(bytes), typeOf(vertices));
+print("float bytes", gl.ReadBytes(vertices));
+print("uint bytes", gl.ReadBytes(indices));
+print("byte bytes", gl.讀取位元組(bytes));
+var empty = gl.Allocate(5);
+print("allocated", gl.ReadBytes(empty), gl.ByteLength(gl.ByteData([])));
+gl.FreeData(empty);
+gl.釋放資料(bytes);
+
+var timeout = gl.GL_TIMEOUT_IGNORED;
+print("timeout", typeOf(timeout), timeout.text, timeout.value);
+print("parse", gl.ParseInteger("42"), gl.ParseInteger(" -7 "), gl.解析整數("+2147483647"), typeOf(gl.ParseInteger("1")));
+print("environment", glfw.GetEnvironment("AQUARIUS_OPENGL_TEST_UNSET_VARIABLE") == "");
+print("aliases", gl.浮點資料 == gl.FloatData, glfw.初始化 == glfw.Init, glad.載入 == glad.Load);
+gl.ByteLength(empty);

@@ -1,0 +1,54 @@
+# The few GLM functions the cube test uses, written in Aquarius so the test needs only this library (the GLM module
+# itself belongs to the graphics library). Same conventions: 16 numbers, column-major for glUniformMatrix4fv.
+var PI = 3.141592653589793d;
+
+var Sin = function(x) {
+    var a = x * 1.0d;
+    for (var k = 0; a > PI; k += 1) { a -= 2.0d * PI; }
+    for (var k = 0; a < 0.0d - PI; k += 1) { a += 2.0d * PI; }
+    var term = a;
+    var sum = a;
+    for (var n = 1; n < 20; n += 1) {
+        term = 0.0d - term * a * a / ((2 * n) * (2 * n + 1));
+        sum += term;
+    }
+    return sum;
+};
+var Cos = function(x) { return Sin(x + PI / 2.0d); };
+var Radians = function(degrees) { return degrees * PI / 180.0d; };
+var Sqrt = function(x) {
+    if (x <= 0.0d) { return 0.0d; }
+    var r = x;
+    if (r < 1.0d) { r = 1.0d; }
+    for (var i = 0; i < 60; i += 1) { r = (r + x / r) / 2.0d; }
+    return r;
+};
+var Normalize = function(v) {
+    var length = Sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]);
+    return [v[0] / length, v[1] / length, v[2] / length];
+};
+var Cross = function(a, b) { return [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]]; };
+var Dot = function(a, b) { return a[0] * b[0] + a[1] * b[1] + a[2] * b[2]; };
+
+var LookAt = function(eye, target, up) {
+    var z = Normalize([eye[0] - target[0], eye[1] - target[1], eye[2] - target[2]]);
+    var x = Normalize(Cross(up, z));
+    var y = Cross(z, x);
+    return [x[0], y[0], z[0], 0, x[1], y[1], z[1], 0, x[2], y[2], z[2], 0, 0.0d - Dot(x, eye), 0.0d - Dot(y, eye), 0.0d - Dot(z, eye), 1];
+};
+var Perspective = function(fov, aspect, near, far) {
+    var f = Cos(fov / 2.0d) / Sin(fov / 2.0d);
+    return [f / aspect, 0, 0, 0, 0, f, 0, 0, 0, 0, (far + near) / (near - far), -1, 0, 0, 2.0d * far * near / (near - far), 0];
+};
+var Rotate = function(angle, axis) {
+    var a = Normalize(axis);
+    var x = a[0];
+    var y = a[1];
+    var z = a[2];
+    var s = Sin(angle);
+    var c = Cos(angle);
+    return [x * x + c * (1.0d - x * x), x * y - c * x * y + s * z, x * z - c * x * z - s * y, 0,
+            x * y - c * x * y - s * z, y * y + c * (1.0d - y * y), y * z - c * y * z + s * x, 0,
+            x * z - c * x * z + s * y, y * z - c * y * z - s * x, z * z + c * (1.0d - z * z), 0,
+            0, 0, 0, 1];
+};

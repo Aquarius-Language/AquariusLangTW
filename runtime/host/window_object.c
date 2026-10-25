@@ -13,10 +13,15 @@ typedef struct window_object {
 } window_object;
 static window_object *objects;
 
+static void window_event(aqua_window *window, const aqua_window_event *event, void *data);
+
+/* Also runs while the runtime ends with the window still open, so the window must stop notifying this object. */
 static void window_finalize(aqua_runtime *rt, void *data) {
     (void)rt;
-    for (window_object **p = &objects; *p; p = &(*p)->next) if (*p == data) { *p = ((window_object *)data)->next; break; }
-    free(data);
+    window_object *object = data;
+    if (object->window) aqua_window_unlisten(object->window, window_event, object);
+    for (window_object **p = &objects; *p; p = &(*p)->next) if (*p == object) { *p = object->next; break; }
+    free(object);
 }
 
 static void window_event(aqua_window *window, const aqua_window_event *event, void *data) {

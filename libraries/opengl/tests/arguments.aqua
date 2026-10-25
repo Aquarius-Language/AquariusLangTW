@@ -1,0 +1,41 @@
+# Needs a window and an OpenGL 3.3 driver: the earlier argument rules (requirements, capacities, pointers, shader errors), then a failing call with the window still open, which the runtime cleans up.
+var glfw = import("GLFW");
+var glad = import("GLAD");
+var gl = import("GL");
+
+print("init", glfw.Init(), glfw.初始化());
+glfw.視窗提示(glfw.GLFW_VISIBLE, 0);
+var window = glfw.建立視窗(320, 240, "opengl argument test");
+glfw.設為目前繪圖環境(window);
+var version = glad.載入();
+print("version", typeOf(version), version >= 30003);
+
+# glGen* fills the array it is given (copied back as doubles); out arrays may be longer than needed.
+var names = [0, 0, 0];
+gl.gl產生紋理集(2, names);
+print("textures", names[0] > 0, names[1] > 0, names[2], typeOf(names[0]));
+gl.glDeleteTextures(2, names);
+
+# Shader logs come back as strings; a broken shader fails CreateProgram with its log.
+var shader = gl.glCreateShader(gl.GL_VERTEX_SHADER);
+gl.glShaderSource(shader, 1, ["#version 330 core
+void main() { gl_Position = vec4(0.0); }"], 0);
+gl.glCompileShader(shader);
+var status = [0];
+gl.glGetShaderiv(shader, gl.GL_COMPILE_STATUS, status);
+print("shader", status[0], typeOf(gl.ShaderLog(shader)));
+var log = gl.Allocate(64);
+var length = [0];
+gl.glGetShaderInfoLog(shader, 64, length, log);
+print("log", length[0] >= 0);
+gl.glDeleteShader(shader);
+gl.FreeData(log);
+print("state", gl.glIsEnabled(gl.GL_DEPTH_TEST), gl.glGetError());
+var size = glfw.GetFramebufferSize(window);
+print("size", size[0] > 0, glfw.GetKey(window, glfw.GLFW_KEY_ESCAPE), glfw.GetMouseButton(window, 0), typeOf(glfw.GetTime()));
+glfw.PollEvents();
+glfw.SetWindowShouldClose(window, true);
+print("close", glfw.WindowShouldClose(window));
+
+# A capacity rule: glGenBuffers(4, ...) needs four elements.
+gl.glGenBuffers(4, [0, 0]);

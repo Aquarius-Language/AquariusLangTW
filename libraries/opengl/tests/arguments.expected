@@ -1,0 +1,9 @@
+init 真 真
+version integer 真
+textures 真 真 0 double
+shader 1 string
+log 真
+state 假 0
+size 真 0 0 double
+close 真
+ERROR: glGenBuffers: Pointer array needs at least 4 elements.

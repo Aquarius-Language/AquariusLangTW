@@ -1,0 +1,10 @@
+manifest_version = 2
+[library]
+name = "opengl"
+version = "1.0.0"
+description = "Desktop OpenGL 3.3 core: GLFW windows and input, the GLAD loader, every GL 3.3 core function and constant with typed data helpers, and stb_image decoding."
+license = "MIT"
+platforms = ["windows", "linux"]
+
+[native]
+modules = ["GLFW", "GLAD", "GL", "STBImage"]

@@ -1,0 +1,105 @@
+# Needs a window and an OpenGL 3.3 driver: draws into a framebuffer object of a hidden window, reads the pixels back with glReadPixels and prints a checksum, then round-trips them through GL.SavePPM and STBImage.Load.
+var glfw = import("GLFW");
+var glad = import("GLAD");
+var gl = import("GL");
+var images = import("STBImage");
+
+glfw.Init();
+glfw.WindowHint(glfw.GLFW_VISIBLE, glfw.GLFW_FALSE);
+var window = glfw.CreateWindow(320, 240, "opengl render test");
+glfw.MakeContextCurrent(window);
+print("loaded", glad.Load() >= 30003, typeOf(gl.glGetString(gl.GL_VERSION)));
+var area = glfw.GetFramebufferSize(window);
+print("window", typeOf(window), glfw.WindowShouldClose(window), area[0] > 0 && area[1] > 0, typeOf(area[0]));
+
+# A 16 x 16 RGBA8 render target.
+var size = 16;
+var framebuffer = [0];
+var renderbuffer = [0];
+gl.glGenFramebuffers(1, framebuffer);
+gl.glGenRenderbuffers(1, renderbuffer);
+gl.glBindRenderbuffer(gl.GL_RENDERBUFFER, renderbuffer[0]);
+gl.glRenderbufferStorage(gl.GL_RENDERBUFFER, gl.GL_RGBA8, size, size);
+gl.glBindFramebuffer(gl.GL_FRAMEBUFFER, framebuffer[0]);
+gl.glFramebufferRenderbuffer(gl.GL_FRAMEBUFFER, gl.GL_COLOR_ATTACHMENT0, gl.GL_RENDERBUFFER, renderbuffer[0]);
+print("complete", gl.glCheckFramebufferStatus(gl.GL_FRAMEBUFFER) == gl.GL_FRAMEBUFFER_COMPLETE, gl.glIsFramebuffer(framebuffer[0]));
+
+var program = gl.CreateProgram("#version 330 core
+layout (location = 0) in vec2 position;
+void main() { gl_Position = vec4(position, 0.0, 1.0); }", "#version 330 core
+uniform vec4 color;
+out vec4 fragment;
+void main() { fragment = color; }");
+gl.glUseProgram(program);
+
+# A square covering columns 4..11 and rows 2..9 (from the bottom): its edges lie between pixel centers.
+var vertices = gl.FloatData([-0.5d, -0.75d, 0.5d, -0.75d, 0.5d, 0.25d, -0.5d, 0.25d]);
+var indices = gl.UIntData([0, 1, 2, 2, 3, 0]);
+var array = [0];
+var buffers = [0, 0];
+gl.glGenVertexArrays(1, array);
+gl.glGenBuffers(2, buffers);
+gl.glBindVertexArray(array[0]);
+gl.glBindBuffer(gl.GL_ARRAY_BUFFER, buffers[0]);
+gl.glBufferData(gl.GL_ARRAY_BUFFER, gl.ByteLength(vertices), vertices, gl.GL_STATIC_DRAW);
+gl.glBindBuffer(gl.GL_ELEMENT_ARRAY_BUFFER, buffers[1]);
+gl.glBufferData(gl.GL_ELEMENT_ARRAY_BUFFER, gl.ByteLength(indices), indices, gl.GL_STATIC_DRAW);
+gl.glVertexAttribPointer(0, 2, gl.GL_FLOAT, false, 8, 0);
+gl.glEnableVertexAttribArray(0);
+gl.FreeData(vertices);
+gl.FreeData(indices);
+print("buffers", gl.glIsBuffer(buffers[0]), gl.glIsBuffer(buffers[1]), buffers[0] != buffers[1]);
+
+gl.glViewport(0, 0, size, size);
+var viewport = [0, 0, 0, 0];
+gl.glGetIntegerv(gl.GL_VIEWPORT, viewport);
+var exact = [0, 0, 0, 0];
+gl.glGetInteger64v(gl.GL_VIEWPORT, exact);
+print("viewport", viewport, typeOf(exact[3]), exact[3].value);
+gl.glClearColor(0.2f, 0.4f, 0.6f, 1.0f);
+gl.glClear(gl.GL_COLOR_BUFFER_BIT);
+gl.glUniform4fv(gl.glGetUniformLocation(program, "color"), 1, [1, 0.8f, 0, 1]);
+gl.glDrawElements(gl.GL_TRIANGLES, 6, gl.GL_UNSIGNED_INT, 0);
+var fence = gl.glFenceSync(gl.GL_SYNC_GPU_COMMANDS_COMPLETE, 0);
+var waited = gl.glClientWaitSync(fence, gl.GL_SYNC_FLUSH_COMMANDS_BIT, gl.GL_TIMEOUT_IGNORED);
+print("fence", typeOf(fence), gl.glIsSync(fence), waited == gl.GL_ALREADY_SIGNALED || waited == gl.GL_CONDITION_SATISFIED);
+gl.glDeleteSync(fence);
+
+var pixels = gl.Allocate(size * size * 4);
+gl.glReadPixels(0, 0, size, size, gl.GL_RGBA, gl.GL_UNSIGNED_BYTE, pixels);
+var checksum = function(bytes, stride) {
+    var sum = 0;
+    var weighted = 0;
+    var square = 0;
+    for (var i = 0; i < len(bytes); i += stride) {
+        sum += bytes[i] + bytes[i + 1] + bytes[i + 2];
+        weighted += (i / stride + 1) * (bytes[i] + 3 * bytes[i + 1] + 7 * bytes[i + 2]);
+        if (bytes[i] == 255 && bytes[i + 1] == 204 && bytes[i + 2] == 0) { square += 1; }
+    }
+    return [sum, weighted, square];
+};
+var read = gl.ReadBytes(pixels);
+print("pixels", len(read), read[0], read[1], read[2], read[3], checksum(read, 4));
+print("error", gl.glGetError());
+
+# The capture writes the bound read framebuffer top row first; flipping on load restores glReadPixels order.
+var capture = currWorkingDir + "/render-test.ppm";
+gl.SavePPM(capture, size, size);
+var image = images.Load(capture, true);
+print("image", image[0], image[1], image[2], gl.ByteLength(image[3]), checksum(gl.ReadBytes(image[3]), 4));
+var upright = images.載入(capture, false);
+print("upright", checksum(gl.ReadBytes(upright[3]), 4));
+gl.FreeData(image[3]);
+gl.FreeData(upright[3]);
+gl.FreeData(pixels);
+
+gl.glDeleteVertexArrays(1, array);
+gl.glDeleteBuffers(2, buffers);
+gl.glDeleteRenderbuffers(1, renderbuffer);
+gl.glDeleteFramebuffers(1, framebuffer);
+gl.glDeleteProgram(program);
+print("deleted", gl.glIsBuffer(buffers[0]), gl.glGetError());
+glfw.DestroyWindow(window);
+print("destroyed", window.isOpen);
+glfw.Terminate();
+gl.glClear(gl.GL_COLOR_BUFFER_BIT);

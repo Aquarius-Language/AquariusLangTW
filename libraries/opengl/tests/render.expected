@@ -1,0 +1,13 @@
+loaded 真 string
+window window 假 真 double
+complete 真 真
+buffers 真 真 真
+viewport [0, 0, 16, 16] gl_integer64 16
+fence gl_pointer 真 真
+pixels 1024 51 102 153 255 [88128, 43510752, 64]
+error 0
+image 16 16 4 1024 [88128, 43510752, 64]
+upright [88128, 41212896, 64]
+deleted 假 0
+destroyed 假
+ERROR: glClear: Call GLFW.Init() first.
