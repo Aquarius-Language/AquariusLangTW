@@ -1,0 +1,17 @@
+# (needs a window) Window integration of a sketch window: capabilities, title and cursor, and close resolution rules.
+var p = import("Processing");
+var window = import("Window");
+p.run(function() { p.size(320, 200, p.P2D, "integration test"); }, function() {
+    var app = window.Current();
+    print(app == window.Current(), typeOf(app.Poll()));
+    var caps = app.Capabilities();
+    print(caps.events["available"], caps.closeInterception["available"], caps.customCursor["available"], caps.touch["restriction"]);
+    app.SetTitle("renamed");
+    app.SetCursor("hand");
+    app.SetCursor("Arrow");
+    var cursor = import("Processing").createImage(4, 4);
+    app.SetCustomCursor(window.FromProcessingImage(cursor), 1, 1);
+    p.exit();
+});
+var later = function() { window.Current(); };
+later();

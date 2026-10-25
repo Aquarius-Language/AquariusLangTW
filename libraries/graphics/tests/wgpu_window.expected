@@ -1,0 +1,6 @@
+320 240 假 假 0
+假 假 假 假 假
+4294967040 真
+真
+disposed
+ERROR: Present: wgpu device has been disposed.

@@ -1,0 +1,9 @@
+setup 320 160 0
+layer 4 4 4
+layer pixels 4294901760 4278190335 4278190335
+resized 360 170
+error event windowResized Processing.strokeWeight: Expected a nonnegative number.
+main 360 170 61200 4294625280 4278850590 4294901760 4278190335
+redrawn after timer
+frames 6 真
+done 6

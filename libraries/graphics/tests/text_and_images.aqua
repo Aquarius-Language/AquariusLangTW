@@ -1,0 +1,23 @@
+# TextInput.Backspace graphemes, Fonts availability and selection rules, and Processing <-> shared image conversion.
+var text = import("TextInput");
+print(text.Backspace("abc"), text.Backspace("éx"), text.Backspace(""), text.刪除末字("中文"));
+print(text.Backspace("👨‍👩‍👧‍👦A"), text.Backspace("A👨‍👩‍👧‍👦") == "A");
+var fonts = import("Fonts");
+print(fonts.Available("sans-serif"), fonts.Available("monospace"), fonts.Available("No Such Font 12345"));
+var r = fonts.Measure("", "sans-serif", 16);
+print(r.x, r.y, r.width);
+var rows = fonts.Selection("abcd", 0, 0, "sans-serif", 10);
+var row = rows[0];
+print(row.x, row.y, row.width, row.height);
+var p = import("Processing");
+var img = p.createImage(2, 1, p.RGB);
+img.set(0, 0, p.color(255, 0, 0));
+img.set(1, 0, p.color(0, 0, 255, 128));
+var window = import("Window");
+var shared = window.FromProcessingImage(img);
+print(shared.width, shared.height);
+var back = window.ToProcessingImage(shared);
+back.loadPixels();
+print(back.width, back.height, back.pixels);
+var reused = window.ToProcessingImage(shared, img);
+print(reused == img);

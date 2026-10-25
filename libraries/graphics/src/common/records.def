@@ -1,0 +1,10 @@
+/* Every field a record of this library can hold (common/records.c): TextInput events, Fonts results, Window
+ * integration capabilities and events. A record answers the fields its hash has; reading another fails
+ * like a missing member. */
+RECORD_FIELD(type) RECORD_FIELD(text) RECORD_FIELD(cursor) RECORD_FIELD(timestamp)
+RECORD_FIELD(family) RECORD_FIELD(style) RECORD_FIELD(x) RECORD_FIELD(y) RECORD_FIELD(width) RECORD_FIELD(height)
+RECORD_FIELD(events) RECORD_FIELD(fileDrop) RECORD_FIELD(closeInterception) RECORD_FIELD(customCursor) RECORD_FIELD(capture)
+RECORD_FIELD(touch) RECORD_FIELD(pen)
+RECORD_FIELD(logicalKey) RECORD_FIELD(physicalKey) RECORD_FIELD(modifiers) RECORD_FIELD(deviceId) RECORD_FIELD(device)
+RECORD_FIELD(button) RECORD_FIELD(wheelX) RECORD_FIELD(wheelY) RECORD_FIELD(wheelUnit) RECORD_FIELD(samples)
+RECORD_FIELD(contact) RECORD_FIELD(eraser) RECORD_FIELD(files) RECORD_FIELD(state)

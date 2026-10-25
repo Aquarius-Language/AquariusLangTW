@@ -1,5 +1,5 @@
 {
-  "comment": "Pinned native toolchain for every AquariusLang runtime and library binary. One LLVM/Clang release compiles the guest runtime (wasm32), web side modules (wasm32-wasip1, -fPIC) and the Windows (x86_64-w64-mingw32 against the llvm-mingw sysroot, never MSVC) and Linux native code; Android uses the pinned NDK's Clang. SDKs are prebuilt C libraries the native host links: Wasmtime's C API and wgpu-native (webgpu.h). Read by install-toolchain.ps1/.sh, toolchain.ps1 and runtime/sdk/cmake/toolchains/*.cmake. The .tar.xz LLVM assets are used because common tar builds cannot decode the long-window .tar.zst ones. wasi-sdk-33 provides the WASI sysroot and compiler-rt: wasi-sdk-34's libc routes stdio locks through clock_gettime.",
+  "comment": "Pinned native toolchain for every AquariusLang runtime and library binary. One LLVM/Clang release compiles the guest runtime (wasm32), web side modules (wasm32-wasip1, -fPIC) and the Windows (x86_64-w64-mingw32 against the llvm-mingw sysroot, never MSVC) and Linux native code; Android uses the pinned NDK's Clang. SDKs are prebuilt C libraries the native host links: Wasmtime's C API (libraries pin their own dependencies, e.g. libraries/graphics downloads wgpu-native). Read by install-toolchain.ps1/.sh, toolchain.ps1 and runtime/sdk/cmake/toolchains/*.cmake. The .tar.xz LLVM assets are used because common tar builds cannot decode the long-window .tar.zst ones. wasi-sdk-33 provides the WASI sysroot and compiler-rt: wasi-sdk-34's libc routes stdio locks through clock_gettime.",
   "llvm": {
     "version": "23.1.3",
     "directory": "llvm-23.1.3-{platform}",
@@ -46,14 +46,6 @@
       "linux-x64": { "file": "wasmtime-v48.0.2-x86_64-linux-c-api.tar.xz", "sha256": "d9a2b5dfaf688035f288a7ae81a4b96c3acdd3e849262c2ab577b61908c3f9f9" },
       "android-arm64-v8a": { "file": "wasmtime-v48.0.2-aarch64-android-c-api.tar.xz", "sha256": "812c8880c8fde10061c706f7d145d50fee16ad3e2913861289504285b69913aa" },
       "android-x86_64": { "file": "wasmtime-v48.0.2-x86_64-android-c-api.tar.xz", "sha256": "bbc435dff8c783e62803bc6b4ebb2c6ce8ec23f00be66b4beb3407bb8ab966b1" }
-    },
-    "wgpu": {
-      "version": "29.0.1.1",
-      "base": "https://github.com/gfx-rs/wgpu-native/releases/download/v29.0.1.1/",
-      "windows-x64": { "file": "wgpu-windows-x86_64-gnu-release.zip", "sha256": "d471e3614733c1d4ddd61bfd19868356477d0d37bf531bf8c6cb64a7f579bd2a" },
-      "linux-x64": { "file": "wgpu-linux-x86_64-release.zip", "sha256": "95a4d90c071005a98d03eab348beaa6b07e16eb00d1dcdb9f8348f75eb97ec5a" },
-      "android-arm64-v8a": { "file": "wgpu-android-aarch64-release.zip", "sha256": "721741f1b05a20c1738166bedf7a5efb2ba4b382da689526d3fc33de22bdd573" },
-      "android-x86_64": { "file": "wgpu-android-x86_64-release.zip", "sha256": "ef16fc0644bf0e308a39ac4516742da8e22d8c201d3a542cc5baf533d272c491" }
     }
   }
 }

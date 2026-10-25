@@ -1,0 +1,22 @@
+manifest_version = 2
+[library]
+name = "graphics"
+version = "1.0.0"
+description = "Processing (繪圖) sketches, the WGPU module, GLM, TextInput, Window integration and Fonts on one WebGPU renderer (wgpu-native natively, the browser's WebGPU on the web), plus the Models, PBR and GPUMath modules"
+license = "MIT"
+platforms = ["windows", "linux", "android", "web"]
+
+[native]
+modules = ["Processing|繪圖", "WGPU|wgpu", "GLM", "TextInput", "Window", "Fonts"]
+
+[[modules]]
+names = "Models|模型"
+source = "aqua/Models.aqua"
+
+[[modules]]
+names = "PBR"
+source = "aqua/PBR.aqua"
+
+[[modules]]
+names = "GPUMath|GPU數學"
+source = "aqua/GPUMath.aqua"

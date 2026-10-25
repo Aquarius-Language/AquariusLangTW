@@ -1,0 +1,19 @@
+# GLM vectors and matrices (no window needed).
+var glm = import("GLM");
+print(glm.PI);
+print(glm.Radians(180));
+print(glm.Sqrt(16));
+print(glm.Normalize([3, 0, 4]));
+print(glm.Dot([1, 2, 3], [4, 5, 6]));
+print(glm.Cross([1, 0, 0], [0, 1, 0]));
+print(glm.Identity());
+print(glm.Translate([1, 2, 3]));
+print(glm.Multiply(glm.Translate([1, 2, 3]), glm.Scale([2, 2, 2])));
+print(glm.TransformPoint(glm.Translate([1, 2, 3]), [1, 1, 1]));
+print(glm.Inverse(glm.Scale([2, 4, 8])));
+print(glm.Transpose(glm.Translate([1, 2, 3])));
+print(glm.Rotate(glm.Radians(90), [0, 0, 1]));
+print(glm.Perspective(1, 1.5d, 0.1d, 100));
+print(glm.LookAt([0, 0, 5], [0, 0, 0], [0, 1, 0]));
+var 數學 = 匯入("GLM");
+print(數學.內積([1, 1, 1], [1, 1, 1]));

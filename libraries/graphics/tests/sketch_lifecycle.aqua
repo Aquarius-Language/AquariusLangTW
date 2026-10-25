@@ -1,0 +1,35 @@
+# (needs a window) Sketch lifecycle: run(), events, redraw control, PGraphics, pixels and the error handler.
+var p = import("Processing");
+var log = [];
+var setup = function() {
+    p.size(320, 160, p.P2D, "lifecycle test");
+    print("setup", p.width, p.height, p.frameCount);
+    p.on("windowResized", function() { print("resized", p.width, p.height); if (p.width == 360) { p.strokeWeight(-1); } });
+    p.on("error", function() { print("error event", p.errorEvent, p.errorMessage); });
+};
+var layer = 0;
+var draw = function() {
+    var n = p.frameCount;
+    if (n == 1) {
+        layer = p.createGraphics(4, 4);
+        print("layer", layer.width, layer.height, layer.pixelWidth);
+        layer.beginDraw(); layer.background(255, 0, 0); layer.fill(0, 0, 255); layer.noStroke(); layer.rect(2, 0, 2, 4); layer.endDraw();
+        layer.loadPixels();
+        print("layer pixels", layer.pixels[0], layer.pixels[3], layer.get(3, 3));
+        p.resize(360, 170);
+    }
+    p.background(10, 20, 30);
+    p.noStroke();
+    p.fill(250, 200, 0);
+    p.rect(10, 10, 50, 40);
+    p.image(layer, 100, 10, 40, 40);
+    if (n == 3) {
+        p.loadPixels();
+        print("main", p.pixelWidth, p.pixelHeight, len(p.pixels), p.get(20, 20), p.get(5, 5), p.get(110, 20), p.get(130, 20));
+    }
+    if (n == 4) { p.noLoop(); p.redrawAfter(30); }
+    if (n == 5) { print("redrawn after timer"); p.loop(); }
+    if (n == 6) { print("frames", p.frameCount, p.millis() > 0); p.exit(); }
+};
+p.run(setup, draw);
+print("done", p.frameCount);

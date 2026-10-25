@@ -1,0 +1,64 @@
+# (needs a GPU device) WGPU without a window: storage buffers, compute, render targets, retained and procedural draws, textures.
+var gpu = import("WGPU");
+var device = gpu.CreateDevice();
+var data = device.CreateBuffer([1, 2, 3, 4]);
+print(data.Length);
+data.WriteRange(2, [10, 20]);
+var kernel = "@group(0) @binding(0) var<storage, read_write> data: array<f32>;
+@compute @workgroup_size(1) fn cs_main(@builtin(global_invocation_id) id: vec3<u32>) {
+    if (id.x < arrayLength(&data)) { data[id.x] = data[id.x] * 2.0 + 1.0; }
+}";
+device.Dispatch(kernel, data, 4);
+print(data.Read(), data.ReadRange(1, 2));
+var zeros = device.CreateBuffer(3);
+print(zeros.Read());
+var shader = device.CreateShader("@vertex fn vs_main(input: VertexInput) -> VertexOutput {
+    var output: VertexOutput;
+    output.position = vec4<f32>(input.position, 1.0);
+    output.vertexColor = input.color; output.uv = input.texcoord;
+    output.normal = input.normal; output.eyePosition = input.position;
+    return output;
+}", "@fragment fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> { return input.vertexColor; }");
+var target = device.CreateRenderTarget(8, 8);
+print(target.Width, target.Height);
+target.Clear([0, 0, 0, 1]);
+var quad = [-1,-1,0, 0,0,1, 0,0, 1,0,0,1,  1,-1,0, 0,0,1, 1,0, 1,0,0,1,  -1,1,0, 0,0,1, 0,1, 1,0,0,1,
+            -1,1,0, 0,0,1, 0,1, 0,0,1,1,   1,-1,0, 0,0,1, 1,0, 0,0,1,1,   1,1,0, 0,0,1, 1,1, 0,0,1,1];
+target.Draw(shader, quad);
+var pixels = target.ReadPixels();
+print(len(pixels), pixels[56], pixels[7]);
+var vertices = device.CreateVertexBuffer(quad);
+print(vertices.Length);
+target.SetState({"blend": "replace"});
+target.Clear([0, 0, 0, 0]);
+target.DrawBuffer(shader, vertices, 0, 3);
+pixels = target.ReadPixels();
+print(pixels[56], pixels[7]);
+var procedural = device.CreateShader("@vertex fn vs_main(@builtin(vertex_index) index: u32) -> VertexOutput {
+    var corners = array<vec2<f32>, 3>(vec2<f32>(-1.0, -1.0), vec2<f32>(3.0, -1.0), vec2<f32>(-1.0, 3.0));
+    var output: VertexOutput;
+    output.position = vec4<f32>(corners[index], 0.0, 1.0);
+    output.vertexColor = vec4<f32>(0.0, 1.0, 0.0, 1.0); output.uv = vec2<f32>(0.0, 0.0);
+    output.normal = vec3<f32>(0.0, 0.0, 1.0); output.eyePosition = vec3<f32>(0.0, 0.0, 0.0);
+    return output;
+}", "@fragment fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> { return input.vertexColor; }");
+target.DrawProcedural(procedural, 3);
+pixels = target.ReadPixels();
+print(pixels[0], pixels[63]);
+var copy = device.CreateRenderTarget(8, 8);
+var sampler = device.CreateShader("@vertex fn vs_main(input: VertexInput) -> VertexOutput {
+    var output: VertexOutput;
+    output.position = vec4<f32>(input.position, 1.0);
+    output.vertexColor = input.color; output.uv = input.texcoord;
+    output.normal = input.normal; output.eyePosition = input.position;
+    return output;
+}", "@group(2) @binding(0) var source: texture_2d<f32>;
+@group(2) @binding(8) var sourceSampler: sampler;
+@fragment fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> { return textureSample(source, sourceSampler, input.uv); }");
+sampler.SetTexture("source", target.GetTexture());
+copy.Draw(sampler, quad);
+pixels = copy.ReadPixels();
+print(pixels[0], pixels[63]);
+data.Dispose();
+device.Dispose();
+device.Poll();

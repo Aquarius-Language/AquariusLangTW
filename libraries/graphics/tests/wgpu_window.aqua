@@ -1,0 +1,29 @@
+# (needs a window) A WGPU window and its device: polling, input queries, presenting a target, reading it back, disposal.
+var gpu = import("WGPU");
+var window = gpu.CreateWindow(320, 240, "wgpu window test");
+var device = gpu.CreateDevice(window);
+print(window.Width, window.Height, window.ShouldClose, window.PointerLocked, window.Wheel);
+var shader = device.CreateShader("@vertex fn vs_main(@builtin(vertex_index) index: u32) -> VertexOutput {
+    var corners = array<vec2<f32>, 3>(vec2<f32>(-1.0, -1.0), vec2<f32>(3.0, -1.0), vec2<f32>(-1.0, 3.0));
+    var output: VertexOutput;
+    output.position = vec4<f32>(corners[index], 0.0, 1.0);
+    output.vertexColor = vec4<f32>(1.0, 1.0, 0.0, 1.0); output.uv = vec2<f32>(0.0, 0.0);
+    output.normal = vec3<f32>(0.0, 0.0, 1.0); output.eyePosition = vec3<f32>(0.0, 0.0, 0.0);
+    return output;
+}", "@fragment fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> { return input.vertexColor; }");
+var target = device.CreateRenderTarget(window.PixelWidth, window.PixelHeight);
+迴圈 (var frame = 0; frame < 5; frame += 1) {
+    window.Poll();
+    target.Clear([0, 0, 0.2d, 1]);
+    target.DrawProcedural(shader, 3);
+    device.Present(target);
+}
+print(window.KeyDown(65), window.KeyPressed(65), window.MouseDown(0), window.MouseReleased(0), window.Resized);
+var pixels = target.ReadPixels();
+print(pixels[0], target.Width == window.PixelWidth);
+window.SetTitle("renamed");
+window.Close();
+print(window.ShouldClose);
+window.Dispose();
+print("disposed");
+device.Present(target);

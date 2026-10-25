@@ -41,7 +41,7 @@ if(NOT EXISTS "${AQUA_LLVM}/bin/clang${AQUA_EXE}")
     message(FATAL_ERROR "Pinned Clang ${AQUA_LLVM_VERSION} not found at ${AQUA_LLVM}. Run scripts/install-toolchain.ps1 (or .sh).")
 endif()
 
-# The unpacked directory of a pinned SDK (wasmtime, wgpu) for this target.
+# The unpacked directory of a pinned SDK (wasmtime) for this target.
 function(aqua_sdk_directory name target out)
     string(JSON version GET "${AQUA_PINS}" sdks ${name} version)
     set(${out} "${AQUA_NATIVE_BUILD}/sdk/${name}-${version}-${target}" PARENT_SCOPE)
