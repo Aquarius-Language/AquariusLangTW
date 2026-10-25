@@ -1,0 +1,49 @@
+# Needs child processes (Windows, Linux or Android): echo, exit codes, closed standard input, argument boundaries, timeouts.
+變數 終端機 = 匯入("終端機");
+變數 字串 = 匯入("字串");
+變數 視窗 = 是Windows();
+變數 引號 = 字串.從字元碼(34);
+變數 反斜線 = 字串.從字元碼(92);
+印出(終端機.是否支援(), 終端機.IsSupported());
+
+# 腳本與標準輸出（含中文）
+變數 回音 = 終端機.執行腳本("echo 'hello 你好'");
+印出(回音.結束代碼, 字串.修剪(回音.標準輸出), 回音.標準錯誤 == "", 回音.已逾時);
+印出(回音.StandardOutput == 回音.標準輸出, 回音.ExitCode == 回音.結束代碼);
+
+# 標準錯誤與結束代碼
+變數 錯誤腳本 = "printf error >&2; printf out; exit 7";
+如果 (視窗) { 錯誤腳本 = "[Console]::Error.Write('error'); [Console]::Write('out'); exit 7"; }
+變數 失敗 = 終端機.RunScript(錯誤腳本, {"TimeoutMs": 30000});
+印出(失敗.ExitCode, 失敗.StandardOutput, 失敗.StandardError, 失敗.TimedOut);
+
+# 直接執行：結束代碼
+變數 結束 = 0;
+如果 (視窗) { 結束 = 終端機.執行("cmd.exe", ["/d", "/c", "exit 3"]); } 否則 { 結束 = 終端機.執行("sh", ["-c", "exit 3"]); }
+印出("exit", 結束.結束代碼);
+
+# 參數邊界不經命令殼層展開（空白、分號、引號、反斜線、$）
+變數 文字 = "a b;" + 引號 + "literal" + 引號 + " " + 反斜線 + 反斜線 + " $x";
+變數 參數 = 0;
+如果 (視窗) { 參數 = 終端機.Run("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", "[Console]::Write('" + 文字 + "')"]); }
+否則 { 參數 = 終端機.Run("/bin/sh", ["-c", "printf '%s' " + 引號 + "$1" + 引號, "test", 文字]); }
+印出(參數.標準輸出 == 文字, 參數.標準輸出);
+
+# 標準輸入已關閉：讀取立即結束
+變數 輸入 = 0;
+如果 (視窗) { 輸入 = 終端機.Run("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", "[Console]::In.ReadToEnd().Length"]); }
+否則 { 輸入 = 終端機.Run("sh", ["-c", "wc -c"]); }
+印出("stdin", 字串.修剪(輸入.標準輸出), 輸入.結束代碼);
+
+# 工作目錄
+變數 目錄 = 0;
+變數 預期目錄 = "/";
+如果 (視窗) { 預期目錄 = "C:" + 反斜線 + "Windows"; 目錄 = 終端機.Run("cmd.exe", ["/d", "/c", "cd"], {"WorkingDirectory": 預期目錄}); }
+否則 { 目錄 = 終端機.Run("pwd", [], {"WorkingDirectory": 預期目錄}); }
+印出("directory", 字串.修剪(目錄.標準輸出) == 預期目錄);
+
+# 逾時結束整個程序樹
+變數 等待 = 0;
+如果 (視窗) { 等待 = 終端機.Run("powershell.exe", ["-NoProfile", "-Command", "Start-Sleep 10"], {"TimeoutMs": 300}); }
+否則 { 等待 = 終端機.Run("/bin/sh", ["-c", "sleep 10"], {"TimeoutMs": 300}); }
+印出("timeout", 等待.已逾時, 等待.結束代碼);

@@ -1,0 +1,4 @@
+# Web only (no child processes): the module loads, reports itself unsupported and refuses to run.
+變數 終端機 = 匯入("終端機");
+印出(終端機.是否支援(), 終端機.平台);
+終端機.執行腳本("echo hello");

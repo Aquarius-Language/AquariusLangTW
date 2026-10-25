@@ -1,0 +1,14 @@
+manifest_version = 2
+
+[library]
+name = "camera"
+version = "1.0.0"
+description = "攝影機/Webcam/網路攝影機 (Media Foundation, V4L2, getUserMedia) and Camera/相機 (Android Camera2): device lists, sessions and upright RGBA frames as shared image objects."
+license = "MIT"
+platforms = ["windows", "linux", "android", "web"]
+
+[native]
+modules = ["攝影機|Webcam|網路攝影機", "Camera|相機"]
+
+[android]
+permissions = ["android.permission.CAMERA"]

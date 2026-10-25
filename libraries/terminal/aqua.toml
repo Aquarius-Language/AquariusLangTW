@@ -1,0 +1,11 @@
+manifest_version = 2
+
+[library]
+name = "terminal"
+version = "1.0.0"
+description = "Terminal/終端機: child processes with argument boundaries kept, captured output, timeouts and closed standard input (unavailable on the web)."
+license = "MIT"
+platforms = ["windows", "linux", "android", "web"]
+
+[native]
+modules = ["Terminal|終端機"]

@@ -200,6 +200,7 @@ void aqua_window_destroy(aqua_window *w) {
     free(w);
 }
 void android_windows_close(aqua_runtime *rt) { if (window && window->rt == rt) aqua_window_destroy(window); }
+struct aqua_window *aqua_android_window(void) { return window; }
 aqua_runtime *aqua_window_runtime(aqua_window *w) { return w->rt; }
 bool aqua_window_should_close(aqua_window *w) { return w->should_close || app->destroyRequested; }
 void aqua_window_set_should_close(aqua_window *w, bool close) { w->should_close = close; }

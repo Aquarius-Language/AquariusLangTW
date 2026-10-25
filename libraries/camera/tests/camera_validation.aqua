@@ -1,0 +1,3 @@
+# Not Android (desktop and web): Camera validates its options before it reports itself unsupported.
+變數 相機 = 匯入("Camera");
+相機.開啟("", 640, 480, 61);

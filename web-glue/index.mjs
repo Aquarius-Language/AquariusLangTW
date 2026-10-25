@@ -3,5 +3,6 @@
 import './core/runtime.mjs';
 import './window/window.mjs';
 import './audio/audio.mjs';
+import './camera/camera.mjs';
 
 export { startApplication } from './core/runtime.mjs';

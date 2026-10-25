@@ -1,0 +1,5 @@
+# Not Android (desktop and web): Camera is an explicitly unavailable capability that lists nothing.
+變數 相機 = 匯入("相機");
+變數 同一 = 匯入("Camera");
+印出(相機.是否支援(), 同一.IsSupported(), 長度(相機.列出裝置()), 長度(同一.Enumerate()));
+相機.Open("", 640, 480, 30);

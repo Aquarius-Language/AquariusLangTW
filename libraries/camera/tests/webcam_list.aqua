@@ -1,0 +1,12 @@
+# Desktop and web: listing opens no camera and asks for no permission; passes with any number of devices.
+變數 攝影機 = 匯入("攝影機");
+變數 同一 = 匯入("網路攝影機");
+變數 英文 = 匯入("Webcam");
+印出(攝影機.是否支援() == 同一.是否支援(), 型別(英文.列出裝置), 型別(攝影機.是否支援()));
+變數 裝置 = 攝影機.列出裝置();
+印出(型別(裝置));
+變數 正確 = 真;
+迴圈 (變數 i = 0; i < 長度(裝置); i++) {
+    如果 (型別(裝置[i].識別碼) != "string" || 型別(裝置[i].名稱) != "string" || 長度(裝置[i].名稱) == 0) { 正確 = 假; }
+}
+印出("devices", 正確);

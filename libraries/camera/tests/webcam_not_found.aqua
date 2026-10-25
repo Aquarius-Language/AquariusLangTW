@@ -1,0 +1,3 @@
+# Desktop only: an identifier no listing returned reports the device as not found, without opening any camera.
+變數 攝影機 = 匯入("攝影機");
+攝影機.開啟("不存在的裝置", 320, 240, 30);

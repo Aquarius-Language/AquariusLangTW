@@ -1,0 +1,3 @@
+# Not Android (desktop and web): a valid vibration reaches the platform check.
+變數 輸入 = 匯入("AndroidInput");
+輸入.震動(50);

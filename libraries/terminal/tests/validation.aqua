@@ -1,0 +1,4 @@
+# Needs child processes (Windows, Linux or Android): option and argument errors stop the script before any launch.
+變數 終端機 = 匯入("Terminal");
+印出(型別(終端機.Platform), 終端機.平台 == 終端機.Platform);
+終端機.Run("tool", ["a"], {"Unknown": 1});

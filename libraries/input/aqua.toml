@@ -1,0 +1,14 @@
+manifest_version = 2
+
+[library]
+name = "input"
+version = "1.0.0"
+description = "AndroidInput/Android輸入: touches, the back gesture, insets, the soft keyboard and vibration on Android (IsSupported() is false elsewhere)."
+license = "MIT"
+platforms = ["windows", "linux", "android", "web"]
+
+[native]
+modules = ["AndroidInput|Android輸入"]
+
+[android]
+permissions = ["android.permission.VIBRATE"]

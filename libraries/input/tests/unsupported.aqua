@@ -1,0 +1,5 @@
+# Not Android (desktop and web): the module loads under both names and reports Android input as unavailable.
+變數 輸入 = 匯入("Android輸入");
+變數 同一 = 匯入("AndroidInput");
+印出(輸入.是否支援(), 同一.IsSupported(), 型別(輸入.讀取輸入));
+輸入.Poll();

@@ -1,0 +1,3 @@
+# Desktop and web: invalid sizes are refused before any device is touched.
+變數 攝影機 = 匯入("攝影機");
+攝影機.開啟("", 1.5d, 480, 30);

@@ -1,0 +1,3 @@
+# Not Android (desktop and web): arguments are validated before the platform is asked, with the old messages.
+變數 輸入 = 匯入("AndroidInput");
+輸入.處理返回("accept");

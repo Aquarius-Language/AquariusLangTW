@@ -23,6 +23,9 @@ bool aqua_android_start_activity(jobject intent, aqua_android_result done, void 
 void aqua_android_request_permission(const char *permission, void (*done)(bool granted, void *data), void *data);
 /* Window insets of the system bars and display cutout in logical units, and whether the soft keyboard is visible. */
 void aqua_android_insets(float *left, float *top, float *right, float *bottom, bool *keyboard_visible);
+/* The activity's one window once a library created it (aqua_window_create), else NULL, for libraries that observe its
+   events (aqua_window_listen) without creating it, such as AndroidInput. */
+struct aqua_window *aqua_android_window(void);
 #ifdef __cplusplus
 }
 #endif

@@ -1,0 +1,9 @@
+真 真
+0 hello 你好 真 假
+真 真
+7 out error 假
+exit 3
+真 a b;"literal" \\ $x
+stdin 0 0
+directory 真
+timeout 真 -1
