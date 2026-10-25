@@ -1,0 +1,16 @@
+adapter: ok
+limits: maxBindGroups >= 4 yes, maxComputeWorkgroupSizeX >= 64 yes
+features: consistent
+adapter info: ok
+device: ok
+compute: 1 3 5 7 9 11 13 15
+queue work done: ok
+error scope: validation
+surface: configured
+frames: 3
+surface center: 255 0 0 255
+surface corner: 0 0 255 255
+texture: 64x64, surface format
+texture center: 255 0 0 255
+texture corner: 0 0 255 255
+done

@@ -4,5 +4,6 @@ import './core/runtime.mjs';
 import './window/window.mjs';
 import './audio/audio.mjs';
 import './camera/camera.mjs';
+import './webgpu/webgpu.mjs';
 
 export { startApplication } from './core/runtime.mjs';

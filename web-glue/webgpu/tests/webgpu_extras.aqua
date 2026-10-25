@@ -1,0 +1,4 @@
+# Web only, needs a GPU: the webgpu.h functions wgpu-native does not implement (library webgpu_test, see ../README.md).
+var gpu = import("WebGPUTest");
+gpu.extras();
+print("done");

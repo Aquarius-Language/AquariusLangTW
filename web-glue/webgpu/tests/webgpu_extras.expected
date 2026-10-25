@@ -1,0 +1,20 @@
+adapter: ok
+limits: maxBindGroups >= 4 yes, maxComputeWorkgroupSizeX >= 64 yes
+features: consistent
+adapter info: ok
+device: ok
+device adapter info: backend WebGPU
+wgsl language features: consistent
+instance features: 0, timed wait any: no
+lost future: ok
+async pipelines: ok
+compilation info: error on line 2
+shader error scope: validation
+overlapping ranges: 7 8 / 8 9 42
+map state: pending
+wait any with a timeout: error
+wait any: completed, map state: mapped
+read mapped range: ok 7 8 9 42
+uncaptured error: validation
+device lost: destroyed
+done
