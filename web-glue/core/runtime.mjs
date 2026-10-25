@@ -81,7 +81,12 @@ export async function startApplication(options) {
     app.exports.aqua_initialize(heapStartOf(program, programBytes));
     const host = (await linker.load('aquarius.wasm')).exports;
     service = host.aqua_web_service;
-    for (const library of options.libraries ?? []) await linker.load(`libraries/${library}.wasm`);
+    for (const library of options.libraries ?? []) {
+        const { exports } = await linker.load(`libraries/${library}.wasm`);
+        const [name] = context.allocate(library);
+        if (!exports.aqua_library_entry || !host.aqua_web_add_library(name, linker.tableIndex(exports.aqua_library_entry)))
+            throw new Error(`The library ${library} does not support this runtime.`);
+    }
 
     const [modulePointer] = context.allocate(programBytes);
     const [directory] = context.allocate(options.directory ?? '');

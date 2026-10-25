@@ -10,6 +10,7 @@
 #include "../../host/host.h"
 #include "../posix/posix.h"
 #include "android.h"
+#include <aqua/android.h>
 
 static struct android_app *native_app;
 static aqua_runtime *runtime;
@@ -133,3 +134,17 @@ void android_main(struct android_app *app) {
 JNIEnv *aqua_android_jni(void) { return android_jni(); }
 jobject aqua_android_activity(void) { return android_activity(); }
 void *aqua_android_assets(void) { return native_app->activity->assetManager; }
+/* Activity results, permissions and insets arrive through the APK's activity (to be added with the Android exporter);
+   until then they report unavailable. */
+bool aqua_android_start_activity(jobject intent, aqua_android_result done, void *data) {
+    (void)intent; (void)done; (void)data;
+    return false;
+}
+void aqua_android_request_permission(const char *permission, void (*done)(bool granted, void *data), void *data) {
+    (void)permission;
+    done(false, data);
+}
+void aqua_android_insets(float *left, float *top, float *right, float *bottom, bool *keyboard_visible) {
+    *left = *top = *right = *bottom = 0;
+    *keyboard_visible = false;
+}

@@ -33,7 +33,7 @@ foreach(folder IN LISTS library_folders)
 endforeach()
 
 set(host_sources host/api.c host/application.c host/calls.c host/core.c host/format.c host/guest.c host/image.c
-    host/registry.c host/scheduler.c host/session.c host/values.c)
+    host/registry.c host/scheduler.c host/session.c host/values.c host/window_object.c)
 
 # The default libraries the host registers at startup, as X(name) entries for host/session.c.
 get_property(default_libraries GLOBAL PROPERTY AQUA_DEFAULT_LIBRARIES)
@@ -117,7 +117,10 @@ elseif(AQUA_TARGET STREQUAL "web")
     target_include_directories(aquarius PRIVATE sdk/include "${CMAKE_CURRENT_BINARY_DIR}/generated")
     set_target_properties(aquarius PROPERTIES OUTPUT_NAME aquarius)
     get_property(web_libraries GLOBAL PROPERTY AQUA_WEB_LIBRARIES)
-    install(TARGETS aquarius ${web_libraries} LIBRARY DESTINATION . RUNTIME DESTINATION .)
+    install(TARGETS aquarius LIBRARY DESTINATION . RUNTIME DESTINATION .)
+    if(web_libraries)
+        install(TARGETS ${web_libraries} LIBRARY DESTINATION libraries RUNTIME DESTINATION libraries)
+    endif()
     # The sysroot's shared C and C++ libraries the side modules link against.
     set(wasi_libraries "${AQUA_WASI_SYSROOT}/lib/wasm32-wasip1")
     install(FILES "${wasi_libraries}/libc.so" "${wasi_libraries}/noeh/libc++.so" "${wasi_libraries}/noeh/libc++abi.so" DESTINATION .)

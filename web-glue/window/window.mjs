@@ -158,7 +158,12 @@ registerGlue('window', (context) => {
     }
 
     return {
-        window_create(pointer, width, height, title, flags) { return context.retain(new PageWindow(pointer, width, height, context.text(title), flags)); },
+        window_create(pointer, width, height, title, flags) {
+            const window = new PageWindow(pointer, width, height, context.text(title), flags);
+            const handle = context.retain(window);
+            window.canvas.id = `aqua-window-${handle}`; // WebGPU surfaces select the canvas by this id
+            return handle;
+        },
         window_destroy(handle) { windowOf(handle)?.dispose(); context.release(handle); },
         window_poll(handle) { const w = windowOf(handle); w.resized(); w.dispatch(); },
         window_size(handle, out) {

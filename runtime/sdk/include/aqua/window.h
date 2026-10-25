@@ -29,6 +29,10 @@ void aqua_window_hint(int32_t hint, int32_t value);
 aqua_window *aqua_window_create(aqua_runtime *rt, int32_t width, int32_t height, const char *title, uint32_t flags, char **error);
 void aqua_window_destroy(aqua_window *window);
 aqua_runtime *aqua_window_runtime(aqua_window *window);
+/* The script object of a window: one per window, so a window one library creates (GLFW.CreateWindow, Processing) can be
+   passed to another library, which gets it back with aqua_window_of (NULL for other values or a destroyed window). */
+aqua_value aqua_window_object(aqua_window *window);
+aqua_window *aqua_window_of(aqua_runtime *rt, aqua_value value);
 
 bool aqua_window_should_close(aqua_window *window);
 void aqua_window_set_should_close(aqua_window *window, bool close);
@@ -113,8 +117,10 @@ typedef enum aqua_surface_kind {
 typedef struct aqua_surface {
     aqua_surface_kind kind;
     void *display;               /* HINSTANCE, X11 Display*, wl_display*, NULL */
-    void *handle;                /* HWND, X11 Window, wl_surface*, CAMetalLayer*, ANativeWindow*, canvas id (web) */
+    void *handle;                /* HWND, X11 Window, wl_surface*, CAMetalLayer*, ANativeWindow*, canvas number (web) */
 } aqua_surface;
+/* On the web the window's <canvas> element has the id "aqua-window-<number>": WebGPU surfaces select it with
+   WGPUEmscriptenSurfaceSourceCanvasHTMLSelector and the selector "#aqua-window-<number>". */
 bool aqua_window_surface(aqua_window *window, aqua_surface *surface);
 
 /* OpenGL windows. */

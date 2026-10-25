@@ -49,6 +49,15 @@ const char *aqua_web_create(uint8_t *module, uint32_t length, const char *direct
     return runtime ? NULL : (error ? error : "Cannot load the application.");
 }
 
+/* Registers a library side module the glue linked: its aqua_library_entry, passed as a function table index.
+   Returns false when the library rejects this runtime's API version. */
+void registry_ensure(void);
+__attribute__((export_name("aqua_web_add_library")))
+bool aqua_web_add_library(const char *name, uint32_t (*entry)(aqua_library *, uint32_t)) {
+    registry_ensure();
+    return registry_add_external(name, entry) != NULL;
+}
+
 /* Asset bytes of an externally stored asset (website deployments keep them beside program.wasm). */
 __attribute__((export_name("aqua_web_asset_count"))) uint32_t aqua_web_asset_count(void) { return runtime->app.asset_count; }
 __attribute__((export_name("aqua_web_asset_name"))) const char *aqua_web_asset_name(uint32_t i) { return runtime->app.assets[i].name; }

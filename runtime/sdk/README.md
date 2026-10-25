@@ -30,8 +30,10 @@ libraries/<name>/
 ```
 
 The only things a library may include from outside its folder are this SDK's headers (`<aqua/aqua.h>`,
-`<aqua/window.h>`, `<aqua/android.h>`) and the pinned SDKs the toolchain provides (`webgpu.h` from wgpu-native). Its web
+`<aqua/window.h>`, `<aqua/image.h>`, `<aqua/android.h>`) and the pinned SDKs the toolchain provides (`webgpu.h` from wgpu-native). Its web
 counterpart is a domain of `web-glue/` used by any library that needs the same Web API.
+
+`runtime/sdk/example/` is a minimal library to start from.
 
 ## Writing functions
 
