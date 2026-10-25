@@ -41,6 +41,11 @@ Every global symbol carries the `gfx_` (or `gpu_`) prefix, since default librari
   with `llvm-objcopy` so the runtime can link it next to Wasmtime. The web build only takes `webgpu.h` from the host's
   archive. `AQUA_GRAPHICS_DOWNLOADS` points several build directories at one download folder.
 - **stb_image 2.30 / stb_image_write 1.16** (vendored, `third_party/stb/LICENSE`).
+- Android emulator: its GFXStream Vulkan driver (`vulkan.ranchu.so`, API 37 images) crashes on wgpu's submissions
+  that mix a binary wait with a timeline signal. Instead of rebuilding wgpu-native with the earlier wgpu-hal patch,
+  `src/platform/android_vulkan.c` pads both timeline value arrays of each such `vkQueueSubmit` on emulators only:
+  Android builds link with `--wrap=dlsym` (a usage requirement of this library), so wgpu-native's lookup of
+  `vkGetInstanceProcAddr` returns a wrapper there; every other `dlsym` passes through.
 - At run time on Linux: `libpango-1.0`, `libpangocairo-1.0`, `libcairo`, `libgobject-2.0`, `libglib-2.0` when present
   (otherwise text uses the built-in bitmap font).
 

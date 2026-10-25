@@ -7,10 +7,12 @@ p.run(function() { p.size(320, 200, p.P2D, "integration test"); }, function() {
     var caps = app.Capabilities();
     print(caps.events["available"], caps.closeInterception["available"], caps.customCursor["available"], caps.touch["restriction"]);
     app.SetTitle("renamed");
-    app.SetCursor("hand");
-    app.SetCursor("Arrow");
-    var cursor = import("Processing").createImage(4, 4);
-    app.SetCustomCursor(window.FromProcessingImage(cursor), 1, 1);
+    if (caps.customCursor["available"]) {
+        app.SetCursor("hand");
+        app.SetCursor("Arrow");
+        var cursor = import("Processing").createImage(4, 4);
+        app.SetCustomCursor(window.FromProcessingImage(cursor), 1, 1);
+    }
     p.exit();
 });
 var later = function() { window.Current(); };

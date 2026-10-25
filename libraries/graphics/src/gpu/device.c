@@ -334,6 +334,15 @@ static void on_adapter(WGPURequestAdapterStatus status, WGPUAdapter adapter, WGP
     wgpuAdapterRequestDevice(adapter, &descriptor, callback);
 }
 
+#if defined(AQUA_OS_ANDROID)
+/* The Android emulator (ro.hardware ranchu or goldfish). */
+static bool android_emulator(void) {
+    char hardware[PROP_VALUE_MAX] = {0};
+    __system_property_get("ro.hardware", hardware);
+    return strcmp(hardware, "ranchu") == 0 || strcmp(hardware, "goldfish") == 0;
+}
+#endif
+
 void gpu_device_create(aqua_runtime *rt, aqua_window *window, gpu_device_done done, void *data) {
     gpu_device *d = calloc(1, sizeof *d);
     d->rt = rt;
@@ -347,10 +356,9 @@ void gpu_device_create(aqua_runtime *rt, aqua_window *window, gpu_device_done do
     extras.chain.sType = (WGPUSType)WGPUSType_InstanceExtras;
     extras.backends = WGPUInstanceBackend_Vulkan;
 #if defined(AQUA_OS_ANDROID)
-    /* Emulators (GFXStream) advertise incomplete conformance: permit their adapter there only. */
-    char hardware[PROP_VALUE_MAX] = {0};
-    __system_property_get("ro.hardware", hardware);
-    if (strcmp(hardware, "ranchu") == 0 || strcmp(hardware, "goldfish") == 0) extras.flags = WGPUInstanceFlag_AllowUnderlyingNoncompliantAdapter;
+    /* Emulators (GFXStream) advertise incomplete conformance: permit their adapter there only. Their driver's
+       submission bug is handled in src/platform/android_vulkan.c. */
+    if (android_emulator()) extras.flags = WGPUInstanceFlag_AllowUnderlyingNoncompliantAdapter;
 #endif
     descriptor.nextInChain = &extras.chain;
 #endif

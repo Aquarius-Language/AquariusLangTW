@@ -50,7 +50,7 @@ else()
         list(APPEND sources src/platform/linux.c)
         list(APPEND link_libraries dl pthread m)
     elseif(AQUA_TARGET MATCHES "^android-")
-        list(APPEND sources src/platform/android.c)
+        list(APPEND sources src/platform/android.c src/platform/android_vulkan.c)
         list(APPEND link_libraries android log dl m)
     endif()
 endif()
@@ -104,5 +104,10 @@ if(NOT AQUA_TARGET STREQUAL "web")
 endif()
 
 aqua_add_library(graphics SOURCES ${sources} INCLUDE_DIRECTORIES ${include_directories} LINK_LIBRARIES ${link_libraries})
+if(AQUA_TARGET MATCHES "^android-")
+    # The emulator's Vulkan driver needs complete timeline values in vkQueueSubmit: wgpu-native's lookup of
+    # vkGetInstanceProcAddr is redirected to src/platform/android_vulkan.c (every other dlsym passes through).
+    target_link_options(aqua_graphics PUBLIC "-Wl,--wrap=dlsym")
+endif()
 # Matrix and color math follows System.Numerics' single-precision results: no fused multiply-adds.
 target_compile_options(aqua_graphics PRIVATE -ffp-contract=off)

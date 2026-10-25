@@ -1,4 +1,4 @@
-# Runs the default libraries' tests on the runtime packs: every libraries/<name>/tests/<case>.aqua is compiled with the
+﻿# Runs the default libraries' tests on the runtime packs: every libraries/<name>/tests/<case>.aqua is compiled with the
 # repository's compiler and run on each target; its standard output must equal <case>.expected exactly (LF endings).
 #   scripts/test-libraries.ps1                                   # every library, windows-x64 and web
 #   scripts/test-libraries.ps1 -Libraries audio,graphics -Targets windows-x64,web,linux-x64
@@ -120,7 +120,9 @@ foreach ($folder in $folders) {
                     $run = Invoke-Captured 'powershell' @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', (Join-Path $PSScriptRoot 'android-run.ps1'), $wasm, '-Runtime', $pack, '-Abi', $abi, '-Run')
                 }
             }
-            $expected = [IO.File]::ReadAllText($expectedFile).Replace("`r`n", "`n")
+            # <case>.<platform>.expected (windows, linux, android, web) replaces <case>.expected where a target differs.
+            $platformExpected = Join-Path $tests "$name.$(($target -split '-')[0]).expected"
+            $expected = [IO.File]::ReadAllText($(if (Test-Path -LiteralPath $platformExpected) { $platformExpected } else { $expectedFile })).Replace("`r`n", "`n")
             if ($run.Output -eq $expected) { $row.Result = 'pass' }
             else {
                 $row.Result = 'FAIL'
