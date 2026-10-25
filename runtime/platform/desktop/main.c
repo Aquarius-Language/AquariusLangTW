@@ -1,7 +1,7 @@
 /* The desktop launcher (Windows and Linux): runs an application .wasm, or the application embedded in this executable
-   by `aqua build --target windows|linux` (overlay format 2, compiler/AquariusPackaging/ExecutableBundle.cs).
+   by `aqua build --target windows|linux` (overlay format 2, compiler/AquariusBuild/ExecutableBundle.cs).
      aquarius [--library file ...] app.wasm [--entry script.aqua] [--documents file ...] [argument ...]
-     aquarius --catalog        bilingual names and arities of every built-in module, as JSON (editor tooling)
+     aquarius [--library file ...] --catalog   bilingual names and arities of every module, as JSON (editor tooling)
      aquarius --runtime-info   this runtime pack's identity, as JSON (build targets)                                */
 #include "desktop.h"
 #include "../../host/host.h"
@@ -193,7 +193,12 @@ static int run(uint8_t *module, size_t length, const char *directory, const char
     int code = 1;
     if (runtime_start(rt, entry)) {
         double wait;
-        while ((wait = runtime_turn(rt, 50)) >= 0) if (wait > 0) platform_wait(rt, wait);
+        /* Output is buffered within a turn and written after it, so a busy program's output (servers that never
+           wait) still reaches pipes and files within one turn. */
+        while ((wait = runtime_turn(rt, 50)) >= 0) {
+            platform_flush();
+            if (wait > 0) platform_wait(rt, wait);
+        }
         code = rt->exit_code;
     }
     platform_flush();
@@ -229,6 +234,8 @@ int desktop_main(int count, char **arguments) {
         char *error = NULL;
         if (!library_load(arguments[first + 1], &error)) { say(2, error ? error : "Cannot load the library."); say(2, "\n"); free(error); return 1; }
     }
+    /* aquarius --library file ... --catalog: the catalog including those external libraries. */
+    if (first < count && strcmp(arguments[first], "--catalog") == 0) return catalog();
     if (first >= count) { say(2, "Missing the application .wasm file.\n"); return 2; }
     const char *path = arguments[first];
     int next = first + 1;
