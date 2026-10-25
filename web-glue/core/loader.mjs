@@ -80,7 +80,8 @@ export class Linker {
         for (const item of WebAssembly.Module.imports(module)) {
             if (item.module === 'env') {
                 if (item.name in env) continue;
-                if (item.kind === 'function') env[item.name] = this.functions.get(item.name) ?? this.lazy(item.name);
+                // A C API the glue implements in JavaScript (webgpu.h's wgpu*, OpenGL ES's gl*) binds by its own name.
+                if (item.kind === 'function') env[item.name] = this.functions.get(item.name) ?? this.modules.aqua_web?.[item.name] ?? this.lazy(item.name);
                 else if (item.kind === 'global') env[item.name] = new WebAssembly.Global({ value: 'i32', mutable: false }, this.addresses.get(item.name) ?? 0);
             } else if (item.module === 'GOT.mem') {
                 const address = this.addresses.get(item.name);

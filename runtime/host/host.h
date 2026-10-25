@@ -219,6 +219,8 @@ void runtime_destroy(aqua_runtime *rt);
 /* ---- Platform layer (runtime/platform/<os>). -------------------------------------------------------------------- */
 /* After the runtime's libraries released their state: windows and other platform resources still open close here. */
 void platform_runtime_closing(aqua_runtime *rt);
+/* Bytes of an asset the application stores outside its module, kept for the runtime's life; NULL when unavailable. */
+const uint8_t *platform_asset(aqua_runtime *rt, const char *name, size_t *length);
 double platform_now_ms(void);
 void platform_write(int stream, const char *utf8, size_t length); /* 1 stdout, 2 stderr */
 void *platform_lock_create(void);

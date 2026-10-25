@@ -388,7 +388,14 @@ const char *aqua_environment(aqua_runtime *rt, const char *name) { (void)rt; ret
 static const char *asset_name(const char *path) { return strncmp(path, "/bottles/", 9) == 0 ? path + 1 : path; }
 const uint8_t *aqua_asset(aqua_runtime *rt, const char *path, size_t *length) {
     int32_t i = application_asset(&rt->app, asset_name(path));
-    if (i < 0 || !rt->app.assets[i].data) return NULL;
+    if (i < 0) return NULL;
+    if (!rt->app.assets[i].data) {
+        /* Assets stored beside the module (Android packages them as APK assets) load on first use. */
+        size_t n = 0;
+        rt->app.assets[i].data = platform_asset(rt, rt->app.assets[i].name, &n);
+        if (!rt->app.assets[i].data) return NULL;
+        rt->app.assets[i].length = (uint32_t)n;
+    }
     if (length) *length = rt->app.assets[i].length;
     return rt->app.assets[i].data;
 }

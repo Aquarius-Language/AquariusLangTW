@@ -204,3 +204,4 @@ int desktop_main(int count, char **arguments) {
 }
 
 void platform_runtime_closing(aqua_runtime *rt) { desktop_windows_close(rt); }
+const uint8_t *platform_asset(aqua_runtime *rt, const char *name, size_t *length) { (void)rt; (void)name; (void)length; return NULL; }

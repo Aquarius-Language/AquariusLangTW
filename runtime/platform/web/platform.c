@@ -61,3 +61,4 @@ __attribute__((export_name("aqua_web_turn"))) double aqua_web_turn(double budget
 __attribute__((export_name("aqua_web_exit_code"))) int32_t aqua_web_exit_code(void) { return runtime->exit_code; }
 __attribute__((export_name("aqua_web_destroy"))) void aqua_web_destroy(void) { runtime_destroy(runtime); runtime = NULL; }
 __attribute__((export_name("aqua_web_cancel"))) void aqua_web_cancel(void) { if (runtime) { runtime->exiting = true; runtime->exit_code = 1; } }
+const uint8_t *platform_asset(aqua_runtime *rt, const char *name, size_t *length) { (void)rt; (void)name; (void)length; return NULL; } /* the glue delivers them */

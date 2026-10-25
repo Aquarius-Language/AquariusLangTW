@@ -83,7 +83,7 @@ if(AQUA_TARGET STREQUAL "windows-x64" OR AQUA_TARGET STREQUAL "linux-x64")
         set(platform_sources platform/windows/platform.c)
         set(platform_libraries ws2_32 userenv ntdll bcrypt ole32 shell32 advapi32 kernel32 synchronization)
     else()
-        set(platform_sources platform/linux/platform.c)
+        set(platform_sources platform/linux/platform.c platform/posix/posix.c)
         set(platform_libraries pthread dl m)
     endif()
     add_executable(aquarius ${host_sources} host/engine_wasmtime.c host/threads.c ${platform_sources}
@@ -95,6 +95,22 @@ if(AQUA_TARGET STREQUAL "windows-x64" OR AQUA_TARGET STREQUAL "linux-x64")
         target_link_libraries(aquarius PRIVATE aqua_${name})
     endforeach()
     install(TARGETS aquarius RUNTIME DESTINATION .)
+elseif(AQUA_TARGET MATCHES "^android-")
+    # The native activity: android_native_app_glue runs android_main on the activity's thread.
+    aqua_sdk_directory(wasmtime ${AQUA_TARGET} wasmtime_sdk)
+    string(JSON wasmtime_version GET "${AQUA_PINS}" sdks wasmtime version)
+    add_library(aquarius SHARED ${host_sources} host/engine_wasmtime.c host/threads.c platform/android/platform.c
+        platform/android/window.c platform/posix/posix.c "${ANDROID_NDK}/sources/android/native_app_glue/android_native_app_glue.c")
+    target_include_directories(aquarius PRIVATE sdk/include "${CMAKE_CURRENT_BINARY_DIR}/generated" "${wasmtime_sdk}/include"
+        "${ANDROID_NDK}/sources/android/native_app_glue")
+    target_compile_definitions(aquarius PRIVATE AQUA_HAS_DEFAULT_LIBRARIES WASM_API_EXTERN= WASI_API_EXTERN= AQUA_WASMTIME_VERSION="${wasmtime_version}")
+    # The activity's entry point must stay exported while everything else of the glue stays local.
+    target_link_options(aquarius PRIVATE -u ANativeActivity_onCreate)
+    target_link_libraries(aquarius PRIVATE "${wasmtime_sdk}/lib/libwasmtime.a" android log m dl)
+    foreach(name IN LISTS default_libraries)
+        target_link_libraries(aquarius PRIVATE aqua_${name})
+    endforeach()
+    install(TARGETS aquarius LIBRARY DESTINATION .)
 elseif(AQUA_TARGET STREQUAL "web")
     # The host core as a side module; the glue links it after libc and before the libraries.
     add_library(aquarius SHARED ${host_sources} host/engine_web.c host/threads_web.c platform/web/platform.c)
