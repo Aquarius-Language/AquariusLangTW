@@ -20,13 +20,12 @@ module's undefined `env` imports to glue functions of the same name: a library j
 ## Using it from a library
 
 ```cmake
+# A library pins wgpu-native in its own folder (see libraries/graphics/CMakeLists.txt) and, on the web, takes only
+# webgpu.h from the host's release plus this domain's include/ folder:
 if(AQUA_TARGET STREQUAL "web")
-    # webgpu.h is the same file in every target's wgpu-native SDK: use the host's copy, plus webgpu_web.h.
-    aqua_sdk_directory(wgpu ${AQUA_HOST} wgpu_sdk)
-    set(webgpu_includes "${wgpu_sdk}/include" "<repository>/web-glue/webgpu/include")
+    set(webgpu_includes "${wgpu_native}/include" "<repository>/web-glue/webgpu/include")
 else()
-    aqua_sdk_directory(wgpu ${AQUA_TARGET} wgpu_sdk)   # and link "${wgpu_sdk}/lib/libwgpu_native.a"
-    set(webgpu_includes "${wgpu_sdk}/include")
+    set(webgpu_includes "${wgpu_native}/include")   # and link "${wgpu_native}/lib/libwgpu_native.a"
 endif()
 ```
 
@@ -133,7 +132,7 @@ cd /c/OfficialProjects/AquariusLangTW
 dotnet .native-build/compiler/aqua.dll build web-glue/webgpu/tests/webgpu.aqua -o .native-build/lib-webgpu/apps/webgpu.wasm
 # Windows (wgpu-native, linked statically)
 cmake -S web-glue/webgpu/tests -B .native-build/lib-webgpu/windows-x64 -G Ninja -DCMAKE_MAKE_PROGRAM=C:/Strawberry/c/bin/ninja.exe \
-  -DCMAKE_TOOLCHAIN_FILE=$PWD/runtime/sdk/cmake/toolchains/windows-x64.cmake -DCMAKE_BUILD_TYPE=Release
+  -DCMAKE_TOOLCHAIN_FILE=$PWD/runtime/sdk/cmake/toolchains/windows-x64.cmake -DCMAKE_BUILD_TYPE=Release \n  -DWGPU_NATIVE=<an unpacked wgpu-native 29.0.1.1 release, e.g. the one a graphics build extracts>
 cmake --build .native-build/lib-webgpu/windows-x64
 .native-build/runtime/windows-x64/aquarius.exe --library .native-build/lib-webgpu/windows-x64/aqua_webgpu_test.dll .native-build/lib-webgpu/apps/webgpu.wasm
 # Web: the same with web.cmake gives webgpu_test.wasm; copy it into <runtime web install>/libraries/, then
