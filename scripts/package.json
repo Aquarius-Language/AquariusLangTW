@@ -1,0 +1,9 @@
+{
+  "name": "aquarius-scripts",
+  "private": true,
+  "description": "Node tools of the repository's scripts: Chromium automation for web tests (web-run.mjs).",
+  "type": "module",
+  "devDependencies": {
+    "playwright": "1.58.2"
+  }
+}

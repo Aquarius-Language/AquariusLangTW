@@ -50,7 +50,7 @@ const server = createServer(async (request, response) => {
 await new Promise((ok) => server.listen(0, '127.0.0.1', ok));
 const url = `http://127.0.0.1:${server.address().port}/${frames ? `?frames=${frames}` : ''}`;
 
-const require = createRequire(pathToFileURL(join(repository, 'AquariusWebCompiler', 'package.json')));
+const require = createRequire(pathToFileURL(join(repository, 'scripts', 'package.json'))); // npm install in scripts/
 const { chromium } = require('playwright');
 // Audio tests: headless Chrome otherwise sometimes holds an AudioContext suspended until a user gesture.
 const launch = { headless: !headed, args: ['--enable-unsafe-webgpu', '--enable-features=Vulkan', '--ignore-gpu-blocklist', '--autoplay-policy=no-user-gesture-required'] };
