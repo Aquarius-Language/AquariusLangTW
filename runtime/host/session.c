@@ -289,11 +289,16 @@ aqua_value host_import(aqua_runtime *rt, uint32_t context, aqua_value name) {
     }
     char *path = NULL;
     if (!ends_with(text, ".aqua")) {
-        /* Aquarius-source libraries are linked into the application as .aquarius/<name>.aqua. */
-        size_t n = length + 16;
-        path = malloc(n);
-        snprintf(path, n, ".aquarius/%s.aqua", text);
-        if (application_module(&rt->app, path) < 0) { result = host_error(rt, "Module not found: %s", text); free(path); free(text); return result; }
+        /* Aquarius-source library modules bundled into the application, by any of their import names. */
+        int32_t bundled = application_import(&rt->app, text);
+        if (bundled >= 0) path = copy(rt->app.modules[bundled].path);
+        else if (rt->app.import_count == 0) {
+            /* ABI 3 applications bundle them as .aquarius/<name>.aqua. */
+            size_t n = length + 16;
+            path = malloc(n);
+            snprintf(path, n, ".aquarius/%s.aqua", text);
+        }
+        if (!path || application_module(&rt->app, path) < 0) { result = host_error(rt, "Module not found: %s", text); free(path); free(text); return result; }
     } else {
         const char *relative = text;
         const char *directory = context < rt->context_count ? rt->contexts[context].directory : "";

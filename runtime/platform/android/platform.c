@@ -139,6 +139,14 @@ void android_main(struct android_app *app) {
     while (!app->destroyRequested) android_poll(-1);
 }
 
+/* External libraries are packaged in the APK's lib/<abi>/ folder, which the linker searches by file name. */
+bool platform_load_library(aqua_runtime *rt, const char *name, char **error) {
+    (void)rt;
+    char file[128];
+    snprintf(file, sizeof file, "libaqua_%s.so", name);
+    return library_load(file, error);
+}
+
 /* ---- aqua/android.h ---- */
 JNIEnv *aqua_android_jni(void) { return android_jni(); }
 jobject aqua_android_activity(void) { return android_activity(); }

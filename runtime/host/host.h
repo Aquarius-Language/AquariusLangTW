@@ -43,6 +43,7 @@ int32_t host_service(aqua_runtime *rt, int32_t operation, int32_t context, int32
 /* ---- Application packages (runtime/host/application.c). -------------------------------------------------------- */
 typedef struct app_asset { char *name; const uint8_t *data; uint32_t length; } app_asset;
 typedef struct app_module { char *path; uint32_t function; } app_module;
+typedef struct app_import { char *name; uint32_t module; } app_import;   /* import("Models") -> a bundled library module */
 typedef struct application {
     uint8_t *bytes; size_t length;      /* the module, owned */
     uint32_t program_address, heap_start, function_count;
@@ -50,11 +51,14 @@ typedef struct application {
     char **platforms; uint32_t platform_count;
     app_asset *assets; uint32_t asset_count;
     bool external_assets;
+    app_import *imports; uint32_t import_count;   /* ABI 4: Aquarius-source library modules by import name */
+    char **libraries; uint32_t library_count;     /* ABI 4: native libraries the application needs */
 } application;
 bool application_parse(application *app, uint8_t *bytes, size_t length, char **error);
 void application_free(application *app);
 int32_t application_module(const application *app, const char *path); /* index into modules, case-insensitive */
 int32_t application_asset(const application *app, const char *path);
+int32_t application_import(const application *app, const char *name); /* module index of an import name, or -1 */
 
 /* ---- Registry of libraries, classes and members (runtime/host/registry.c). -------------------------------------- */
 typedef enum member_kind { MEMBER_FUNCTION, MEMBER_PROPERTY, MEMBER_INT, MEMBER_DOUBLE, MEMBER_BOOL, MEMBER_STRING, MEMBER_VALUE } member_kind;
@@ -92,6 +96,7 @@ aqua_library *registry_add_external(const char *name, uint32_t (*entry)(aqua_lib
 /* Loads an external native library (aqua_<name>.dll, libaqua_<name>.so) and registers its modules under <name>. */
 bool library_load(const char *path, char **error);
 void registry_ensure(void);
+aqua_library *registry_library(const char *name); /* a registered library by name */
 aqua_class *registry_module(const char *name);   /* a module by any alias */
 int32_t class_member(const aqua_class *c, const char *name);
 void class_define_value(aqua_class *owner, const char *names, aqua_value value);
@@ -234,7 +239,10 @@ void platform_wake(aqua_runtime *rt);      /* from any thread: the loop has post
 const char *platform_environment(const char *name);
 /* Native shared libraries; the web loads side modules through its glue instead. */
 void *platform_library_open(const char *path, char **error);
+/* Finds and loads the external native library <name> an application needs (aqua_<name>.dll, libaqua_<name>.so). */
+bool platform_load_library(aqua_runtime *rt, const char *name, char **error);
 void *platform_library_symbol(void *library, const char *name);
+bool platform_file_exists(const char *path);
 bool platform_write_file(const char *path, const uint8_t *data, size_t length);
 bool platform_make_directories(const char *path);
 void platform_remove_tree(const char *path);

@@ -233,7 +233,24 @@ static void main_done(aqua_runtime *rt, bool ok, aqua_value result, void *data) 
     rt->finished = true;
 }
 
+/* The native libraries the application declares must be registered before its code runs: default libraries are part
+   of the runtime, external ones are found next to the application (on the web the glue links them before this). */
+static bool require_libraries(aqua_runtime *rt) {
+    for (uint32_t i = 0; i < rt->app.library_count; i++) {
+        if (registry_library(rt->app.libraries[i])) continue;
+        char *error = NULL;
+        if (platform_load_library(rt, rt->app.libraries[i], &error)) continue;
+        char text[1024];
+        snprintf(text, sizeof text, "This application needs the library %s: %s\n", rt->app.libraries[i], error ? error : "not found.");
+        platform_write(2, text, strlen(text));
+        free(error);
+        return false;
+    }
+    return true;
+}
+
 bool runtime_start(aqua_runtime *rt, const char *entry) {
+    if (!require_libraries(rt)) { rt->exit_code = 1; return false; }
     int32_t module = entry ? application_module(&rt->app, entry) : (int32_t)rt->app.entry;
     if (module < 0) {
         char text[512];

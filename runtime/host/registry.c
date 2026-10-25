@@ -98,6 +98,11 @@ aqua_class *aqua_define_class(aqua_library *library, const char *name, void (*fi
     return new_class(library, name, false, finalize);
 }
 
+aqua_library *registry_library(const char *name) {
+    for (uint32_t i = 0; i < host_registry.library_count; i++) if (strcmp(host_registry.libraries[i]->name, name) == 0) return host_registry.libraries[i];
+    return NULL;
+}
+
 aqua_class *registry_module(const char *name) {
     for (uint32_t i = 0; i < host_registry.class_count; i++) {
         aqua_class *c = host_registry.classes[i];

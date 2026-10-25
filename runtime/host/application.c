@@ -1,6 +1,7 @@
-/* Application packages: a WebAssembly module whose `aquarius.application` custom section (ABI 3, written by
-   compiler/AquariusPackaging) names its script modules, entry, supported platforms and assets, with the asset bytes in
-   an `aquarius.assets` section. Everything is validated before any code runs. */
+/* Application packages: a WebAssembly module whose `aquarius.application` custom section (ABI 4, written by the
+   compiler) names its script modules, entry, supported platforms, assets, the import names of the Aquarius-source
+   library modules it bundles and the native libraries it needs, with the asset bytes in an `aquarius.assets` section.
+   Everything is validated before any code runs. */
 #include "host.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -148,7 +149,8 @@ bool application_parse(application *app, uint8_t *bytes, size_t length, char **e
     if (metadata.end - metadata.payload < 5 || memcmp(bytes + metadata.payload, magic, 4) != 0)
         return fail(error, "This application was built by an older AquariusLang compiler (ABI 2). Rebuild it from source.");
     r.position += 4;
-    if (read_byte(&r) != 3) return fail(error, "Missing or incompatible Aquarius WebAssembly ABI.");
+    uint8_t abi = read_byte(&r);
+    if (abi != 3 && abi != 4) return fail(error, "Missing or incompatible Aquarius WebAssembly ABI.");
     uint32_t value_abi = read_unsigned(&r);
     app->program_address = read_unsigned(&r);
     app->heap_start = read_unsigned(&r);
@@ -195,6 +197,29 @@ bool application_parse(application *app, uint8_t *bytes, size_t length, char **e
         for (uint32_t j = 0; j < i; j++) if (equal_ignoring_case(app->assets[j].name, app->assets[i].name)) return fail(error, "Invalid application asset.");
         total += app->assets[i].length;
     }
+    if (abi >= 4) {
+        app->import_count = read_unsigned(&r);
+        if (r.failed || app->import_count > 10000) return fail(error, "Invalid library module metadata.");
+        app->imports = calloc(app->import_count ? app->import_count : 1, sizeof *app->imports);
+        for (uint32_t i = 0; i < app->import_count; i++) {
+            app->imports[i].name = read_string(&r);
+            app->imports[i].module = read_unsigned(&r);
+            if (r.failed || !app->imports[i].name[0] || strlen(app->imports[i].name) > 128 || app->imports[i].module >= app->module_count)
+                return fail(error, "Invalid library module metadata.");
+            for (uint32_t j = 0; j < i; j++) if (strcmp(app->imports[j].name, app->imports[i].name) == 0) return fail(error, "Invalid library module metadata.");
+        }
+        app->library_count = read_unsigned(&r);
+        if (r.failed || app->library_count > 1000) return fail(error, "Invalid native library metadata.");
+        app->libraries = calloc(app->library_count ? app->library_count : 1, sizeof *app->libraries);
+        for (uint32_t i = 0; i < app->library_count; i++) {
+            char *name = app->libraries[i] = read_string(&r);
+            size_t n = name ? strlen(name) : 0;
+            bool valid = !r.failed && n > 0 && n <= 64;
+            for (size_t k = 0; valid && k < n; k++) valid = (name[k] >= 'a' && name[k] <= 'z') || (name[k] >= '0' && name[k] <= '9') || name[k] == '_';
+            for (uint32_t j = 0; valid && j < i; j++) valid = strcmp(app->libraries[j], name) != 0;
+            if (!valid) return fail(error, "Invalid native library metadata.");
+        }
+    }
     if (r.failed || r.position != r.end) return fail(error, "Invalid Aquarius metadata.");
     int64_t stored = has_assets ? (int64_t)(assets.end - assets.payload) : -1;
     if (app->external_assets ? stored >= 0 : app->asset_count == 0 ? stored >= 0 : stored != (int64_t)total)
@@ -212,7 +237,9 @@ void application_free(application *app) {
     for (uint32_t i = 0; i < app->module_count; i++) free(app->modules ? app->modules[i].path : NULL);
     for (uint32_t i = 0; i < app->platform_count; i++) free(app->platforms ? app->platforms[i] : NULL);
     for (uint32_t i = 0; i < app->asset_count; i++) free(app->assets ? app->assets[i].name : NULL);
-    free(app->modules); free(app->platforms); free(app->assets); free(app->bytes);
+    for (uint32_t i = 0; i < app->import_count; i++) free(app->imports ? app->imports[i].name : NULL);
+    for (uint32_t i = 0; i < app->library_count; i++) free(app->libraries ? app->libraries[i] : NULL);
+    free(app->modules); free(app->platforms); free(app->assets); free(app->imports); free(app->libraries); free(app->bytes);
     memset(app, 0, sizeof *app);
 }
 
@@ -223,5 +250,10 @@ int32_t application_module(const application *app, const char *path) {
 
 int32_t application_asset(const application *app, const char *path) {
     for (uint32_t i = 0; i < app->asset_count; i++) if (equal_ignoring_case(app->assets[i].name, path)) return (int32_t)i;
+    return -1;
+}
+
+int32_t application_import(const application *app, const char *name) {
+    for (uint32_t i = 0; i < app->import_count; i++) if (strcmp(app->imports[i].name, name) == 0) return (int32_t)app->imports[i].module;
     return -1;
 }

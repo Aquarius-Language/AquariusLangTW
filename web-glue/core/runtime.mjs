@@ -81,17 +81,19 @@ export async function startApplication(options) {
     app.exports.aqua_initialize(heapStartOf(program, programBytes));
     const host = (await linker.load('aquarius.wasm')).exports;
     service = host.aqua_web_service;
-    for (const library of options.libraries ?? []) {
+    const [modulePointer] = context.allocate(programBytes);
+    const [directory] = context.allocate(options.directory ?? '');
+    const error = host.aqua_web_create(modulePointer, programBytes.length, directory);
+    if (error) throw new Error(context.text(error));
+    // The libraries the application declares, plus any the page names, link before the program starts.
+    const libraries = new Set(options.libraries ?? []);
+    for (let i = 0; i < host.aqua_web_library_count(); i++) libraries.add(context.text(host.aqua_web_library_name(i)));
+    for (const library of libraries) {
         const { exports } = await linker.load(`libraries/${library}.wasm`);
         const [name] = context.allocate(library);
         if (!exports.aqua_library_entry || !host.aqua_web_add_library(name, linker.tableIndex(exports.aqua_library_entry)))
             throw new Error(`The library ${library} does not support this runtime.`);
     }
-
-    const [modulePointer] = context.allocate(programBytes);
-    const [directory] = context.allocate(options.directory ?? '');
-    const error = host.aqua_web_create(modulePointer, programBytes.length, directory);
-    if (error) throw new Error(context.text(error));
     const assetCount = host.aqua_web_asset_count();
     await Promise.all(Array.from({ length: assetCount }, async (_, i) => {
         const name = context.text(host.aqua_web_asset_name(i));

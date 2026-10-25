@@ -2,6 +2,7 @@
    Everything it needs from the browser comes from web-glue/core (imports of module "aqua_web"); the glue calls the
    exports below to create the runtime, deliver assets and run turns. */
 #include "../../host/host.h"
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -26,6 +27,16 @@ void platform_wait(aqua_runtime *rt, double timeout_ms) { (void)rt; (void)timeou
 const char *platform_environment(const char *name) { return web_environment(name); }
 void *platform_library_open(const char *path, char **error) { (void)path; if (error) *error = strdup("Native libraries load through the web glue."); return NULL; }
 void *platform_library_symbol(void *library, const char *name) { (void)library; (void)name; return NULL; }
+bool platform_load_library(aqua_runtime *rt, const char *name, char **error) {
+    (void)rt;
+    if (error) {
+        char text[256];
+        snprintf(text, sizeof text, "the site has no libraries/%s.wasm.", name);
+        *error = strdup(text);
+    }
+    return false;
+}
+bool platform_file_exists(const char *path) { (void)path; return false; }
 bool platform_write_file(const char *path, const uint8_t *data, size_t length) { (void)path; (void)data; (void)length; return false; }
 bool platform_make_directories(const char *path) { (void)path; return false; }
 void platform_remove_tree(const char *path) { (void)path; }
@@ -57,6 +68,10 @@ bool aqua_web_add_library(const char *name, uint32_t (*entry)(aqua_library *, ui
     registry_ensure();
     return registry_add_external(name, entry) != NULL;
 }
+
+/* The native libraries the application declares (ABI 4); the glue links libraries/<name>.wasm for each before start. */
+__attribute__((export_name("aqua_web_library_count"))) uint32_t aqua_web_library_count(void) { return runtime->app.library_count; }
+__attribute__((export_name("aqua_web_library_name"))) const char *aqua_web_library_name(uint32_t i) { return runtime->app.libraries[i]; }
 
 /* Asset bytes of an externally stored asset (website deployments keep them beside program.wasm). */
 __attribute__((export_name("aqua_web_asset_count"))) uint32_t aqua_web_asset_count(void) { return runtime->app.asset_count; }

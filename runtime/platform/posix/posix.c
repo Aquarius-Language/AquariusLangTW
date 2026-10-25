@@ -153,6 +153,8 @@ char *platform_full_path(const char *path) {
     char *full = realpath(path, NULL);
     return full ? full : strdup(path);
 }
+bool platform_file_exists(const char *path) { struct stat info; return stat(path, &info) == 0 && S_ISREG(info.st_mode); }
+
 void *platform_library_open(const char *path, char **error) {
     void *library = dlopen(path, RTLD_NOW | RTLD_LOCAL);
     if (!library && error) *error = strdup(dlerror());

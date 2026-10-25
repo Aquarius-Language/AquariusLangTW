@@ -145,6 +145,39 @@ static char *directory_of(const char *path) {
     return copy;
 }
 
+/* External libraries live in a libraries/ folder beside the application, or beside the runtime executable. */
+bool platform_load_library(aqua_runtime *rt, const char *name, char **error) {
+#if defined(_WIN32)
+    const char *prefix = "aqua_", *suffix = ".dll";
+#else
+    const char *prefix = "libaqua_", *suffix = ".so";
+#endif
+    char *self = platform_executable_path();
+    char *runtime_directory = self ? directory_of(self) : NULL;
+    const char *directories[2] = {rt->application_directory, runtime_directory};
+    bool loaded = false;
+    char tried[2048] = "";
+    for (int i = 0; i < 2 && !loaded; i++) {
+        if (!directories[i] || !directories[i][0]) continue;
+        char path[1200];
+        snprintf(path, sizeof path, "%s/libraries/%s%s%s", directories[i], prefix, name, suffix);
+        if (!platform_file_exists(path)) {
+            size_t used = strlen(tried);
+            snprintf(tried + used, sizeof tried - used, "%s%s", used ? ", " : "", path);
+            continue;
+        }
+        loaded = library_load(path, error);
+        if (!loaded) break;
+    }
+    if (!loaded && error && !*error) {
+        char text[2300];
+        snprintf(text, sizeof text, "%s%s%s was not found (looked for %s).", prefix, name, suffix, tried);
+        *error = strdup(text);
+    }
+    free(self); free(runtime_directory);
+    return loaded;
+}
+
 static int run(uint8_t *module, size_t length, const char *directory, const char *entry, const char *const *launch, uint32_t launch_count) {
     char *materialize = platform_temporary_directory("aquarius-resources");
     runtime_options options = {directory, entry, launch, launch_count, materialize};

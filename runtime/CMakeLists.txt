@@ -16,7 +16,8 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 # Default libraries: every folder of ../libraries with a CMakeLists.txt, unless AQUA_LIBRARIES names a subset.
-get_filename_component(AQUA_LIBRARY_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/../libraries" ABSOLUTE)
+get_filename_component(default_library_root "${CMAKE_CURRENT_SOURCE_DIR}/../libraries" ABSOLUTE)
+set(AQUA_LIBRARY_ROOT "${default_library_root}" CACHE PATH "Folder holding the default libraries")
 set(AQUA_LIBRARIES "" CACHE STRING "Default libraries to build (folder names under libraries/); empty builds all")
 if(AQUA_LIBRARIES)
     set(library_folders ${AQUA_LIBRARIES})

@@ -250,6 +250,13 @@ void *platform_library_open(const char *path, char **error) {
 }
 void *platform_library_symbol(void *library, const char *name) { return (void *)GetProcAddress(library, name); }
 
+bool platform_file_exists(const char *path) {
+    wchar_t *wide = windows_wide(path);
+    DWORD attributes = GetFileAttributesW(wide);
+    free(wide);
+    return attributes != INVALID_FILE_ATTRIBUTES && !(attributes & FILE_ATTRIBUTE_DIRECTORY);
+}
+
 char *platform_full_path(const char *path) {
     wchar_t *wide = windows_wide(path);
     wchar_t full[32768];
