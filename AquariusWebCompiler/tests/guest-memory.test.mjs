@@ -29,3 +29,14 @@ test('host-retained mirrors do not pin arrays the guest dropped, and stay usable
   assert.ok(megabytes(vm)<30,`heap ${megabytes(vm).toFixed(1)} MiB`);
   assert.equal(kept.length,300);assert.equal(kept[299].length,8192);
 });
+
+test('a program allocating less than the collection threshold net does not collect just because the heap grew',async()=>{
+  // Eight depth-12 binary trees: about 8 MiB of heap growth, below the threshold in net allocation once temporaries are
+  // released. Heap growth only backs up net allocation (at twice the threshold), so this run must not collect early.
+  const {vm,index}=await runtime(`
+    變數 build=函式(depth){如果(depth==0){回傳 [0,0];}回傳 [build(depth-1),build(depth-1)];};
+    變數 check=函式(tree,depth){如果(depth==0){回傳 1;}回傳 1+check(tree[0],depth-1)+check(tree[1],depth-1);};
+    變數 sum=0;迴圈(變數 i=0;i<8;i++){變數 tree=build(12);sum+=check(tree,12);}sum;`);
+  assert.equal(inspect(await vm.execute(index)),'65528');
+  assert.equal(vm.program.session.call('aqua_collection_generation'),0);
+});

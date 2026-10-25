@@ -58,9 +58,10 @@ static Value empty;
 static u32 mark_pending;
 static unsigned char native_live[65536];
 static u32 marked_native_ids[65536], marked_native_count, collection_generation;
-/* Net allocation since the last collection, and heap growth (which explicit releases never offset: freed blocks of
-   a growing array cannot serve its next, larger request until a collection coalesces them). */
-static u32 bytes_since_collection, heap_growth;
+/* Net allocation since the last collection, and heap growth beyond the high-water mark (which explicit releases never
+   offset: freed blocks of a growing array cannot serve its next, larger request until a collection coalesces them).
+   Refilling space a collection returned to the bump allocator is not growth: that memory is already committed. */
+static u32 bytes_since_collection, heap_growth, heap_high;
 static int collection_due(void);
 /* Collection is due after gc_threshold bytes of allocation that were not explicitly released.
    The threshold grows with the live heap so repeated collections of large live graphs stay amortized. */
@@ -93,14 +94,11 @@ static void initialize_allocation(void *p,u32 n,u32 kind) {
     if(n<=64){u32*w=p;for(u32 i=0;i<n/4;i++)w[i]=0;return;}
     memset(p,0,n);
 }
-static void *allocate(u32 n,u32 kind) {
-    if(n>512u*1024*1024)__builtin_trap();
-    n=n<=16?16:1u<<(32u-(u32)__builtin_clz(n-1));u32 bucket=allocation_class(n);
-    bytes_since_collection+=n;
-    // Compiled checkpoints poll Execution.poll instead of calling into the runtime every block.
-    if(!gc_armed&&collection_due()){gc_armed=1;for(Execution*e=executions;e;e=e->next)e->poll=1;}
-    if(free_mask>>bucket&1){Block*b=pop_free(bucket);b->kind=kind;b->marked=0;initialize_allocation(b+1,b->size,kind);return b+1;}
-    // Otherwise carve the largest free run before growing the heap: sequential allocation with no list operations.
+/* Allocation slow paths stay out of line so the common cases (an exact-size free block, or bumping the heap end)
+   inline into the hot constructors. */
+static void arm_collection(void) { if(!gc_armed&&collection_due()){gc_armed=1;for(Execution*e=executions;e;e=e->next)e->poll=1;} }
+static __attribute__((noinline)) void *allocate_slow(u32 n,u32 bucket,u32 kind) {
+    // Carve the largest free run before growing the heap: sequential allocation with no list operations.
     if(!carving||carving->size<n){u32 larger=free_mask&~((2u<<bucket)-1u);if(larger){if(carving)push_free(carving);carving=pop_free(31u-(u32)__builtin_clz(larger));}}
     if(carving&&carving->size>=n){
         Block*b=carving;u32 rest=b->size-n;carving=0;
@@ -110,14 +108,29 @@ static void *allocate(u32 n,u32 kind) {
     if(n>512u*1024*1024-heap_end-sizeof(Block))__builtin_trap();
     u32 end=heap_end+sizeof(Block)+n,available=(u32)__builtin_wasm_memory_size(0)*65536;
     if(end>available&&__builtin_wasm_memory_grow(0,(end-available+65535)/65536)==(size_t)-1)__builtin_trap();
-    heap_growth+=sizeof(Block)+n;if(!gc_armed&&collection_due()){gc_armed=1;for(Execution*e=executions;e;e=e->next)e->poll=1;}
+    if(end>heap_high){heap_growth+=end-(heap_high>heap_end?heap_high:heap_end);heap_high=end;arm_collection();}
     Block *b=pointer(heap_end);b->size=n;b->reserved=0;b->kind=kind;b->marked=0;heap_end=end;initialize_allocation(b+1,n,kind);return b+1;
+}
+static inline __attribute__((always_inline)) void *allocate(u32 n,u32 kind) {
+    if(n>512u*1024*1024)__builtin_trap();
+    n=n<=16?16:1u<<(32u-(u32)__builtin_clz(n-1));u32 bucket=allocation_class(n);
+    bytes_since_collection+=n;
+    // Compiled checkpoints poll Execution.poll instead of calling into the runtime every block.
+    if(bytes_since_collection>=gc_threshold)arm_collection();
+    if(free_mask>>bucket&1){Block*b=pop_free(bucket);b->kind=kind;b->marked=0;initialize_allocation(b+1,b->size,kind);return b+1;}
+    // Bump directly while no free run could serve the request and the heap has room.
+    if(!carving&&!(free_mask>>bucket)){u32 end=heap_end+sizeof(Block)+n;
+        if(end<=(u32)__builtin_wasm_memory_size(0)*65536&&n<=512u*1024*1024-heap_end-sizeof(Block)){if(end>heap_high){heap_growth+=end-(heap_high>heap_end?heap_high:heap_end);heap_high=end;if(heap_growth/2>=gc_threshold)arm_collection();}
+            Block*b=pointer(heap_end);b->size=n;b->reserved=0;b->kind=kind;b->marked=0;heap_end=end;initialize_allocation(b+1,n,kind);return b+1;}}
+    return allocate_slow(n,bucket,kind);
 }
 u32 aqua_initialize(u32 start) { if(!heap_start)heap_start=heap_end=(start+15)&~15u;return heap_start; }
 u32 aqua_allocate(u32 n) { return address(allocate(n,RAW)); }
 u32 aqua_heap_bytes(void) { return heap_end-heap_start; }
 u32 aqua_heap_free(void) { u32 n=0;for(u32 a=heap_start;a<heap_end;a+=sizeof(Block)+((Block*)pointer(a))->size)if(((Block*)pointer(a))->kind==FREE)n+=((Block*)pointer(a))->size;return n; }
-static int collection_due(void) { return bytes_since_collection>=gc_threshold||heap_growth>=gc_threshold; }
+/* Net allocation leads; growth triggers only at twice the threshold, so it backs up net allocation when releases keep
+   that low (a repeatedly regrown array) without collecting earlier than before in ordinary programs. */
+static int collection_due(void) { return bytes_since_collection>=gc_threshold||heap_growth/2>=gc_threshold; }
 u32 aqua_collection_due(void) { return (u32)collection_due(); }
 u32 aqua_collection_generation(void) { return collection_generation; }
 u32 aqua_value(void) { return address(allocate(sizeof(Value),RAW)); }
