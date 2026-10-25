@@ -35,7 +35,22 @@ public sealed partial class WasmRuntime : IDisposable
         this.quantum = quantum;
         this.builtins = builtins ?? new Builtins();
         this.engine = engine ?? EngineFactory?.Invoke() ?? throw new InvalidOperationException("This host has not registered a WebAssembly engine.");
+        _ = WarmUp();
     }
+    /// <summary>
+    /// The host service path (scope, value and capability marshalling) first runs inside a program's first guest calls,
+    /// where JIT-compiling it would delay them. The first runtime in a process compiles it on a background thread while
+    /// the program is loaded and instantiated.
+    /// </summary>
+    public static System.Threading.Tasks.Task WarmUp() => hostWarmup.Value;
+    private static readonly Lazy<System.Threading.Tasks.Task> hostWarmup = new(() => System.Threading.Tasks.Task.Run(() => {
+        const System.Reflection.BindingFlags all = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Static |
+            System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.DeclaredOnly;
+        foreach (var type in new[] { typeof(WasmRuntime), typeof(Session), typeof(WasmRuntimeExports) })
+            foreach (var method in type.GetMethods(all))
+                if (!method.IsAbstract && !method.ContainsGenericParameters)
+                    System.Runtime.CompilerServices.RuntimeHelpers.PrepareMethod(method.MethodHandle);
+    }));
     public IObject Execute(WasmProgram program, AquaEnvironment? environment = null, string? entry = null, Builtins? context = null)
     {
         ObjectDisposedException.ThrowIf(disposed, this);
