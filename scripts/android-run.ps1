@@ -14,6 +14,7 @@ param(
     [string[]]$Permissions = @('android.permission.INTERNET'),
     [string]$Output = '',
     [int]$Frames = 0,
+    [string[]]$Grant = @(),                                     # runtime permissions granted after installing (tests)
     [int]$TimeoutSeconds = 120,
     [switch]$Run,
     [switch]$Keep                                               # leave the application installed
@@ -85,6 +86,7 @@ try {
     # Run: install, start with an intent extra for frame-limited graphics, follow the log, uninstall.
     & $adb install -r $apk | Out-Null
     if ($LASTEXITCODE -ne 0) { throw "Installing $apk failed." }
+    foreach ($permission in $Grant) { & $adb shell pm grant $Package $permission | Out-Null }
     try {
         & $adb logcat -c
         & $adb shell am start -W -n "$Package/org.aquariuslang.runtime.AquariusActivity" --ei frames $Frames | Out-Null
