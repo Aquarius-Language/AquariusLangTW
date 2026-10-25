@@ -2,5 +2,6 @@
 // Each domain registers itself with core/glue.mjs when imported here; one line per domain folder.
 import './core/runtime.mjs';
 import './window/window.mjs';
+import './audio/audio.mjs';
 
 export { startApplication } from './core/runtime.mjs';

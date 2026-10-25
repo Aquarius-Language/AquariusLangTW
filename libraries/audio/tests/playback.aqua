@@ -1,0 +1,26 @@
+# Needs an audio output device: starts the realtime output, plays a tone for a moment, then stops and suspends.
+var audio = import("Audio");
+var device = audio.CreateDevice();
+var tone = device.CreateTone(440, 1);
+tone.SetVolume(0.2d);
+device.Start();
+device.Start();
+tone.Play();
+var started = currentTime();
+var position = 0.0d;
+for (var i = 0; position == 0.0d && currentTime() - started < 5000; i++) { position = tone.GetPosition(); }
+var waited = currentTime();
+for (var i = 0; currentTime() - waited < 250; i++) { }
+print("playing", tone.IsPlaying(), tone.GetPosition() > position);
+tone.Stop();
+print("stopped", tone.IsPlaying(), tone.GetPosition());
+device.Suspend();
+device.Suspend();
+var again = device.CreateTone(660, 0.05d);
+device.Start();
+again.Play();
+var restarted = currentTime();
+for (var i = 0; again.IsPlaying() && currentTime() - restarted < 5000; i++) { }
+print("finished", again.IsPlaying(), again.GetPosition() == again.GetDuration());
+device.Dispose();
+print("done");

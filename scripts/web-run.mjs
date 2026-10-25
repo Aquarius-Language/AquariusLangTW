@@ -52,7 +52,8 @@ const url = `http://127.0.0.1:${server.address().port}/${frames ? `?frames=${fra
 
 const require = createRequire(pathToFileURL(join(repository, 'AquariusWebCompiler', 'package.json')));
 const { chromium } = require('playwright');
-const launch = { headless: !headed, args: ['--enable-unsafe-webgpu', '--enable-features=Vulkan', '--ignore-gpu-blocklist'] };
+// Audio tests: headless Chrome otherwise sometimes holds an AudioContext suspended until a user gesture.
+const launch = { headless: !headed, args: ['--enable-unsafe-webgpu', '--enable-features=Vulkan', '--ignore-gpu-blocklist', '--autoplay-policy=no-user-gesture-required'] };
 let browser;
 try { browser = await chromium.launch({ ...launch, channel: 'chrome' }); } catch { browser = await chromium.launch(launch); }
 let code = 3;

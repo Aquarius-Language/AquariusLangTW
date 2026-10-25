@@ -1,0 +1,11 @@
+# A device mixes at most 64 sounds: releasing one makes room; the 65th live sound stops the script with an error.
+var audio = import("Audio");
+var device = audio.CreateOfflineDevice();
+var voices = [];
+for (var i = 0; i < 64; i++) { voices = push(voices, device.CreateTone(440, 0.01d)); }
+print("voices", len(voices));
+voices[0].Dispose();
+var again = device.CreateTone(440, 0.01d);
+print("released one", again.GetDuration());
+device.CreateTone(440, 0.01d);
+print("unreachable");

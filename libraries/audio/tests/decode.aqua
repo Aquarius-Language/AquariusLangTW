@@ -1,0 +1,33 @@
+# Packaged sounds (compile with --root tests --assets tests/sounds): WAV, 22.05 kHz mono FLAC and 44.1 kHz stereo MP3
+# decode and resample to 48 kHz stereo through the same miniaudio decoders on every target; checksums are exact.
+var audio = import("Audio");
+var checksum = function(samples) {
+    var sum = 0.0d; var weighted = 0.0d; var high = 0.0d; var finite = true;
+    for (var i = 0; i < len(samples); i++) {
+        var v = samples[i];
+        sum += v; weighted += v * (i % 7 + 1);
+        if (v < 0) { v = 0.0d - v; }
+        if (v > high) { high = v; }
+        if (v > 1) { finite = false; }
+    }
+    return [high, finite, sum, weighted];
+};
+var device = audio.CreateOfflineDevice();
+
+var wav = device.Load(currWorkingDir + "/sounds/quarter.wav");
+print("wav", wav.GetDuration(), wav.GetDuration() * audio.SampleRate);
+wav.Play();
+var pcm = device.Render(128);
+var flat = true;
+for (var i = 2; i < len(pcm); i++) { if (pcm[i] != 0.25d) { flat = false; } }
+print("wav samples", pcm[0], pcm[1], flat);
+wav.Dispose();
+
+var names = ["tone.flac", "tone.mp3"];
+for (var n = 0; n < len(names); n++) {
+    var sound = device.Load("sounds/" + names[n]);
+    sound.Play();
+    print(names[n], sound.GetDuration() * audio.SampleRate >= 4800, checksum(device.Render(4096)));
+    sound.Dispose();
+}
+device.Dispose();

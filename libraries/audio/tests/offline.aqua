@@ -1,0 +1,80 @@
+# Offline rendering: silence, tones, pause/stop/seek/looping, gain and pan, and block-size independence of the mixer.
+# Checksums print the rendered PCM exactly, so every target must produce bit-identical samples.
+var audio = import("Audio");
+var checksum = function(samples) {
+    var sum = 0.0d; var weighted = 0.0d;
+    for (var i = 0; i < len(samples); i++) { sum += samples[i]; weighted += samples[i] * (i % 7 + 1); }
+    return [sum, weighted];
+};
+var peak = function(samples) {
+    var high = 0.0d;
+    for (var i = 0; i < len(samples); i++) {
+        var v = samples[i];
+        if (v < 0) { v = 0.0d - v; }
+        if (v > high) { high = v; }
+    }
+    return high;
+};
+print("format", audio.SampleRate, audio.Channels);
+
+var device = audio.CreateOfflineDevice();
+var silence = device.Render(128);
+print("silence", len(silence), peak(silence));
+
+var tone = device.CreateTone(440, 0.05d);
+print("tone duration", tone.GetDuration(), "playing", tone.IsPlaying());
+tone.Play();
+var pcm = device.Render(1024);
+print("tone", len(pcm), peak(pcm) > 0.1d, checksum(pcm));
+tone.Pause();
+print("paused", tone.IsPlaying(), peak(device.Render(128)));
+tone.Stop();
+print("stopped at", tone.GetPosition());
+tone.SetLooping(true);
+tone.Play();
+device.Render(4096);
+print("looping", tone.IsPlaying());
+tone.Seek(0.01d);
+print("seek", tone.GetPosition());
+tone.Dispose();
+tone.Dispose();
+
+var half = [];
+for (var i = 0; i < 512; i++) { half = push(half, 0.5d); }
+var buffer = device.CreateBuffer(half);
+buffer.SetVolume(0.5d); buffer.SetPan(-1); buffer.Play();
+var panned = device.Render(128);
+var left = 0.0d; var right = 0.0d;
+for (var i = 2; i < len(panned); i += 2) { left += panned[i]; right += panned[i + 1]; }
+print("gain and pan", buffer.GetDuration(), panned[2], left, right);
+buffer.Dispose();
+device.Dispose();
+device.Dispose();
+
+# The previous implementation's parity scenario: a pitched, panned, looping tone mixed with a looping buffer.
+var mix = audio.CreateOfflineDevice();
+var pitched = mix.CreateTone(440, 0.1d);
+var alternating = [];
+for (var i = 0; i < 512; i++) { if (i % 2 == 1) { alternating = push(alternating, 0.1d); } else { alternating = push(alternating, -0.1d); } }
+var loop = mix.CreateBuffer(alternating);
+pitched.SetVolume(0.7d); pitched.SetPan(0.35d); pitched.SetPitch(1.25d); pitched.SetLooping(true); pitched.Play();
+loop.SetLooping(true); loop.Play();
+var mixed = mix.Render(4096);
+print("mix", len(mixed), peak(mixed), checksum(mixed));
+mix.Dispose();
+
+# The same sound rendered in 128-, 256- and 4096-frame blocks gives the same samples.
+var blocks = function(size) {
+    var d = audio.CreateOfflineDevice();
+    var t = d.CreateTone(440, 0.3d);
+    t.SetVolume(0.7d); t.SetPan(0.3d); t.SetPitch(1.25d); t.SetLooping(true); t.Play();
+    var sum = 0.0d; var weighted = 0.0d;
+    for (var frame = 0; frame < 4096; frame += size) {
+        var part = d.Render(size);
+        for (var i = 0; i < len(part); i++) { sum += part[i]; weighted += part[i] * ((frame * 2 + i) % 7 + 1); }
+    }
+    d.Dispose();
+    return [sum, weighted];
+};
+var a = blocks(128); var b = blocks(256); var c = blocks(4096);
+print("blocks", a[0] == b[0] && a[1] == b[1] && a[0] == c[0] && a[1] == c[1], c);

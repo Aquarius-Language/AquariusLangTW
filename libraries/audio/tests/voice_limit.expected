@@ -1,0 +1,3 @@
+voices 64
+released one 0.01
+ERROR: Audio.CreateTone: A device mixes at most 64 sounds; dispose sounds that are no longer needed.

@@ -1,0 +1,4 @@
+# The pinned miniaudio header is verified by its upstream SHA-256 (LF bytes); expected test output is exact LF text.
+third_party/miniaudio/miniaudio.h text eol=lf
+tests/*.expected text eol=lf
+tests/sounds/* binary

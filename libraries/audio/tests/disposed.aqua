@@ -1,0 +1,10 @@
+# Disposing a device releases its sounds; later calls fail with the previous implementation's messages.
+var audio = import("Audio");
+var offline = audio.CreateOfflineDevice();
+var tone = offline.CreateTone(880, 0.2d);
+offline.Suspend();
+offline.Dispose();
+tone.Dispose();
+print("disposed twice");
+tone.Play();
+print("unreachable");
