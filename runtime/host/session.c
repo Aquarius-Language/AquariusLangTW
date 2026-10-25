@@ -390,9 +390,16 @@ uint32_t aqua_launch_count(aqua_runtime *rt) { return rt->launch_count; }
 const char *aqua_launch_argument(aqua_runtime *rt, uint32_t index) { return index < rt->launch_count ? rt->launch[index] : NULL; }
 const char *aqua_environment(aqua_runtime *rt, const char *name) { (void)rt; return platform_environment(name); }
 
-static const char *asset_name(const char *path) { return strncmp(path, "/bottles/", 9) == 0 ? path + 1 : path; }
+/* The packaged name of an asset a library asks for: "/bottles/<x>" and paths inside the application's directory
+   (目前工作目錄 + "/assets/x") name the same assets as their package-relative form. */
+static const char *asset_name(aqua_runtime *rt, const char *path) {
+    if (strncmp(path, "/bottles/", 9) == 0) return path + 1;
+    size_t n = rt->application_directory ? strlen(rt->application_directory) : 0;
+    if (n && strncmp(path, rt->application_directory, n) == 0 && (path[n] == '/' || path[n] == '\\')) return path + n + 1;
+    return path;
+}
 const uint8_t *aqua_asset(aqua_runtime *rt, const char *path, size_t *length) {
-    int32_t i = application_asset(&rt->app, asset_name(path));
+    int32_t i = application_asset(&rt->app, asset_name(rt, path));
     if (i < 0) return NULL;
     if (!rt->app.assets[i].data) {
         /* Assets stored beside the module (Android packages them as APK assets) load on first use. */
@@ -405,7 +412,7 @@ const uint8_t *aqua_asset(aqua_runtime *rt, const char *path, size_t *length) {
     return rt->app.assets[i].data;
 }
 const char *aqua_asset_file(aqua_runtime *rt, const char *path) {
-    int32_t i = application_asset(&rt->app, asset_name(path));
+    int32_t i = application_asset(&rt->app, asset_name(rt, path));
     if (i < 0 || !rt->materialized || !rt->app.assets[i].data) return NULL;
     if (rt->asset_files[i]) return rt->asset_files[i];
     /* Assets become files under the runtime's private directory the first time a library asks for one by path. */
