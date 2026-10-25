@@ -293,15 +293,6 @@ void *aqua_alloc(size_t bytes);
 void *aqua_realloc(void *pointer, size_t bytes);
 void aqua_free(void *pointer);
 
-/* The function table the runtime hands external native libraries (api.def lists its entries). */
-typedef struct aqua_api_table {
-    uint32_t version;
-#define AQUA_API(RETURN, NAME, PARAMETERS, ARGUMENTS) RETURN (*NAME) PARAMETERS;
-#define AQUA_API_VOID(NAME, PARAMETERS, ARGUMENTS) void (*NAME) PARAMETERS;
-#include "api.def"
-#undef AQUA_API
-#undef AQUA_API_VOID
-} aqua_api_table;
 
 #ifdef __cplusplus
 }

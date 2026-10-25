@@ -4,7 +4,7 @@
 #ifndef AQUA_HOST_H
 #define AQUA_HOST_H
 
-#include <aqua/aqua.h>
+#include <aqua/api.h>
 #include <stdatomic.h>
 
 /* ---- Guest memory layout (runtime/guest/layout.def) as offset constants. ---------------------------------------- */
@@ -217,6 +217,8 @@ double runtime_turn(aqua_runtime *rt, double budget_ms);
 void runtime_destroy(aqua_runtime *rt);
 
 /* ---- Platform layer (runtime/platform/<os>). -------------------------------------------------------------------- */
+/* After the runtime's libraries released their state: windows and other platform resources still open close here. */
+void platform_runtime_closing(aqua_runtime *rt);
 double platform_now_ms(void);
 void platform_write(int stream, const char *utf8, size_t length); /* 1 stdout, 2 stderr */
 void *platform_lock_create(void);

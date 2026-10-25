@@ -6,6 +6,7 @@
 #include "desktop.h"
 #include "../../host/host.h"
 #include "sha256.h"
+#include "window_desktop.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -201,3 +202,5 @@ int desktop_main(int count, char **arguments) {
     free(directory);
     return code;
 }
+
+void platform_runtime_closing(aqua_runtime *rt) { desktop_windows_close(rt); }

@@ -357,6 +357,7 @@ void runtime_destroy(aqua_runtime *rt) {
         aqua_library *library = host_registry.libraries[rt->state_order[i]];
         if (library->destroy_state) library->destroy_state(rt, rt->states[library->index]);
     }
+    platform_runtime_closing(rt);
     engine_destroy(rt->engine);
     for (task *t = rt->tasks; t;) { task *next = t->next; free(t); t = next; }
     for (timer *t = rt->timers; t;) { timer *next = t->next; free(t); t = next; }

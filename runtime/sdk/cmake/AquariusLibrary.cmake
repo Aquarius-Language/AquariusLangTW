@@ -9,6 +9,14 @@
 # NATIVE_SOURCES and WEB_SOURCES are added only for those targets; prefer preprocessor branches on AQUA_OS_* inside
 # shared files when the code differs only in a few calls.
 include_guard(GLOBAL)
+if(AQUA_TARGET STREQUAL "web")
+    # CMake's Generic platform resets these after the toolchain file: side modules are shared libraries named <name>.wasm.
+    set_property(GLOBAL PROPERTY TARGET_SUPPORTS_SHARED_LIBS TRUE)
+    set(CMAKE_SHARED_LIBRARY_CREATE_C_FLAGS "-shared")
+    set(CMAKE_SHARED_LIBRARY_CREATE_CXX_FLAGS "-shared")
+    set(CMAKE_SHARED_LIBRARY_PREFIX "")
+    set(CMAKE_SHARED_LIBRARY_SUFFIX ".wasm")
+endif()
 
 function(aqua_add_library name)
     cmake_parse_arguments(ARG "" "" "SOURCES;INCLUDE_DIRECTORIES;LINK_LIBRARIES;DEFINITIONS;NATIVE_SOURCES;WEB_SOURCES" ${ARGN})

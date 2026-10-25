@@ -101,7 +101,7 @@ static void execute_file(aqua_call *call) {
 #endif
 }
 
-extern aqua_class *thread_class;
+extern aqua_class *thread_class; /* runtime/host/threads.c or threads_web.c */
 void thread_finalize(aqua_runtime *rt, void *data);
 
 void core_library(aqua_library *library) {

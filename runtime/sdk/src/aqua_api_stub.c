@@ -1,7 +1,7 @@
 /* Linked into every external native library (aqua_add_library adds it): defines each aqua.h function as a call through
    the table the runtime passes to aqua_library_entry, so a library binds to no particular runtime executable and works
    inside renamed standalone applications. Web side modules import the functions by name instead and skip this file. */
-#include <aqua/aqua.h>
+#include <aqua/api.h>
 
 static const aqua_api_table *aqua_table;
 
