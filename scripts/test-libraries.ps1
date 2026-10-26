@@ -1,4 +1,4 @@
-﻿# Runs the default libraries' tests on the runtime packs: every libraries/<name>/tests/<case>.aqua is compiled with the
+# Runs the default libraries' tests on the runtime packs: every libraries/<name>/tests/<case>.aqua is compiled with the
 # repository's compiler and run on each target; its standard output must equal <case>.expected exactly (LF endings).
 #   scripts/test-libraries.ps1                                   # every library, windows-x64 and web
 #   scripts/test-libraries.ps1 -Libraries audio,graphics -Targets windows-x64,web,linux-x64
@@ -81,6 +81,7 @@ foreach ($folder in $folders) {
     # The platforms the library's manifest lists bound every case (platforms = ["windows", "linux", ...]).
     $manifest = [IO.File]::ReadAllText((Join-Path $folder.FullName 'aqua.toml'))
     $platforms = if ($manifest -match '(?m)^\s*platforms\s*=\s*\[([^\]]*)\]') { @([regex]::Matches($Matches[1], '"([^"]+)"') | ForEach-Object { $_.Groups[1].Value }) } else { @() }
+    $androidPermissions = if ($manifest -match '(?ms)^\[android\][^\[]*?^\s*permissions\s*=\s*\[([^\]]*)\]') { @([regex]::Matches($Matches[1], '"([^"]+)"') | ForEach-Object { $_.Groups[1].Value }) } else { @() }
     $support = @(Get-ChildItem -LiteralPath $tests -Directory)
     $modules = @($support | ForEach-Object { Get-ChildItem -LiteralPath $_.FullName -Filter '*.aqua' -File -Recurse } | ForEach-Object FullName)
     foreach ($case in Get-ChildItem -LiteralPath $tests -Filter '*.aqua' -File | Sort-Object Name) {
@@ -108,18 +109,27 @@ foreach ($folder in $folders) {
                 if ($build.Code -ne 0) { $row.Result = 'FAIL'; $row.Detail = 'compile: ' + ($build.Output + $build.Error).Trim(); break }
                 $compiled = $true
             }
+            # Every native run gets an empty storage root, so cases never see what an earlier run (or the user) stored.
+            $storage = Join-Path ([IO.Path]::GetTempPath()) ("aquarius-test-storage-" + [Guid]::NewGuid().ToString('N'))
+            [void](New-Item -ItemType Directory -Path $storage)
             switch -Wildcard ($target) {
-                'windows-x64' { $run = Invoke-Captured (Join-Path $pack 'aquarius.exe') @($wasm) }
+                'windows-x64' { $run = Invoke-Captured (Join-Path $pack 'aquarius.exe') @($wasm) @{ AQUARIUS_STORAGE_ROOT = $storage } }
                 'linux-x64' {
                     $env:MSYS_NO_PATHCONV = '1'
-                    $run = Invoke-Captured 'wsl.exe' @('-d', $Distribution, '--cd', (ConvertTo-Wsl $tests), (ConvertTo-Wsl (Join-Path $pack 'aquarius')), (ConvertTo-Wsl $wasm))
+                    $run = Invoke-Captured 'wsl.exe' @('-d', $Distribution, '--cd', (ConvertTo-Wsl $tests), (ConvertTo-Wsl (Join-Path $pack 'aquarius')), (ConvertTo-Wsl $wasm)) `
+                        @{ AQUARIUS_STORAGE_ROOT = $storage; WSLENV = 'AQUARIUS_STORAGE_ROOT/p' }
                 }
-                'web' { $run = Invoke-Captured 'node' @((Join-Path $PSScriptRoot 'web-run.mjs'), $pack, $wasm, '--timeout', "$TimeoutSeconds") }
+                'web' { $run = Invoke-Captured 'node' @((Join-Path $PSScriptRoot 'web-run.mjs'), $pack, $wasm, '--timeout', "$TimeoutSeconds", '--fake-camera') }
                 'android-*' {
                     $abi = $target.Substring('android-'.Length)
-                    $run = Invoke-Captured 'powershell' @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', (Join-Path $PSScriptRoot 'android-run.ps1'), $wasm, '-Runtime', $pack, '-Abi', $abi, '-Run')
+                    # The library's [android] permissions, declared and granted as an application that needs it would ask.
+                    $androidArguments = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', (Join-Path $PSScriptRoot 'android-run.ps1'), $wasm, '-Runtime', $pack, '-Abi', $abi, '-Run',
+                        '-TimeoutSeconds', "$TimeoutSeconds", '-Permissions', ((@('android.permission.INTERNET') + $androidPermissions | Select-Object -Unique) -join ','))
+                    if ($androidPermissions.Count) { $androidArguments += @('-Grant', ($androidPermissions -join ',')) }
+                    $run = Invoke-Captured 'powershell' $androidArguments
                 }
             }
+            Remove-Item -LiteralPath $storage -Recurse -Force -ErrorAction SilentlyContinue
             # <case>.<platform>.expected (windows, linux, android, web) replaces <case>.expected where a target differs.
             $platformExpected = Join-Path $tests "$name.$(($target -split '-')[0]).expected"
             $expected = [IO.File]::ReadAllText($(if (Test-Path -LiteralPath $platformExpected) { $platformExpected } else { $expectedFile })).Replace("`r`n", "`n")

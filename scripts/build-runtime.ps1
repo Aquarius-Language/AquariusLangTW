@@ -106,7 +106,8 @@ cmake --install "`$build" --prefix '$wslPack'
         "-DCMAKE_TOOLCHAIN_FILE=$(Join-Path $runtime "sdk/cmake/toolchains/$target.cmake")", "-DCMAKE_BUILD_TYPE=$Configuration",
         "-DAQUA_LIBRARIES=$libraryList")
     if ($OnnxCuda) { $arguments += '-DAQUA_ONNX_CUDA=ON' }
-    if ($CaBundle) { $arguments += "-DCMAKE_TLS_CAINFO=$CaBundle" }
+    # Forward slashes: CMake writes the value into generated scripts, where backslashes would start escapes.
+    if ($CaBundle) { $arguments += "-DCMAKE_TLS_CAINFO=$($CaBundle.Replace('\', '/'))" }
     Invoke-Checked $cmakePath $arguments
     Invoke-Checked $cmakePath @('--build', $build)
     if (Test-Path -LiteralPath $pack) { Remove-Item -LiteralPath $pack -Recurse -Force }

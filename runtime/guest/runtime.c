@@ -48,7 +48,8 @@ typedef struct { Array *dirty_arrays; Hash *dirty_hashes; Array *released_arrays
 typedef struct Pin { struct Pin *next, *prev; Value value; } Pin;
 
 __attribute__((import_module("aquarius_v2"), import_name("service")))
-extern int host_service(int operation, int context, int subject, int name, int arguments, int count, int output);
+extern int host_import(int operation, int context, int subject, int name, int arguments, int count, int output);
+static int host_service(int operation, int context, int subject, int name, int arguments, int count, int output);
 
 static u32 heap_start, heap_end, free_heads[26], free_mask; /* bit c: free_heads[c] is not empty */
 /* End of the memory this heap grew. The bump allocator never passes it, so pages another module sharing this memory
@@ -319,9 +320,25 @@ u32 aqua_invoke(u32 closure,u32 arguments,u32 count) {
     if(count!=fn->arity){failure(e->current,"Incorrect callback argument count.");return address(e);}
     for(u32 i=0;i<count;i++)declare(e->current->scope,fn->parameters[i],a[i]);return address(e);
 }
+/* A Thread worker runs without the main program's host: it reaches the five builtins every host defines, Thread.Sleep
+   and Thread.IsCancellationRequested; anything else is a language error. Every host's worker therefore implements
+   only those two calls. */
+static int worker;
+static int host_service(int operation, int context, int subject, int name, int arguments, int count, int output) {
+    if(!worker||(operation==4&&(subject==106||subject==107)))return host_import(operation,context,subject,name,arguments,count,output);
+    Value*out=pointer((u32)output);
+    if(operation==0){
+        static const uint16_t *const builtins[][2]={{u"len",u"長度"},{u"last",u"最後一個"},{u"rest",u"其餘"},{u"push",u"加入"},{u"floodFill",u"區域填色"}};
+        for(u32 i=0;i<5;i++)if(text_is(pointer((u32)name),builtins[i][0])||text_is(pointer((u32)name),builtins[i][1])){*out=value(BUILTIN,i+1,0);return 0;}
+        return 1; /* Identifier not found */
+    }
+    *out=value(ERROR,address(ascii("Worker cannot access host handles or start/wait for other threads.")),0);
+    return 0;
+}
 u32 aqua_thread_enter(u32 closure,u32 arguments,u32 count) {
     // The snapshot carries the parent's heap limit; this instance owns only the memory it reserved.
     executions=0;pins=0;memset(builtin_scopes,0,sizeof(builtin_scopes));memset(portable_modules,0,sizeof(portable_modules));builtin_context_count=0;heap_limit=(u32)__builtin_wasm_memory_size(0)*65536;
+    worker=1;
     return aqua_invoke(closure,arguments,count);
 }
 u32 aqua_thread_snapshot_size(void) { return heap_end; }

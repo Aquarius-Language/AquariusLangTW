@@ -21,3 +21,7 @@ TestResults/
 *.DotSettings.user
 *.suo
 *.user
+
+# Library test runs (scripts/test-libraries.ps1): compiled cases and the screenshots device cases save beside them
+libraries/*/tests/.aqua-test-*.wasm
+libraries/*/tests/*-test.ppm

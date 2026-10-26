@@ -1,5 +1,5 @@
 /* The Thread/執行緒 library on the web: each thread runs the application's module in a Web Worker started by the glue
-   (web-glue/core/threads.mjs) from a snapshot of this memory. Waiting is asynchronous: the calling script waits for
+   (web-glue/thread) from a snapshot of this memory. Waiting is asynchronous: the calling script waits for
    the worker while the page keeps running. */
 #include "host.h"
 #include <stdlib.h>

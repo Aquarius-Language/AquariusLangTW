@@ -2,7 +2,7 @@
 # connected device or emulator: the program's output (logcat tag Aquarius) is printed and the exit status mirrors the
 # runtime's AQUARIUS_ANDROID_OK / AQUARIUS_ANDROID_ERROR markers. Test helper for runtime and library work; exported
 # applications are packaged by the compiler's Android build target.
-#   scripts/android-run.ps1 app.wasm -Runtime .native-build/runtime/android-x86_64 [-Libraries a.so,b.so] [-Frames 3] -Run
+#   scripts/android-run.ps1 app.wasm -Runtime .native-build/install/android-x86_64 [-Libraries a.so,b.so] [-Frames 3] -Run
 param(
     [Parameter(Mandatory)][string]$Program,
     [Parameter(Mandatory)][string]$Runtime,                     # a runtime build or install folder for one ABI
@@ -21,6 +21,10 @@ param(
 )
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'toolchain.ps1')
+# Comma-separated values arrive as one string through powershell -File.
+$Libraries = @($Libraries | ForEach-Object { $_ -split ',' } | Where-Object { $_ })
+$Permissions = @($Permissions | ForEach-Object { $_ -split ',' } | Where-Object { $_ })
+$Grant = @($Grant | ForEach-Object { $_ -split ',' } | Where-Object { $_ })
 
 $sdk = if ($env:ANDROID_HOME) { $env:ANDROID_HOME } else { Join-Path $env:LOCALAPPDATA 'Android/Sdk' }
 $tools = Join-Path $sdk "build-tools/$($AquaPins.androidSdk.buildTools)"
@@ -58,7 +62,8 @@ try {
         Copy-Item -LiteralPath $File -Destination $target
     }
     Add-File (Join-Path $Runtime 'classes.dex') 'classes.dex'
-    Add-File (Join-Path $Runtime 'libaquarius.so') "lib/$Abi/libaquarius.so"
+    # The runtime and the other shared libraries of its pack (ONNX Runtime), as the compiler's Android target ships them.
+    foreach ($library in Get-ChildItem -LiteralPath $Runtime -Filter '*.so' -File) { Add-File $library.FullName "lib/$Abi/$($library.Name)" }
     foreach ($library in $Libraries) { Add-File $library "lib/$Abi/$([IO.Path]::GetFileName($library))" }
     Add-File (Resolve-Path -LiteralPath $Program).Path 'assets/aquarius/program.wasm'
     if ($Assets) {
@@ -86,7 +91,8 @@ try {
     # Run: install, start with an intent extra for frame-limited graphics, follow the log, uninstall.
     & $adb install -r $apk | Out-Null
     if ($LASTEXITCODE -ne 0) { throw "Installing $apk failed." }
-    foreach ($permission in $Grant) { & $adb shell pm grant $Package $permission | Out-Null }
+    # Install-time permissions (INTERNET) are granted by installing; pm refuses to grant them, which is not an error.
+    foreach ($permission in $Grant) { & $adb shell "pm grant $Package $permission 2>/dev/null" | Out-Null }
     try {
         & $adb logcat -c
         & $adb shell am start -W -n "$Package/org.aquariuslang.runtime.AquariusActivity" --ei frames $Frames | Out-Null
@@ -96,7 +102,8 @@ try {
             $log = @(& $adb logcat -d -v raw -s 'Aquarius:*' 'AndroidRuntime:E' 'DEBUG:F' 'libc:F')
             $text = $log -join "`n"
         } while ($text -notmatch 'AQUARIUS_ANDROID_(OK|ERROR)|FATAL EXCEPTION|Fatal signal' -and [DateTime]::UtcNow -lt $deadline)
-        $lines = @($log | Where-Object { $_ -notmatch '^-{9} beginning of' -and $_ -notmatch '^AQUARIUS_(ENGINE|ANDROID_OK)' })
+        # The program's output only: the markers become the exit status.
+        $lines = @($log | Where-Object { $_ -notmatch '^-{9} beginning of' -and $_ -notmatch '^AQUARIUS_(ENGINE|ANDROID_OK|ANDROID_ERROR)' })
         $lines | ForEach-Object { Write-Output $_ }
         if ($text -notmatch 'AQUARIUS_ANDROID_OK') {
             if ($text -notmatch 'AQUARIUS_ANDROID_(OK|ERROR)|FATAL EXCEPTION|Fatal signal') { Write-Error "Timed out after $TimeoutSeconds s." }

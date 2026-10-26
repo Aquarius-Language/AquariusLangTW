@@ -434,7 +434,8 @@ const uint8_t *aqua_asset(aqua_runtime *rt, const char *path, size_t *length) {
 }
 const char *aqua_asset_file(aqua_runtime *rt, const char *path) {
     int32_t i = application_asset(&rt->app, asset_name(rt, path));
-    if (i < 0 || !rt->materialized || !rt->app.assets[i].data) return NULL;
+    /* aqua_asset loads assets stored beside the module (Android) before they can become files. */
+    if (i < 0 || !rt->materialized || !aqua_asset(rt, path, NULL)) return NULL;
     if (rt->asset_files[i]) return rt->asset_files[i];
     /* Assets become files under the runtime's private directory the first time a library asks for one by path. */
     size_t n = strlen(rt->materialized) + strlen(rt->app.assets[i].name) + 2;

@@ -3,8 +3,8 @@
 `匯入("Network")` and `匯入("網路")` load one module: HTTP(S) clients with streamed responses, WebSocket, raw TCP and
 TLS streams, UDP datagrams, DNS, and an HTTP(S) server with routes, middleware, static files, CORS, cookies, sessions,
 Server-Sent Events and WebSocket upgrades. Every function, class and field keeps the names, Traditional Chinese
-aliases, argument counts, results and error messages of the previous implementation (`docs/networking.md`;
-`AquariusCore/network/NetworkCatalog.cs`); `src/api.def` is the whole API in one table.
+aliases, argument counts, results and error messages of the previous implementation; `src/api.def` is the whole API in
+one table, and [the API guide](docs/networking.md) describes it in Traditional Chinese.
 
 ```text
 變數 網路 = 匯入("網路");
@@ -69,7 +69,7 @@ and `public/`):
 | `websocket` | sockets | client and server WebSocket, limits, closing, failed handshakes (handlers run concurrently under `Serve`) |
 | `tcp_udp` | sockets | TCP streams, listeners, UDP, multicast, DNS |
 | `tls` | sockets | HTTPS servers from AES and 3DES PKCS#12 and PEM identities; untrusted peers refused |
-| `web_client` | all, the web included | HTTP, streams and WebSocket against `tests/servers/peer.aqua` (`http://127.0.0.1:18790`), started first on a native runtime |
+| `web_client` | all, the web included | HTTP, streams and WebSocket against `tests/servers/peer.aqua` (`http://127.0.0.1:18790`), started first on a native runtime (an Android device reaches it after `adb reverse tcp:18790 tcp:18790`) |
 
 The certificates in `tests/certs` belong to a private test CA (`ca.pem`, password of the PFX files `aquarius`);
 with `SSL_CERT_FILE=certs/ca.pem` a native client trusts it, which checks successful HTTPS and WSS by hand.

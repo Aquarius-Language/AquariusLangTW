@@ -5,3 +5,5 @@
 libraries/*/tests/*.expected text eol=lf
 # Preserve literal LF, CR and tab characters inside portable parser strings.
 libraries/graphics/aqua/*.aqua -text diff
+# patch(1) applies these to LF sources byte for byte.
+*.patch text eol=lf

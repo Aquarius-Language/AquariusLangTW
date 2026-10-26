@@ -60,6 +60,7 @@ export async function startApplication(options) {
     const program = await WebAssembly.compile(programBytes);
 
     const context = new GlueContext();
+    context.program = program; // the compiled application module, which Thread workers instantiate again
     context.environment = options.environment ?? {};
     const writer = lineWriter(options.output ?? ((stream, line) => (stream === 2 ? console.error : console.log)(line)));
     context.write = (stream, bytes) => writer.write(stream, bytes);

@@ -108,7 +108,10 @@ void android_main(struct android_app *app) {
     size_t length = 0;
     uint8_t *module = read_asset("aquarius/program.wasm", &length);
     if (!module) { __android_log_write(ANDROID_LOG_ERROR, "Aquarius", "AQUARIUS_ANDROID_ERROR assets/aquarius/program.wasm is missing"); ANativeActivity_finish(app->activity); return; }
-    runtime_options options = {app->activity->internalDataPath, NULL, NULL, 0, NULL};
+    /* Assets a library needs as files (certificates, models it opens by path) are written under the app's own storage. */
+    char materialize[1024];
+    snprintf(materialize, sizeof materialize, "%s/aquarius-resources", app->activity->internalDataPath);
+    runtime_options options = {app->activity->internalDataPath, NULL, NULL, 0, materialize};
     char *error = NULL;
     aqua_runtime *created = runtime_create(module, length, &options, &error);
     pthread_mutex_lock(&runtime_lock);

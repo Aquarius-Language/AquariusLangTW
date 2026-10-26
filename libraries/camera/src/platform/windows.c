@@ -1,7 +1,8 @@
 /* 攝影機 on Windows: Media Foundation video capture devices. Each session has one thread that activates the device,
  * picks the native mode that best serves the request, reads samples synchronously and hands their pixels (NV12, YUY2,
- * UYVY, I420, YV12, RGB32 or RGB24; compressed modes are decoded by Media Foundation) to camera_frame. Closing shuts
- * the media source down, which ends a blocked read. */
+ * UYVY, I420, YV12, RGB32 or RGB24; compressed modes are decoded by Media Foundation) to camera_frame. Closing asks the
+ * thread to stop after its current read; only a device that stopped delivering has its media source shut down from
+ * the closing thread (a source reader can wait forever on a read issued while its source shuts down). */
 #include "../camera.h"
 #if defined(AQUA_OS_WINDOWS)
 #define COBJMACROS
@@ -19,6 +20,7 @@ typedef struct mf_session {
     pthread_t thread;
     bool started;
     atomic_bool stop;
+    atomic_bool finished;           /* the thread released the device and is about to return */
     camera_mutex lock;              /* guards source while the thread publishes it */
     IMFMediaSource *source;
 } mf_session;
@@ -277,6 +279,7 @@ done:
     for (UINT32 i = 0; i < count; i++) IMFActivate_Release(devices[i]);
     CoTaskMemFree(devices);
     if (com) CoUninitialize();
+    atomic_store(&p->finished, true);
     return NULL;
 }
 
@@ -321,10 +324,16 @@ void camera_platform_close(camera_session *s) {
     mf_session *p = s->platform;
     if (!p) return;
     atomic_store(&p->stop, true);
-    camera_lock(&p->lock);
-    if (p->source) IMFMediaSource_Shutdown(p->source); /* ends a read waiting for the device */
-    camera_unlock(&p->lock);
-    if (p->started) pthread_join(p->thread, NULL);
+    if (p->started) {
+        /* A streaming device delivers within a frame interval; give a stalled one a second before ending its read. */
+        for (int waited = 0; waited < 1000 && !atomic_load(&p->finished); waited += 5) Sleep(5);
+        if (!atomic_load(&p->finished)) {
+            camera_lock(&p->lock);
+            if (p->source) IMFMediaSource_Shutdown(p->source);
+            camera_unlock(&p->lock);
+        }
+        pthread_join(p->thread, NULL);
+    }
     if (p->source) IMFMediaSource_Release(p->source);
     camera_mutex_destroy(&p->lock);
     free(p);

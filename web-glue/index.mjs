@@ -12,5 +12,6 @@ import './clipboard/clipboard.mjs';
 import './print/print.mjs';
 import './accessibility/accessibility.mjs';
 import './canvas/canvas.mjs';
+import './thread/thread.mjs';
 
 export { startApplication } from './core/runtime.mjs';

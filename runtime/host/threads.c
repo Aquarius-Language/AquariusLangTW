@@ -38,45 +38,18 @@ typedef struct worker {
 typedef struct thread_state { worker *workers[THREAD_LIMIT]; uint32_t count; } thread_state;
 aqua_class *thread_class; /* defined by core_library */
 
-static uint32_t call(engine *e, guest_export name, uint32_t a, uint32_t b, uint32_t c);
-
-/* A worker asked for something only the main program has (a host function, another thread): the call fails with a
-   language error in the worker, which Thread.Result reports. */
-static int32_t refuse(worker *w, int32_t output) {
-    static const char message[] = "Worker cannot access host handles or start/wait for other threads.";
-    uint32_t length = sizeof message - 1;
-    uint32_t text = call(w->instance, GUEST_text, length, 0, 0);
-    uint8_t *memory = engine_memory(w->instance, NULL);
-    for (uint32_t i = 0; i < length; i++) { uint16_t unit = (uint8_t)message[i]; memcpy(memory + text + G_Text_Data + i * 2, &unit, 2); }
-    aqua_value error = {AQUA_ERROR, text, 0};
-    memcpy(memory + output, &error, sizeof error);
-    return 0;
-}
-
+/* A worker's guest calls its host only for Thread.Sleep (106) and Thread.IsCancellationRequested (107); it resolves
+   the builtins and refuses everything else itself (runtime/guest/runtime.c host_service). */
 static int32_t worker_service(void *data, const int32_t a[7]) {
     worker *w = data;
-    int32_t operation = a[0], name = a[3], arguments = a[4], output = a[6];
+    int32_t subject = a[2], arguments = a[4], output = a[6];
     uint8_t *memory = engine_memory(w->instance, NULL);
-    aqua_value result = {AQUA_VOID, 0, 0};
-    if (operation == 0) {
-        uint32_t length; memcpy(&length, memory + name, 4);
-        char key[64] = {0};
-        for (uint32_t i = 0; i < length && i < 63; i++) { uint16_t unit; memcpy(&unit, memory + name + 4 + i * 2, 2); key[i] = unit < 128 ? (char)unit : '?'; }
-        static const char *const names[] = {"len", "last", "rest", "push", "floodFill"};
-        static const uint16_t chinese[][6] = {{0x9577, 0x5ea6}, {0x6700, 0x5f8c, 0x4e00, 0x500b}, {0x5176, 0x9918}, {0x52a0, 0x5165}, {0x5340, 0x57df, 0x586b, 0x8272}};
-        static const uint32_t chinese_length[] = {2, 4, 2, 2, 4};
-        for (uint32_t i = 0; i < 5; i++) {
-            bool match = strcmp(key, names[i]) == 0;
-            if (!match && length == chinese_length[i]) match = memcmp(memory + name + 4, chinese[i], length * 2) == 0;
-            if (match) { result.type = AQUA_BUILTIN; result.ref = i + 1; memcpy(memory + output, &result, sizeof result); return 0; }
-        }
-        return 1; /* "Identifier not found": workers cannot reach host capabilities */
-    }
-    if (operation == 4 && a[2] == 107) result = aqua_bool(atomic_load(&w->cancelled));
-    else if (operation == 4 && a[2] == 106) {
+    aqua_value result;
+    if (subject == 107) result = aqua_bool(atomic_load(&w->cancelled));
+    else {
         double ms; memcpy(&ms, memory + arguments + 8, 8);
         result = aqua_bool(!platform_signal_wait(w->cancel, (int32_t)ms));
-    } else return refuse(w, output);
+    }
     memcpy(memory + output, &result, sizeof result);
     return 0;
 }

@@ -1,7 +1,7 @@
 // Runs an application .wasm on the web runtime in Chromium (WebGPU enabled) and prints its output: a website is staged
 // from web-glue, a runtime web build and the application, served on localhost and driven by Playwright.
 //   node scripts/web-run.mjs <runtime web install dir> <app.wasm> [--libraries a,b] [--frames N] [--screenshot file.png]
-//                            [--timeout seconds] [--keep directory] [--headed]
+//                            [--timeout seconds] [--keep directory] [--headed] [--fake-camera]
 // Exit code: the application's, or 3 when the page fails to run it.
 import { createServer } from 'node:http';
 import { cp, mkdir, mkdtemp, readFile, readdir, rm, writeFile, copyFile } from 'node:fs/promises';
@@ -21,6 +21,7 @@ const screenshot = option('--screenshot', '');
 const timeout = Number(option('--timeout', '60')) * 1000;
 const keep = option('--keep', '');
 const headed = flag('--headed');
+const fakeCamera = flag('--fake-camera'); // Chromium's generated camera, permission granted (library tests)
 const [runtimeDirectory, program] = argv;
 if (!runtimeDirectory || !program) { console.error('usage: node scripts/web-run.mjs <runtime web dir> <app.wasm> [options]'); process.exit(2); }
 
@@ -54,6 +55,7 @@ const require = createRequire(pathToFileURL(join(repository, 'scripts', 'package
 const { chromium } = require('playwright');
 // Audio tests: headless Chrome otherwise sometimes holds an AudioContext suspended until a user gesture.
 const launch = { headless: !headed, args: ['--enable-unsafe-webgpu', '--enable-features=Vulkan', '--ignore-gpu-blocklist', '--autoplay-policy=no-user-gesture-required'] };
+if (fakeCamera) launch.args.push('--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream');
 let browser;
 try { browser = await chromium.launch({ ...launch, channel: 'chrome' }); } catch { browser = await chromium.launch(launch); }
 let code = 3;
