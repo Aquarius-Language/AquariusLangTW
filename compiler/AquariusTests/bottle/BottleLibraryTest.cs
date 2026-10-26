@@ -370,6 +370,18 @@ public class BottleLibraryTest
     }
 
     [NativeToolchainFact]
+    public void CppLibrariesExportAnEntryPointTheRuntimeCanLoad()
+    {
+        using var t = new BottleDirectory();
+        string folder = NativeToolchain.WriteTinyLibrary(t.FilePath("cpp"));
+        string cmake = Path.Combine(folder, "native", "CMakeLists.txt");
+        File.WriteAllText(cmake, File.ReadAllText(cmake).Replace("project(aqua_tiny C)", "project(aqua_tiny C CXX)").Replace("src/tiny.c", "src/tiny.cpp"));
+        File.Move(Path.Combine(folder, "native", "src", "tiny.c"), Path.Combine(folder, "native", "src", "tiny.cpp"));
+        AquaCli.Run(t, NativeToolchain.BuildEnvironment, "library", "build", folder, "--targets", "windows-x64").Succeeded();
+        Assert.Equal("42\ntiny native\n", AquaCli.Run(t, "run", Path.Combine(folder, "tests", "case.aqua")).Succeeded().Output);
+    }
+
+    [NativeToolchainFact]
     public void ExternalLibrariesBuildTheirNativePartAndRunWithIt()
     {
         // aqua library build tiny --targets windows-x64, with CMake and Ninja from AQUARIUS_CMAKE / AQUARIUS_NINJA.

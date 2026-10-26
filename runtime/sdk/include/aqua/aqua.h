@@ -181,9 +181,14 @@ void aqua_library_state(aqua_library *library, void *(*create)(aqua_runtime *rt)
        AQUA_LIBRARY(sqlite) { aqua_class *m = aqua_define_module(library, "SQLite|資料庫"); ... }               */
 #if defined(AQUA_LIBRARY_EXTERNAL)
 bool aqua_api_bind(aqua_library *library); /* aqua_api_stub.c (native) or always true (web) */
+#if defined(__cplusplus)
+#define AQUA_LIBRARY_ENTRY extern "C" AQUA_EXPORT
+#else
+#define AQUA_LIBRARY_ENTRY AQUA_EXPORT
+#endif
 #define AQUA_LIBRARY(name) \
     static void aqua_library_##name(aqua_library *library); \
-    AQUA_EXPORT uint32_t aqua_library_entry(aqua_library *library, uint32_t api_version); \
+    AQUA_LIBRARY_ENTRY uint32_t aqua_library_entry(aqua_library *library, uint32_t api_version); \
     uint32_t aqua_library_entry(aqua_library *library, uint32_t api_version) { \
         if (api_version < AQUA_API_VERSION || !aqua_api_bind(library)) return 0; \
         aqua_library_##name(library); return AQUA_API_VERSION; } \
