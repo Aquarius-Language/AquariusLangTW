@@ -5,17 +5,15 @@ argument evaluation preserve bilingual aliases, lexical capture, arity checks,
 eager evaluation order and result identity. Script calls suspend to compiled
 continuation frames, so deep recursion does not grow the host call stack.
 
-Desktop host functions use `BuiltinObj` and may opt into borrowed argument spans.
-Calls receive independent argument storage, including callback reentry. A compiled
-callback refers to its Wasm module/function and defining environment; each reentrant
-execution owns its Wasm store and imports. Wasmtime modules are weakly cached by
-artifact identity, while execution stores are disposed after every run.
+Native library functions (`aqua_define_function`, `<aqua/aqua.h>`) receive their arguments checked against the
+declared signature, read them in place and return through the call. Calls receive independent argument storage,
+including callback reentry. A compiled callback refers to its Wasm function and defining environment;
+`aqua_invoke_async` runs one as its own execution.
 
-Browser bindings retain their Promise API and expose a synchronous `nativeCall`
-entry. Synchronous results return immediately; Promise/thenable results suspend
-and then resume the compiled continuation. Cancellation is checked at compiled
-block boundaries, and browser checkpoints yield during pure computation.
+A function that cannot finish at once defers its call (`aqua_defer`): the calling script suspends to its compiled
+continuation and resumes when the library resolves or rejects it, which is how every asynchronous Web API is used on
+the web. Cancellation is checked at compiled block boundaries, and the host's turns yield during pure computation.
 
-Tests: `AquariusTests/compiler/CallConventionTest.cs`, compiler/closure language
-cases, cross-engine Wasm parity, and `AquariusWebCompiler/tests/wasm.test.mjs`.
+Tests: `compiler/AquariusTests/compiler/CallConventionTest.cs`, compiler/closure language cases and the libraries'
+tests on every target.
 Measure Wasm emission and execution separately with `AQUARIUS_WASM_BENCHMARKS=1`.

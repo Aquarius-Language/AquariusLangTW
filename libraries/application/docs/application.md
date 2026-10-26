@@ -1,16 +1,13 @@
-# Application libraries
+# Application libraries: API guide
 
-Core contracts, validation, ownership, document formats, editing and registration live
-in `AquariusCore/application`. Desktop adapters live in `AquariusDesktop/application`;
-browser adapters live in `AquariusWebCompiler/browser/application-*.mjs`. Core's
-`portable.mjs` supplies shared browser behavior without DOM or storage dependencies.
-Adapters attach to existing GLFW windows/canvases. Rendering, shaping, presentation,
-IME queues and package loading retain their existing owners.
+This guide describes the modules of the application library and, for `Window` and `Fonts`, the graphics library.
+Validation, document formats, codecs, compression and editing are C code shared by every target; the per-OS layers
+and their capabilities are in the [library README](../README.md#platforms).
 
 ## API reference
 
 Import modules with `匯入("Files")` or `import("Files")`. Members have English and Traditional Chinese aliases;
-`ApplicationCatalog` publishes their argument counts to both hosts and editor tooling.
+`src/modules.def` lists them with their argument counts, and `aquarius --catalog` publishes them to editor tooling.
 Records have lower camel case fields; nested data uses string-keyed hashes. Binary
 values are arrays of integers in 0..255. Failures never report successful no-ops.
 
@@ -74,10 +71,10 @@ or resolve symlinks; drive-relative paths fail and relative paths require matchi
 
 ## Images, events and editing
 
-PNG/JPEG/BMP/GIF/TIFF identification uses signatures. Desktop decoding uses pinned
-Magick.NET Q8; browser codecs use pinned ImageMagick WASM in a cancellable worker with
-coder, allocation, frame and time limits. Additional C# providers register independently
-in `ImageCodecRegistry`. Output pixels are owned, top-down RGBA8, with explicit alpha
+PNG/JPEG/BMP/GIF/TIFF identification uses signatures. Every target decodes and encodes
+with the same pinned C codecs (libspng, stb_image, giflib, libtiff and the library's own
+BMP code; see the README for versions and unsupported variants), with allocation, frame
+and pixel limits. Output pixels are owned, top-down RGBA8, with explicit alpha
 representation. Higher bit depth/alternate source models convert to this documented
 representation. Metadata includes source pixel format, EXIF orientation 1..8, resolution
 and indexed palettes where provided. Stored orientation remains unrotated. Frame/page
@@ -139,12 +136,12 @@ use checksummed documents/archives for integrity. Defaults: 64 MiB encoded/expan
 bytes, 8192 dimensions, 16 Mi total frame pixels, 256 frames, 4096 archive entries,
 JSON depth 64 and editor length 1 Mi UTF-16 units. Embedders can supply smaller limits.
 
-Desktop storage uses roaming/local application directories; browsers use entry-scoped
-IndexedDB subject to origin quota/eviction. Keys allow 1..128 ASCII letters/digits,
-dot/underscore/hyphen. Language preferences use schema 1. Reusable C#
-`Preferences(storage,schema)` supports `AddMigration` hooks advancing one version;
-missing/newer schemas fail. `Remember` keeps 20 descriptors with durable identity
-deduplication. `DesktopApplicationHost` permits application ID/storage root injection.
+Desktop storage uses roaming/local application directories, Android the activity's files
+directory; browsers use IndexedDB (`aquarius:<application id>`) subject to origin
+quota/eviction. Keys allow 1..128 ASCII letters/digits, dot/underscore/hyphen. Language
+preferences use schema 1; missing/newer schemas fail. `Remember` keeps 20 descriptors with
+durable identity deduplication. `AQUARIUS_APPLICATION_ID` and `AQUARIUS_STORAGE_ROOT`
+choose the application folder and storage root.
 
 Picker options: `{title:"Open",multiple:true,suggestedName:"drawing.aqd",
 filters:[{name:"Images",extensions:["png","jpg"]}]}`. Browser pickers require a focused
@@ -157,40 +154,24 @@ dialog; browser spool completion/cancellation cannot be confirmed. Accessibility
 semantic DOM mirror, while application drawing and interactions retain ownership.
 
 Associations accept `{extension:"aqd",applicationId:"MyApp",description:"My document",
-executable:"C:/path/AquariusDesktop.exe",arguments:["C:/path/app.wasm","--documents"]}`.
+executable:"C:/path/app.exe",arguments:["--documents"]}`.
 Registration explicitly advertises a per-user Open With handler without overriding
 default-app choices. `app.wasm --documents file1 file2` supplies `LaunchFiles()`;
 embedders can pass launch files to the desktop host/runner. Browser launch resources
 require an installed web app with file handlers and `launchQueue`. Static sites cannot
 register OS associations or enforce single-instance activation.
 
-| Capability | Windows | Linux/macOS | Browser |
-|---|---|---|---|
-| Files/streams/temp, settings | Yes | Yes | Scoped resources, buffered streams, IndexedDB |
-| Five codecs/frame selection | Yes | Yes | Bundled WASM worker |
-| Unicode clipboard | Win32 | Existing GLFW; initialize GLFW | Secure context/focus/permission |
-| Image/multiple clipboard formats | PNG + DIBV5 + text | Adapter unavailable | PNG + text where permitted |
-| Pickers | Win32 | Adapter unavailable | Feature checks/input/download fallback |
-| Drops/events/cursors | GLFW | GLFW, cursor feature checks | DOM canvas events/cursors |
-| Pointer capture | Win32 | Adapter unavailable | Active DOM pointer |
-| Touch/pen | GLFW unavailable | GLFW unavailable | PointerEvent properties |
-| IME | Existing IMM | Committed Unicode | Existing textarea composition |
-| Fonts | System GDI enumeration | Discovery adapter unavailable; bitmap fallback | Local Font Access permission/CSS checks |
-| Printing/accessibility | Native dialog/MSAA | Adapter unavailable | Print dialog/semantic DOM |
-| Acquisition | Image picker | Picker adapter unavailable | Image input/mobile capture |
-| Associations/activation | Per-user registration/launch resources | Launch resources; registration unavailable | Installed web app launchQueue only |
-
-Capability support can still encounter permissions, unavailable devices, focus or
-temporary failures. Cancelled pickers return empty/null; cancellation tokens raise
-cancellation. `Tasks.UseCancellation` applies a token to subsequent calls; embedders
-pass CancellationToken to async contracts. Browser codecs terminate and compression
-yields between chunks. Native modal dialogs check cancellation before/after the dialog;
-they finish when closed. Clear the token with
+What each platform provides is the [platform table](../README.md#platforms) of the library
+README; `Capabilities()` reports it at run time. Capability support can still encounter
+permissions, unavailable devices, focus or temporary failures. Cancelled pickers return
+empty/null; cancellation tokens raise cancellation. `Tasks.UseCancellation` applies a token
+to subsequent calls, checked before and after each operation; a picker already shown
+finishes when closed. Clear the token with
 `Tasks.UseCancellation(Serialization.ParseJson("null"))`.
 
 ## Example and verification
 
-[The portable example](../examples/application_libraries/main.aqua) exercises documents,
+[The portable example](../../../examples/application_libraries/main.aqua) exercises documents,
 ZIP, temporary PNG save/open, stream seeking, editing and UTF-16 composition. For a
 user save, call `Application.SaveFile({"suggestedName":"drawing.aqd"})`, check for null,
 then `Files.SaveBytes(resource,Serialization.Binary(document,1))`. For IME integration:
@@ -201,20 +182,5 @@ p.on("compositionUpdated", 函式(){ editor.Composition(p.compositionText,p.comp
 p.on("compositionEnded", 函式(){ editor.CancelComposition(); });
 ```
 
-Build the native bridge, restore .NET packages, and run `npm ci` and
-`npm run prepare:browser` in AquariusWebCompiler before building. Magick.NET Q8 14.17.2
-uses Apache-2.0 and requires no build-time license key. Its native ImageMagick runtime
-and bundled dependencies' notices ship in `licenses/MAGICK-NET-NOTICES.txt` alongside
-`licenses/MAGICK-NET-LICENSE.txt`. ImageMagick WASM 0.0.44/fflate 0.8.3 licenses/notices
-ship with every website. Desktop codec operations serialize access to ImageMagick's
-process-wide resource limits, disallow disk caches and external delegates, and check
-cancellation before and after native operations. Run `dotnet test AquariusTests` and
-`npm test --prefix AquariusWebCompiler`. Tests cover corruption/expansion, codecs,
-alpha/metadata/pages, ownership, settings migration/cancellation and desktop-to-browser
-document/ZIP/compression/TIFF parity. Set `AQUARIUS_APPLICATION_NATIVE_TESTS=1` on Windows
-for hidden-window lifecycle/capture/close/Unicode and actual OS accessibility coverage.
-After exporting examples to `.web-build/application`, run
-`node AquariusWebCompiler/tests/application-browser.mjs` for real Chromium resource,
-worker, clipboard, drop, key, picker, persistence, cancellation, accessibility and
-acquisition checks. Printing is intercepted at its dialog boundary to check preparation
-without sending a physical page. Existing package/example/smoke/resize checks still apply.
+The library's `tests/` run on every target with `scripts/test-libraries.ps1 -Libraries application` (add
+`-Devices` for the clipboard and window cases); see the README for what they cover.

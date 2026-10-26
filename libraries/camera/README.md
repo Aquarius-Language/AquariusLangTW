@@ -38,7 +38,9 @@ while another capture of the same session waits fails; a failed or timed-out cap
 independent opaque RGBA snapshots. Webcam frames have exactly the requested size, the picture scaled to fit with black
 bars; Camera frames are the upright image (sensor and display rotation, front cameras compensated, never mirrored)
 stretched to the request, portrait when the device is. Errors read as before: `攝影機.開啟：參數無效：…`,
-`相機.Open：InvalidArgument：…`.
+`相機.Open：InvalidArgument：…`. The failure kinds are 不支援, 權限遭拒, 找不到裝置, 裝置無法使用, 擷取逾時, 已取消, 已關閉
+and 參數無效. Opening a session is the only call that touches a device or asks for permission; nothing records audio or
+video, and no frame leaves the application unless the script sends it.
 
 ## How it works
 

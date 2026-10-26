@@ -101,4 +101,4 @@ aqua run examples/color_mapping/main.aqua
 Remove-Item Env:AQUARIUS_GRAPHICS_FRAMES, Env:AQUARIUS_GRAPHICS_CAPTURE
 ```
 
-See the [Processing guide](../../graphics/Processing.md) for API details and platform limitations.
+See the [Processing guide](../../libraries/graphics/README.md) for API details and platform limitations.

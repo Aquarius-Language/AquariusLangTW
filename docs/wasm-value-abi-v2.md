@@ -1,8 +1,8 @@
 # Aquarius Wasm value ABI 2
 
-ABI 2 applications link the portable runtime from `AquariusCore/wasm/runtime`.
-Recompile ABI 1 artifacts. Both desktop and browser hosts execute the same runtime
-binary; they provide capability transport rather than language execution.
+Applications link the guest runtime from `runtime/guest` (this value layout is unchanged in the current ABI 4
+metadata; `runtime/guest/layout.def` is its table). Every host runs the same runtime binary and provides capability
+transport rather than language execution.
 
 This is an implemented application ABI. It is **not** the pending general-purpose
 third-party library ABI or a Wasm Component Model interface.
@@ -107,6 +107,6 @@ The desktop Wasmtime cache owns machine-code cache validation and keys. Portable
 Wasm remains authoritative. First compilation, process startup with a populated
 cache and warmed execution are different measurements.
 
-See [migration progress](wasm-migration-progress.md) and the
-[complete backlog](wasm-architecture-migration.md) for remaining library,
+See [migration progress](archive/wasm-migration-progress.md) and the
+[complete backlog](archive/wasm-architecture-migration.md) for remaining library,
 toolchain, native launcher and cross-platform requirements.

@@ -1,208 +1,153 @@
-# WebAssembly compiler and cross-platform hosts
+# Architecture
 
-AquariusLang is a bilingual Traditional Chinese / English programming language.
-Chinese and English keywords map to the same frontend tokens and AST; a file or
-module can mix both freely. `else if` and `否則如果` share the same conditional
-branch representation. All hosts therefore execute the same Wasm semantics.
-See [bilingual syntax and language behavior](compiler/AquariusCompiler/LANGUAGE.md#bilingual-syntax).
+AquariusLang is a bilingual Traditional Chinese / English compiled language. Chinese and English keywords map to the
+same tokens and AST, so a file may mix both; see the [language reference](compiler/AquariusCompiler/LANGUAGE.md).
 
-Networking contracts, optional platform capabilities, bilingual client/socket APIs and
-the desktop HTTP(S) server are documented in [Network / 網路](docs/networking.md).
-
-攝影機的核心抽象、桌面與網頁配接器、生命週期及驗證方式見 [攝影機架構指南](docs/webcam.md)。
-ONNX Runtime 的雙語契約、執行提供者目錄與選擇策略、各平台配接器（CUDA、TensorRT、Core ML、WebGPU、WebNN、NNAPI、XNNPACK）、模型封裝及擴充方式見 [推論架構指南](docs/onnx.md)。
-
-The [Thread / 執行緒 library](docs/threading.md) runs snapshot-isolated functions on desktop OS threads, browser Web Workers and Android native Wasmtime workers, with cancellation, joins and portable result graphs.
-
-This document describes the current implementation. The
-[remaining Wasm migration work](docs/wasm-architecture-migration.md) tracks moving
-language execution and portable libraries into Wasm, removing unnecessary C#/.NET
-dependencies, and completing cross-platform deployment. The [implementation status](docs/wasm-migration-progress.md)
-distinguishes completed runtime changes from remaining library and toolchain work. Future computational
-libraries must follow the [Wasm inclusion requirement](docs/external-libraries.md#requirement-for-future-libraries).
-
-Optional project management lives in [AquariusBottle](compiler/AquariusBottle/README.md).
-The CLI and language server share its TOML schema, semantic version constraints,
-local/GitHub sources, immutable global snapshots, dependency locks and read-only
-editor inspection. Project builds stage declared sources and assets into the
-existing packaging pipeline, placing libraries under `/bottles/NAME/`. The core
-Wasm metadata preserves supported-platform declarations through later deployment.
-No dependency resolver, registry client or manifest parser is shipped as part of
-the generated program's runtime.
+C# is only the compiler. Every target runs the compiled `.wasm` application on one native runtime written in C:
+Wasmtime's C API on desktop and mobile, the browser's WebAssembly engine on the web. Libraries are AquariusLang, C, C++
+or Rust; JavaScript exists only in `web-glue/`, and only to expose Web APIs. The rules that keep it this way are in
+[CLAUDE.md](CLAUDE.md); read them before changing anything.
 
 ```mermaid
 flowchart TD
-    Source[Aquarius source] --> Frontend[Core lexer and parser]
-    Frontend --> Lowering[Compiler IR and control-flow graph]
-    Lowering --> Wasm[Core WebAssembly emitter]
-    Wasm --> Artifact[Standard .wasm application]
-    Artifact --> Desktop[Wasmtime desktop host]
-    Artifact --> Web[Browser WebAssembly host]
-    Artifact --> Android[Wasmtime Android host]
-    Artifact --> Export[Platform build target registry]
-    Export --> Website[Static website with program.wasm]
-    Export --> Exe[Self-contained EXE with Wasm overlay]
-    Export --> Apk[Native Android APK]
-    Apk --> Android
-    Exe --> Desktop
-    Website --> Web
-    Core[Core capability contracts and external library catalog] --> GPU[Desktop, browser and Android WebGPU adapters]
-    Application --> Bottle[Third-party TOML libraries]
-    Core --> Audio[Shared miniaudio WASM decoder and mixer]
-    Audio --> AudioDesktop[Wasmtime and miniaudio PCM sink]
-    Audio --> AudioWeb[AudioWorklet and browser PCM sink]
-    Bottle --> Dynamic[Native and ES-module/Wasm library loaders]
-    Desktop --> GPU
-    Web --> GPU
-    Android --> GPU
-    Desktop --> Emscripten
-    Web --> Emscripten
-    Android --> Emscripten
+    Source[".aqua sources"] --> Compiler["compiler/ (C#): lexer, parser, lowering, Wasm emission"]
+    Guest["runtime/guest/runtime.wasm (C)"] --> Compiler
+    Manifests["libraries/*/aqua.toml"] --> Compiler
+    Compiler --> App["app.wasm: guest runtime + compiled functions + ABI 4 metadata + assets"]
+    App --> Targets["compiler/AquariusBuild targets"]
+    Targets --> Exe["windows / linux: aquarius(.exe) + overlay"]
+    Targets --> Apk["android: APK with libaquarius.so"]
+    Targets --> Site["web: static site"]
+    Exe --> Native["runtime/host + runtime/platform/<os> on Wasmtime"]
+    Apk --> Native
+    Site --> Web["runtime/host as a side module + web-glue/ on the browser's engine"]
+    Libraries["libraries/<name>/ (C/C++/Rust + Aquarius)"] --> Native
+    Libraries --> Web
+    Glue["web-glue/<domain>/ (Web APIs only)"] --> Web
 ```
 
-Aquarius is a compiled language. The front end lowers syntax to compiler-only IR,
-then emits standard WebAssembly functions and control flow. No Aquarius instruction
-stream, AST interpreter or opcode dispatcher is deployed. Dynamic values, lexical
-bindings, arrays, hashes, closures, script-call scheduling and garbage collection
-execute in the linked freestanding Wasm runtime. The `aquarius_v2.service` import
-transports capability lookup, calls and native module access. Hosts project values
-only at capability and embedding boundaries. Portable builtins execute in Wasm.
+## Repository layout
 
-Eligible closed scalar functions also use a private typed Wasm calling convention
-with register values and guarded direct recursion. Failed speculation returns to
-the resumable implementation before yielding. Lexical ancestor slots are guarded
-by capture ownership. See [portable numeric compilation](docs/portable-numeric-architecture.md).
-Generic functions keep closure-free scopes in frame slots, keep their operand stack
-in Wasm locals, consume fuel only at loop heads and run callees directly on the Wasm
-stack up to a bounded depth. See [generic execution tiers](docs/execution-tiers.md).
+```text
+compiler/            C#, compile time only
+  AquariusCompiler     front end, IR, Wasm emission, application packaging, library manifests, installation lookup
+  AquariusBuild        build targets (windows, linux, web, android) from runtime packs
+  AquariusBottle       TOML projects, dependencies, locks
+  AquariusCli          the aqua command (build, run, REPL, export)
+  AquariusLanguageServer, AquariusTests
+runtime/             C, the run time of every target
+  guest/               runtime.c: values, GC, scheduler, linked into every application (layout.def is the shared table)
+  host/                the host core: metadata, imports, registry, calls, scheduler, threads, the core library
+  platform/<os>/       windows, linux, posix, desktop (Windows + Linux), android (+ the Java activity shim), web
+  sdk/                 aqua/*.h, api.def, AquariusLibrary.cmake, toolchain files, an example library
+libraries/<name>/    default libraries, one self-contained folder each
+web-glue/            the only JavaScript: core/ (loader, WASI, start), page/, one folder per Web API domain
+scripts/             toolchain pins and installers, runtime builds, library tests, web/Android runners, release
+examples/, tests/, docs/, editors/, website/
+```
 
-Each compiled function exports `aqua_fN(i32 frame) -> i32`. The frame and its
-continuation live in Wasm memory. Compiled basic blocks use structured Wasm branches
-and `br_table`, calling guest runtime helpers directly. A nonnegative result is a
-continuation; -1 completes the function. Generic calls and member resolution suspend at
-compiler-generated boundaries. The guest scheduler runs compiled function frames without
-using the C# or JavaScript call stack for Aquarius recursion. Browser host calls
-can await GPU mapping, external-library initialization and animation frames.
-Checkpoints bound each browser turn and make cancellation observable in pure loops.
-Every execution owns its value frames, including callback reentry. Native handles
-are traced from guest roots and recycled; transport leases retain externally held
-modules, closures and projected scopes. A host scope passed to an execution becomes a live
-view of its guest scope (lookups and assignments go to guest memory), so native calls copy
-no bindings in either direction; disposing the runtime leaves it a plain scope with the
-final bindings. Array and hash mirrors do not pin their guest
-objects: when the guest drops one, its collector reports it on a released list and the
-host forgets the mirror, which then stays usable as a detached value. Hosts refresh a
-mirror only when the runtime reports it stale (changed since its dirty list was taken),
-and read arrays through borrowed views without copy-on-write. Changed host-visible
-arrays are copied back before capability access. The guest allocator coalesces
-adjacent free blocks and splits larger ones before growing the heap; a collection is
-due after net allocation or heap growth reaches a threshold that shrinks with the
-remaining headroom under the 512 MiB heap limit.
+## Compiler
 
-Hosts trace active language scopes, operands, suspended native arguments and
-callback closures at frame boundaries to reclaim unused Processing canvases and
-images. Extracted native methods retain their resource scope. Host ownership
-registries are not roots, and failed/completed executions release their roots.
-Processing's optional `error` event handles input callback failures on both hosts;
-`errorEvent` and `errorMessage` describe the failure. Unhandled failures, failures
-in the error handler and browser cancellation still terminate execution.
+The front end lowers syntax to a compiler-only IR and emits standard WebAssembly; no instruction stream, AST
+interpreter or opcode dispatcher is deployed. `WasmCompiler` links the guest runtime (`runtime/guest/runtime.wasm`,
+embedded in the compiler) with the compiled functions. Struct offsets come from `runtime/guest/layout.def`, the one
+table both C and C# read (`RuntimeLayout`, `runtime/guest/layout.h`).
 
-A `.wasm` file contains executable Wasm sections, exactly one `aquarius.application`
-custom section and, when the application embeds assets, one raw `aquarius.assets` section.
-ABI 3 metadata is binary: memory layout, function count, the module/function mapping,
-supported platforms and asset names with lengths (asset bytes follow in `aquarius.assets`,
-or live beside the module in web and Android deployments). Executable constants, function
-definitions and parameter names are in Wasm data segments, which is where hosts read closure
-parameters. Compiled closures inspect as `函式(params) {...}`; no source text is shipped.
-Module identities retain their source-relative `.aqua` names. New hosts still load ABI 2
-artifacts (JSON metadata with constant pools and base64 assets); ABI 2 hosts cannot load
-ABI 3 artifacts, so applications and runtime packs move to ABI 3 together. Application loaders
-bound sizes and reject malformed metadata and unsafe paths. Engines independently
-validate Wasm types and code. Repeated script imports create independent globals;
-registered native modules are shared within a host session. Closures retain their
-module environment and builtins for deferred imports.
+Each compiled function exports `aqua_fN(i32 frame) -> i32`. Frames and continuations live in Wasm memory; basic blocks
+are structured branches and `br_table`. A nonnegative result is a continuation, -1 completes the function. Generic
+calls and member resolution suspend at compiler-generated boundaries, so Aquarius recursion never uses a host call
+stack, and the web host can wait for Web APIs between turns. Eligible closed scalar functions use a typed calling
+convention ([portable numeric compilation](docs/portable-numeric-architecture.md)); generic functions keep frames in
+slots and locals ([execution tiers](docs/execution-tiers.md)).
 
-`AquariusPackaging` depends only on core. It compiles modules and resources directly
-into the Wasm application and stages output before replacement. `.bottle` and
-`.rius` are retired; old applications must be recompiled from source.
-`AquariusCli` can build Wasm, websites and EXEs directly from sources, or export a
-previously compiled Wasm application. Compilation and export never execute code.
+An application is one `.wasm` with an `aquarius.application` custom section (ABI 4 binary metadata: layout, function
+count, script modules, entry, platforms, assets, the import table of bundled library modules and the native libraries
+it needs) and, when assets are embedded, a raw `aquarius.assets` section. See the
+[compiler README](compiler/AquariusCompiler/README.md#application-metadata-abi-4). Compilation never runs code.
 
-`AquariusBuild` registers targets through `IWasmBuildTarget`; new platforms do not
-change CLI parsing. Windows deployment preserves the self-contained runtime-pack
-design and checksummed executable overlay. Overlay version 2 contains Wasm plus
-entry metadata; runtime packs declare the Wasm ABI version. The application host
-runs the embedded module through Wasmtime. Runtime packs are rebuilt by release
-tooling, and generated applications need no installed SDK or .NET runtime.
+## Guest runtime
 
-Core retains `IWgpuBackend`, device/buffer/shader/render-target contracts, validation,
-aliases, shader declarations and the 1,120-byte Processing uniform ABI. Desktop
-uses Silk.NET and wgpu-native; browsers use WebGPU. Devices own GPU resources and
-reject foreign or disposed handles. Window integration remains host-specific.
-OpenGL remains available for compatibility with existing examples; future main
-graphics implementations use the core WebGPU boundary.
+`runtime/guest/runtime.c` is freestanding C compiled to Wasm with the pinned Clang. Dynamic values, lexical scopes,
+arrays, hashes, strings (UTF-16), closures, the script scheduler and the garbage collector run inside the application.
+The portable modules (Array, Hash, String, Thread) are part of it. The guest reaches the host only through the
+`aquarius_v2.service` import (`runtime/host/calls.c` handles it): capability lookup, native calls and object access.
+Native handles are traced from guest roots and stamped with the collection generation; the heap may grow to 2 GiB
+because library data (pixel arrays, images, tensors) lives in guest memory.
 
-Models and PBR are embedded Aquarius source libraries linked into the application's
-Wasm by core. OBJ/MTL parsing, validation, normal generation, ear clipping and
-material/mesh assembly execute in compiled Wasm; both adapters consume the same
-metallic/roughness WGSL and retained vertex attributes. Files' read-only asset calls
-reuse the package resource boundary. See [PBR and model import](docs/pbr-models.md).
+## Host core and platform layers
 
-Core owns external library descriptors and portable host contracts. Terminal
-launches explicit scripts through desktop/Android adapters and reports unsupported
-browser execution. Jolt is an independent TOML Bottle package, with its bindings,
-engine assets and numerical tests outside core. Generic ES-module factories run
-on ClearScript/V8 on desktop, browser JavaScript, and QuickJS-NG on Android; Aquarius
-application execution remains in compiled Wasm. OpenCV packages use native C++
-matrix handles or portable OpenCV Wasm according to their platform assets. See
-[external libraries](docs/external-libraries.md) for extension rules and profiles.
+`runtime/host` is one C code base for every target. `engine_wasmtime.c` and `engine_web.c` are the only engine-specific
+files: the first drives Wasmtime on Windows, Linux and Android, the second runs inside the browser as a position
+independent side module sharing the application's memory. The host reads the metadata (`application.c`), registers
+the default libraries compiled into this runtime build and the external ones named with `--library` or by the
+application (`registry.c`, `session.c`), runs the guest's scheduler and native ticks (`scheduler.c`), and runs Thread
+workers as separate instances (`threads.c`, `threads_web.c`).
 
-Application contracts and language registration remain in `AquariusCore/application`.
-Adapters provide file resources, codecs, clipboard, windows/input, fonts, persistence
-and host services. User documents retain opaque provider identities, separate from
-bundled assets. Desktop assets are materialized in a private temporary directory
-and cleaned up with the runtime; writable output paths remain relative to the
-relocated application. Browsers use a virtual filesystem. See the
-[application API](docs/application-libraries.md).
+Everything that differs per OS is a thin layer in `runtime/platform/<os>/`: process entry, files, clocks, dynamic
+loading and the window/input implementation of `<aqua/window.h>` (GLFW on desktop, `ANativeWindow` on Android, a
+`<canvas>` on the web). Android's Java is only `AquariusActivity`, a `NativeActivity` subclass forwarding what Android
+delivers to Java alone. A new target is a toolchain file, a platform layer, pins and a build target.
 
-Validation includes language semantics through Wasmtime, Wasm round trips and
-corruption, deep recursion, async browser calls/cancellation, callback reentry,
-desktop/browser execution of identical binaries, generic script-library tests,
-source-free imports/assets, CLI and standalone EXE smoke tests, and opt-in desktop
-and browser WebGPU regressions. The example scripts and marble-run remain the
-compatibility target.
+## Libraries
 
-## Enforced architecture rules
+A library is `libraries/<name>/` (or an external Bottle package of the same shape): `aqua.toml` (manifest version 2:
+`[library]`, `[native] modules`, `[[modules]]` Aquarius sources, `[android] permissions`), `CMakeLists.txt` with
+`aqua_add_library`, `src/`, `aqua/`, pinned third-party code, `tests/` and a README. The same source builds for every
+target: on native targets default libraries link into the runtime and external ones become `aqua_<name>.dll` /
+`libaqua_<name>.so`; on the web each becomes a side module `<name>.wasm`. Modules register through `AQUA_LIBRARY` and
+call the runtime only through the function table of `<aqua/aqua.h>` (`api.def`). See the
+[library SDK](runtime/sdk/README.md) and [external libraries](docs/external-libraries.md).
 
-These rules are checked by `AquariusTests/architecture/ArchitectureRulesTest.cs` (plain `dotnet test`,
-category `Architecture`, a few seconds) and by the `.github/actions/wasm-toolchain` step in every CI job
-that builds. A failure names the rule and the legitimate way to change things.
+| Library | Modules |
+| --- | --- |
+| [application](libraries/application/README.md) | Application, Files, Paths, Images, Serialization, Storage, Clipboard, Tasks, TextEdit |
+| [audio](libraries/audio/README.md) | Audio (miniaudio) |
+| [camera](libraries/camera/README.md) | Webcam, Camera |
+| [graphics](libraries/graphics/README.md) | Processing, WGPU, GLM, TextInput, Window, Fonts, Models, PBR, GPUMath (webgpu.h on wgpu-native or the browser) |
+| [input](libraries/input/README.md) | AndroidInput |
+| [network](libraries/network/README.md) | Network: HTTP(S), WebSocket, TCP/TLS/UDP, HTTP server (mbedTLS) |
+| [onnx](libraries/onnx/README.md) | ONNX, MediaPipe (ONNX Runtime; built from C++ for the web) |
+| [opengl](libraries/opengl/README.md) | GLFW, GLAD, GL, STBImage (desktop) |
+| [terminal](libraries/terminal/README.md) | Terminal |
 
-| Rule | Why | Enforced by |
-| --- | --- | --- |
-| No Zig | One pinned toolchain builds every Wasm/native helper; a second compiler would make binaries irreproducible. Historical validation records may mention Zig. | `NoZigToolchain` |
-| Reproducible Wasm binaries | `runtime.wasm`, `audio.wasm`, `pose.wasm` and `geometry.wasm` are committed; they must rebuild byte-identically from source with the pinned LLVM/Clang 23.1.3 (`scripts/wasm-toolchain.json`) on Windows, Linux and macOS. | `CommittedWasmBinariesRebuildFromSource` (runs where the toolchain is installed), the `-Check` scripts in CI |
-| Generated sources are fresh | Library catalogs, portable library tables (C#, JavaScript and C) and the guest memory layout each have one source table; hand edits drift. Libraries the catalog generator scans have no hand-written catalog entries, and every function registered in code needs a translation. | `GeneratedSourcesAreFresh` (`--check` of each generator), `GeneratedLibrariesHaveNoHandWrittenEntries` |
-| Runtime layout | C# emitters and hosts address guest structs only through `RuntimeLayout` constants; `runtime/layout.h` asserts the same offsets in `runtime.c`. | `RuntimeIncludesGeneratedLayoutChecks`, `EmittersUseNamedRuntimeOffsets`, the runtime build |
-| One Wasm encoder | LEB128 and instruction immediates are encoded only by `WasmEncoding`. | `OneWasmEncoder` |
-| ABI 2 compatibility | New hosts keep loading and running applications built by the ABI 2 compiler. | `Abi2ArtifactsStillLoadAndRun` (committed `AquariusTests/compiler/fixtures/abi2-application.wasm`), `wasm-manifest.test.mjs` |
-| Codegen stability | Any emitter or runtime change that alters compiled output for the golden programs is a reviewed, intentional update. | `CompiledOutputMatchesGoldens` |
-| Dependency direction | `AquariusCore` references no project and no host/native package (Silk.NET, Wasmtime, ClearScript, ONNX Runtime, Magick, Tomlyn, Jolt); `AquariusPackaging` depends only on core; hosts depend on core, never the reverse. | `CoreDependsOnNoHostOrProject`, `PackagingDependsOnlyOnCore` |
-| Library admission | Bundled computational libraries execute in Wasm ([requirement](docs/external-libraries.md#requirement-for-future-libraries)); only documented host capabilities may be `HostCapability`. | `BundledComputationalLibrariesExecuteInWasm`, `ExternalLibraryTest` |
-| Hosts contain no mirroring algorithm | Mirror freshness, release of dropped guest objects and change tracking are runtime decisions (`aqua_stale`, `aqua_take_released`, `aqua_take_dirty_*`, weak mirrors, borrowed array views); hosts read the runtime's pending-work block (`aqua_pending`) instead of probing each list, publish their binding era there so the guest caches host module members, and copy back only array and hash arguments; host scopes are live views of guest scopes, never copied. | `HostsTranslateRuntimeMirrorDecisions` |
-| Processing geometry lives in the kernel | Triangulation (including contour holes), stroke joins and caps, ellipses, rounded rectangles, curves and box/sphere meshes are `AquariusCore/graphics/geometry.c` (`geometry.wasm`), so desktop, browser and Android draw the same geometry; hosts keep device, texture, font and window access and upload the kernel's vertex ranges. | `ProcessingGeometryLivesInTheKernel`, `CommittedWasmBinariesRebuildFromSource` |
-| Single source for shared JavaScript | A browser module named like an `AquariusCore/hosting` module only re-exports it. | `BrowserModulesReExportCoreHosting` |
-| One example tree | `examples/` is the single sample tree: desktop builds ship it, tests and scripts read it, and platform variants live inside an example (a `desktop.aqua` entry or a width/platform condition). | `ExamplesHaveOneTree` |
-| Repository hygiene | No IDE/per-user files; Markdown uses repository-relative links, never machine paths (`docs/archive/` excepted). | `NoCommittedIdeOrUserFiles`, `DocsUseRepositoryRelativeLinks` |
+## Web glue
 
-Changing a rule's subject legitimately:
+`web-glue/core` instantiates `program.wasm`, links the host core, the C/C++ runtime libraries and the needed library
+side modules into the application's memory (`dylink.0`), provides WASI and drives the host's loop from the event loop.
+Every other folder exposes one Web API (window, webgpu, audio, camera, network, storage, files, clipboard, canvas,
+print, accessibility, thread for Web Workers) and registers with `core/glue.mjs`; `index.mjs` imports them once. Glue functions translate
+arguments, make one Web API call and hand the result back; all logic stays in C/C++. See the
+[web glue README](web-glue/README.md).
 
-- Generated files: edit the generator's table (`native/generate_library_catalog.py`,
-  `native/generate_portable_libraries.py`, `native/generate_runtime_layout.py`), run it with Python 3, commit
-  the generator and its outputs together.
-- Runtime or other committed Wasm: install the toolchain (`scripts/install-wasm-toolchain.ps1`, or
-  `install-wasm-toolchain.sh` without PowerShell), rebuild with `scripts/build-wasm-runtime.ps1`,
-  `build-audio-runtime.ps1`, `build-pose-wasm.ps1` or `build-geometry-wasm.ps1`, and commit the binary with its source.
-- Codegen goldens: after reviewing an intended output change, run
-  `AQUARIUS_UPDATE_CODEGEN_GOLDENS=1 dotnet test AquariusTests --filter CompiledOutputMatchesGoldens` and commit
-  `AquariusTests/architecture/codegen-goldens.txt`.
+## Toolchain
+
+One pinned LLVM Clang (`scripts/toolchain.json`) builds the guest runtime, every web side module, Windows (Clang +
+the llvm-mingw sysroot, never MSVC) and Linux; Android uses the pinned NDK's Clang. Wasmtime and wgpu-native come in as
+pinned prebuilt C SDKs. `scripts/install-toolchain.ps1` installs them and `scripts/build-runtime.ps1` builds the
+runtime packs into `.native-build/install/<target>`, where the compiler of a checkout finds them.
+
+## Tests
+
+- `dotnet test compiler/AquariusTests`: language semantics, Wasm emission, codegen goldens, packaging, build targets,
+  CLI, language server and the architecture rules below. Programs run on the runtime pack of this machine.
+- `scripts/test-libraries.ps1`: every library's `tests/<case>.aqua` on Windows, Linux (WSL), the web (Chromium) and
+  Android (device or emulator); output must equal `<case>.expected`.
+
+### Enforced rules
+
+`compiler/AquariusTests/architecture/ArchitectureRulesTest.cs` checks the rules of [CLAUDE.md](CLAUDE.md) on every
+`dotnet test`:
+
+| Rule | Test |
+| --- | --- |
+| C# only in `compiler/`; compiler projects carry no runtime packages; the solution holds exactly the compiler projects | `CSharpIsOnlyTheCompiler`, `CompilerProjectsCarryNoRuntimePackages`, `TheSolutionHoldsTheCompilerProjects` |
+| JavaScript only in `web-glue/`; each glue domain self-contained | `JavaScriptLivesOnlyInWebGlue`, `WebGlueDomainsAreSelfContained` |
+| Each library a valid, self-contained folder whose manifest matches what it registers | `EveryLibraryHasAValidManifest`, `LibrariesReachNothingOutsideTheirFolder`, `NativeModulesInManifestsAreTheOnesTheRuntimeRegisters` |
+| No code generators; no MSVC | `NoCodeGenerators`, `WindowsBuildsNeverUseMsvc` |
+| One layout table, one Wasm encoder, the ABI the runtime reads | `GuestRuntimeChecksTheSharedLayoutTable`, `EmittersUseNamedRuntimeOffsets`, `OneWasmEncoder`, `TheCompilerEmitsTheAbiTheRuntimeReads` |
+| Reviewed codegen changes; the embedded guest runtime rebuilds from source | `CompiledOutputMatchesGoldens`, `TheEmbeddedGuestRuntimeRebuildsFromSource` |
+| Repository hygiene | `NoCommittedIdeOrUserFiles`, `AquariusSourcesLiveInExamplesLibrariesAndTests`, `DocsUseRepositoryRelativeLinks` |
+
+After an intended codegen change, run `AQUARIUS_UPDATE_CODEGEN_GOLDENS=1 dotnet test compiler/AquariusTests --filter
+CompiledOutputMatchesGoldens` and commit `compiler/AquariusTests/architecture/codegen-goldens.txt`. After changing
+`runtime/guest`, rebuild `runtime.wasm` with `scripts/build-wasm-runtime.ps1` and commit it with its source.

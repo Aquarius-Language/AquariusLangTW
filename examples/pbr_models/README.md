@@ -29,6 +29,6 @@ python -m http.server 8080 --directory web
 模型載入後在 setup 建立保留網格；每幀只更新材質、旋轉與繪製。
 
 `smoke.aqua` 驗證 960 三角形與兩個材質群；`gpu-smoke.aqua` 使用真實像素檢查法線與粗糙度。
-完整核心 API 與驗證流程見 AquariusLangTW 的 docs/pbr-models.md。
+完整核心 API 與驗證流程見 [libraries/graphics/docs/pbr-models.md](../../libraries/graphics/docs/pbr-models.md)。
 
 assets/orbit.obj、orbit.mtl 為此專案原創幾何與材質，依 CC0 提供；程式採 MIT，見 LICENSE。

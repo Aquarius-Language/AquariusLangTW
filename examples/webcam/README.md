@@ -11,7 +11,7 @@
 
 ## 桌面執行
 
-請先安裝具備裝置擷取支援的 FFmpeg，確認執行檔位於搜尋路徑，或設定 `AQUARIUS_FFMPEG`。開啟實體裝置前，請確認作業系統已允許桌面應用程式使用攝影機。
+Windows 使用 Media Foundation，Linux 使用 Video4Linux2，不需另外安裝程式。開啟實體裝置前，請確認作業系統已允許桌面應用程式使用攝影機。
 
 ```powershell
 aqua run examples/webcam/冒煙測試.aqua
@@ -28,7 +28,7 @@ aqua run examples/webcam/main.aqua
 
 ```powershell
 $來源 = @(Get-ChildItem examples/webcam -Filter '*.aqua' | ForEach-Object FullName)
-dotnet run --project AquariusCli -- build @來源 --root examples/webcam --entry main.aqua --target web -o .web-build/webcam-demo
+aqua build @來源 --root examples/webcam --entry main.aqua --target web -o .native-build/webcam-demo
 ```
 
 將輸出目錄以本機靜態伺服器或 HTTPS 提供，並開啟頁面。瀏覽器可能要求攝影機權限。網頁預設執行 `main.aqua`；使用測試入口可分別執行其他腳本。瀏覽器在取得權限前可能不提供完整裝置名稱或識別碼。
@@ -36,7 +36,8 @@ dotnet run --project AquariusCli -- build @來源 --root examples/webcam --entry
 ## 自動驗證
 
 ```powershell
-./scripts/test-webcam.ps1
+scripts/test-libraries.ps1 -Libraries camera              # 不開啟攝影機的案例
+scripts/test-libraries.ps1 -Libraries camera -Devices      # 包含擷取（網頁使用 Chromium 的虛擬攝影機）
 ```
 
-預設使用 FFmpeg 測試影像與 Chrome 虛擬攝影機，不開啟實體裝置。另加 `-Hardware` 才執行實體裝置驗證。完整契約、部署依賴與清理行為見 [攝影機架構指南](../../docs/webcam.md)。
+完整介面、各平台實作與錯誤種類見 [camera 函式庫說明](../../libraries/camera/README.md)。

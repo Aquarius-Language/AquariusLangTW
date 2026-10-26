@@ -6,10 +6,9 @@ World's first **bilingual Traditional Chinese + English compiled programming lan
 Traditional Chinese, entirely in English, or mix both in the same `.aqua` file.
 No language mode or configuration is needed.
 
-Sources compile to standard **WebAssembly (`.wasm`)**. Desktop and Android use
-**Wasmtime**; browsers use their native WebAssembly engine. The same compiled
-application can be packaged as a website, standalone executable or native APK.
-Android uses a native Java capability host.
+Sources compile to standard **WebAssembly (`.wasm`)**, run by one native runtime written in C: **Wasmtime** on
+Windows, Linux and Android, the browser's own WebAssembly engine on the web. The same compiled application exports as
+a website, a standalone executable or an APK. C# is only the compiler; nothing at run time needs .NET.
 
 Author: 林天牧 / Temple Lin.
 
@@ -19,29 +18,25 @@ Author: 林天牧 / Temple Lin.
   and provides an interactive REPL.
 - **Portable applications:** compiled modules, images, shaders and other assets
   travel together; deployed applications do not need source files.
-- **Bilingual libraries:** Chinese and English function names share functions
-  and captured closures. See the [library naming reference](docs/external-libraries.md).
 - **Projects and packages:** [Bottle](compiler/AquariusBottle/README.md) provides TOML
   manifests, local/GitHub dependencies, version locks, global caching and asset
   packaging. See the [showcase](examples/bottle_showcase/README.md).
+- **External libraries:** [libraries in AquariusLang, C, C++ or Rust](docs/external-libraries.md) built from one
+  source tree for every target with the [library SDK](runtime/sdk/README.md), exactly like the default ones.
 - **Threads:** [Thread / 執行緒](docs/threading.md) provides isolated workers,
   timed joins, results, cancellation and safe closing on desktop, web and Android.
-- **Networking:** [Network / 網路](docs/networking.md) provides HTTP(S), cookies,
-  cancellable requests, WebSockets and native TCP/TLS/UDP, with desktop HTTP(S)
-  routing, static frontends, SSE and sessions.
-- **Graphics:** portable WebGPU, Processing drawing and desktop OpenGL. Jolt
-  physics is supplied by the independent `Aqua_JoltPhysics` Bottle library.
-- **Models and PBR:** [OBJ/MTL parsing and shared WGSL rendering](docs/pbr-models.md),
-  plus [named shader textures, cube mip chains and floating render targets](docs/wgpu-textures.md).
-- **Audio:** [shared miniaudio Wasm decoding and mixing](libraries/audio/README.md),
+- **Networking:** [Network / 網路](libraries/network/README.md) provides HTTP(S), cookies,
+  cancellable requests, streamed responses, WebSockets and native TCP/TLS/UDP, with an HTTP(S)
+  server (routes, static files, SSE, sessions) on Windows, Linux and Android.
+- **Graphics:** [WebGPU, Processing drawing, text input and GPUMath](libraries/graphics/README.md) on
+  wgpu-native or the browser's WebGPU, plus desktop [OpenGL](libraries/opengl/README.md).
+- **Models and PBR:** [OBJ/MTL parsing and shared WGSL rendering](libraries/graphics/docs/pbr-models.md),
+  plus [named shader textures, cube mip chains and floating render targets](libraries/graphics/docs/wgpu-textures.md).
+- **Audio:** [miniaudio decoding and mixing](libraries/audio/README.md),
   including files, tones, loops, panning, pitch and offline sample output.
-- **Inference:** [ONNX Runtime](docs/onnx.md) contracts and platform execution
-  providers, including optional CUDA/TensorRT through `[onnx] cuda = true` in
-  `aqua.toml`. See the [pose example](examples/mediapipe/README.md).
-- **GPU math:** [GPUMath / GPU數學](docs/gpu-math.md) accepts WGSL expressions,
-  compute functions and full shaders, with retained buffers and pipeline caching.
-- **Dynamic linking:** [DynamicLibrary / 動態函式庫](docs/dynamic-linking.md)
-  loads native libraries, JavaScript and portable Wasm.
+- **Inference:** [ONNX Runtime and the MediaPipe pose tracker](libraries/onnx/README.md) with ranked execution
+  providers per platform, optional CUDA/TensorRT through `[onnx] cuda = true` in `aqua.toml`, and ONNX Runtime built
+  from C++ for the web. See the [pose example](examples/mediapipe/README.md).
 
 ## Contents
 
@@ -71,69 +66,41 @@ in its `aqua` directory:
 At the `>>` prompt, enter `print("Hello, Aquarius!");` or `印出("你好，星泉！");`.
 Press Ctrl+C to exit. Quote paths containing spaces.
 
-Release packages include the .NET runtime. End users do not need the .NET SDK
-or a separate runtime installation. Keep the DLLs, configuration, `runtimes`,
-`licenses` and `examples` alongside the compiler executable.
+The compiler package is self-contained: users do not need the .NET SDK or a runtime. Keep the whole folder together:
+`runtime/<target>/` holds the runtime packs applications are built from, `web-glue/` the web glue, `libraries/` the
+default libraries' manifests and Aquarius sources, `sdk/` the library SDK and `examples/` the examples.
 
 ## Build and package a release
 
-The root script produces a **Windows x64, self-contained Release** compiler package.
-Prepare these tools on Windows x64:
+`build-release.bat` produces the **Windows x64** compiler package. Prepare on Windows x64:
 
 | Tool | Purpose |
 | --- | --- |
-| Windows PowerShell 5.1 or PowerShell 7 | The script prefers PowerShell 7 and falls back to Windows PowerShell. |
-| .NET 8 SDK | Builds, tests and publishes the `net8.0` projects. |
-| Node.js and npm | Restores pinned browser dependencies, prepares embedded assets and runs tests. |
-| Python (`python`) | Runs existing external-process integration checks. |
-| CMake 3.20+, Visual Studio C++ build tools and Windows SDK | Builds native graphics and text-input bridges. |
-
-Initial NuGet, npm and GLFW restoration needs network access. The script searches
-PATH and common installations, including the user's `.dotnet` directory and pyenv.
-For Ninja and similar generators, use a terminal with the x64 C++ environment configured.
+| Windows PowerShell 5.1 or PowerShell 7 | Runs the scripts. |
+| .NET 8 SDK | Builds, tests and publishes the compiler. |
+| CMake 3.20+ and Ninja | Build the runtime packs. |
+| The pinned toolchain | `scripts/install-toolchain.ps1 -Targets windows-x64,android-arm64-v8a,android-x86_64` installs LLVM Clang, the llvm-mingw sysroot, the WASI sysroot, Wasmtime and a JDK (never MSVC). |
+| Android SDK (`ANDROID_HOME`) with NDK 28.2 | Only for the Android packs. |
+| Node.js | Web tests in Chromium (`npm install` in `scripts/`). |
 
 ```powershell
 .\build-release.bat
 .\build-release.bat -Help
-
-# Override tool detection when necessary
-.\build-release.bat -Dotnet "C:\Tools\dotnet\dotnet.exe" -CMake "C:\Tools\CMake\bin\cmake.exe"
-.\build-release.bat -Python "C:\Tools\Python\python.exe"
-.\build-release.bat -Generator "Visual Studio 17 2022"
-
-# Also exercise the published executable's GPU and graphics features
-.\build-release.bat -VerifyGraphics
+.\build-release.bat -Targets windows-x64,web         # fewer runtime packs; add linux-x64 to build it in WSL
+.\build-release.bat -SkipRuntime                     # reuse the packs in .native-build/install
 ```
 
-The script locates the repository regardless of the launch directory. It checks
-tools, restores browser assets, builds native bridges, builds the Release solution,
-runs .NET and browser-host unit tests, publishes `aqua.exe`, verifies the actual
-published executable, and produces a ZIP and SHA-256 checksum. Published-executable
-checks include source-free execution, website export and third-party library loading.
-GPU/window checks require suitable hardware, drivers and a desktop session.
-
-Each successful run creates a new directory:
+The script builds the runtime packs (`scripts/build-runtime.ps1`), builds and tests the compiler, publishes `dist/aqua/`
+(`scripts/publish-cli.ps1`), checks the published `aqua.exe` without an installed .NET (help, compile and run, a
+website and a standalone executable) and archives it:
 
 ```text
-dist/releases/AquariusCompiler-win-x64-<build-id>/
-├─ aqua/                         # Complete runnable compiler package
-├─ AquariusCompiler-win-x64-<build-id>.zip
-├─ AquariusCompiler-win-x64-<build-id>.zip.sha256
-├─ reports/                      # .NET TRX and published CLI verification
-└─ build.log
+dist/releases/AquariusCompiler-win-x64-<build-id>.zip
+dist/releases/AquariusCompiler-win-x64-<build-id>.zip.sha256
 ```
 
-Distribute the ZIP and checksum; recipients extract the entire package and run
-`aqua\aqua.exe`. Verify with `Get-FileHash "package.zip" -Algorithm SHA256`.
-The compiler is published as a directory with its apphost and runtime files;
-keep those files together. Graphics still needs compatible drivers and native dependencies.
-
-Failures return a nonzero exit code. After tool checks, logs and partial output
-remain in `dist/.package-<build-id>/`; successful releases are kept separately.
-LSP and VSIX packaging follow the editor documentation.
-
-For Linux x86_64 / WSL2 build, test and executable packaging instructions, see
-the [Linux desktop guide](docs/linux.md).
+Verify with `Get-FileHash "package.zip" -Algorithm SHA256`. Failures return a nonzero exit code. For Linux see the
+[Linux guide](docs/linux.md) (`scripts/publish-cli.sh`); for Android, the [Android guide](docs/android.md).
 
 ## Compile, run and export
 
@@ -150,42 +117,33 @@ aqua build main.aqua lib\tools.aqua --root . --assets assets --target windows -o
 
 # Export an existing compiled application
 aqua build app.wasm --target web -o dist\web
-aqua build app.wasm --target windows -o dist\app.exe
-
-# Serve the generated website at http://localhost:8080
-python -m http.server 8080 --directory dist\web
+aqua build app.wasm --target linux -o dist\app
+aqua build app.wasm --target android -o dist\app.apk
 ```
 
 | Option | Meaning |
 | --- | --- |
 | `--root` | Source root; preserves relative module and asset paths. |
-| `--assets` | Include a file or directory; may be repeated. Dynamic Wasm libraries can be assets. |
+| `--assets` | Include a file or directory; may be repeated. |
 | `--entry` | Entry `.aqua` module, defaulting to the first source input. |
-| `-o` | Output `.wasm` / `.exe` path or website directory. |
+| `-o` | Output `.wasm` / `.exe` / `.apk` path or website directory. |
 | `--target wasm` | Default: standard Wasm containing the program, modules and assets. |
-| `--target web` | Writes `program.wasm`, browser host and assets; requires `-o`. |
-| `--target android` | Exports a native Java / Gradle project or APK; see [Android](docs/android.md). |
-| `--target windows` | Produces a self-contained Windows x64 executable; requires `-o`. |
+| `--target web` | A static site: `program.wasm`, the web runtime, the glue and assets; requires `-o`. |
+| `--target windows`, `--target linux` | A standalone executable: the runtime with the application appended; requires `-o`. |
+| `--target android` | A signed APK for arm64-v8a and x86_64; see [Android](docs/android.md). |
 
 List every imported script, including dynamic imports. Assets must be under the
 root. Module names retain their relative `.aqua` paths. Compilation and export
 do not execute the program, and failed builds preserve existing output.
-Old `.bottle` / `.rius` artifacts must be rebuilt from source.
 
-The `aquarius.application` Wasm custom section contains versioned binary ABI metadata and
-module entries; embedded assets are a raw `aquarius.assets` section, and constants live in
-the Wasm data segment. Deployed code executes compiled Wasm functions.
-
-Application EXEs include Wasmtime, .NET, host libraries and application resources;
-their runtime unpacks into the user's cache on first launch. Building them from
-source requires `native/build.ps1` and `scripts/publish-apphost.ps1`, followed by
-a CLI rebuild. Release compiler packages include `build-targets/win-x64`.
-External programs such as Python remain separate requirements when an application uses them.
+The `aquarius.application` Wasm custom section contains the binary ABI 4 metadata (modules, assets, the library
+modules the application imports and the native libraries it needs); embedded assets are a raw `aquarius.assets`
+section. Exported applications carry only the runtime files and libraries they use.
 
 Serve websites over localhost or HTTPS. Graphics requires a WebGPU adapter.
-Platform-specific host services report unsupported capabilities when unavailable.
+Platform-specific services report unsupported capabilities when unavailable.
 See the [CLI](compiler/AquariusCli/README.md), [application format](compiler/AquariusCompiler/README.md),
-[build targets](compiler/AquariusBuild/README.md) and [web compiler](web-glue/README.md).
+[build targets](compiler/AquariusBuild/README.md) and [web glue](web-glue/README.md).
 CLI exit codes are **0** for success, **1** for compilation/runtime/file failures,
 and **2** for invalid commands or options.
 
@@ -264,81 +222,58 @@ See the [language guide](compiler/AquariusCompiler/LANGUAGE.md) for detailed sem
 
 Import a library with `var drawing = import("Processing");` or
 `變數 繪圖 = 匯入("Processing");`. Examples live in `examples/`, the single example tree;
-desktop release packages include it.
+release packages include it. Each default library is one folder of `libraries/` with its README:
 
-| Feature | Documentation | Examples |
+| Library | Modules | Examples |
 | --- | --- | --- |
-| WebGPU | [WGSL rendering, compute, buffers and pixel readback](libraries/graphics/README.md) | [Compute](examples/wgpu_compute/README.md), [triangle](examples/wgpu_triangle/README.md) |
-| Processing | [2D/3D drawing, text, images, events and shaders](libraries/graphics/README.md) | [Showcase](examples/processing_showcase/README.md), [color mapping](examples/color_mapping/README.md) |
-| OpenGL | [GLFW, GLAD, OpenGL 3.3 core, GLM and STBImage](native/README.md) | [Textured cube](examples/opengl_cube/README.md) |
-| Physics | Independent `Aqua_JoltPhysics` TOML package using DynamicLibrary | [Jolt](examples/jolt_physics/README.md) |
-| Text input | [Unicode editing, events and Windows IME](libraries/graphics/README.md) | [Multilingual input](examples/multilingual_input/README.md) |
-| Bilingual language | Chinese, English and mixed syntax, closures and recursion | [Starship](examples/starship_expedition/README.md), [bilingual functions](examples/bilingual_library/README.md), [arrays in both syntaxes](examples/arrays/README.md) |
-| Camera | [Core contracts and platform implementations](docs/webcam.md) | [Webcam](examples/webcam/README.md) |
+| [graphics](libraries/graphics/README.md) | Processing, WGPU, GLM, TextInput, Window, Fonts, Models, PBR, GPUMath | [Processing showcase](examples/processing_showcase/README.md), [WGPU compute](examples/wgpu_compute/README.md), [triangle](examples/wgpu_triangle/README.md), [multilingual input](examples/multilingual_input/README.md) |
+| [opengl](libraries/opengl/README.md) | GLFW, GLAD, GL, STBImage (desktop) | [Textured cube](examples/opengl_cube/README.md) |
+| [application](libraries/application/README.md) | Files, Paths, Images, Serialization, Storage, Clipboard, Application, Tasks, TextEdit | [Application libraries](examples/application_libraries/main.aqua) |
+| [audio](libraries/audio/README.md) | Audio | |
+| [camera](libraries/camera/README.md) | Webcam, Camera | [Webcam](examples/webcam/README.md) |
+| [network](libraries/network/README.md) | Network | [Network lab](examples/network_lab/README.md) |
+| [onnx](libraries/onnx/README.md) | ONNX, MediaPipe | [Pose](examples/mediapipe/README.md) |
+| [terminal](libraries/terminal/README.md) | Terminal | |
+| [input](libraries/input/README.md) | AndroidInput | |
 
-Desktop windows require native bridges. Install Jolt through Bottle. See each
-library guide for browser support and platform differences.
+The language itself has the portable [Array](docs/arrays.md), [Hash and String](docs/hash-and-string.md) and
+[Thread](docs/threading.md) modules. [Starship](examples/starship_expedition/README.md),
+[bilingual functions](examples/bilingual_library/README.md) and [arrays in both syntaxes](examples/arrays/README.md)
+show the language. Jolt physics is the independent `Aqua_JoltPhysics` Bottle library.
 
 ## Development and tests
 
 From the repository root:
 
 ```powershell
-npm ci --prefix AquariusWebCompiler
-npm run --prefix AquariusWebCompiler prepare:browser
-
-# Needed for desktop native window features
-.\native\build.ps1
-
-dotnet build AquariusLang.sln -c Release -m:1
-dotnet test AquariusTests -c Release --no-build -m:1
-npm test --prefix AquariusWebCompiler
+scripts/install-toolchain.ps1 -Targets windows-x64                     # pinned LLVM, MinGW sysroot, Wasmtime
+scripts/build-runtime.ps1 -Targets windows-x64,web                     # runtime packs in .native-build/install
+dotnet build AquariusLang.sln -c Release
+dotnet test compiler/AquariusTests -c Release
+scripts/test-libraries.ps1 -Targets windows-x64,web                    # every library's tests (add -Devices)
 
 # Run the CLI from source
-dotnet run --project AquariusCli -- build examples/increment.aqua -o .web-build/increment.wasm
-dotnet run --project AquariusCli -- run .web-build/increment.wasm
-dotnet run --project AquariusCli -- repl
+dotnet run --project compiler/AquariusCli -- build examples/increment.aqua -o .native-build/increment.wasm
+dotnet run --project compiler/AquariusCli -- run .native-build/increment.wasm
+dotnet run --project compiler/AquariusCli -- repl
 ```
 
-The [test guide](compiler/AquariusTests/README.md) describes syntax, Wasm, cross-engine,
-CLI and packaging checks, plus opt-in GPU tests. Bilingual tests cover every
-keyword, mixed declarations and branches, loops, closures, recursion, modules,
-errors, source ranges and source-free Wasm execution.
-
-For full examples and real-browser regression checks:
-
-```powershell
-.\AquariusWebCompiler\scripts\build-web.ps1
-.\scripts\test-examples.ps1 -SkipBuild
-node AquariusWebCompiler/tests/browser-smoke.mjs
-```
-
-These need the relevant desktop/GPU and Python dependencies. Browser tests use
-installed Chrome by default; set `$env:AQUARIUS_BROWSER = 'msedge'` for Edge.
-See the [Linux guide](docs/linux.md) and [native guide](native/README.md) for other
-platforms. The root release batch script packages Windows x64.
-
-Compiled Wasm functions use resumable call frames, so Aquarius recursion does not
-accumulate C# call-stack frames. Closures retain their defining environment, and
-the REPL preserves globals across submissions. See [architecture](ARCHITECTURE.md).
+Read [CLAUDE.md](CLAUDE.md) before changing anything: it lists the architecture rules every change must follow, which
+`dotnet test` checks. The [test guide](compiler/AquariusTests/README.md) describes the compiler tests; library tests
+run on Windows, Linux (WSL), the web (Chromium) and Android (`-Targets android-x86_64 -Devices`). See the
+[architecture](ARCHITECTURE.md), the [library SDK](runtime/sdk/README.md) and the [web glue](web-glue/README.md).
 
 ## Project structure
 
-| Directory / project | Responsibility |
+| Directory | Responsibility |
 | --- | --- |
-| `AquariusCli` | Unified `aqua` build/run/export/REPL entry point. |
-| `AquariusCore` | Bilingual frontend, Wasm compiler, ABI and portable library contracts. |
-| `AquariusPackaging` | Wasm application modules, assets, validation and paths. |
-| `AquariusDesktop` | Desktop builtins, native backends and compatibility entry point. |
-| `AquariusWebCompiler` | Website export and browser WebAssembly host. |
-| `AquariusAndroid` | Native Android deployment, Java host and JNI WebGPU. |
-| `AquariusBottle` | TOML project and dependency management. |
-| `AquariusBuild` | Platform build targets. |
-| `AquariusTests` | Language, Wasm, cross-engine, CLI and desktop tests. |
-| `AquariusLanguageServer`, `editors/vscode` | LSP and VS Code extension. |
-| `native`, `scripts` | Native bridges, publishing and verification scripts. |
-| `examples` | Language, graphics, physics and interactive examples. |
-| `website` | Introduction website and deployment documentation. |
+| `compiler/` | C#, compile time only: `AquariusCompiler` (front end, Wasm emission, packaging), `AquariusBuild` (build targets), `AquariusBottle`, `AquariusCli`, `AquariusLanguageServer`, `AquariusTests`. |
+| `runtime/` | C, the run time of every target: `guest/` (the runtime linked into applications), `host/` (the host core), `platform/<os>/` (thin per-OS layers), `sdk/` (the library SDK and toolchain files). |
+| `libraries/<name>/` | The default libraries, one self-contained folder each. |
+| `web-glue/` | The only JavaScript: starts applications and exposes Web APIs, one folder per API. |
+| `scripts/` | Toolchain pins and installers, runtime builds, library tests, web and Android runners, release packaging. |
+| `examples/`, `tests/` | Examples and shared language test data. |
+| `editors/vscode`, `website/` | The VS Code extension and the introduction website. |
 
 ## Editors and further documentation
 
@@ -359,5 +294,5 @@ Some detailed subsystem guides are written in Traditional Chinese.
 inspiration shines like stars, and creativity flows like a spring.
 
 Licensed under the [MIT License](LICENSE), Copyright (c) 2026 Temple Lin.
-Third-party dependencies retain their own licenses in `native/vendor/` and
-`AquariusDesktop/licenses/`; release packages include the corresponding notices.
+Third-party dependencies keep their own licenses, pinned inside each library's folder and installed with the runtime
+packs (`licenses/`); release packages include them.

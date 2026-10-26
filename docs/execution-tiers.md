@@ -1,8 +1,8 @@
 # Generic execution tiers: promoted scopes, register stack, fuel and direct calls
 
-This document describes how the portable core compiler and the Wasm runtime
+This document describes how the compiler and the guest runtime
 execute ordinary (generic, dynamically typed) Aquarius functions. Everything here
-lives in `AquariusCore` and `AquariusCore/wasm/runtime/runtime.c`. It is plain
+lives in `compiler/AquariusCompiler/wasm` and `runtime/guest/runtime.c`. It is plain
 WebAssembly with no engine settings, host branches or native code, so the same
 artifact behaves identically in Wasmtime (desktop, Android) and browsers.
 
@@ -105,39 +105,25 @@ coalesces adjacent free blocks into runs, files each run in its size class (a bi
 non-empty classes) and returns a trailing run to the bump pointer. An allocation that misses
 its exact class carves the largest free run sequentially before growing the heap. A collection
 is due when net allocation (explicit releases subtract) or heap growth (they do not) reaches the
-threshold `max(8 MB, min(live bytes, (512 MiB - live bytes) / 4))`. Hosts that opt into weak
+threshold `max(8 MB, min(live bytes, (2 GiB - live bytes) / 4))`. Hosts that opt into weak
 mirrors receive dropped exposed arrays and hashes on a released list instead of pinning them. Variable-size `memset` is avoided on hot paths
 because engines lower `memory.fill` to an out-of-line call.
 
 ## Compatibility
 
-New artifacts declare `functionLayout: 40` (adds `locals` and `flags` to the
-function definition). The C# and JavaScript validators accept layouts 24, 32 and 40.
-Hosts and runtime packs built before this change reject layout 40, so rebuild them
-together with the compiler. The capability import/value ABI stays version 2.
+Artifacts declare function layout 40 (adds `locals` and `flags` to the function definition), the only layout the
+runtime (`runtime/host/application.c`) accepts. The capability import/value ABI stays version 2.
 
-## Platform-specific acceleration
+## Host calls
 
-Platform projects may add their own accelerators without changing the core. The
-desktop host's `WasmtimeEngine` binds service imports with typed `WrapFunc`
-invokers (no boxed argument arrays) and caches the memory export. Its checked
-memory spans use a base pointer and length refreshed before host callbacks and
-after every guest return, including reentrant and trapping calls. Primitive
-reads no longer query Wasmtime for the memory bounds and pointer individually.
-Disposal and range checks still apply to every access.
-
-The shared JavaScript adapter reuses a DataView until the memory buffer changes.
-Android's JNI adapter caches immutable function signatures and uses stack buffers
-for up to eight arguments/results, retaining dynamically sized buffers for larger
-signatures. Engine-specific behavior remains inside the platform projects; core
-compilation and artifact layout stay portable.
+The native host (`runtime/host/engine_wasmtime.c`) binds the service import once with Wasmtime's unchecked function
+API and reads guest memory through the memory export's base pointer, refreshed after every guest return. The web host
+is a side module in the application's own memory, so it reads guest values directly. Engine-specific code stays in
+`engine_*.c`; compilation and artifact layout are the same for every target.
 
 ## Tests
 
-`AquariusTests/compiler/WasmTieredExecutionTest.cs` runs differential programs
-under the desktop quantum and quanta 1, 3 and 17 and compares results, output and
+`compiler/AquariusTests/compiler/WasmTieredExecutionTest.cs` runs differential programs
+under the runtime's quantum and quanta 1, 3 and 17 and compares results, output and
 errors with the unoptimized path; it also checks that closure-free scopes become
-frame slots. The JavaScript suite runs the same artifacts in the browser runtime.
-`WasmtimeMemoryTest` verifies growth, callbacks, reentry, traps, bounds and disposal.
-Android's real-device contract also exercises repeated calls with nine parameters
-and nine return values, beyond the stack-buffer fast path.
+frame slots. `WasmtimeMemoryTest` verifies growth, callbacks, reentry, traps, bounds and disposal.

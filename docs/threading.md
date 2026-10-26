@@ -77,22 +77,19 @@ prefer a few coarse CPU jobs over a thread per array element.
 
 | Target | Implementation |
 | --- | --- |
-| Windows, Linux, macOS desktop and standalone exports | `IThreadBackend` → `DesktopThreadBackend`, dedicated OS thread and separate Wasmtime store per worker. |
-| Browser / website export | Module Web Workers with separate WebAssembly instances. Waits yield the main event loop. No SharedArrayBuffer or cross-origin isolation headers are required. Serve exported files over HTTP(S); worker scripts must be allowed by CSP. |
-| Android / APK | C++ `std::thread` with a separate Wasmtime store, atomic cancellation and condition-variable sleep; QuickJS polls completion on its original actor. |
-| Raw `.wasm` | The portable guest ABI is identical; embedding hosts implement service operation 4 and the worker lifecycle. |
+| Windows, Linux, Android and standalone exports | `runtime/host/threads.c`: an OS thread and a separate Wasmtime store per worker, cancellation signals and interruptible sleep. |
+| Browser / website export | `runtime/host/threads_web.c` with `web-glue/thread`: module Web Workers with separate WebAssembly instances. Waits yield the main event loop. No SharedArrayBuffer or cross-origin isolation headers are required. Serve exported files over HTTP(S); worker scripts must be allowed by CSP. |
 
-See [examples](../examples/threading/README.md). Desktop stores follow Wasmtime's
-[multithreaded embedding model](https://docs.wasmtime.dev/examples-multithreaded-embedding.html);
+Inside a worker the guest runtime itself resolves the portable builtins and refuses host access, so a host's worker
+implements only Sleep and IsCancellationRequested. See [examples](../examples/threading/README.md). Native stores
+follow Wasmtime's [multithreaded embedding model](https://docs.wasmtime.dev/examples-multithreaded-embedding.html);
 browser workers use [standard Worker messaging](https://developer.mozilla.org/docs/Web/API/Web_Workers_API/Using_web_workers).
 
 Verification:
 
 ```powershell
 ./scripts/build-wasm-runtime.ps1 -Check
-dotnet test AquariusTests -m:1 --filter FullyQualifiedName~AquariusTests.Threading
-node --test AquariusWebCompiler/tests/threads.test.mjs
-node --test AquariusAndroid/tests/threads.test.mjs
-aqua build examples/threading/parallel.aqua --target web -o .web-build/threading
-node AquariusWebCompiler/tests/threads-browser.mjs .web-build/threading
+dotnet test compiler/AquariusTests -m:1 --filter FullyQualifiedName~AquariusTests.Threading
+aqua build examples/threading/verification.aqua -o .native-build/tests/threading.wasm
+node scripts/web-run.mjs .native-build/install/web .native-build/tests/threading.wasm
 ```

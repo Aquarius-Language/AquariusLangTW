@@ -8,4 +8,4 @@ Both names share captured state and can be passed as callbacks.
 
 This example mixes script-library aliases with Chinese and English GLM and
 Processing calls, and prints `BILINGUAL_LIBRARY_OK` followed by `真`.
-See the [complete library naming reference](../../LIBRARY_NAMES.md).
+See the [complete library naming reference](../../docs/external-libraries.md).

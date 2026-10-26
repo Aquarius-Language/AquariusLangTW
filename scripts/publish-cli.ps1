@@ -3,9 +3,10 @@
 #     aqua(.exe) + compiler files   the CLI (self-contained .NET publish)
 #     runtime/<target>/              runtime packs from .native-build/install (scripts/build-runtime.ps1)
 #     web-glue/                      the web glue (the JavaScript of exported sites)
-#     libraries/<name>/              each default library's aqua.toml, aqua/ sources and README (what the compiler reads)
+#     libraries/<name>/              each default library's aqua.toml, aqua/ sources, README and docs/ (what the compiler reads)
 #     sdk/                           runtime/sdk: headers, CMake modules and toolchain files for external library authors
 #     scripts/                       the toolchain pins and installers the SDK's toolchain files use
+#     examples/                      the example tree
 #   scripts/publish-cli.ps1 [-Runtime win-x64|linux-x64] [-Output dist/aqua] [-Packs windows-x64,web,...]
 param([string]$Dotnet = 'dotnet', [string]$Runtime = 'win-x64', [string]$Output = 'dist/aqua', [string[]]$Packs = @())
 $ErrorActionPreference = 'Stop'
@@ -47,8 +48,11 @@ foreach ($library in Get-ChildItem -LiteralPath (Join-Path $repository 'librarie
         $path = Join-Path $library.FullName $file
         if (Test-Path -LiteralPath $path) { Copy-Item -LiteralPath $path -Destination $destination }
     }
-    if (Test-Path -LiteralPath (Join-Path $library.FullName 'aqua')) { Copy-Folder (Join-Path $library.FullName 'aqua') (Join-Path $destination 'aqua') }
+    foreach ($folder in @('aqua', 'docs')) {
+        if (Test-Path -LiteralPath (Join-Path $library.FullName $folder)) { Copy-Folder (Join-Path $library.FullName $folder) (Join-Path $destination $folder) }
+    }
 }
+Copy-Folder (Join-Path $repository 'examples') (Join-Path $Output 'examples')
 Copy-Item -LiteralPath (Join-Path $repository 'LICENSE') -Destination $Output
 
 $aqua = Join-Path $Output $(if ($Runtime.StartsWith('win-')) { 'aqua.exe' } else { 'aqua' })

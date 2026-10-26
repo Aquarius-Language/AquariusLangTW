@@ -1,11 +1,10 @@
-# PBR and model import (core library ABI 1)
+# PBR and model import
 
-`Models` / `模型` and `PBR` are core Aquarius source libraries, embedded in
-AquariusCore and linked into applications by the Wasm compiler. Their parsing,
-number conversion, normal generation, polygon validation, ear clipping, material
-validation and mesh assembly execute as ordinary compiled Wasm functions on both
-hosts. They add no CLR/JavaScript computational provider, external dependency or
-new platform interface. GPU shading uses the same WGSL on both WebGPU adapters.
+`Models` / `模型` and `PBR` are Aquarius source modules of the graphics library
+(`aqua/Models.aqua`, `aqua/PBR.aqua`), linked into applications by the compiler when
+they import them. Their parsing, number conversion, normal generation, polygon
+validation, ear clipping, material validation and mesh assembly execute as ordinary
+compiled Wasm functions on every target. GPU shading uses the same WGSL everywhere.
 
 Include a literal `匯入("Models")`, `匯入("模型")` or `匯入("PBR")` somewhere in
 your compiled sources. Linking includes transitive dependencies and is deterministic.
@@ -99,28 +98,11 @@ values. Ambient is a constant diffuse approximation; there is no environment
 map, image-based lighting, shadows or HDR framebuffer in this basic renderer.
 
 Files.ReadAssetBytes(path) / 讀取資產位元組 and ReadAssetText(path,encoding) /
-讀取資產文字 share the existing package resource boundary. Browser paths resolve
-in the virtual package; desktop packaged paths resolve in its temporary resource
-directory. Desktop source execution reads source-relative assets. Host-provided
-ApplicationRuntime instances may pass an asset reader; absent readers fail as
-Unsupported. Selected user documents continue to use Files.ReadText and opaque
-resource handles.
+讀取資產文字 (the application library) read packaged assets on every target, and
+files beside the application on native targets. Selected user documents continue
+to use Files.ReadText and opaque resource handles.
 
-The [example](../examples/pbr_models/main.aqua) shows six materials and a CC0
-OBJ/MTL sculpture. `scripts/test-pbr.ps1` compiles and exports it, checks source-free
-assets, validates GPU pixels, runs browser rendering under a nested Pages URL,
-resizes and disposes surfaces, and optionally tests a standalone Windows EXE.
-Unit coverage lives in PortableGraphicsTest.cs and portable-graphics.test.mjs;
-both execute the same compiled library without a host algorithm implementation.
-
-```powershell
-./scripts/test-pbr.ps1 -Dotnet $HOME/.dotnet/dotnet.exe
-./scripts/test-pbr.ps1 -Dotnet $HOME/.dotnet/dotnet.exe -WindowsExecutable
-dotnet test AquariusTests -m:1
-cd AquariusWebCompiler; npm test
-```
-
-Set AQUARIUS_WGPU_TESTS=1 to include the .NET pixel test. Browser GPU tests need
-Chrome with WebGPU and a secure localhost context. General regression checks are
-`scripts/test-examples.ps1`, `scripts/test-projects.ps1`, `tests/browser-smoke.mjs`
-and `tests/project-smoke.mjs`.
+The [example](../../../examples/pbr_models/main.aqua) shows six materials and a CC0
+OBJ/MTL sculpture. The library's `tests/` cover parsing, validation and rendering
+(`scripts/test-libraries.ps1 -Libraries graphics -Devices`; GPU captures need a
+WebGPU adapter).

@@ -17,4 +17,4 @@ GLFW's committed Unicode text, but this bridge does not expose preedit or caret
 positioning there. Processing's existing non-Windows bitmap font has limited
 glyph coverage; use a suitable text renderer in a custom wgpu integration.
 
-See the [text input API](../../graphics/TextInput.md).
+See the [text input API](../../libraries/graphics/README.md).

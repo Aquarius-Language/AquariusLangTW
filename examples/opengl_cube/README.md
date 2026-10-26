@@ -40,4 +40,4 @@ count and GL error code (0 for success).
 
 `checker.ppm` is a small original binary PPM checker texture, included so this
 example does not need external assets or network access.
-See [graphics support](../../../native/README.md) for build details and the API.
+See [the OpenGL library](../../libraries/opengl/README.md) for the API.

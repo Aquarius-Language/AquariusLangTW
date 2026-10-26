@@ -2,8 +2,8 @@
 
 `雜湊` / `Hash` 與 `字串` / `String` 是核心內建模組，和 [`陣列` / `Array`](arrays.md) 一樣
 不需安裝或匯入；桌面、網頁與 Android 也可用 `匯入("雜湊")`、`匯入("字串")` 取得同一個模組。
-所有演算法都在共用的核心 Wasm 執行（`AquariusCore/wasm/runtime/hashes.h`、`texts.h`），
-C# 與 JavaScript 主機只傳遞可呼叫的權杖，因此三個平台的結果完全一致。
+所有演算法都在連結進每個應用程式的客體執行環境中執行（`runtime/guest/hashes.h`、`texts.h`），
+主機不參與，因此所有平台的結果完全一致。
 
 `Hash` / `雜湊` and `String` / `字串` are built-in core modules, like
 [`Array` / `陣列`](arrays.md). No dependency or import is needed, and
@@ -104,6 +104,5 @@ hashes use the same nested form as `印出`.
 以上使用指數表示。單精度數值以 float 的最短位數輸出；布林為 `真`／`假`。
 
 Out-of-range indexes, wrong argument types and invalid counts return a language error
-before any mutation. Tests: `tests/hash-library.json`, `tests/string-library.json`,
-`tests/modulo-operator.json`, shared by `AquariusTests/compiler/PortableModulesTest.cs`
-and `AquariusWebCompiler/tests/portable-modules.test.mjs`.
+before any mutation. Tests: `tests/hash-library.json`, `tests/string-library.json` and
+`tests/modulo-operator.json`, run by `compiler/AquariusTests/compiler/PortableModulesTest.cs`.

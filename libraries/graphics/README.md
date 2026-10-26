@@ -11,6 +11,9 @@ one WebGPU renderer written in C against `webgpu.h`, plus the Aquarius-source mo
 | Android | wgpu-native (Vulkan) | the activity's surface | `android.graphics` through JNI (`android.c`) |
 | web | the browser's WebGPU through `web-glue/webgpu` | `<canvas>` windows | Canvas 2D through `web-glue/canvas` (`web.c`) |
 
+API guides: [PBR and model import](docs/pbr-models.md), [GPUMath](docs/gpu-math.md),
+[textures and HDR](docs/wgpu-textures.md), [binary meshes](docs/mesh-assets.md).
+
 ## Layout
 
 ```text

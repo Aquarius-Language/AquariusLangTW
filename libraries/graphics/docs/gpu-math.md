@@ -113,30 +113,24 @@ CPU；小陣列的傳輸成本可能高於加速收益。
 
 ## Hosts and validation / 平台與驗證
 
-| Host / 主機 | Backend / 後端 |
+| Target / 平台 | Backend / 後端 |
 | --- | --- |
-| Windows / Linux / macOS desktop | existing wgpu-native adapter (D3D12 / Vulkan / Metal according to host) |
-| Browser / 瀏覽器 | native browser WebGPU; HTTPS or localhost required / 需 HTTPS 或 localhost |
-| Android | existing native WebGPU bridge over Vulkan / 既有 Vulkan 原生 WebGPU 橋接 |
+| Windows / Linux | wgpu-native (D3D12 / Vulkan) |
+| Browser / 瀏覽器 | the browser's WebGPU through `web-glue/webgpu`; HTTPS or localhost required / 需 HTTPS 或 localhost |
+| Android | wgpu-native over Vulkan |
 
-Core tests validate aliases, generated source, dimensions and ranges without a
-GPU. Set `AQUARIUS_WGPU_TESTS=1` to exercise real desktop dispatch and range transfers.
-Browser and Android adapter tests cover transfer offsets, resource ownership and
-cache behavior. Hardware availability is a deployment requirement; a portable
-contract does not imply that every installed driver/browser supports WebGPU.
+Hardware availability is a deployment requirement; a portable contract does not imply that every installed
+driver/browser supports WebGPU.
 
-核心測試驗證雙語別名、產生的原始碼、尺寸與範圍。設定 `AQUARIUS_WGPU_TESTS=1`
-可執行桌面 GPU 實測。瀏覽器及 Android 測試驗證範圍位移、所有權與快取行為。
-部署仍需相容的硬體、驅動程式及瀏覽器。
+函式庫的 `tests/` 在各平台驗證雙語別名、產生的著色器、尺寸、範圍、所有權與快取行為
+（`scripts/test-libraries.ps1 -Libraries graphics -Devices`）。部署仍需相容的硬體、驅動程式及瀏覽器。
 
-Real browser test / 瀏覽器實測：
+Real browser run / 瀏覽器實測：
 
 ```text
-aqua build examples/gpu_math/main.aqua -o .web-build/gpu-math.wasm
-aqua build .web-build/gpu-math.wasm --target web -o .web-build/gpu-math-browser
-node AquariusWebCompiler/tests/gpu-math-browser.mjs
+aqua build examples/gpu_math/main.aqua -o .native-build/tests/gpu-math.wasm
+node scripts/web-run.mjs .native-build/install/web .native-build/tests/gpu-math.wasm
 ```
 
-The test uses installed Chrome/Edge on Windows, or Playwright's browser. Override
-with `AQUARIUS_BROWSER_EXECUTABLE` / Windows 可使用已安裝的 Chrome／Edge，其餘環境
-使用 Playwright 瀏覽器；可用 `AQUARIUS_BROWSER_EXECUTABLE` 指定執行檔。
+`scripts/web-run.mjs` runs the application in Chromium with WebGPU (the pinned Playwright in `scripts/`) /
+`scripts/web-run.mjs` 以 Chromium 的 WebGPU 執行應用程式（使用 `scripts/` 中鎖定版本的 Playwright）。

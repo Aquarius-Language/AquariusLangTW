@@ -2,23 +2,23 @@
 
 `匯入("Network")` 與 `匯入("網路")` 共用同一個預設函式庫。所有公開函式、
 物件方法及結果欄位提供英文與繁體中文名稱，兩個名稱指向同一個函式或值。
-編譯器與語言伺服器由 `NetworkCatalog` 取得名稱、參數數量、回傳型別及必要能力。
+整個 API 定義在 `src/api.def` 一張表中；語言伺服器由執行環境的 `aquarius --catalog` 取得名稱與參數。
 
 ## 平台能力 / Platform capabilities
 
-| 能力 / Feature | 桌面 / Desktop | Web | Android |
-| --- | --- | --- | --- |
-| `http` / `超文字傳輸` | HTTP / HTTPS | Fetch、CORS、瀏覽器安全政策 | OkHttp、Android 安全政策 |
-| `cookies` / `Cookie` | 每個用戶端獨立容器 | 瀏覽器管理 | 每個用戶端獨立容器 |
-| `cookie-control` / `Cookie管理` | 清除容器 | 不支援 | 清除容器 |
-| `websocket` / `網頁通訊端` | 用戶端及伺服器升級 | 瀏覽器用戶端 | OkHttp 用戶端 |
-| `tcp` / `傳輸控制協定` | 原始 TCP | 不支援 | 原始 TCP |
-| `tls` / `傳輸層安全` | 憑證驗證、主機名稱驗證 | HTTPS / WSS 由瀏覽器處理 | 憑證及主機名稱驗證 |
-| `udp` / `使用者資料報` | UDP、廣播、多點傳送 | 不支援 | UDP、廣播、多點傳送 |
-| `dns` / `網域名稱解析` | IPv4 / IPv6 | HTTP 引擎內部解析 | IPv4 / IPv6 |
-| `tcp-listen` / `監聽傳輸控制` | TCP 監聽及接受 | 不支援 | 不提供後端 API |
-| `http-server` / `網頁伺服器` | HTTP、HTTPS、路由、靜態檔案、工作階段、SSE | 不支援 | 不提供後端 API |
-| `http-stream` / `串流傳輸` | 逐段讀取 HttpClient 回應 | Fetch `ReadableStream` | 不支援（回報 Unsupported） |
+| 能力 / Feature | Windows、Linux、Android | Web |
+| --- | --- | --- |
+| `http` / `超文字傳輸` | HTTP / HTTPS（HTTP/1.1，連線池、gzip/deflate） | Fetch、CORS、瀏覽器安全政策 |
+| `cookies` / `Cookie` | 每個用戶端獨立容器 | 瀏覽器管理 |
+| `cookie-control` / `Cookie管理` | 清除容器 | 不支援 |
+| `websocket` / `網頁通訊端` | 用戶端及伺服器升級 | 瀏覽器用戶端 |
+| `tcp` / `傳輸控制協定` | 原始 TCP | 不支援 |
+| `tls` / `傳輸層安全` | 憑證驗證、主機名稱驗證（Mbed TLS，系統信任根憑證） | HTTPS / WSS 由瀏覽器處理 |
+| `udp` / `使用者資料報` | UDP、廣播、多點傳送 | 不支援 |
+| `dns` / `網域名稱解析` | IPv4 / IPv6 | HTTP 引擎內部解析 |
+| `tcp-listen` / `監聽傳輸控制` | TCP 監聽及接受 | 不支援 |
+| `http-server` / `網頁伺服器` | HTTP、HTTPS、路由、靜態檔案、工作階段、SSE | 不支援 |
+| `http-stream` / `串流傳輸` | 逐段讀取回應 | Fetch `ReadableStream` |
 
 ```text
 變數 網路 = 匯入("網路");
@@ -110,14 +110,12 @@ GET/HEAD 不應附帶本文。Post 的本文可為字串、位元組陣列或 JS
 UTF-8 多位元組字元跨越網路分段時會在完整後才解碼。串流的 `timeout/逾時` 是**閒置**
 逾時：收到標頭及每一段資料都會重新計時，因此長時間但持續輸出的回應不會被截斷。
 `讀取` 與 `讀取行` 共用同一個緩衝區。尚未讀取的文字最多 16 MiB。不支援的平台
-（例如 Android）呼叫時回報 `Unsupported`；請先以 `網路.支援("串流傳輸")` 判斷，必要時改用
+呼叫時回報 `Unsupported`；可先以 `網路.支援("串流傳輸")` 判斷，必要時改用
 `開始請求` 取得完整回應。
 
 English: `StartStream` returns an operation whose `ReadLines()` yields complete lines
 as they arrive (ideal for SSE), `Read()` drains all decoded text, and `Status()` reports
 the HTTP status once headers arrive. The timeout restarts after headers and each chunk.
-Adapters implement `INetworkClient.Stream(method,url,options,INetworkBodySink,...)`;
-the default interface implementation reports Unsupported, so existing adapters keep working.
 
 ## Socket / 通訊端
 
@@ -186,29 +184,13 @@ Cookie 選項：path/路徑、sameSite/同站、secure/安全、httpOnly/僅HTTP
 
 靜態檔案有 MIME、index.html、HEAD、ETag / If-None-Match；沒有目錄清單。
 路徑穿越、編碼穿越與符號連結遭拒絕。檔案上限為 16 MiB。
-HTTPS 直接使用 Kestrel：
+HTTPS 使用 Mbed TLS，憑證可為 PKCS#12（PBES2 或 3DES）或 PEM：
 `網路.監聽("https://127.0.0.1:8443", {"憑證":"server.pfx", "憑證密碼":"..."})`。
 憑證由應用程式部署，函式庫不關閉驗證，也不自動產生受信任憑證。
 
-## 擴充架構 / Extension architecture
+## 實作 / Implementation
 
-`INetworkBackend` 與 stream/datagram/client/server/request/websocket 子契約只描述 I/O。
-`NetworkRuntime` 擁有雙語註冊、驗證、路由、工作階段和生命週期；
-`NetworkBackend` 基底提供明確 Unsupported，未實作平台仍可匯入及查詢能力。
-核心沒有 Kestrel、OkHttp、Wasmtime 或作業系統 socket 實作相依。
-
-通用的 `LibraryCapabilities` / `LibraryFeature` 以契約版本與可選能力描述平台差異；
-`LibraryFunction.RequiredFeature` 描述個別功能需求。網頁／Android 部署 metadata 保留
-`libraryFeatures` 和每個函式的 `feature`，編輯器可保留完整 API，而宿主只宣告真正可用的功能。
-新增平台不需要複製 API 清單或刪除不支援的函式。新增功能採 additive feature，
-不破壞既有 core contract。其他預設函式庫也可採用同一個能力模型。
-
-`LibraryProperty` 另描述雙語唯讀欄位與欄位回傳型別，純資料物件無須虛構方法。
-語言伺服器可補全 `回應.錯誤.種類`、網址欄位和 UDP 封包欄位，並在 hover 顯示能力需求。
-
-共用 JavaScript 註冊在 `AquariusCore/hosting/network-registration.mjs`；
-Web 提供 Fetch / WebSocket adapter，Android 的 Java executor 透過有限佇列非同步傳回結果。
-桌面使用 .NET socket / TLS / HttpClient 和 Kestrel。所有開啟的資源在 runtime dispose 時關閉。
-
-驗證：`AquariusTests/network`、`AquariusWebCompiler/tests/network.test.mjs`、
-`AquariusAndroid/tests/network.test.mjs` 和 `examples/network_lab` 的實際三平台往返測試。
+同一份 C 原始碼（`src/`）在 Windows、Linux、Android 使用原生 socket 與 Mbed TLS，
+網頁則透過 `web-glue/network` 呼叫 fetch 與 WebSocket；選項驗證、逾時、重新導向與錯誤對應都在 C 中。
+建置方式、相依套件、測試與和舊版的差異見 [函式庫說明](../README.md)。
+所有開啟的資源在執行環境結束時關閉。

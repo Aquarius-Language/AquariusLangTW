@@ -21,8 +21,9 @@ for library in "$root"/libraries/*/; do
     destination="$output/libraries/$(basename "$library")"
     mkdir -p "$destination"
     for file in aqua.toml README.md LICENSE; do [ -f "$library/$file" ] && cp "$library/$file" "$destination/"; done
-    [ -d "$library/aqua" ] && cp -r "$library/aqua" "$destination/aqua"
+    for folder in aqua docs; do [ -d "$library/$folder" ] && cp -r "$library/$folder" "$destination/$folder"; done
 done
+cp -r "$root/examples" "$output/examples"
 cp "$root/LICENSE" "$output/"
 "$output/aqua" --help > /dev/null
 echo "Published $output"

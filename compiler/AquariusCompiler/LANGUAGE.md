@@ -23,13 +23,13 @@ and inspection text, and reference compiled function indices instead of AST bodi
 `CompiledEvaluator` compiles source or AST input and preserves optional session
 environments. Treat a cached AST as immutable. `CompiledRuntime` accepts Wasm or
 compiler IR for tool integration; IR always goes through Wasm emission before execution.
-See [the architecture](../ARCHITECTURE.md) and [ABI](../AquariusPackaging/README.md).
+See [the architecture](../../ARCHITECTURE.md) and [the application format](README.md#application-metadata-abi-4).
 
 Closed scalar functions can additionally use register values and direct typed Wasm
 calls, with guarded fallback for types, effects, fuel and recursion depth. Lexical
 ancestor slots avoid name lookup while intervening scopes remain uncaptured. These
 optimizations preserve the language behavior below; see
-[portable numeric compilation](../docs/portable-numeric-architecture.md).
+[portable numeric compilation](../../docs/portable-numeric-architecture.md).
 
 ## Bilingual syntax
 
@@ -106,12 +106,12 @@ Default value inspection still prints booleans as `真` / `假` and null as `nul
   array writes return a language error.
 - The built-in `陣列` / `Array` module provides capacity-aware creation and in-place
   array manipulation. `加入` / `push` still preserves the input; mutating library
-  operations preserve Aquarius reference aliases. See [array semantics](../docs/arrays.md).
+  operations preserve Aquarius reference aliases. See [array semantics](../../docs/arrays.md).
 - The built-in `雜湊` / `Hash` module enumerates and edits hashes (keys, values,
   entries, has, get with default, delete, clone, clear, merge), and `字串` / `String`
   provides portable text operations (`轉文字` / `From`, slicing, searching, splitting,
   joining, replacing, trimming, case, code points, integer parsing). `長度` / `len`
-  also counts hash entries. See [hash and string libraries](../docs/hash-and-string.md).
+  also counts hash entries. See [hash and string libraries](../../docs/hash-and-string.md).
 - Imported script modules expose their environment through `ModuleObj`.
   Module member calls evaluate arguments in the caller's environment and execute
   function bodies in their captured environment.
@@ -119,8 +119,8 @@ Default value inspection still prints booleans as `真` / `假` and null as `nul
   Compiler syntax failures raise `CompilationException`; `CompiledEvaluator` converts
   them to `ErrorObj` for hosts using its evaluation APIs.
 
-See the repository [syntax and examples](../README.md#語法) and the
-[Starship example](../examples/starship_expedition/README.md).
+See the repository [syntax and examples](../../README.md#語法) and the
+[Starship example](../../examples/starship_expedition/README.md).
 
 ## Measuring elapsed time
 

@@ -1,75 +1,47 @@
 # Linux desktop (Ubuntu 22.04 / WSL2)
 
-AquariusDesktop and `aqua` support Linux x86_64 using the same compiler, Wasmtime
-execution, shared physics/audio Wasm and desktop libraries as Windows. Linux
-exports are self-contained ELF executables containing application Wasm, modules,
-assets, .NET and native runtime libraries.
+The `linux-x64` runtime is the same C host core and default libraries as every other target, with the Linux platform
+layer (`runtime/platform/linux`, `posix`, `desktop`). It is built with the pinned LLVM Clang against glibc; .NET is
+needed only to run the compiler, never by applications.
 
-Install .NET 8 SDK, Node.js 24 and these Ubuntu packages:
+## Building
+
+Inside Ubuntu (on Windows: WSL2 with WSLg):
 
 ```sh
 sudo apt-get update
-sudo apt-get install -y dotnet-sdk-8.0 build-essential cmake pkg-config \
+sudo apt-get install -y build-essential cmake pkg-config dotnet-sdk-8.0 \
   libx11-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev \
-  libwayland-dev libxkbcommon-dev wayland-protocols libgl1-mesa-dev \
-  mesa-vulkan-drivers libpangocairo-1.0-0 fonts-noto-cjk python-is-python3 zenity ffmpeg
+  libwayland-dev libxkbcommon-dev wayland-protocols
+bash scripts/install-toolchain.sh linux-x64        # pinned LLVM, WASI sysroot, Wasmtime C API
+export AQUARIUS_LLVM=$HOME/aquarius-toolchains/llvm-23.1.3-linux-x64   # or the path the installer prints
+bash scripts/test-linux.sh                          # builds .native-build/install/linux-x64, then dotnet test
 ```
 
-GUI applications need X11 or Wayland, OpenGL 3.3 for GL examples, Vulkan for
-WebGPU/Processing/compute, and an audio device for live sound. WSL2 uses WSLg;
-run these commands inside Ubuntu. Mesa's software Vulkan driver is supported.
-Pango/Cairo and installed fonts supply Unicode shaping and CJK fallback.
-Zenity supplies file/directory pickers. Linux supports semantic accessibility tree
-updates; native AT-SPI publication is not yet provided. Windows-specific
-image clipboard, accessibility and printing capabilities remain reported as
-unsupported. FFmpeg/V4L2 cameras need a device visible inside Linux.
-
-WSLg defaults to X11 to avoid empty OpenGL framebuffer reads in its Mesa D3D12
-Wayland driver. Other Linux desktops retain GLFW's automatic platform selection.
-`AQUARIUS_GLFW_PLATFORM=x11` or `wayland` explicitly selects either backend.
-The native bridge retains WSLg's D3D12 libraries for the process lifetime so
-driver thread-local destructors remain valid after an OpenGL context closes.
-On this WSL installation, WebGPU uses Mesa's software Vulkan adapter; native
-Linux installations can use their installed hardware Vulkan drivers.
-
-Build and run from the repository root:
+From Windows, `scripts/build-runtime.ps1 -Targets linux-x64` builds the same pack in WSL (`-Distribution` picks the
+distribution) and `scripts/test-libraries.ps1 -Targets linux-x64` runs the libraries' tests there.
 
 ```sh
-npm ci --prefix AquariusWebCompiler
-npm run --prefix AquariusWebCompiler prepare:browser
-bash native/build.sh
-bash scripts/publish-apphost.sh
-dotnet build AquariusLang.sln -m:1
-dotnet AquariusCli/bin/linux/Debug/net8.0/aqua.dll build examples/increment.aqua -o app.wasm
-dotnet AquariusCli/bin/linux/Debug/net8.0/aqua.dll run app.wasm
-dotnet AquariusCli/bin/linux/Debug/net8.0/aqua.dll build app.wasm --target linux -o app
+aqua build examples/increment.aqua -o app.wasm
+aqua run app.wasm
+aqua build app.wasm --target linux -o app    # aquarius with the application appended; libraries/ beside it
 ./app
 ```
 
-Sources can also be passed directly to `build ... --target linux -o app`.
-The runtime pack is `build-targets/linux-x64/{host,runtime.json}`. Compiler
-distributions include it; `AQUARIUS_BUILD_TARGETS` can point to another pack
-directory. Exporting then needs no SDK or network. Exports receive Unix execute
-permissions automatically. Transfers through Windows or archives that discard
-permissions require `chmod +x app`. Target machines need Linux system/driver/font
-libraries; .NET, Aquarius sources and a separate `.wasm` file are unnecessary.
+Exports are marked executable; transfers that drop permissions need `chmod +x app`. `bash scripts/publish-cli.sh`
+publishes the compiler distribution to `dist/aqua-linux-x64`.
 
-`bash scripts/publish-cli.sh` builds the complete compiler distribution at
-`dist/aqua-linux-x64`. Its `aqua` supports `wasm`, `web`, `windows`, `linux` and
-`android` targets when their runtime/tool packs are installed.
+## Run-time requirements
 
-Linux builds use `obj/linux`, `bin/linux` and `native/build/linux-x64`. Windows
-keeps its existing paths, so both SDKs can build the same checkout independently.
+| Feature | Needs |
+| --- | --- |
+| Windows, input | X11 or Wayland (GLFW 3.4; `AQUARIUS_GLFW_PLATFORM=x11` or `wayland` forces one; WSLg defaults to X11) |
+| Graphics, compute, ONNX WebGPU | a Vulkan driver and `libvulkan.so.1` (Mesa's software driver works) |
+| OpenGL examples | OpenGL 3.3 |
+| Text | Pango and Cairo when installed (otherwise a built-in bitmap font); installed fonts for CJK fallback |
+| Pickers | `zenity` |
+| Audio | ALSA or PulseAudio/PipeWire (miniaudio loads them at run time) |
+| Cameras | Video4Linux2 devices with an uncompressed mode |
 
-```sh
-# Managed, native graphics, packaging and browser parity tests:
-bash scripts/test-linux.sh
-# Also verify available sibling apps and relocated ELF exports:
-AQUARIUS_TEST_PROJECTS=1 bash scripts/test-linux.sh
-# Rerun selected siblings after building:
-python3 scripts/test-linux-projects.py --executables --only marble painter snake
-```
-
-Headless CI uses `xvfb-run -a bash scripts/test-linux.sh` with Mesa drivers.
-Reports and captures go to `.web-build/linux-projects`; sibling sources are read
-only. Hardware camera and Windows message-injection tests retain their requirements.
+Linux keeps the application's accessibility node list without publishing it (no AT-SPI); printing, image clipboard
+and file associations report Unsupported.

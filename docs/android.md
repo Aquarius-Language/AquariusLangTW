@@ -1,127 +1,59 @@
-# 原生 Android 平台
+# 原生 Android 平台 / Native Android
 
-`AquariusAndroid` 是獨立的建置後端，透過既有 `IWasmBuildTarget` 註冊於 CLI。
-Android 的 Java Activity、Camera2、AudioTrack、文件選擇器及 JNI WebGPU 主機直接使用 Android API。
-程式由 Wasmtime 48.0.2 執行，共用 JavaScript 能力主機使用 QuickJS-NG 0.17.0，圖學使用 wgpu-native 的 Vulkan 後端；沒有 WebView。
-圖學呼叫先記錄為保留順序的二進位批次，再透過 typed array 的直接記憶體檢視與 JNI 送往原生 GPU 主機。
-主機重用頂點與 uniform 儲存、快取球面網格，並在尺寸或 surface 改變時才重新設定呈現；畫面更新使用 Choreographer 與實際影格期限。
-效能測量與驗證方式見[Android 圖學改善紀錄](android-graphics-improvements.md)。既有產生專案需重新產生，才能取得更新的主機程式。
-Android 部署會保留相同的 Wasm 執行區段，將封裝資源外置為 APK assets，避免大型 ONNX 模型在 JSON / base64 間重複佔用 Java 堆積。
+Android 執行與桌面相同的 C 主機核心與預設函式庫：`libaquarius.so` 以 Wasmtime 48.0.2 執行應用程式的 Wasm，
+平台差異只在 `runtime/platform/android`。Java 只有 `AquariusActivity`（`NativeActivity` 子類別），只轉交 Android
+僅交給 Java 的事件：activity 結果、權限結果、視窗 insets 與輸入法文字。沒有 WebView、JavaScript 引擎或 Gradle 專案。
 
-## 編譯與輸出
+Android runs the same C host core and default libraries as the desktop: `libaquarius.so` runs the application's Wasm
+on Wasmtime, with OS differences only in `runtime/platform/android`. Its only Java is `AquariusActivity`, a
+`NativeActivity` subclass that forwards what Android delivers to Java alone.
+
+## 輸出 APK / Exporting
 
 ```powershell
-# 封裝原始碼與資源，或直接用 --target android 從原始碼輸出
 aqua build main.aqua tools.aqua --root . --assets assets -o app.wasm
-
-# 產生可用 Android Studio 開啟的 Java / Gradle 專案
-aqua build app.wasm --target android --application-id tw.example.demo --app-name "星泉範例" -o dist/android-project
-
-# 直接產生可安裝的 debug APK
-aqua build app.wasm --target android --application-id tw.example.demo -o dist/demo.apk
+aqua build app.wasm --target android -o dist/demo.apk --application-id tw.example.demo --app-name "星泉範例"
 ```
 
-`--entry` 可選擇封裝內的其他入口。專案輸出必須是新目錄或空目錄，避免覆寫手動修改。
-APK 輸出使用 Gradle 的 `assembleDebug`。正式發佈時，在產生的專案設定自己的版本號、簽章及 release 建置。
-固定 `--application-id` 可以讓不同輸出路徑產生同一個應用程式身分。
+輸出是同時包含 `arm64-v8a` 與 `x86_64` 的已簽章 APK：`lib/<abi>/libaquarius.so` 與執行環境需要的其他共用函式庫、
+外部函式庫的 `libaqua_<name>.so`、`classes.dex`、宣告所需函式庫權限（各函式庫 `aqua.toml` 的 `[android] permissions`）
+的 manifest，以及 `assets/aquarius/` 下的 `program.wasm` 與資源。預設以 `~/.aquarius/android/debug.keystore` 簽章；
+正式發佈請用 `--keystore` / `--key-alias`（密碼來自 `AQUARIUS_KEYSTORE_PASSWORD` / `AQUARIUS_KEY_PASSWORD`）。
 
-APK 建置需 JDK 17 或 21、Android SDK Platform 36、Build Tools 35.0.0，以及網路存取 Maven / Gradle。
-設定 `JAVA_HOME` 與 `ANDROID_HOME`。專案附 Gradle 8.13 wrapper；`AQUARIUS_GRADLE` 可指定現有 Gradle。
-最低 Android 10（API 29），提供 `arm64-v8a` 與 `x86_64`，需要可用 Vulkan 裝置。
-`AQUARIUS_ANDROID_COMPILE_SDK` 可指定已安裝的其他 SDK（例如 `android-37.0`）。
+建置需要 `ANDROID_HOME`（Android SDK Platform 36、Build Tools 36.0.0）與 JDK（`scripts/install-toolchain.ps1` 安裝鎖定的
+Temurin 21）。最低 Android 10（API 29），需要 Vulkan 裝置才能使用圖學。
 
-從原始碼製作編譯器時，先執行：
+## 執行環境建置 / Building the runtime packs
 
 ```powershell
-npm ci --prefix AquariusWebCompiler
-npm run --prefix AquariusWebCompiler prepare:browser
-./scripts/prepare-android.ps1 -Ndk C:/Android/Sdk/ndk/28.2.13676358
-dotnet build AquariusLang.sln -m:1
+scripts/install-toolchain.ps1 -Targets android-arm64-v8a,android-x86_64
+scripts/build-runtime.ps1 -Targets android-arm64-v8a,android-x86_64   # 需要 ANDROID_HOME 與鎖定的 NDK 28.2
 ```
 
-準備腳本驗證 wgpu-native 29.0.1.1、wgpu-hal 29.0.3、Wasmtime 48.0.2 與 QuickJS-NG 0.17.0 的來源下載雜湊，使用 NDK r28c 編譯 JNI 與 WebGPU。需先安裝 Rust stable、libclang（必要時設定 `LIBCLANG_PATH`）與 `rustup target add aarch64-linux-android x86_64-linux-android`；WebGPU 與 Wasmtime 使用上游鎖定的 Cargo 相依套件。Unicode 分詞直接使用 Android ICU，不再封裝 V8 ICU 資料。
-這些產物不提交 Git。發行的編譯器將它們嵌入，使用者產生專案時不需要 Node、NDK 或原始碼。
-若要修改 GPU JNI，可設定 `AQUARIUS_ANDROID_BUILD_NATIVE=1`、`AQUARIUS_ANDROID_NDK`，並安裝 CMake 3.22.1。Wasmtime / QuickJS 配接器的變更則重新執行 `scripts/prepare-android-runtime.ps1 -Ndk ...`，再重建編譯器與 APK。
+C/C++ 以 NDK 的 Clang 編譯，Wasmtime 使用官方預先建置的 C API。
 
-## 能力與架構
+## 函式庫 / Libraries
 
-`AquariusCore/hosting` 擁有共用 Wasm 傳輸、函式庫註冊、Processing、序列化、張量驗證、音訊與 MediaPipe 邏輯。
-瀏覽器與 Android 分別注入畫面、輸入、影像、檔案及硬體能力。
-Core 不參考 Android、桌面或瀏覽器部署專案；Android 建置專案也不參考桌面或網頁編譯器。
-沒有第二套語言解譯器，也不將 Aquarius 控制流程翻譯成 Java。
+| 函式庫 | Android |
+| --- | --- |
+| graphics（Processing、WGPU、GLM、PBR、Models、GPUMath） | wgpu-native over Vulkan；文字使用 `android.graphics` |
+| audio | miniaudio（AAudio / OpenSL ES） |
+| camera（`Camera` / `相機`） | NDK Camera2；`攝影機` 模組在 Android 回報不支援 |
+| input（`AndroidInput` / `Android輸入`） | 觸控、筆壓、insets、方向、鍵盤、震動、返回協商 |
+| application | 私有儲存、`content://` 文件、Storage Access Framework 選擇器 |
+| network | 與桌面相同的 C 實作（含伺服器與串流）；遵守 app 的明文流量政策 |
+| onnx | ONNX Runtime 1.30 Android 套件：WebGPU（Vulkan）、NNAPI、XNNPACK、CPU |
+| terminal | `/system/bin/sh` 與直接執行，受 Android 沙箱限制 |
+| opengl | 僅桌面 |
 
-| 函式庫 | Android 主機 |
-|---|---|
-| Processing、WGPU、GLM、PBR、Models | 原生 WebGPU / Vulkan、共用 WGSL / Wasm 邏輯 |
-| Aqua_JoltPhysics（第三方 Bottle） | 共用 Jolt Wasm，透過動態函式庫介面載入 |
-| Terminal / 終端機 | 原生 ProcessBuilder，支援引數、輸出擷取及逾時 |
-| Audio | 共用 miniaudio Wasm，原生 AudioTrack 輸出 |
-| ONNX、MediaPipe | 原生 ONNX Runtime 1.30：WebGPU（Vulkan）、NNAPI、XNNPACK 與 CPU，共用 MediaPipe Wasm；以 `取得後端清單` / `IsSupported` 查詢提供者 |
-| Files、Paths、Storage | 封裝資源、私有持久儲存、Android Storage Access Framework 文件與目錄 |
-| Images、Serialization | 共用 ImageMagick Wasm、JSON、二進位、壓縮及封裝 |
-| Clipboard、Fonts、TextEdit、TextInput | 原生文字與影像剪貼簿、字型量測、Unicode 及 IME 組字 |
-| Application、Window、Tasks | 原生文件選擇器、圖片取得、列印、視窗、返回協商及取消權杖 |
-| Camera / 相機 | Camera2 行動相機，獨立於 Webcam 合約 |
-| AndroidInput / Android輸入 | 觸控、筆壓、歷史樣本、安全邊界、方向、鍵盤、震動、返回事件 |
-| Webcam / 網路攝影機 / 攝影機、OpenGL / GLFW、execFile | 平台特定能力；Android 使用 Camera、Processing 與 WGPU |
+應用程式應查詢個別能力（`是否支援`、`Capabilities()`），不要假定每個平台都有印表機、相機或檔案關聯。
 
-Android ONNX AAR（1.30.0）依序提供 WebGPU（Vulkan GPU）、NNAPI（廠商 NPU／DSP 驅動）、XNNPACK 與 CPU；每個提供者在程序首次查詢時以小型卷積模型實際驗證。`自動` 依此順序選擇並在初始化失敗時退回；模擬器上 WebGPU、NNAPI 與 XNNPACK 只在明確指定時使用。XNNPACK 在 API 37 x86_64 模擬器上雖通過小型探測，建立 MediaPipe 姿態模型時仍可能直接終止原生程序，無法交由例外處理退回，因此模擬器的自動選擇使用 CPU。實體裝置仍保留 XNNPACK 的自動排序。詳見 [推論架構指南](onnx.md#platform-providers)。
-應用程式應查詢個別 capability，而不是假定所有主機都有印表機、相機、游標或檔案關聯。
-Android 的檔案存取以使用者選取的文件 URI 與私有儲存為邊界。
-
-## 相機與輸入
-
-```aquarius
-變數 拍攝工具 = 0;
-如果 (是Android()) { 拍攝工具 = 匯入("相機"); }
-否則如果 (是網頁()) { 拍攝工具 = 匯入("網路攝影機"); }
-否則 { 拍攝工具 = 匯入("網路攝影機"); }
-
-變數 拍攝 = 拍攝工具.開啟("", 640, 480, 30);
-變數 影格 = 拍攝.擷取影格();
-拍攝.釋放();
-```
-
-列出裝置不請求權限；開啟時才請求。影格是獨立、不透明、方向已校正的 RGBA8 快照，保留序號與單調時間戳記。
-前鏡頭不自動鏡像推論資料。進入背景、離開應用程式或發生錯誤會關閉相機；恢復後可重新開啟。
-
-```aquarius
-如果 (是Android()) {
-    變數 輸入 = 匯入("Android輸入");
-    變數 狀態 = 輸入.讀取輸入();
-    印出(狀態.orientation, 狀態.insets, 狀態.touches);
-    輸入.顯示鍵盤(真);
-    輸入.震動(30);
-    # 返回決策：Accept、Cancel 或 Defer
-    輸入.處理返回("Cancel");
-}
-```
-
-座標使用 density-independent logical units，壓力範圍依裝置回報。輸入每個畫面更新快照；重複讀取不消耗同一畫面的資料。
-Processing 同時提供既有滑鼠與文字事件，讓桌面、網頁與 Android 共用響應式畫面。
-
-## 驗證
+## 測試 / Testing
 
 ```powershell
-dotnet test AquariusTests -m:1
-node --test AquariusAndroid/tests/*.test.mjs
-./scripts/test-android.ps1 -BuildApks -Emulator -Adb C:/Android/Sdk/platform-tools/adb.exe
-# 另以測試 APK 驗證相機權限、前後鏡頭、觸控、鍵盤及返回協商
-./scripts/test-android.ps1 -Emulator -DeviceServices -CaseNames camera,input -Adb C:/Android/Sdk/platform-tools/adb.exe
+scripts/test-libraries.ps1 -Targets android-x86_64 -Devices      # 每個函式庫的 tests/ 在模擬器或裝置上執行
+scripts/android-run.ps1 app.wasm -Runtime .native-build/install/android-x86_64 -Run
 ```
 
-`test-android.ps1` 支援 `-ProjectRoots`，額外驗證範例專案；`-Emulator` 會實際安裝、執行並檢查成功、錯誤及原生崩潰紀錄。
-預設案例涵蓋 Wasmtime 回呼與重新進入、記憶體增長、表格、全域值、BigInt、陷阱與模組身分，以及語言、共用能力、Processing、響應式色彩及文字輸入、文件與影像、Jolt、WGPU 繪圖與計算、模組與路徑匯入。
-APK 冒煙測試也執行 Java 的相機平面、旋轉與材質回歸測試；`-DeviceServices` 僅在可供自動化的測試模擬器使用，會授予測試 APK 相機權限並注入輸入事件。
-`-CaseNames` 可選擇個別案例。原生 ONNX CPU 的姿態與臉部驗證也可使用 `--entry 姿態驗證.aqua` / `臉部驗證.aqua` 建置執行。
-以 Vulkan 啟用的 API 35 與 API 37 系統映像測試 GPU；GFXStream 在模擬器上需要接受不完整 conformance 的測試裝置，實機仍使用標準裝置篩選。
-API 37 的 GFXStream 會在混合 binary / timeline semaphore 提交時讀取原本可省略的 timeline 值陣列。`scripts/prepare-android-wgpu.ps1` 對鎖定的 wgpu-hal 套用 `native/patches/wgpu-hal-29.0.3-timeline-values.patch`：只要任一側使用 timeline，就補齊等待與訊號兩側的值陣列，保留真正的 timeline 值，讓 binary semaphore 的值由 Vulkan 忽略。繪圖、呈現、GPU readback 與計算仍使用原生 Vulkan，應用程式不用修改或選擇其他後端。詳見 [API 37 相容性驗證](android-api37.md)。
-
-範例專案的 `建置.ps1 -Android` 產生新專案目錄，`-APK` 直接建置 APK。
-Marble、Snake、Painter、Kanban、MediaPipe、PBR 與 Audio 使用視窗寬度重排控制項，行動網頁也套用相同版面。
-Processing showcase 以觸控切換六個範例；Color mapping 與多語輸入有獨立行動版面。
-Processing / wgpu 在直向螢幕改為上下排列，點擊或空白鍵可暫停及恢復。
-`node AquariusWebCompiler/tests/mobile-smoke.mjs` 在 412 × 915 與 915 × 412 驗證畫面、可見內容及瀏覽器錯誤，並儲存截圖。
-以 `AQUARIUS_MOBILE_PROJECT_ROOT` 指定包含建置後網頁的範例專案目錄，`AQUARIUS_MOBILE_CASES` 可指定逗號分隔的專案名稱。
-
-Wasmtime 的單元測試、模擬器驗證與七個原始專案 APK，見[目前驗證紀錄](android-wasmtime-validation.md)。較早的裝置與行動網頁結果保留於[歷史紀錄](android-validation.md)。
+`android-run.ps1` 封裝除錯 APK、安裝、執行並印出 logcat 的 `Aquarius` 輸出。模擬器的 GFXStream Vulkan 驅動會在混合
+binary / timeline semaphore 的提交上當機；graphics 函式庫只在模擬器上補齊 timeline 值陣列（見 graphics README）。

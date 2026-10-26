@@ -17,5 +17,5 @@ Resize the window freely; the 1100×820 composition scales to fit and centers in
 the window. Mouse coordinates follow that layout, text is rasterized at display
 resolution, and the offscreen 3D panel updates its backing texture size.
 
-See the [Processing API guide](../../graphics/Processing.md) for functions,
+See the [Processing API guide](../../libraries/graphics/README.md) for functions,
 callbacks, headless/GPU tests, finite capture options and compatibility differences.

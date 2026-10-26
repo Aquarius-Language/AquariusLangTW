@@ -1,30 +1,26 @@
-﻿# 星泉（AquariusLang）
+# 星泉（AquariusLang）
 
 <p><strong>繁體中文</strong> | <a href="README.en.md">English</a></p>
 
 史上第一個**繁體中文 + 英文雙語編譯式程式語言**。
 可使用全繁體中文、全英文語法，或在同一份 `.aqua` 檔案中自由混用；不需切換模式或設定。
-原始碼經詞法分析、語法分析與編譯後，產生標準 **WebAssembly（`.wasm`）**；
-桌面與 Android 由 **Wasmtime** 執行，瀏覽器由內建 WebAssembly 引擎執行，Android 使用原生 Java 能力主機；同一份編譯成果可輸出網站、獨立 EXE 與原生 APK。
+原始碼編譯後產生標準 **WebAssembly（`.wasm`）**，由同一個以 C 撰寫的原生執行環境執行：Windows、Linux 與 Android
+使用 **Wasmtime**，網頁使用瀏覽器內建的 WebAssembly 引擎；同一份編譯成果可輸出網站、獨立執行檔與 APK。
+C# 只作為編譯器，執行時不需要 .NET。
 
 作者：林天牧 / Temple Lin
 
-Linux x86_64／WSL2 的建置、測試與獨立執行檔輸出：見 [Linux 桌面指南](docs/linux.md)。
-
-- **多執行緒**：[Thread／執行緒](docs/threading.md)以函式啟動獨立工作，提供逾時等待、結果、取消與安全關閉，支援桌面、網頁及 Android；見[雙語範例](examples/threading/README.md)。
-- **統一入口**：`aqua` 提供編譯、桌面執行、網頁輸出與互動模式（REPL）。
+- **統一入口**：`aqua` 提供編譯、執行、平台輸出與互動模式（REPL）。
 - **雙語語法**：`變數`／`var`、`函式`／`function`、`回傳`／`return` 等關鍵字完全等價，中文與英文腳本可互相匯入。
-- **跨平台網路**：[Network／網路](docs/networking.md)提供雙語 HTTP(S)、Cookie、可取消請求、WebSocket、原生 TCP／TLS／UDP，以及桌面的路由、HTTPS、公開前端、SSE 和工作階段；見[繁體中文前後端範例](examples/network_lab/README.md)。
+- **可攜編譯成果**：將模組、圖片與著色器等資源一起封裝，執行與平台輸出不需原始碼。
 - **專案與第三方套件**：[Bottle / TOML 專案管理](compiler/AquariusBottle/README.md)提供 `aqua new`、`aqua bottle install/restore/uninstall`、本機／GitHub 安裝、版本鎖定、全域快取與相依資產封裝；見 [可執行範例](examples/bottle_showcase/README.md)。
-- **可攜編譯成果**：將模組、圖片與著色器等資源一起封裝，執行與網頁輸出不需原始碼。
-- **動態連結**：[核心動態函式庫 / DynamicLibrary](docs/dynamic-linking.md)以雙語介面載入 Windows DLL、Linux／Android SO、網頁 JavaScript 與跨平台 Wasm。
-- **雙語函式庫**：腳本與桌面原生函式支援繁體中文／英文名稱，共用函式與閉包。
-- **圖學與物理**：核心保留跨平台 WebGPU 介面；Jolt 已移至獨立的 `Aqua_JoltPhysics` TOML Bottle 函式庫。
-- **PBR 與模型匯入**：[核心 Models／PBR 函式庫](docs/pbr-models.md)在 Wasm 解析 OBJ／MTL，並以共用 WGSL 提供金屬度／粗糙度即時渲染。
-- **可攜紋理與 HDR**：[具名 shader 紋理、cube mip chains 與線性浮點 render targets](docs/wgpu-textures.md)共用 Windows、WebGPU 與 Android Vulkan 契約。
-- **跨平台音訊**：[音訊抽象與函式庫](libraries/audio/README.md)共用 miniaudio WebAssembly 解碼與混音，支援音檔、音調、循環、聲像、音高及無硬體的離線樣本輸出。
-- **模型推論**：[ONNX Runtime 雙語介面](docs/onnx.md)提供可擴充的核心契約與自動選擇各平台最佳執行提供者：Windows／Linux 的 CUDA、TensorRT（選用，於 `aqua.toml` 設定 `[onnx] cuda = true`），macOS 的 Core ML，網頁的 WebGPU／WebNN，Android 的 WebGPU／NNAPI／XNNPACK，以及跨平台 WebGPU 與 CPU；附 [繁體中文姿態範例](examples/mediapipe/README.md)。
-- **GPU 數學**：[核心 GPUMath／GPU數學 雙語函式庫](docs/gpu-math.md)接受自訂 WGSL 運算式、計算函式及完整著色器，共用桌面、瀏覽器與 Android WebGPU，支援保留緩衝區、範圍傳輸及管線快取。
+- **外部函式庫**：以星泉、C、C++ 或 Rust 撰寫，用[函式庫 SDK](runtime/sdk/README.md) 從同一份原始碼建置到所有平台，與預設函式庫完全相同；見[外部函式庫](docs/external-libraries.md)。
+- **多執行緒**：[Thread／執行緒](docs/threading.md)以函式啟動獨立工作，提供逾時等待、結果、取消與安全關閉，支援桌面、網頁及 Android；見[雙語範例](examples/threading/README.md)。
+- **跨平台網路**：[Network／網路](libraries/network/docs/networking.md)提供雙語 HTTP(S)、Cookie、可取消請求、串流回應、WebSocket、原生 TCP／TLS／UDP，以及 Windows、Linux、Android 的 HTTP(S) 伺服器（路由、靜態檔案、SSE、工作階段）；見[繁體中文前後端範例](examples/network_lab/README.md)。
+- **圖學**：[WebGPU、Processing 繪圖、文字輸入與 GPU 數學](libraries/graphics/README.md)使用 wgpu-native 或瀏覽器的 WebGPU；桌面另有 [OpenGL](libraries/opengl/README.md)。
+- **PBR 與模型匯入**：[Models／PBR](libraries/graphics/docs/pbr-models.md)在 Wasm 解析 OBJ／MTL，並以共用 WGSL 提供金屬度／粗糙度即時渲染；另有[具名 shader 紋理、cube mip chains 與線性浮點 render targets](libraries/graphics/docs/wgpu-textures.md)。
+- **跨平台音訊**：[音訊函式庫](libraries/audio/README.md)以 miniaudio 解碼與混音，支援音檔、音調、循環、聲像、音高及無硬體的離線樣本輸出。
+- **模型推論**：[ONNX Runtime 與 MediaPipe 姿態追蹤](libraries/onnx/README.md)依平台排序執行提供者，可選用 CUDA／TensorRT（於 `aqua.toml` 設定 `[onnx] cuda = true`），網頁使用以 C++ 原始碼建置的 ONNX Runtime；附 [繁體中文姿態範例](examples/mediapipe/README.md)。
 
 ## 目錄
 
@@ -41,14 +37,13 @@ Linux x86_64／WSL2 的建置、測試與獨立執行檔輸出：見 [Linux 桌�
 ## 快速開始
 
 使用下方批次腳本產生正式版，或從 [Releases](https://github.com/Aquarius-Language/AquariusLangTW/releases)
-取得適用的發佈套件。新版統一 CLI 的執行檔為 **`aqua.exe`**；
-完整解壓縮後，在含有該檔案的 `aqua` 資料夾開啟 PowerShell：
+取得發佈套件。完整解壓縮後，在含有 **`aqua.exe`** 的 `aqua` 資料夾開啟 PowerShell：
 
 ```powershell
 # 查看指令
 .\aqua.exe --help
 
-# 編譯隨附範例，再由 Wasmtime 執行
+# 編譯隨附範例，再執行
 .\aqua.exe build .\examples\increment.aqua -o app.wasm
 .\aqua.exe run .\app.wasm
 
@@ -56,95 +51,40 @@ Linux x86_64／WSL2 的建置、測試與獨立執行檔輸出：見 [Linux 桌�
 .\aqua.exe repl
 ```
 
-在 `>>` 提示符號後輸入 `印出("你好，星泉！");`，按 Enter 執行；按 Ctrl+C 離開。
-路徑含空白時請加上雙引號。正式版包含 .NET 執行階段，使用者不需安裝 .NET SDK 或 Runtime；
-請保留整個資料夾中的 DLL、設定檔、`runtimes`、`licenses` 與 `examples`。
+在 `>>` 提示符號後輸入 `印出("你好，星泉！");`，按 Enter 執行；按 Ctrl+C 離開。路徑含空白時請加上雙引號。
+編譯器套件為自包含，使用者不需安裝 .NET。請保留整個資料夾：`runtime/<平台>/` 是建置應用程式所用的執行環境，
+`web-glue/` 是網頁膠合程式，`libraries/` 是預設函式庫的清單與星泉原始碼，`sdk/` 是函式庫 SDK，`examples/` 是範例。
 
 ## 正式版編譯器：一鍵建置與打包
 
-### 建置環境
-
-此批次流程產生 **Windows x64、自包含、Release** 編譯器套件，請在 Windows x64 上準備：
+`build-release.bat` 產生 **Windows x64** 編譯器套件，請在 Windows x64 上準備：
 
 | 工具 | 用途 |
 | --- | --- |
-| Windows PowerShell 5.1 或 PowerShell 7 | 批次檔優先使用 PowerShell 7；找不到時自動使用 Windows 內建的 5.1。 |
-| .NET 8 SDK | 建置、測試與發佈所有 `net8.0` 專案；僅安裝 Runtime 無法建置。 |
-| Node.js 與 npm | 依 `package-lock.json` 還原瀏覽器相依套件、準備內嵌資源並執行測試。 |
-| Python（`python`） | 執行既有的外部程式整合測試。 |
-| CMake 3.20 以上、Visual Studio C++ 建置工具及 Windows SDK | 建置 GLFW／OpenGL／文字輸入原生橋接 DLL。 |
-
-批次檔會從 PATH 與常見安裝位置尋找 PowerShell；不需另外安裝 PowerShell 7。
-腳本也會尋找使用者目錄中的 `.dotnet` SDK、pyenv 與一般 Python 安裝；其餘工具請加入 PATH。
-首次還原 NuGet、npm 與 GLFW 需要網路連線。
-若使用 Ninja 等產生器，請先開啟已設定 x64 C++ 編譯器環境的終端機。
-
-### 執行批次腳本
-
-在專案根目錄執行：
+| Windows PowerShell 5.1 或 PowerShell 7 | 執行腳本。 |
+| .NET 8 SDK | 建置、測試與發佈編譯器。 |
+| CMake 3.20 以上與 Ninja | 建置執行環境。 |
+| 鎖定版本的工具鏈 | `scripts/install-toolchain.ps1 -Targets windows-x64,android-arm64-v8a,android-x86_64` 安裝 LLVM Clang、llvm-mingw sysroot、WASI sysroot、Wasmtime 與 JDK（不使用 MSVC）。 |
+| Android SDK（`ANDROID_HOME`）與 NDK 28.2 | 僅建置 Android 執行環境時需要。 |
+| Node.js | 以 Chromium 執行網頁測試（在 `scripts/` 執行 `npm install`）。 |
 
 ```powershell
 .\build-release.bat
-
-# 顯示用法
 .\build-release.bat -Help
-
-# 自動偵測找不到工具時，可指定完整路徑
-.\build-release.bat -Dotnet "$env:USERPROFILE\.dotnet\dotnet.exe" -CMake "C:\工具\CMake\bin\cmake.exe"
-
-# 指定 Python，避開尚未設定完成的 pyenv shim
-.\build-release.bat -Python "C:\工具\Python\python.exe"
-
-# 指定已安裝的 CMake 產生器（名稱須與本機安裝版本一致）
-.\build-release.bat -Generator "Visual Studio 17 2022"
-
-# 另外驗證正式 EXE 的 GPU 計算、繪圖、OpenGL 與 Processing
-.\build-release.bat -VerifyGraphics
+.\build-release.bat -Targets windows-x64,web         # 只建置部分執行環境；加入 linux-x64 會在 WSL 建置
+.\build-release.bat -SkipRuntime                     # 沿用 .native-build/install 中的執行環境
 ```
 
-腳本會自動定位專案，不受啟動時的工作目錄影響；所有選項也可搭配使用。
-未指定 CMake／產生器時，沿用 `native/build.ps1` 的快取偵測與建置規則。
-`-VerifyGraphics` 需要可用的 GPU、驅動程式與桌面環境，會短暫開啟視窗。
-
-流程依序完成：
-
-1. 檢查作業系統、SDK 與必要工具。
-2. 還原鎖定版本的 npm 套件，準備WebAssembly 主機 所需的程式、WASM 與授權。
-3. 建置並安裝 Windows x64 原生圖學橋接。
-4. 還原 NuGet，建置 Release 方案，執行 .NET 測試與WebAssembly 主機 單元測試。
-5. 發佈 `AquariusCli` 為自包含 `aqua.exe`，加入原生函式庫、範例與授權。
-6. 直接啟動正式 EXE，驗證編譯、移除測試原始碼後的執行與網頁輸出，以及第三方函式庫載入。
-7. 建立完整資料夾的 ZIP 與 SHA-256 校驗檔。
-8. 將成功結果移至正式輸出目錄，顯示 EXE 與 ZIP 的完整路徑。
-
-預設 .NET 測試略過需主動啟用的 GPU 測試；瀏覽器實機 GPU／互動測試另見下方開發指令。
-正式 EXE 的驗證會將 .NET 搜尋路徑指向不存在的目錄，確認自包含執行。
-
-### 輸出與交付
-
-每次建置使用新的時間戳記與識別碼，不覆寫先前成功的套件：
+腳本依序建置執行環境（`scripts/build-runtime.ps1`）、建置並測試編譯器、發佈 `dist/aqua/`（`scripts/publish-cli.ps1`），
+在沒有安裝 .NET 的條件下驗證 `aqua.exe`（說明、編譯與執行、網站與獨立執行檔輸出），最後打包：
 
 ```text
-dist/releases/AquariusCompiler-win-x64-<建置識別>/
-├─ aqua/                         # 完整可執行套件
-│  ├─ aqua.exe                   # 統一編譯器入口
-│  ├─ runtimes/                  # 原生圖學橋接
-│  ├─ licenses/                  # 第三方授權
-│  └─ examples/                  # 隨附範例；另含 DLL、執行階段與設定檔
-├─ AquariusCompiler-win-x64-<建置識別>.zip
-├─ AquariusCompiler-win-x64-<建置識別>.zip.sha256
-├─ reports/                      # .NET TRX 與正式 EXE 驗證結果
-└─ build.log                     # 建置紀錄
+dist/releases/AquariusCompiler-win-x64-<建置識別>.zip
+dist/releases/AquariusCompiler-win-x64-<建置識別>.zip.sha256
 ```
 
-交付 ZIP 與 `.sha256` 檔，接收端完整解壓縮後即可使用 `aqua\aqua.exe`。
-可用 `Get-FileHash "套件.zip" -Algorithm SHA256` 比對校驗值。
-此流程採資料夾發佈，明確啟用 `UseAppHost`，並關閉單檔打包與 trimming；請保留 EXE 旁的所有檔案。
-圖學功能仍需相容的 GPU 驅動與原生執行階段相依套件，交付前應在目標電腦驗證。
-
-任一步驟失敗會回傳非零結束碼。通過工具檢查後，建置紀錄與未完成產物會保留在
-`dist/.package-<建置識別>/`，不會加入 `dist/releases/`。修正錯誤後重新執行即可。
-此腳本打包編譯器；LSP 與 VSIX 的獨立建置流程見編輯器文件。
+可用 `Get-FileHash "套件.zip" -Algorithm SHA256` 比對校驗值。任一步驟失敗會回傳非零結束碼。
+Linux 見 [Linux 桌面指南](docs/linux.md)（`scripts/publish-cli.sh`），Android 見 [Android 平台](docs/android.md)。
 
 ## 編譯、執行與平台輸出
 
@@ -154,7 +94,7 @@ dist/releases/AquariusCompiler-win-x64-<建置識別>/
 # 編譯入口、所有匯入模組與資源，產生單一標準 WebAssembly 檔案
 aqua build main.aqua lib\tools.aqua --root . --assets assets --entry main.aqua -o app.wasm
 
-# 用桌面 Wasmtime 執行，不需原始碼
+# 執行，不需原始碼
 aqua run app.wasm
 
 # 直接由原始碼輸出靜態網站或獨立 Windows x64 執行檔
@@ -163,46 +103,32 @@ aqua build main.aqua lib\tools.aqua --root . --assets assets --target windows -o
 
 # 也可將既有 WebAssembly 編譯成果輸出到不同平台
 aqua build app.wasm --target web -o dist\web
-aqua build app.wasm --target windows -o dist\app.exe
-
-# 以 localhost 提供網站，再開啟 http://localhost:8080
-python -m http.server 8080 --directory dist\web
+aqua build app.wasm --target linux -o dist\app
+aqua build app.wasm --target android -o dist\app.apk
 ```
 
 | 選項 | 說明 |
 | --- | --- |
 | `--root` | 設定原始碼根目錄，模組與資源保留相對路徑。 |
-| `--assets` | 加入檔案或資料夾，可重複指定；原始碼及目前的輸出檔不當作資源封裝；動態 Wasm 函式庫可透過此選項加入。 |
-| `--entry` | 選擇編譯成果中的 `.aqua` 模組名稱，預設為第一個輸入檔。 |
-| `-o` | 指定 `.wasm`／`.exe` 檔名或網頁輸出資料夾。 |
+| `--assets` | 加入檔案或資料夾，可重複指定。 |
+| `--entry` | 選擇編譯成果中的 `.aqua` 入口模組，預設為第一個輸入檔。 |
+| `-o` | 指定 `.wasm`／`.exe`／`.apk` 檔名或網頁輸出資料夾。 |
 | `--target wasm` | 預設目標；產生包含程式、模組與資源的標準 WebAssembly。 |
-| `--target web` | 輸出 `program.wasm`、瀏覽器主機與資源，須搭配 `-o`。 |
-| `--target android` | 輸出原生 Java / Gradle 專案或 `.apk`；參見[Android 平台](docs/android.md)。 |
-| `--target windows` | 輸出 Windows x64 自包含 `.exe`，須搭配 `-o`。 |
+| `--target web` | 靜態網站：`program.wasm`、網頁執行環境、膠合程式與資源，須搭配 `-o`。 |
+| `--target windows`、`--target linux` | 獨立執行檔：附加應用程式的執行環境，須搭配 `-o`。 |
+| `--target android` | 支援 arm64-v8a 與 x86_64 的已簽章 APK；參見 [Android 平台](docs/android.md)。 |
 
-必須列出所有匯入的腳本，包括動態匯入；資源須位於根目錄內。
-模組名稱保留 `.aqua` 相對路徑，執行時直接呼叫編譯後的 Wasm 函式。
-編譯成果的 `aquarius.application` 自訂區段以二進位格式記錄版本化 ABI 與模組入口，資源位於 `aquarius.assets` 區段，常數位於 Wasm 資料段，
-不包含可供直譯的 Aquarius 指令流。編譯與平台輸出不執行程式，失敗時保留既有輸出。
-舊 `.bottle`／`.rius` 產物需從原始碼重新編譯。
+必須列出所有匯入的腳本，包括動態匯入；資源須位於根目錄內。模組名稱保留 `.aqua` 相對路徑。
+編譯成果的 `aquarius.application` 自訂區段以二進位格式記錄 ABI 4 資訊（模組、資源、匯入的函式庫模組與需要的原生函式庫），
+資源位於 `aquarius.assets` 區段；輸出的應用程式只附帶用到的執行環境檔案與函式庫。
+編譯與平台輸出不執行程式，失敗時保留既有輸出。
 
-Windows 執行檔內含 Wasmtime、.NET 執行階段、圖學／影像主機與應用程式資源，
-使用者只需複製 `.exe`，不需另行安裝星泉或 .NET。首次執行時會將執行階段解開到使用者快取。
-正式版編譯器附帶 `build-targets/win-x64`；從原始碼開發時先執行
-`./native/build.ps1`、`./scripts/publish-apphost.ps1`，再重新建置 CLI。
-自行呼叫 Python 等外部程式時仍需提供該外部程式。平台擴充設計見 [部署後端](compiler/AquariusBuild/README.md)。
-
-網頁使用瀏覽器原生 WebAssembly 引擎與非同步主機服務，WebGPU 保持共用的 WGSL ABI。
-Jolt 的 Emscripten glue、Wasm 與綁定由獨立 `Aqua_JoltPhysics` Bottle 函式庫持有；
-桌面以通用 ClearScript／V8 載入器執行，瀏覽器與 Android 使用各自的 JavaScript 主機。
-核心不再預設註冊 `Jolt`。新增的 [Terminal／終端機](docs/terminal.md) 可直接執行程式與腳本。
-
-請透過 localhost 或 HTTPS 提供網站；圖學需要瀏覽器可用的 WebGPU adapter。
-桌面外部程序與尚未實作的瀏覽器 API 呼叫時會回報錯誤。
-完整指令見 [統一 CLI](compiler/AquariusCli/README.md)、[編譯成果格式](compiler/AquariusCompiler/README.md)
-及 [網頁編譯器](web-glue/README.md)。
+請透過 localhost 或 HTTPS 提供網站；圖學需要瀏覽器可用的 WebGPU adapter。平台不支援的功能會回報不支援。
+完整指令見 [統一 CLI](compiler/AquariusCli/README.md)、[編譯成果格式](compiler/AquariusCompiler/README.md)、
+[部署後端](compiler/AquariusBuild/README.md) 及 [網頁膠合程式](web-glue/README.md)。
 
 `aqua` 結束碼：**0** 成功、**1** 編譯／執行／檔案錯誤、**2** 指令或選項錯誤。
+
 ## 語法
 
 兩種語法使用相同的編譯器、作用域與執行語意，關鍵字可逐一選用繁體中文或英文：
@@ -253,14 +179,14 @@ for (變數 索引 = 0; 索引 < 5; 索引++) {
 
 運算子包含 `+ - * / %`（餘數，整數向零截斷）及對應的複合指派 `+= -= *= /= %=`。
 核心內建 [`陣列`、`雜湊`與`字串`函式庫](docs/hash-and-string.md)：例如 `雜湊.鍵列表(表)` 列舉雜湊表的鍵、
-`字串.轉文字(98.5d)` 把數值轉成文字、`字串.分割("甲,乙", ",")` 分割字串，三個平台都在同一份 Wasm 執行。
+`字串.轉文字(98.5d)` 把數值轉成文字、`字串.分割("甲,乙", ",")` 分割字串，所有平台都在同一份 Wasm 執行。
 
 變數名稱可使用 Unicode 字母、底線，以及後續的數字與結合標記，例如 `計數1`、`中文_變數`。
 支援全域／區域變數、陣列、雜湊表、閉包、遞迴與模組；數值型別包含整數、
 單精度（`f` 後綴）與倍精度（`d` 後綴）。`++值` 回傳新值，`值++` 回傳原值，皆保留原數值型別。
 
 雙名稱宣告讓中文與英文名稱共用同一個函式與閉包，也可只宣告其中一個名稱。
-`印出`／`print`、`長度`／`len`、`匯入`／`import` 等桌面內建函式同樣提供雙語別名。
+`印出`／`print`、`長度`／`len`、`匯入`／`import` 等內建函式同樣提供雙語別名。
 模組名稱、常數、屬性與事件字串依各函式庫定義使用。
 
 核心內建 `目前時間()`／`currentTime()`，桌面與瀏覽器皆不需匯入函式庫即可使用。
@@ -280,79 +206,58 @@ for (變數 索引 = 0; 索引 < 5; 索引++) {
 
 ## 函式庫與範例
 
-以 `變數 繪圖 = 匯入("Processing");` 匯入原生函式庫。
-範例統一位於 `examples/`；桌面正式套件會一併發佈這些範例。
+以 `變數 繪圖 = 匯入("Processing");` 匯入函式庫。範例統一位於 `examples/`；正式套件會一併發佈這些範例。
+每個預設函式庫是 `libraries/` 下的一個資料夾，各附說明文件：
 
-| 功能 | 說明與文件 | 範例 |
+| 函式庫 | 模組 | 範例 |
 | --- | --- | --- |
-| WGPU／wgpu | [WGSL 繪圖、GPU 計算、緩衝區與像素讀回](libraries/graphics/README.md)；桌面使用 Silk.NET／wgpu-native。 | [計算](examples/wgpu_compute/README.md)、[離屏三角形](examples/wgpu_triangle/README.md) |
-| Processing | [wgpu 2D／3D 繪圖](libraries/graphics/README.md)、圖片、文字、動畫與事件、離屏畫布、自訂著色器。 | [六面板展示](examples/processing_showcase/README.md)、[色彩映射介面](examples/color_mapping/README.md) |
-| OpenGL | [GLFW、GLAD、OpenGL 3.3 core、GLM 與 STBImage](native/README.md)；完整保留桌面 OpenGL 函式庫。 | [旋轉材質立方體](examples/opengl_cube/README.md) |
-| Aqua_JoltPhysics | 第三方 TOML 函式庫，提供世界、剛體、重力、力與衝量；使用 DynamicLibrary 載入同一份 Jolt Wasm。 | [物理驗證](examples/jolt_physics/README.md) |
-| 文字輸入 | [Unicode 字素編輯、輸入事件與 Windows IME](libraries/graphics/README.md)。 | [多語輸入](examples/multilingual_input/README.md) |
-| 雙語語法與函式 | 繁體中文／英文／混合語法、閉包、遞迴、控制流程與雙名稱函式。 | [星艦遠征](examples/starship_expedition/README.md)、[雙語函式庫](examples/bilingual_library/README.md) |
+| [graphics](libraries/graphics/README.md) | Processing、WGPU、GLM、TextInput、Window、Fonts、Models、PBR、GPUMath | [六面板展示](examples/processing_showcase/README.md)、[GPU 計算](examples/wgpu_compute/README.md)、[離屏三角形](examples/wgpu_triangle/README.md)、[多語輸入](examples/multilingual_input/README.md) |
+| [opengl](libraries/opengl/README.md) | GLFW、GLAD、GL、STBImage（桌面） | [旋轉材質立方體](examples/opengl_cube/README.md) |
+| [application](libraries/application/README.md) | Files、Paths、Images、Serialization、Storage、Clipboard、Application、Tasks、TextEdit | [應用程式函式庫](examples/application_libraries/main.aqua) |
+| [audio](libraries/audio/README.md) | Audio | |
+| [camera](libraries/camera/README.md) | 攝影機／Webcam、相機／Camera | [攝影機](examples/webcam/README.md) |
+| [network](libraries/network/README.md) | 網路／Network | [網路實驗室](examples/network_lab/README.md) |
+| [onnx](libraries/onnx/README.md) | 推論引擎／ONNX、姿態追蹤／MediaPipe | [姿態](examples/mediapipe/README.md) |
+| [terminal](libraries/terminal/README.md) | 終端機／Terminal | |
+| [input](libraries/input/README.md) | Android輸入／AndroidInput | |
 
-桌面視窗功能需先建置原生橋接。Jolt 請透過 Bottle 安裝；核心的 `Terminal`／`終端機` 提供跨平台腳本執行介面。
-瀏覽器支援範圍以目前範例與測試為準，各平台差異請見對應指南。
+語言本身內建可攜的[陣列](docs/arrays.md)、[雜湊與字串](docs/hash-and-string.md)及[執行緒](docs/threading.md)模組。
+[星艦遠征](examples/starship_expedition/README.md)與[雙語函式庫](examples/bilingual_library/README.md)示範語言功能。
+Jolt 物理由獨立的 `Aqua_JoltPhysics` Bottle 函式庫提供。
 
 ## 開發與測試
 
-在專案根目錄準備瀏覽器資源後，建置與測試：
+在專案根目錄：
 
 ```powershell
-npm ci --prefix AquariusWebCompiler
-npm run --prefix AquariusWebCompiler prepare:browser
-
-# 使用桌面視窗功能時先建置原生橋接
-.\native\build.ps1
-
-dotnet build AquariusLang.sln -c Release -m:1
-dotnet test AquariusTests -c Release --no-build -m:1
-npm test --prefix AquariusWebCompiler
+scripts/install-toolchain.ps1 -Targets windows-x64                     # 鎖定版本的 LLVM、MinGW sysroot、Wasmtime
+scripts/build-runtime.ps1 -Targets windows-x64,web                     # 執行環境建置到 .native-build/install
+dotnet build AquariusLang.sln -c Release
+dotnet test compiler/AquariusTests -c Release
+scripts/test-libraries.ps1 -Targets windows-x64,web                    # 每個函式庫的測試（加上 -Devices 執行需要裝置的案例）
 
 # 開發時使用統一 CLI
-dotnet run --project AquariusCli -- build examples/increment.aqua -o .web-build/increment.wasm
-dotnet run --project AquariusCli -- run .web-build/increment.wasm
-dotnet run --project AquariusCli -- repl
+dotnet run --project compiler/AquariusCli -- build examples/increment.aqua -o .native-build/increment.wasm
+dotnet run --project compiler/AquariusCli -- run .native-build/increment.wasm
+dotnet run --project compiler/AquariusCli -- repl
 ```
 
-Wasm 函式使用編譯後的控制流程與可恢復呼叫框架，星泉遞迴不累積 C# 呼叫堆疊；
-閉包保留定義環境，REPL 在多次輸入間保留全域變數。
-核心共用圖學／物理介面，桌面與瀏覽器各自提供後端實作，詳見 [架構說明](ARCHITECTURE.md)。
-
-需要完整範例與瀏覽器實機回歸時：
-
-```powershell
-# 建置 Debug 方案並產生範例網站
-.\AquariusWebCompiler\scripts\build-web.ps1
-
-# 執行原始碼與移除原始碼後的 wasm 範例（需要 Python、GPU 與桌面）
-.\scripts\test-examples.ps1 -SkipBuild
-
-# 瀏覽器 WebGPU 與互動測試（預設使用已安裝的 Chrome）
-node AquariusWebCompiler/tests/browser-smoke.mjs
-```
-
-GPU 單元測試的啟用方式、測試報告與效能量測見 [編譯器測試說明](compiler/AquariusTests/README.md)。
-瀏覽器測試也可設定 `$env:AQUARIUS_BROWSER = 'msedge'` 使用已安裝的 Edge。
-Linux／macOS 的原生建置與發佈方式見 [原生指南](native/README.md)；
-本 README 的批次打包流程固定使用 Windows x64。
+修改專案前請先閱讀 [CLAUDE.md](CLAUDE.md)：其中列出每次修改都必須遵守的架構規則，`dotnet test` 會檢查這些規則。
+編譯器測試見 [測試說明](compiler/AquariusTests/README.md)；函式庫測試可在 Windows、Linux（WSL）、網頁（Chromium）
+與 Android（`-Targets android-x86_64 -Devices`）執行。另見 [架構說明](ARCHITECTURE.md)、[函式庫 SDK](runtime/sdk/README.md)
+與 [網頁膠合程式](web-glue/README.md)。
 
 ## 專案結構
 
-| 目錄／專案 | 職責 |
+| 目錄 | 職責 |
 | --- | --- |
-| `AquariusCli` | `aqua` 統一入口：build、run、web target 與 REPL。 |
-| `AquariusCore` | 語言前端、WebAssembly 編譯器、ABI、外部函式庫與共用圖學／物理介面。 |
-| `AquariusPackaging` | `.wasm` 模組與資源封裝、版本驗證及路徑解析；只依賴核心。 |
-| `AquariusDesktop` | 桌面內建函式、原生後端與相容桌面入口。 |
-| `AquariusWebCompiler` | 靜態網站輸出、WebAssembly 非同步主機、WebGPU 與 Emscripten adapter。 |
-| `AquariusAndroid` | 原生 Android 部署、Java 能力主機與 JNI WebGPU。 |
-| `AquariusTests` | 語言、Wasm、跨引擎一致性、CLI 與桌面功能測試。 |
-| `AquariusLanguageServer`、`editors/vscode` | LSP 與 VS Code 擴充套件。 |
-| `native`、`scripts` | 原生橋接建置、發佈及驗證腳本；根目錄 `build-release.bat` 為完整打包入口。 |
-| `examples` | 語言、圖學、物理與互動範例。 |
-| `website` | 星泉介紹網站與部署文件。 |
+| `compiler/` | C#，只在編譯時使用：`AquariusCompiler`（前端、Wasm 產生、封裝）、`AquariusBuild`（平台輸出）、`AquariusBottle`、`AquariusCli`、`AquariusLanguageServer`、`AquariusTests`。 |
+| `runtime/` | C，所有平台的執行環境：`guest/`（連結進應用程式的客體執行環境）、`host/`（主機核心）、`platform/<os>/`（很薄的作業系統層）、`sdk/`（函式庫 SDK 與工具鏈檔案）。 |
+| `libraries/<名稱>/` | 預設函式庫，每個一個自成一體的資料夾。 |
+| `web-glue/` | 唯一的 JavaScript：啟動應用程式並提供網頁 API，每個 API 一個資料夾。 |
+| `scripts/` | 工具鏈版本與安裝、執行環境建置、函式庫測試、網頁與 Android 執行、正式版打包。 |
+| `examples/`、`tests/` | 範例與共用的語言測試資料。 |
+| `editors/vscode`、`website/` | VS Code 擴充套件與介紹網站。 |
 
 ## 編輯器與延伸文件
 
@@ -371,9 +276,4 @@ Linux／macOS 的原生建置與發佈方式見 [原生指南](native/README.md)
 > 用熟悉的文字，讓靈感湧成作品。
 
 本專案採用 [MIT License](LICENSE)，Copyright (c) 2026 Temple Lin。
-第三方相依套件保留各自授權，原始授權位於 `native/vendor/` 與
-`AquariusDesktop/licenses/`；正式套件會一併附上授權檔。
-
-## 攝影機功能
-
-攝影機提供核心契約、桌面與網頁實作，以及 [繁體中文架構指南](docs/webcam.md) 和 [展示範例](examples/webcam/README.md)。執行 `scripts/test-webcam.ps1` 可完成單元及冒煙測試。
+第三方相依套件保留各自授權，鎖定在各函式庫的資料夾中，並隨執行環境安裝到 `licenses/`；正式套件會一併附上授權檔。
