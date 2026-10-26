@@ -15,5 +15,6 @@ void desktop_set_window_loop(bool (*wait)(double timeout_ms), void (*wake)(void)
 
 void platform_flush(void);
 char *platform_executable_path(void);
-uint8_t *platform_read_file(const char *path, size_t *length);
+/* The last `count` bytes of a file (fewer when it is shorter, *length says how many); *size is the file's size. */
+uint8_t *platform_read_tail(const char *path, size_t count, size_t *length, uint64_t *size);
 #endif

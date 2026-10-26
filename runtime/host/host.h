@@ -171,7 +171,8 @@ struct aqua_runtime {
     int exit_code; bool finished, exiting;
     uint32_t entry_module;            /* the module runtime_start ran */
     uint32_t importing[64], import_depth; /* modules whose import is running, innermost last */
-    char *materialized;              /* directory holding assets as files (desktop) */
+    char *materialized;              /* directory holding assets as files (desktop, Android) */
+    bool materialized_created;       /* that directory was created: the runtime removes it when it ends */
     char **asset_files;              /* materialized path per asset, created on first request */
     void *platform;                  /* platform layer data */
     void *threads;                   /* Thread library state */
@@ -245,7 +246,13 @@ void *platform_library_open(const char *path, char **error);
 bool platform_load_library(aqua_runtime *rt, const char *name, char **error);
 void *platform_library_symbol(void *library, const char *name);
 bool platform_file_exists(const char *path);
+uint8_t *platform_read_file(const char *path, size_t *length);
 bool platform_write_file(const char *path, const uint8_t *data, size_t length);
+/* Moves `from` over `to`, replacing it in one step: a reader opens either the old file or the new one. When the move
+   fails, `from` is deleted. */
+bool platform_replace_file(const char *from, const char *to);
+/* The directory the runtime keeps compiled code in between runs (it may not exist yet), or NULL for none. */
+char *platform_cache_directory(void);
 bool platform_make_directories(const char *path);
 void platform_remove_tree(const char *path);
 char *platform_temporary_directory(const char *prefix);

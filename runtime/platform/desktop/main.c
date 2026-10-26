@@ -5,7 +5,7 @@
      aquarius --runtime-info   this runtime pack's identity, as JSON (build targets)                                */
 #include "desktop.h"
 #include "../../host/host.h"
-#include "sha256.h"
+#include "../../host/sha256.h"
 #include "window_desktop.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -24,22 +24,26 @@ static void say(int stream, const char *text) { platform_write(stream, text, str
 #define OVERLAY_FOOTER 64
 static const char overlay_magic[16] = {'A', 'Q', 'U', 'A', 'R', 'I', 'U', 'S', '-', 'A', 'P', 'P', '-', 'V', '2', '!'};
 
-/* The application appended to this executable, or NULL. `entry` receives the overlay's entry script, if any. */
-/* The application embedded in this executable, or NULL; *damaged when an overlay is present but fails its checks. */
-static uint8_t *embedded_application(const uint8_t *file, size_t length, size_t *wasm_length, char **entry, bool *damaged) {
+/* The application embedded in the executable `self`, or NULL; *damaged when an overlay is present but fails its checks.
+   Only the overlay is read: the runtime before it is tens of megabytes. `entry` receives the overlay's entry script. */
+static uint8_t *embedded_application(const char *self, size_t *wasm_length, char **entry, bool *damaged) {
     *damaged = false;
-    if (length < OVERLAY_FOOTER) return NULL;
-    const uint8_t *footer = file + length - OVERLAY_FOOTER;
-    if (memcmp(footer + 48, overlay_magic, 16) != 0) return NULL;
+    size_t length = 0; uint64_t size = 0;
+    uint8_t *footer = platform_read_tail(self, OVERLAY_FOOTER, &length, &size);
+    if (!footer || length < OVERLAY_FOOTER || memcmp(footer + 48, overlay_magic, 16) != 0) { free(footer); return NULL; }
     *damaged = true;
     int32_t version, metadata_length; int64_t wasm_size;
     memcpy(&version, footer, 4); memcpy(&metadata_length, footer + 4, 4); memcpy(&wasm_size, footer + 8, 8);
+    free(footer);
     if (version != 2 || metadata_length < 0 || metadata_length > 65536 || wasm_size <= 0 || wasm_size > 272ll * 1024 * 1024 ||
-        (uint64_t)wasm_size + (uint64_t)metadata_length + OVERLAY_FOOTER >= length) return NULL;
-    const uint8_t *wasm = footer - metadata_length - wasm_size;
+        (uint64_t)wasm_size + (uint64_t)metadata_length + OVERLAY_FOOTER >= size) return NULL;
+    size_t overlay = (size_t)wasm_size + (size_t)metadata_length + OVERLAY_FOOTER;
+    uint8_t *wasm = platform_read_tail(self, overlay, &length, &size);
+    if (!wasm || length != overlay) { free(wasm); return NULL; }
+    footer = wasm + overlay - OVERLAY_FOOTER;
     uint8_t digest[32];
     sha256(wasm, (size_t)(wasm_size + metadata_length), digest);
-    if (memcmp(digest, footer + 16, 32) != 0) return NULL;
+    if (memcmp(digest, footer + 16, 32) != 0) { free(wasm); return NULL; }
     *damaged = false;
     /* Metadata: {"EntryPoint":"path.aqua"} */
     const char *metadata = (const char *)(wasm + wasm_size);
@@ -52,10 +56,8 @@ static uint8_t *embedded_application(const uint8_t *file, size_t length, size_t 
         while (key < end && *key != '"') key++;
         if (key < end) { *entry = malloc((size_t)(key - start) + 1); memcpy(*entry, start, (size_t)(key - start)); (*entry)[key - start] = 0; }
     }
-    uint8_t *copy = malloc((size_t)wasm_size);
-    memcpy(copy, wasm, (size_t)wasm_size);
-    *wasm_length = (size_t)wasm_size;
-    return copy;
+    *wasm_length = (size_t)wasm_size; /* the metadata and footer after it are not part of the module */
+    return wasm;
 }
 
 static void json_string(const char *s) {
@@ -212,13 +214,10 @@ static int run(uint8_t *module, size_t length, const char *directory, const char
 
 int desktop_main(int count, char **arguments) {
     char *self = platform_executable_path();
-    size_t self_length = 0;
-    uint8_t *self_bytes = self ? platform_read_file(self, &self_length) : NULL;
     char *entry = NULL;
     size_t length = 0;
     bool damaged = false;
-    uint8_t *module = self_bytes ? embedded_application(self_bytes, self_length, &length, &entry, &damaged) : NULL;
-    free(self_bytes);
+    uint8_t *module = self ? embedded_application(self, &length, &entry, &damaged) : NULL;
     if (damaged) {
         say(2, "This application is damaged: its embedded program does not match its checksum or format. Reinstall it.\n");
         free(self);

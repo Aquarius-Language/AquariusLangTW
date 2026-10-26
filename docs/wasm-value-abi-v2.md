@@ -99,13 +99,15 @@ Standalone compile-and-run convenience APIs still rely on owner/GC lifetimes.
 
 ## Build and compatibility
 
-Build with the pinned LLVM/Clang 23.1.3 toolchain (`scripts/install-wasm-toolchain.ps1`, pins in
-`scripts/wasm-toolchain.json`) using `scripts/build-wasm-runtime.ps1` or `scripts/build-wasm-runtime.sh`. `-Check`
+Build with the pinned LLVM/Clang 23.1.3 toolchain (`scripts/install-toolchain.ps1`, pins in
+`scripts/toolchain.json`) using `scripts/build-wasm-runtime.ps1` or `scripts/build-wasm-runtime.sh`. `-Check`
 rebuilds and compares the checked-in binary. The runtime uses bulk-memory
 instructions (`memory.copy`/`memory.fill`); a supporting engine is required.
-The desktop Wasmtime cache owns machine-code cache validation and keys. Portable
-Wasm remains authoritative. First compilation, process startup with a populated
-cache and warmed execution are different measurements.
+The native host caches compiled code by the application's SHA-256 (see
+[execution tiers](execution-tiers.md#startup)); Wasmtime validates that a cached entry
+matches its version and configuration. Portable Wasm remains authoritative. First
+compilation, process startup with a populated cache and warmed execution are
+different measurements.
 
 See [migration progress](archive/wasm-migration-progress.md) and the
 [complete backlog](archive/wasm-architecture-migration.md) for remaining library,

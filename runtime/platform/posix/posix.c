@@ -132,6 +132,30 @@ uint8_t *platform_read_file(const char *path, size_t *length) {
     *length = total;
     return data;
 }
+uint8_t *platform_read_tail(const char *path, size_t count, size_t *length, uint64_t *size) {
+    int fd = open(path, O_RDONLY | O_CLOEXEC);
+    if (fd < 0) return NULL;
+    struct stat info;
+    if (fstat(fd, &info)) { close(fd); return NULL; }
+    if ((uint64_t)info.st_size < count) count = (size_t)info.st_size;
+    uint8_t *data = malloc(count + 1);
+    size_t got = 0;
+    while (got < count) {
+        ssize_t n = pread(fd, data + got, count - got, (off_t)((size_t)info.st_size - count + got));
+        if (n < 0 && errno == EINTR) continue;
+        if (n <= 0) break;
+        got += (size_t)n;
+    }
+    close(fd);
+    if (got != count) { free(data); return NULL; }
+    *length = count; *size = (uint64_t)info.st_size;
+    return data;
+}
+bool platform_replace_file(const char *from, const char *to) {
+    if (rename(from, to) == 0) return true;
+    unlink(from);
+    return false;
+}
 bool platform_make_directories(const char *path) {
     char *copy = strdup(path);
     for (char *p = copy + 1; *p; p++) if (*p == '/') { *p = 0; mkdir(copy, 0755); *p = '/'; }

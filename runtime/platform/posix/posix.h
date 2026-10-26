@@ -9,6 +9,6 @@ bool platform_signal_wait(platform_signal *s, int32_t timeout_ms);
 /* Waits like platform_signal_wait and clears the signal (the loop's wake event); a negative timeout waits forever. */
 bool platform_signal_take(platform_signal *s, double timeout_ms);
 void platform_signal_destroy(platform_signal *s);
-uint8_t *platform_read_file(const char *path, size_t *length);
+uint8_t *platform_read_tail(const char *path, size_t count, size_t *length, uint64_t *size);
 char *platform_full_path(const char *path);
 #endif

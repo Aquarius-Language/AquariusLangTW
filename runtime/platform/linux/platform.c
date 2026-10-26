@@ -63,6 +63,17 @@ char *platform_executable_path(void) {
     return strdup(buffer);
 }
 
+/* $XDG_CACHE_HOME/aquarius, by default ~/.cache/aquarius. */
+char *platform_cache_directory(void) {
+    const char *base = getenv("XDG_CACHE_HOME"), *suffix = "/aquarius";
+    if (!base || base[0] != '/') { base = getenv("HOME"); suffix = "/.cache/aquarius"; }
+    if (!base || !*base) return NULL;
+    size_t n = strlen(base) + strlen(suffix) + 1;
+    char *path = malloc(n);
+    snprintf(path, n, "%s%s", base, suffix);
+    return path;
+}
+
 bool platform_execute(aqua_runtime *rt, const char *program, const char *const *arguments, uint32_t count, char **error) {
     (void)rt;
     char **argv = calloc(count + 2, sizeof *argv);

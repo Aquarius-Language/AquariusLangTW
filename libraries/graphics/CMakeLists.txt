@@ -44,7 +44,7 @@ else()
     if(AQUA_TARGET STREQUAL "windows-x64")
         list(APPEND sources src/platform/windows.c)
         # wgpu-native's Rust standard library and its D3D12/Vulkan/GL backends, then the text layer (GDI).
-        list(APPEND link_libraries ws2_32 userenv bcrypt ntdll opengl32 d3dcompiler_47 dxgi d3d12 gdi32 user32 ole32
+        list(APPEND link_libraries ws2_32 userenv bcrypt ntdll d3dcompiler_47 dxgi d3d12 gdi32 user32 ole32
             oleaut32 propsys runtimeobject advapi32 kernel32 synchronization)
     elseif(AQUA_TARGET STREQUAL "linux-x64")
         list(APPEND sources src/platform/linux.c)
@@ -101,6 +101,12 @@ if(NOT AQUA_TARGET STREQUAL "web")
         file(RENAME "${wgpu_library}.part" "${wgpu_library}")
     endif()
     list(PREPEND link_libraries "${wgpu_library}")
+    if(AQUA_TARGET STREQUAL "windows-x64")
+        # opengl32 is delay-loaded: only wgpu's GL fallback calls it, and loading and unloading it costs every process
+        # ~65 ms. The MinGW import library comes first because lld delay-loads only short import members, not the
+        # dlltool-style ones wgpu-native's archive carries for the same functions.
+        list(PREPEND link_libraries opengl32 -Wl,--delayload=opengl32.dll)
+    endif()
 endif()
 
 aqua_add_library(graphics SOURCES ${sources} INCLUDE_DIRECTORIES ${include_directories} LINK_LIBRARIES ${link_libraries})

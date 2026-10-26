@@ -4,6 +4,8 @@
     <OutputType>Exe</OutputType>
     <AssemblyName>aqua</AssemblyName>
     <ApplicationManifest Condition="'$(OS)' == 'Windows_NT'">application.manifest</ApplicationManifest>
+    <!-- Published compilers start precompiled: `aqua run` would otherwise spend ~25 ms in the JIT before the runtime starts. -->
+    <PublishReadyToRun>true</PublishReadyToRun>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="../AquariusBottle/AquariusBottle.csproj" />

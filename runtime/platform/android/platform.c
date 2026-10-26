@@ -74,6 +74,17 @@ const uint8_t *platform_asset(aqua_runtime *rt, const char *name, size_t *length
 
 void platform_runtime_closing(aqua_runtime *rt) { android_windows_close(rt); }
 
+/* <app data>/cache/aquarius: the application's cache directory (Context.getCacheDir), which the system may clear. */
+char *platform_cache_directory(void) {
+    const char *files = native_app ? native_app->activity->internalDataPath : NULL; /* <app data>/files */
+    const char *slash = files ? strrchr(files, '/') : NULL;
+    if (!slash) return NULL;
+    size_t n = (size_t)(slash - files) + 32;
+    char *path = malloc(n);
+    snprintf(path, n, "%.*s/cache/aquarius", (int)(slash - files), files);
+    return path;
+}
+
 static uint8_t *read_asset(const char *path, size_t *length) {
     AAsset *asset = AAssetManager_open(native_app->activity->assetManager, path, AASSET_MODE_BUFFER);
     if (!asset) return NULL;

@@ -90,8 +90,8 @@ if(AQUA_TARGET STREQUAL "windows-x64" OR AQUA_TARGET STREQUAL "linux-x64")
         set(platform_sources platform/linux/platform.c platform/posix/posix.c)
         set(platform_libraries pthread dl m)
     endif()
-    add_executable(aquarius ${host_sources} host/engine_wasmtime.c host/threads.c ${platform_sources}
-        platform/desktop/main.c platform/desktop/sha256.c)
+    add_executable(aquarius ${host_sources} host/engine_wasmtime.c host/sha256.c host/threads.c ${platform_sources}
+        platform/desktop/main.c)
     target_include_directories(aquarius PRIVATE sdk/include "${CMAKE_CURRENT_BINARY_DIR}/generated" "${wasmtime_sdk}/include")
     target_compile_definitions(aquarius PRIVATE AQUA_HAS_DEFAULT_LIBRARIES WASM_API_EXTERN= WASI_API_EXTERN=)
     target_link_libraries(aquarius PRIVATE aqua_window "${wasmtime_sdk}/lib/libwasmtime.a" ${platform_libraries})
@@ -103,7 +103,7 @@ elseif(AQUA_TARGET MATCHES "^android-")
     # The native activity: android_native_app_glue runs android_main on the activity's thread.
     aqua_sdk_directory(wasmtime ${AQUA_TARGET} wasmtime_sdk)
     string(JSON wasmtime_version GET "${AQUA_PINS}" sdks wasmtime version)
-    add_library(aquarius SHARED ${host_sources} host/engine_wasmtime.c host/threads.c platform/android/platform.c
+    add_library(aquarius SHARED ${host_sources} host/engine_wasmtime.c host/sha256.c host/threads.c platform/android/platform.c
         platform/android/window.c platform/posix/posix.c "${ANDROID_NDK}/sources/android/native_app_glue/android_native_app_glue.c")
     target_include_directories(aquarius PRIVATE sdk/include "${CMAKE_CURRENT_BINARY_DIR}/generated" "${wasmtime_sdk}/include"
         "${ANDROID_NDK}/sources/android/native_app_glue")

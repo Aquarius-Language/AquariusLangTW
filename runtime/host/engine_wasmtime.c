@@ -1,7 +1,8 @@
 /* Native engine: runs the application's Wasm in Wasmtime through its C API (Windows, Linux, Android). Compiled code is
-   shared by the main instance and every Thread worker; each has its own store. */
+   shared by the main instance and every Thread worker, each with its own store, and cached between runs. */
 #include "host.h"
 #include "engine.h"
+#include "sha256.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -98,10 +99,59 @@ static engine *instantiate(wasm_engine_t *wasm, wasmtime_module_t *module, engin
     return e;
 }
 
+/* Compiled code is kept between runs (compiling an application costs tens of milliseconds every start): slot file
+   <cache>/wasmtime-<slot>.bin holds a module's SHA-256 and Wasmtime's serialization of its compiled code. The slot is
+   the digest's first byte modulo CACHE_SLOTS, which bounds the cache; a module whose slot holds another compiles and
+   takes the slot. Entries are written beside the slot and moved over it in one step, so readers see whole entries.
+   Wasmtime rejects code compiled by another version or configuration, which then recompiles. The cache lives in the
+   user's (or the app's) own directory: its contents are trusted like the runtime's own files. */
+#define CACHE_SLOTS 32 /* an entry is a few megabytes (each application carries the guest runtime) */
+static char *cache_slot(const uint8_t digest[32], char **directory) {
+    *directory = platform_cache_directory();
+    if (!*directory) return NULL;
+    size_t n = strlen(*directory) + 32;
+    char *path = malloc(n);
+    snprintf(path, n, "%s/wasmtime-%02x.bin", *directory, digest[0] % CACHE_SLOTS);
+    return path;
+}
+static wasmtime_module_t *cached_module(wasm_engine_t *wasm, const char *slot, const uint8_t digest[32]) {
+    size_t length = 0;
+    uint8_t *entry = platform_read_file(slot, &length);
+    wasmtime_module_t *module = NULL;
+    if (entry && length > 32 && memcmp(entry, digest, 32) == 0) {
+        wasmtime_error_t *failure = wasmtime_module_deserialize(wasm, entry + 32, length - 32, &module);
+        if (failure) { wasmtime_error_delete(failure); module = NULL; }
+    }
+    free(entry);
+    return module;
+}
+static void cache_module(const wasmtime_module_t *module, const char *directory, const char *slot, const uint8_t digest[32]) {
+    wasm_byte_vec_t code;
+    wasmtime_error_t *failure = wasmtime_module_serialize(module, &code);
+    if (failure) { wasmtime_error_delete(failure); return; }
+    uint8_t *entry = malloc(code.size + 32);
+    memcpy(entry, digest, 32);
+    memcpy(entry + 32, code.data, code.size);
+    size_t n = strlen(slot) + 64;
+    char *partial = malloc(n);
+    snprintf(partial, n, "%s.%p-%.0f.part", slot, (void *)entry, platform_now_ms() * 1000.0); /* unique per process */
+    if (platform_make_directories(directory) && platform_write_file(partial, entry, code.size + 32)) platform_replace_file(partial, slot);
+    free(partial); free(entry);
+    wasm_byte_vec_delete(&code);
+}
+
 engine *engine_create(const uint8_t *module, size_t length, engine_service service, void *data, char **error) {
     wasm_engine_t *wasm = shared_engine();
-    wasmtime_module_t *compiled = NULL;
-    wasmtime_error_t *failure = wasmtime_module_new(wasm, module, length, &compiled);
+    uint8_t digest[32];
+    sha256(module, length, digest);
+    char *directory = NULL, *slot = cache_slot(digest, &directory);
+    wasmtime_module_t *compiled = slot ? cached_module(wasm, slot, digest) : NULL;
+    wasmtime_error_t *failure = NULL;
+    if (!compiled) {
+        failure = wasmtime_module_new(wasm, module, length, &compiled);
+        if (!failure && slot) cache_module(compiled, directory, slot, digest);
+    }
+    free(slot); free(directory);
     if (failure) { if (error) *error = message_of(failure, NULL); wasm_engine_delete(wasm); return NULL; }
     engine *e = instantiate(wasm, compiled, service, data, error);
     if (!e) { wasmtime_module_delete(compiled); wasm_engine_delete(wasm); }

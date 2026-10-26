@@ -390,7 +390,8 @@ void runtime_destroy(aqua_runtime *rt) {
     for (posted *p = rt->posts; p;) { posted *next = p->next; free(p); p = next; }
     for (uint32_t i = 0; i < rt->context_count; i++) { free(rt->contexts[i].script); free(rt->contexts[i].directory); }
     for (uint32_t i = 0; i < rt->launch_count; i++) free(rt->launch[i]);
-    if (rt->materialized) platform_remove_tree(rt->materialized);
+    /* Only a directory an asset was written to (removing a tree costs ~50 ms on Windows even when there is none). */
+    if (rt->materialized_created) platform_remove_tree(rt->materialized);
     platform_lock_destroy(rt->post_lock);
     for (uint32_t i = 0; i < rt->app.asset_count; i++) free(rt->asset_files[i]);
     free(rt->asset_files);
@@ -443,7 +444,7 @@ const char *aqua_asset_file(aqua_runtime *rt, const char *path) {
     snprintf(file, n, "%s/%s", rt->materialized, rt->app.assets[i].name);
     char *slash = strrchr(file, '/');
     *slash = 0;
-    platform_make_directories(file);
+    rt->materialized_created |= platform_make_directories(file);
     *slash = '/';
     if (!platform_write_file(file, rt->app.assets[i].data, rt->app.assets[i].length)) { free(file); return NULL; }
     return rt->asset_files[i] = file;

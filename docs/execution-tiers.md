@@ -121,6 +121,16 @@ API and reads guest memory through the memory export's base pointer, refreshed a
 is a side module in the application's own memory, so it reads guest values directly. Engine-specific code stays in
 `engine_*.c`; compilation and artifact layout are the same for every target.
 
+## Startup
+
+Wasmtime compiles an application in tens of milliseconds, so the native host keeps the compiled code between runs:
+`wasmtime-<slot>.bin` files under `%LOCALAPPDATA%\Aquarius\cache` (Windows), `$XDG_CACHE_HOME/aquarius` or
+`~/.cache/aquarius` (Linux) and the app's cache directory (Android). Each holds one application's SHA-256 and its
+serialized code; 32 slots bound the cache, and a run whose slot holds another application compiles and takes it.
+Deleting the folder is always safe. Process start itself is kept small: the launcher reads only the end of its
+executable (where `aqua build` embeds an application), and `opengl32.dll`, which only wgpu's GL fallback uses, is
+delay-loaded. An empty program starts and exits in about 20 ms on Windows with a warm cache.
+
 ## Tests
 
 `compiler/AquariusTests/compiler/WasmTieredExecutionTest.cs` runs differential programs

@@ -147,6 +147,44 @@ uint8_t *platform_read_file(const char *path, size_t *length) {
     *length = total;
     return data;
 }
+uint8_t *platform_read_tail(const char *path, size_t count, size_t *length, uint64_t *size) {
+    wchar_t *wide = windows_wide(path);
+    HANDLE f = CreateFileW(wide, GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_DELETE, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+    free(wide);
+    if (f == INVALID_HANDLE_VALUE) return NULL;
+    LARGE_INTEGER total, start;
+    if (!GetFileSizeEx(f, &total)) { CloseHandle(f); return NULL; }
+    if ((uint64_t)total.QuadPart < count) count = (size_t)total.QuadPart;
+    start.QuadPart = total.QuadPart - (LONGLONG)count;
+    uint8_t *data = malloc(count + 1);
+    size_t got = 0;
+    if (SetFilePointerEx(f, start, NULL, FILE_BEGIN))
+        while (got < count) {
+            DWORD n = 0;
+            if (!ReadFile(f, data + got, (DWORD)(count - got > 1u << 30 ? 1u << 30 : count - got), &n, NULL) || !n) break;
+            got += n;
+        }
+    CloseHandle(f);
+    if (got != count) { free(data); return NULL; }
+    *length = count; *size = (uint64_t)total.QuadPart;
+    return data;
+}
+bool platform_replace_file(const char *from, const char *to) {
+    wchar_t *source = windows_wide(from), *target = windows_wide(to);
+    bool ok = MoveFileExW(source, target, MOVEFILE_REPLACE_EXISTING);
+    if (!ok) DeleteFileW(source);
+    free(source); free(target);
+    return ok;
+}
+char *platform_cache_directory(void) {
+    const char *base = platform_environment("LOCALAPPDATA");
+    if (!base || !*base) return NULL;
+    size_t n = strlen(base) + 32;
+    char *path = malloc(n);
+    snprintf(path, n, "%s/Aquarius/cache", base);
+    for (char *p = path; *p; p++) if (*p == '\\') *p = '/';
+    return path;
+}
 bool platform_make_directories(const char *path) {
     char *copy = _strdup(path);
     for (char *p = copy + 1; *p; p++) {
