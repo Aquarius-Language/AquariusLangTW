@@ -19,9 +19,9 @@ namespace AquariusLang.Wasm;
 /// checkpoint weights, and when the budget runs out, a collection is pending or the native recursion depth bound is
 /// reached, the native activations deoptimize into generic frames of the same bodies (variables in their slots, operands
 /// on the frame stack) and the scheduler resumes at that exact block. A language error (integer division by zero) is
-/// raised directly with the generic message. A native function returns only its typed result; the module's signal
-/// global stays 0 on a normal return, holds 5 after an error and the outermost generic frame after a deoptimization,
-/// and every caller tests it after a call. The entry adapter checks every outer binding (tag, closure identity,
+/// raised directly with the generic message. The execution budget travels through native calls as a parameter and a
+/// second result; a returned budget of int.MinValue means the callee raised an error (the module's signal global then
+/// holds 5) or deoptimized (the signal holds the outermost generic frame). The entry adapter checks every outer binding (tag, closure identity,
 /// unshadowed core conversions) and the argument types before any effect, and otherwise leaves the call to the generic
 /// body (status 0).
 /// </summary>
@@ -396,24 +396,26 @@ internal sealed class WasmNativeFunction
 
     internal void WriteType(BinaryWriter w)
     {
-        w.Write((byte)0x60); U(w, 2 + Pointers.Length + Signature.Parameters.Length);
-        for (int i = 0; i < 2 + Pointers.Length; i++) w.Write((byte)0x7f);
+        w.Write((byte)0x60); U(w, 3 + Pointers.Length + Signature.Parameters.Length);
+        for (int i = 0; i < 3 + Pointers.Length; i++) w.Write((byte)0x7f);
         foreach (int type in Signature.Parameters) w.Write(WasmType(type));
-        U(w, 1); w.Write(WasmType(Signature.Result));
+        U(w, 2); w.Write(WasmType(Signature.Result)); w.Write((byte)0x7f);
     }
 
-    /// <summary>The resume implementation: (depth, closure, pointers..., site, frame) -> result.</summary>
+    /// <summary>The resume implementation: (depth, budget, closure, pointers..., site, frame) -> (result, budget).</summary>
     internal void WriteResumeType(BinaryWriter w)
     {
-        w.Write((byte)0x60); U(w, 4 + Pointers.Length);
-        for (int i = 0; i < 4 + Pointers.Length; i++) w.Write((byte)0x7f);
-        U(w, 1); w.Write(WasmType(Signature.Result));
+        w.Write((byte)0x60); U(w, 5 + Pointers.Length);
+        for (int i = 0; i < 5 + Pointers.Length; i++) w.Write((byte)0x7f);
+        U(w, 2); w.Write(WasmType(Signature.Result)); w.Write((byte)0x7f);
     }
 
-    /// <summary>The loop heads a deoptimized activation can resume at natively; site 1 is the entry, site 2 + i the i-th
-    /// loop head.</summary>
+    /// <summary>Where a deoptimized activation can resume natively: site 1 is the entry, site 2 + i the i-th of the loop
+    /// heads and the continuations after direct calls (where a callee's deoptimization left this activation).</summary>
     private int[] LoopHeads => constructs!.Where(c => c.Loop).Select(c => c.Start).OrderBy(pc => pc).ToArray();
-    private int SiteOf(int pc) => pc == 0 ? 1 : 2 + Array.IndexOf(LoopHeads, pc);
+    private int[] ResumeTargets => LoopHeads.Concat(states.Where(p => p.Key < body.Code.Length && body.Code[p.Key].Code == IrOperation.Call
+        && p.Value[p.Value.Length - body.Code[p.Key].Operand - 1] is >= CallableBase and < BuiltinBase).Select(p => p.Key + 1)).Distinct().OrderBy(pc => pc).ToArray();
+    private int SiteOf(int pc) => pc == 0 ? 1 : 2 + Array.IndexOf(ResumeTargets, pc);
     /// <summary>A region's loop heads and the site its function resumes at for each.</summary>
     internal (int Head, int Site)[] HeadSites => LoopHeads.Select(h => (h, SiteOf(h))).ToArray();
 
@@ -494,8 +496,9 @@ internal sealed class WasmNativeFunction
                 });
             }
         Get(w, 2); w.Write((byte)0x24); U(w, execution);
+        void Budget() { Get(w, 2); Memory(w, I32Load, 2, ExecutionBudget); }
         void CallEntry() {
-            I(w, 0); Get(w, closure);
+            I(w, 0); Budget(); Get(w, closure);
             for (int k = 0; k < Pointers.Length; k++) Get(w, Pointer(k));
             for (int p = 0; p < Signature.Parameters.Length; p++) {
                 int type = Signature.Parameters[p];
@@ -506,20 +509,24 @@ internal sealed class WasmNativeFunction
             }
             w.Write(Call); U(w, implementation);
         }
+        void Results() { Set(w, scratch); if (Wide(Signature.Result)) Set(w, resultF); else Set(w, resultI); }
         if (resume.HasValue) {
-            Get(w, 0); Memory(w, I32Load, 2, FrameNativeSite); I(w, 1); w.Write(new byte[] { 0x46, 0x04, WasmType(Signature.Result) });
-            CallEntry();
+            Get(w, 0); Memory(w, I32Load, 2, FrameNativeSite); I(w, 1); w.Write(new byte[] { 0x46, 0x04, 0x40 });
+            CallEntry(); Results();
             w.Write((byte)0x05);
-            I(w, 0); Get(w, closure);
+            I(w, 0); Budget(); Get(w, closure);
             for (int k = 0; k < Pointers.Length; k++) Get(w, Pointer(k));
             Get(w, 0); Memory(w, I32Load, 2, FrameNativeSite); Get(w, 0);
-            w.Write(Call); U(w, resume.Value);
+            w.Write(Call); U(w, resume.Value); Results();
             w.Write((byte)0x0b);
-        } else CallEntry();
-        if (Wide(Signature.Result)) Set(w, resultF); else Set(w, resultI);
+        } else { CallEntry(); Results(); }
+        // A returned budget: store it (clamped like the generic checkpoint) and the result. int.MinValue: the signal
+        // holds 5 after a raised error, otherwise the outermost generic frame of a deoptimization.
+        Get(w, scratch); I(w, int.MinValue); w.Write(new byte[] { 0x46, 0x04, 0x40 });
         w.Write((byte)0x23); U(w, signal); Set(w, status); I(w, 0); w.Write((byte)0x24); U(w, signal);
-        // Signal 0: a result; 5: a raised error; otherwise the outermost generic frame of a deoptimization.
-        Get(w, status); w.Write(new byte[] { 0x45, 0x04, 0x40 });
+        Get(w, status); I(w, 5); w.Write(new byte[] { 0x46, 0x04, 0x40 }); I(w, 5); w.Write(new byte[] { 0x0f, 0x0b });
+        Get(w, 1); Get(w, status); Memory(w, I32Store, 2, ValueRef); I(w, 4); w.Write(new byte[] { 0x0f, 0x0b });
+        Get(w, 2); Get(w, scratch); I(w, 0); Get(w, scratch); I(w, 0); w.Write(new byte[] { 0x4a, 0x1b }); Memory(w, I32Store, 2, ExecutionBudget);
         Get(w, 1); I(w, IsArray(Signature.Result) ? ArrayTag : Signature.Result); Memory(w, I32Store, 2, ValueTag);
         Get(w, 1); if (IsArray(Signature.Result)) Get(w, resultI); else I(w, 0); Memory(w, I32Store, 2, ValueRef);
         Get(w, 1);
@@ -528,15 +535,11 @@ internal sealed class WasmNativeFunction
         else if (IsArray(Signature.Result)) F(w, 0);
         else Get(w, resultF);
         Memory(w, F64Store, 3, ValueNumber);
-        I(w, 1); w.Write((byte)0x0f);
-        w.Write((byte)0x0b);
-        Get(w, status); I(w, 5); w.Write(new byte[] { 0x46, 0x04, 0x40 }); I(w, 5); w.Write(new byte[] { 0x0f, 0x0b });
-        Get(w, 1); Get(w, status); Memory(w, I32Store, 2, ValueRef);
-        I(w, 4); w.Write((byte)0x0b);
+        I(w, 1); w.Write((byte)0x0b);
     }
 
     internal void EmitImplementation(BinaryWriter w, IReadOnlyDictionary<int, (int Function, WasmNativeFunction Native)> natives,
-        IReadOnlyDictionary<string, int> runtime, IReadOnlySet<string> cacheable, int signal, int execution, bool resume = false,
+        IReadOnlyDictionary<string, int> runtime, int signal, int execution, bool resume = false,
         Func<string, int>? text = null)
     {
         bool region = IsRegion;
@@ -550,12 +553,15 @@ internal sealed class WasmNativeFunction
         // Parameters: recursion depth 0, own closure 1, pointers, then the arguments, or (resuming) the site and the
         // deoptimized frame. The execution is a global the adapter sets.
         // A region's parameters are (frame, site, unused); its pointers are locals it resolves itself.
-        int pointerBase = region ? 3 : 2, argumentBase = 2 + Pointers.Length;
+        int pointerBase = 3, argumentBase = 3 + Pointers.Length;
+        const int depthParameter = 0, budgetParameter = 1, selfParameter = 2;
         int first = region ? 3 + Pointers.Length : argumentBase + (resume ? 2 : Signature.Parameters.Length);
         int siteParameter = region ? 1 : argumentBase, frameParameter = region ? 0 : argumentBase + 1;
         void Execution() { Op(0x23); U(w, execution); }
         int slots = plan.Locals, cap = capacity;
-        var cached = Pointers.Where(p => OwnPointers.TryGetValue(p, out var e) && e.Callee < 0 && cacheable.Contains(p)).ToArray();
+        // Outer typed bindings live in locals: loaded at entry, written back before every exit, deoptimization and call
+        // (a callee reads and writes the bindings themselves), and reloaded after a call.
+        var cached = Pointers.Where(p => !OwnPointers.TryGetValue(p, out var e) || e.Callee < 0).ToArray();
         int i32Count = slots * 2 + cap + 8 + cached.Length + (region ? Pointers.Length : 0), f64Count = slots + cap + 3 + cached.Length;
         int SlotI(int s) => first + s;
         int Flag(int s) => first + slots + s;
@@ -577,7 +583,7 @@ internal sealed class WasmNativeFunction
         U(w, 2); U(w, i32Count); w.Write((byte)0x7f); U(w, f64Count); w.Write((byte)0x7c);
         // A region's results: the generic block to continue at, -1 to run the generic body now (no budget left or a
         // collection pending), -2 when a binding or slot has another type (generic from now on), -3 after an error.
-        void RegionExit(int block) { WriteSlots(); SaveBudget(); I(w, block); Op(Return); }
+        void RegionExit(int block) { WriteSlots(); SaveOuter(); SaveBudget(); I(w, block); Op(Return); }
         int PointerOf(string name) => pointerBase + Array.IndexOf(Pointers, name);
         int CacheOf(string name) => Array.IndexOf(cached, name);
 
@@ -597,15 +603,21 @@ internal sealed class WasmNativeFunction
             Memory(w, F64Load, 3, offset + ValueNumber); if (!Wide(type)) Op(0xfc, 0x02);
         }
 
-        // Outer typed bindings: a cached local when no native code writes them, else the binding's payload.
-        void ReadOuter(string name, int type) {
-            int c = CacheOf(name);
-            if (c >= 0) { Local(type, CacheI(c), CacheF(c)); return; }
-            LoadPayload(() => Get(w, PointerOf(name)), 0, type);
+        int CachedType(string name) {
+            if (OwnPointers.TryGetValue(name, out var own)) return own.Tag;
+            foreach (var native in natives.Values) if (native.Native.OwnPointers.TryGetValue(name, out var e)) return e.Tag;
+            throw new InvalidOperationException("Unknown outer binding.");
         }
-        void WriteOuterFrom(string name, int type, Action value) {
-            Get(w, PointerOf(name)); value();
-            if (IsArray(type)) Memory(w, I32Store, 2, ValueRef); else { AsPayload(type); Memory(w, F64Store, 3, ValueNumber); }
+        void ReadOuter(string name, int type) { int c = CacheOf(name); Local(type, CacheI(c), CacheF(c)); }
+        void WriteOuterFrom(string name, int type, Action value) { int c = CacheOf(name); value(); SetLocal(type, CacheI(c), CacheF(c)); }
+        void LoadOuter() { for (int c = 0; c < cached.Length; c++) { int type = CachedType(cached[c]);
+            LoadPayload(() => Get(w, PointerOf(cached[c])), 0, type); SetLocal(type, CacheI(c), CacheF(c)); } }
+        void SaveOuter() {
+            foreach (string name in Written) {
+                int c = CacheOf(name), type = CachedType(name);
+                Get(w, PointerOf(name)); Local(type, CacheI(c), CacheF(c));
+                if (IsArray(type)) Memory(w, I32Store, 2, ValueRef); else { AsPayload(type); Memory(w, F64Store, 3, ValueNumber); }
+            }
         }
 
         void Zero() { if (Wide(Signature.Result)) F(w, 0); else I(w, 0); }
@@ -620,8 +632,8 @@ internal sealed class WasmNativeFunction
                 Op(End);
             }
         }
-        void Raise(Action value) { value(); Op(0x24); U(w, signal); Zero(); Op(Return); }
-        void ExitWith(int type, int k) { SaveBudget(); PushStack(type, k); Op(Return); }
+        void Raise(Action value) { value(); Op(0x24); U(w, signal); Zero(); I(w, int.MinValue); Op(Return); }
+        void ExitWith(int type, int k) { SaveOuter(); PushStack(type, k); Get(w, budget); Op(Return); }
         // Errors and deoptimizations leave the body through one handler after it, so loops contain no runtime calls
         // (which would make every value live across them spill).
         var sites = new List<(int Kind, int Block, int[] Operands, int Message)>();
@@ -645,7 +657,7 @@ internal sealed class WasmNativeFunction
             Get(w, frame); payload(); Memory(w, F64Store, 3, offset + ValueNumber);
         }
         void Materialize(int block, int[] operands) {
-            Execution(); Get(w, 1); I(w, block); I(w, operands.Length); Op(Call); U(w, runtime["rt_nativeFrame"]); Set(w, frame);
+            Execution(); Get(w, selfParameter); I(w, block); I(w, operands.Length); Op(Call); U(w, runtime["rt_nativeFrame"]); Set(w, frame);
             for (int s = 0; s < slots; s++) {
                 int type = slotTypes[s];
                 if (type == Unknown) continue;
@@ -664,7 +676,7 @@ internal sealed class WasmNativeFunction
                     if (Array.IndexOf(Pointers, name) < 0) {
                         // A recursive call's callee is this activation's own closure.
                         Get(w, frame); I(w, ClosureTag); Memory(w, I32Store, 2, offset + ValueTag);
-                        Get(w, frame); Get(w, 1); Memory(w, I32Store, 2, offset + ValueRef);
+                        Get(w, frame); Get(w, selfParameter); Memory(w, I32Store, 2, offset + ValueRef);
                         Get(w, frame); F(w, 0); Memory(w, F64Store, 3, offset + ValueNumber);
                     } else {
                         int pointer = PointerOf(name);
@@ -682,8 +694,8 @@ internal sealed class WasmNativeFunction
         void Checkpoint(int pc, bool entry) {
             if (!fuel.TryGetValue(pc, out int weight)) return;
             if (entry) {
-                LoadBudget();
-                Get(w, 0); I(w, depthLimit); Op(0x4f);
+                Get(w, budgetParameter); Set(w, budget);
+                Get(w, depthParameter); I(w, depthLimit); Op(0x4f);
                 Get(w, budget); Op(0x45, 0x72);
                 Execution(); Memory(w, I32Load, 2, ExecutionPoll); Op(0x72);
             } else { Get(w, budget); I(w, 0); Op(0x4c); }
@@ -701,19 +713,21 @@ internal sealed class WasmNativeFunction
         }
 
         // ---- resuming: skip blocks lead from the top through every enclosing construct to the resumed loop head ------
-        var loopHeads = LoopHeads;
+        var targets = region ? LoopHeads : ResumeTargets;
         var skips = new List<(int Owner, int End, int[] Sites)>(); // Owner: index into constructs, or -1 for the top.
         if (resume)
-            foreach (int head in loopHeads) {
-                var path = constructs.Select((c, i) => (c, i)).Where(p => p.c.Start <= head && head < p.c.End)
+            foreach (int target in targets) {
+                // The constructs that enclose the target, outermost first; a segment skips from inside each to the next,
+                // and the last one to the target itself.
+                var path = constructs.Select((c, i) => (c, i)).Where(p => p.c.Start < target && target < p.c.End)
                     .OrderBy(p => p.c.Start).ThenByDescending(p => p.c.End).ThenBy(p => p.c.Loop).ToList();
-                for (int k = 0; k < path.Count; k++) {
-                    int owner = k == 0 ? -1 : path[k - 1].i, next = path[k].c.Start;
+                for (int k = 0; k <= path.Count; k++) {
+                    int owner = k == 0 ? -1 : path[k - 1].i, next = k < path.Count ? path[k].c.Start : target;
                     // Nothing to skip between two constructs opened at the same pc unless the outer one is a loop (its checkpoint).
                     if (k > 0 && path[k - 1].c.Start == next && !path[k - 1].c.Loop) continue;
                     int existing = skips.FindIndex(x => x.Owner == owner && x.End == next);
-                    if (existing < 0) skips.Add((owner, next, new[] { SiteOf(head) }));
-                    else skips[existing] = (owner, next, skips[existing].Sites.Append(SiteOf(head)).ToArray());
+                    if (existing < 0) skips.Add((owner, next, new[] { SiteOf(target) }));
+                    else skips[existing] = (owner, next, skips[existing].Sites.Append(SiteOf(target)).ToArray());
                 }
             }
         void OpenSkips(int owner) {
@@ -770,10 +784,10 @@ internal sealed class WasmNativeFunction
                 LoadPayload(() => Get(w, frameParameter), FrameValues + ValueSize * s, type);
                 SetLocal(type, SlotI(s), SlotF(s));
             }
-            foreach (int head in loopHeads) {
-                var operands = states[head];
+            foreach (int target in targets) {
+                var operands = states[target];
                 if (!operands.Any(Value)) continue;
-                Get(w, siteParameter); I(w, SiteOf(head)); Op(0x46, If, 0x40);
+                Get(w, siteParameter); I(w, SiteOf(target)); Op(0x46, If, 0x40);
                 for (int k = 0; k < operands.Length; k++) {
                     if (!Value(operands[k])) continue;
                     LoadPayload(() => Get(w, frameParameter), FrameValues + ValueSize * (plan.Locals + k), operands[k]);
@@ -787,17 +801,17 @@ internal sealed class WasmNativeFunction
             for (int p = 0; p < Signature.Parameters.Length; p++) { Get(w, argumentBase + p); SetLocal(slotTypes[p], SlotI(p), SlotF(p)); }
         }
         Op(Block, 0x40);
-        if (resume) LoadBudget(); else Checkpoint(0, true);
-        for (int c = 0; c < cached.Length; c++) { string name = cached[c]; int type = OwnPointers[name].Tag;
-            LoadPayload(() => Get(w, PointerOf(name)), 0, type); SetLocal(type, CacheI(c), CacheF(c)); }
+        if (region) LoadBudget(); else if (resume) { Get(w, budgetParameter); Set(w, budget); } else Checkpoint(0, true);
+        LoadOuter();
         OpenSkips(-1);
 
         for (int pc = Start; pc <= Stop; pc++) {
             while (open.Count > 1 && open[^1].End == pc) { open.RemoveAt(open.Count - 1); Op(End); }
+            // Arriving at the resumed target ends the skipping.
+            if (resume && Array.IndexOf(targets, pc) >= 0) { Get(w, resumeAt); I(w, SiteOf(pc)); Op(0x46, If, 0x40); I(w, 0); Set(w, resumeAt); Op(End); }
             foreach (var c in constructs.Where(c => c.Start == pc).OrderByDescending(c => c.End).ThenBy(c => c.Loop)) {
                 if (c.End > open[^1].End) throw new InvalidOperationException("Native control flow is not structured.");
                 open.Add(c); Op(c.Loop ? Loop : Block, 0x40);
-                if (resume && c.Loop) { Get(w, resumeAt); I(w, SiteOf(pc)); Op(0x46, If, 0x40); I(w, 0); Set(w, resumeAt); Op(End); }
                 OpenSkips(constructs.IndexOf(c));
                 if (c.Loop) Checkpoint(pc, false);
             }
@@ -962,23 +976,23 @@ internal sealed class WasmNativeFunction
                     }
                     string name = callNames[callee - CallableBase];
                     var (function, target) = natives[OwnPointers.TryGetValue(name, out var own) ? own.Callee : Body];
-                    Get(w, 0); I(w, 1); Op(0x6a);
+                    Get(w, depthParameter); I(w, 1); Op(0x6a); Get(w, budget);
                     // The callee's closure: this activation's own for a recursive call, else loaded from its binding.
-                    if (ClosureGuards.ContainsKey(name) && !OwnPointers.ContainsKey(name)) Get(w, 1); else { Get(w, PointerOf(name)); Memory(w, I32Load, 2, ValueRef); }
+                    if (ClosureGuards.ContainsKey(name) && !OwnPointers.ContainsKey(name)) Get(w, selfParameter); else { Get(w, PointerOf(name)); Memory(w, I32Load, 2, ValueRef); }
                     foreach (string pointer in target.Pointers) Get(w, PointerOf(pointer));
                     for (int a = 0; a < count; a++) {
                         int from = stack[at + 1 + a], to = target.Signature.Parameters[a];
                         if (from == to) PushStack(from, at + 1 + a);
                         else { AsDouble(from, at + 1 + a); if (to == FloatType) RoundFloat(); }
                     }
-                    SaveBudget();
-                    Op(Call); U(w, function); PopStack(target.Signature.Result, at);
-                    LoadBudget();
-                    Op(0x23); U(w, signal); Op(If, 0x40);
+                    SaveOuter();
+                    Op(Call); U(w, function); Set(w, budget); PopStack(target.Signature.Result, at);
+                    LoadOuter();
+                    Get(w, budget); I(w, int.MinValue); Op(0x46, If, 0x40);
                     // A raised error (5) unwinds every native activation with the signal kept.
-                    Op(0x23); U(w, signal); I(w, 5); Op(0x46, If, 0x40); Zero(); Op(Return); Op(End);
+                    Op(0x23); U(w, signal); I(w, 5); Op(0x46, If, 0x40); Zero(); I(w, int.MinValue); Op(Return); Op(End);
                     // The callee deoptimized: this activation becomes its caller's generic frame, resuming after the call.
-                    ToHandler(CallSite, BlockOf(pc + 1), stack.Take(at).ToArray(), 0);
+                    ToHandler(CallSite, BlockOf(pc + 1), stack.Take(at).ToArray(), pc + 1);
                     Op(End);
                     break;
                 }
@@ -995,18 +1009,19 @@ internal sealed class WasmNativeFunction
         for (int k = 0; k < sites.Count; k++) {
             Op(End);
             var (kind, block, operands, message) = sites[k];
+            if (kind == ErrorSite) SaveOuter();
             if (kind == ErrorSite && region) { Execution(); I(w, message); Op(Call); U(w, runtime["rt_nativeFailure"]); Op(Drop); I(w, -3); Op(Return); continue; }
             if (kind == ErrorSite) { Raise(() => { Execution(); I(w, message); Op(Call); U(w, runtime["rt_nativeFailure"]); }); continue; }
             if (region) { RegionExit(block); continue; } // A loop head: the generic body continues there and yields.
             // A checkpoint consumed nothing yet; after a call the callee already stored the budget.
-            if (kind == CheckpointSite) SaveBudget();
+            if (kind == CheckpointSite) { SaveBudget(); SaveOuter(); }
             Materialize(block, operands);
             // A checkpoint's frame resumes natively at the same site when the scheduler runs it again.
-            if (kind == CheckpointSite) { Get(w, frame); I(w, SiteOf(message)); Memory(w, I32Store, 2, FrameNativeSite); }
+            Get(w, frame); I(w, SiteOf(message)); Memory(w, I32Store, 2, FrameNativeSite);
             if (kind == CallSite) { Op(0x23); U(w, signal); Get(w, frame); Memory(w, I32Store, 2, FrameParent); }
             Raise(() => Get(w, frame));
         }
-        Zero();
+        Zero(); if (!region) I(w, int.MinValue);
         Op(End);
 
         void ClearScope(int scope, int keep) { foreach (int slot in plan.Scopes[scope].SlotList) if (slot != keep) { I(w, 0); Set(w, Flag(slot)); } }

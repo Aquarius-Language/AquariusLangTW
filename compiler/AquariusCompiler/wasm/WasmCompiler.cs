@@ -146,8 +146,6 @@ public sealed class WasmCompiler
         var texts = natives.Concat(regions).SelectMany(n => n.Pointers.Concat(n.Guards.Keys).Concat(n.ClosureGuards.Keys)).Distinct().ToDictionary(name => name, data.Text, StringComparer.Ordinal);
         // Per native function: entry adapter, implementation, resume adapter, resume implementation.
         var nativeByBody = natives.Select((native, k) => (native, k)).ToDictionary(p => p.native.Body, p => (Function: nativeFunctions + 4 * p.k + 1, Native: p.native));
-        var written = natives.SelectMany(n => n.Written).ToHashSet(StringComparer.Ordinal);
-        var cacheable = natives.SelectMany(n => n.Pointers).Where(name => !written.Contains(name)).ToHashSet(StringComparer.Ordinal);
         // The native tier's signal global (WasmNativeFunction): 0, 5 after an error, or a deoptimized frame.
         int signal = runtime.Sections.TryGetValue(6, out var globals) ? WasmRuntimeImage.Count(globals) : 0;
         int execution = signal + 1; // The execution the adapter entered, for fuel, deoptimization and errors.
@@ -197,8 +195,7 @@ public sealed class WasmCompiler
             foreach (var region in regions) {
                 using var bytes = new MemoryStream();
                 using (var code = new BinaryWriter(bytes, Encoding.UTF8, true))
-                    region.EmitImplementation(code, new Dictionary<int, (int, WasmNativeFunction)>(), runtime.Functions,
-                        region.Pointers.Where(name => !region.Written.Contains(name)).ToHashSet(StringComparer.Ordinal), signal, execution, text: name => texts[name]);
+                    region.EmitImplementation(code, new Dictionary<int, (int, WasmNativeFunction)>(), runtime.Functions, signal, execution, text: name => texts[name]);
                 U(w, (int)bytes.Length); w.Write(bytes.ToArray());
             }
             for (int p = 0; p < numeric.Count; p++) {
@@ -229,9 +226,9 @@ public sealed class WasmCompiler
             for (int k = 0; k < natives.Count; k++) {
                 int implementation = nativeFunctions + 4 * k + 1;
                 Body(code => natives[k].EmitAdapter(code, implementation, runtime.Functions, name => texts[name], nativeOf, signal, execution));
-                Body(code => natives[k].EmitImplementation(code, nativeByBody, runtime.Functions, cacheable, signal, execution));
+                Body(code => natives[k].EmitImplementation(code, nativeByBody, runtime.Functions, signal, execution));
                 Body(code => natives[k].EmitAdapter(code, implementation, runtime.Functions, name => texts[name], nativeOf, signal, execution, implementation + 2));
-                Body(code => natives[k].EmitImplementation(code, nativeByBody, runtime.Functions, cacheable, signal, execution, resume: true));
+                Body(code => natives[k].EmitImplementation(code, nativeByBody, runtime.Functions, signal, execution, resume: true));
             }
         });
         runtime.Sections[11] = WasmRuntimeImage.Extend(runtime.Sections[11], 1, w =>
