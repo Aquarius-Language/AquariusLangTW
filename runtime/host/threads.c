@@ -151,6 +151,8 @@ int32_t thread_service(aqua_runtime *rt, int32_t operation, int32_t arguments, i
     if (operation == 106) {
         double ms; memcpy(&ms, guest_base(rt) + arguments + 8, 8);
         platform_sleep(ms);
+        /* A polling loop must let the host deliver work posted while it slept. */
+        if (rt->current) guest_set_u32(rt, rt->current->execution + G_Execution_Budget, 0);
         return answer(rt, output, aqua_bool(true));
     }
     if (operation == 107) return answer(rt, output, aqua_bool(false));

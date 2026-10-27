@@ -4,6 +4,9 @@ AquariusLang provides the same function-based threading library on desktop,
 websites and Android. Use `Thread` / `執行緒` directly, or `import("Thread")` /
 `匯入("執行緒")`. Both languages address the same builtin operations.
 
+On the parent thread, `Sleep` yields at the next execution checkpoint after sleeping, so posted network completions
+and other runtime work can reach polling loops. Worker sleep and cancellation keep their existing behavior.
+
 ```aqua
 變數 平方 = 函式(數值) { 回傳 數值 * 數值; };
 變數 工作 = 執行緒.啟動(平方, [12]);

@@ -34,6 +34,23 @@ registerGlue('network', (context) => {
         return bytes;
     };
 
+    const openSocket = (url, protocols, callback, data, details = false) => {
+        const socket = new WebSocket(context.text(url), protocols);
+        socket.binaryType = 'arraybuffer';
+        const handle = context.retain(socket);
+        live.add(handle);
+        socket.addEventListener('open', () => emit(handle, callback, data, SOCKET_OPEN));
+        socket.addEventListener('message', (e) => {
+            if (!live.has(handle)) return;
+            const text = typeof e.data === 'string', bytes = text ? encoder.encode(e.data) : new Uint8Array(e.data);
+            emit(handle, callback, data, text ? SOCKET_TEXT : SOCKET_BINARY, copy(bytes), bytes.length);
+        });
+        socket.addEventListener('close', (e) => emit(handle, callback, data, SOCKET_CLOSE, e.code,
+            details ? context.allocate(e.reason)[0] : 0));
+        socket.addEventListener('error', () => emit(handle, callback, data, SOCKET_ERROR));
+        return handle;
+    };
+
     return {
         network_fetch(method, url, headers, headersLength, body, bodyLength, hasBody, credentials, manual, callback, data) {
             const controller = new AbortController();
@@ -68,20 +85,16 @@ registerGlue('network', (context) => {
         network_release(handle) { live.delete(handle); context.release(handle); },
 
         network_socket_open(url, callback, data) {
-            const socket = new WebSocket(context.text(url));
-            socket.binaryType = 'arraybuffer';
-            const handle = context.retain(socket);
-            live.add(handle);
-            socket.addEventListener('open', () => emit(handle, callback, data, SOCKET_OPEN));
-            socket.addEventListener('message', (e) => {
-                if (!live.has(handle)) return;
-                const text = typeof e.data === 'string', bytes = text ? encoder.encode(e.data) : new Uint8Array(e.data);
-                emit(handle, callback, data, text ? SOCKET_TEXT : SOCKET_BINARY, copy(bytes), bytes.length);
-            });
-            socket.addEventListener('close', (e) => emit(handle, callback, data, SOCKET_CLOSE, e.code));
-            socket.addEventListener('error', () => emit(handle, callback, data, SOCKET_ERROR));
-            return handle;
+            return openSocket(url, undefined, callback, data);
         },
+        network_socket_open_protocols(url, protocols, length, callback, data) {
+            try { return openSocket(url, strings(protocols, length), callback, data, true); }
+            catch { return 0; }
+        },
+        network_socket_protocol(handle) { return context.allocate(context.object(handle)?.protocol ?? '')[0]; },
+        network_page_host() { return context.allocate(globalThis.location?.hostname ?? '')[0]; },
+        network_page_port() { return context.allocate(globalThis.location?.port ?? '')[0]; },
+        network_page_secure() { return globalThis.location?.protocol === 'https:' ? 1 : 0; },
         network_socket_send(handle, pointer, length, text) {
             const socket = context.object(handle), bytes = context.bytes.slice(pointer, pointer + length);
             socket.send(text ? decoder.decode(bytes) : bytes);

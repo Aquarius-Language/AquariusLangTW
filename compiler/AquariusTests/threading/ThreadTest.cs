@@ -6,6 +6,21 @@ namespace AquariusTests.Threading;
 public class ThreadTest
 {
     [RuntimeFact]
+    public void SleepYieldsSoPollingCanObservePostedNetworkCompletion()
+    {
+        var listener = new System.Net.Sockets.TcpListener(System.Net.IPAddress.Loopback, 0);
+        listener.Start();
+        int port = ((System.Net.IPEndPoint)listener.LocalEndpoint).Port;
+        listener.Stop();
+        Assert.Equal("真\n", WasmTestHost.Output($$"""
+            var request = import("Network").StartRequest("GET", "http://127.0.0.1:{{port}}/", {"timeout":1000});
+            for (var i = 0; i < 200 && !request.IsDone(); i++) { Thread.Sleep(5); }
+            print(request.IsDone());
+            request.Close();
+            """));
+    }
+
+    [RuntimeFact]
     public void EveryFunctionHasTheSameBilingualBinding()
     {
         // The C# test also checked the C# catalog's portable ids (100-107), an internal of the old host transport.

@@ -56,7 +56,8 @@ static char *strip_comments(const char *source) {
 }
 
 static const char *skip_space(const char *p) { while (isspace((unsigned char)*p)) p++; return p; }
-static bool word_char(char c) { return isalnum((unsigned char)c) || c == '_'; }
+/* Keep UTF-8 identifier bytes together; the WGSL compiler validates the identifier's Unicode characters. */
+static bool word_char(char c) { return (unsigned char)c >= 0x80 || isalnum((unsigned char)c) || c == '_'; }
 static const char *identifier(const char *p, char *out, size_t size) {
     size_t n = 0;
     while (word_char(*p)) { if (n + 1 < size) out[n++] = *p; p++; }

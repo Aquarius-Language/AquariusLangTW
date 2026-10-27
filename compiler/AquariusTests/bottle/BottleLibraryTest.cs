@@ -2,6 +2,7 @@ using AquariusLang.Bottle;
 using AquariusLang.Build;
 using AquariusLang.Compiler;
 using AquariusLang.Libraries;
+using AquariusTests.Packaging;
 
 namespace AquariusTests.Bottle;
 
@@ -370,6 +371,23 @@ public class BottleLibraryTest
     }
 
     [NativeToolchainFact]
+    public void NativeLibrariesBuildWithWindowsPathsInToolchainEnvironment()
+    {
+        using var t = new BottleDirectory();
+        string folder = NativeToolchain.WriteTinyLibrary(t.FilePath("windows-paths"));
+        string root = AquariusInstallation.Require().Root;
+        string native = Environment.GetEnvironmentVariable("AQUARIUS_NATIVE_BUILD") ?? Path.Combine(root, ".native-build");
+        using var pins = System.Text.Json.JsonDocument.Parse(File.ReadAllText(Path.Combine(root, "scripts", "toolchain.json")));
+        string llvmDirectory = pins.RootElement.GetProperty("llvm").GetProperty("directory").GetString()!.Replace("{platform}", "windows-x64");
+        var environment = NativeToolchain.BuildEnvironment;
+        environment["AQUARIUS_SDK_ROOT"] = root.Replace('/', '\\');
+        environment["AQUARIUS_NATIVE_BUILD"] = native.Replace('/', '\\');
+        environment["AQUARIUS_LLVM"] = (Environment.GetEnvironmentVariable("AQUARIUS_LLVM") ?? Path.Combine(native, "toolchains", llvmDirectory)).Replace('/', '\\');
+        AquaCli.Run(t, environment, "library", "build", folder, "--targets", "windows-x64").Succeeded();
+        Assert.Equal("42\ntiny native\n", AquaCli.Run(t, "run", Path.Combine(folder, "tests", "case.aqua")).Succeeded().Output);
+    }
+
+    [NativeToolchainFact]
     public void CppLibrariesExportAnEntryPointTheRuntimeCanLoad()
     {
         using var t = new BottleDirectory();
@@ -378,6 +396,30 @@ public class BottleLibraryTest
         File.WriteAllText(cmake, File.ReadAllText(cmake).Replace("project(aqua_tiny C)", "project(aqua_tiny C CXX)").Replace("src/tiny.c", "src/tiny.cpp"));
         File.Move(Path.Combine(folder, "native", "src", "tiny.c"), Path.Combine(folder, "native", "src", "tiny.cpp"));
         AquaCli.Run(t, NativeToolchain.BuildEnvironment, "library", "build", folder, "--targets", "windows-x64").Succeeded();
+        Assert.Equal("42\ntiny native\n", AquaCli.Run(t, "run", Path.Combine(folder, "tests", "case.aqua")).Succeeded().Output);
+    }
+
+    [LinuxNativeToolchainFact]
+    public void LinuxCppLibrariesCarryTheirExceptionAndRttiRuntime()
+    {
+        using var t = new BottleDirectory();
+        string folder = NativeToolchain.WriteTinyLibrary(t.FilePath("cpp"));
+        string cmake = Path.Combine(folder, "native", "CMakeLists.txt");
+        File.WriteAllText(cmake, File.ReadAllText(cmake).Replace("project(aqua_tiny C)", "project(aqua_tiny C CXX)").Replace("src/tiny.c", "src/tiny.cpp") +
+            "target_link_options(aqua_tiny PRIVATE -Wl,--no-undefined)\n");
+        string source = Path.Combine(folder, "native", "src", "tiny.cpp");
+        File.Move(Path.Combine(folder, "native", "src", "tiny.c"), source);
+        File.WriteAllText(source, "#include <vector>\n#include <stdexcept>\n" + File.ReadAllText(source).Replace(
+            "aqua_return_double(call, aqua_arg_number(call, 0) * 2);",
+            "std::vector<int> values{1, 2}; try { throw std::out_of_range(\"expected\"); } catch (const std::exception&) { aqua_return_double(call, aqua_arg_number(call, 0) * values.back()); }"));
+        string build = Path.Combine(folder, "build", "linux-x64");
+        string toolchain = Path.Combine(AquariusInstallation.Require().Sdk, "cmake", "toolchains", "linux-x64.cmake");
+        Assert.Equal(0, Processes.Run(NativeToolchain.CMake!, folder, ["-S", Path.Combine(folder, "native"), "-B", build,
+            "-G", "Unix Makefiles", "-DCMAKE_TOOLCHAIN_FILE=" + toolchain, "-DCMAKE_BUILD_TYPE=Release"]).ExitCode);
+        Assert.Equal(0, Processes.Run(NativeToolchain.CMake!, folder, ["--build", build, "--parallel", "2"]).ExitCode);
+        string binary = Path.Combine(folder, "native", "linux-x64", "libaqua_tiny.so");
+        Directory.CreateDirectory(Path.GetDirectoryName(binary)!);
+        File.Copy(Path.Combine(build, "libaqua_tiny.so"), binary);
         Assert.Equal("42\ntiny native\n", AquaCli.Run(t, "run", Path.Combine(folder, "tests", "case.aqua")).Succeeded().Output);
     }
 

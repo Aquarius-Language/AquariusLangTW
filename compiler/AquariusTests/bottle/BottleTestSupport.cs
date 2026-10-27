@@ -182,3 +182,15 @@ public sealed class NativeToolchainFactAttribute : FactAttribute
 {
     public NativeToolchainFactAttribute() { if (NativeToolchain.Missing is { } reason) Skip = reason; }
 }
+
+public sealed class LinuxNativeToolchainFactAttribute : FactAttribute
+{
+    public LinuxNativeToolchainFactAttribute()
+    {
+        if (!OperatingSystem.IsLinux()) Skip = "Builds and loads a Linux C++ SDK library on a Linux host.";
+        else if (!WasmTestHost.Available) Skip = WasmTestHost.MissingRuntime;
+        else if (NativeToolchain.CMake == null) Skip = "Needs CMake.";
+        else if (Environment.GetEnvironmentVariable("AQUARIUS_LLVM") is not { Length: > 0 } llvm || !File.Exists(Path.Combine(llvm, "bin", "clang++")))
+            Skip = "Needs the pinned Linux LLVM toolchain in AQUARIUS_LLVM.";
+    }
+}

@@ -63,7 +63,8 @@ static void working_directory(aqua_call *call) {
     const char *root = rt->application_directory;
     size_t n = strlen(root) + strlen(script) + 2;
     char *path = aqua_scratch(call, n);
-    snprintf(path, n, "%s%s%s", root, *root && *script ? "/" : "", script);
+    /* A web package has no OS root; nested module directories still need a package-root anchor. */
+    snprintf(path, n, "%s%s%s", root, *script ? "/" : "", script);
     aqua_return_cstring(call, path);
 }
 

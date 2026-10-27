@@ -312,7 +312,8 @@ aqua_value host_import(aqua_runtime *rt, uint32_t context, aqua_value name) {
         if (strncmp(text, "/bottles/", 9) == 0) { relative = text + 1; directory = ""; }
         else if (app_length && strncmp(text, rt->application_directory, app_length) == 0 && (text[app_length] == '/' || text[app_length] == '\\')) {
             relative = text + app_length + 1; directory = ""; /* absolute paths into the package (目前工作目錄 + "x.aqua") */
-        } else if (text[0] == '/' || (text[0] && text[1] == ':')) { result = host_error(rt, "匯入: %s is outside the application package.", text); free(text); return result; }
+        } else if (!app_length && text[0] == '/') { relative = text + 1; directory = ""; }
+        else if (text[0] == '/' || (text[0] && text[1] == ':')) { result = host_error(rt, "匯入: %s is outside the application package.", text); free(text); return result; }
         path = normalize_path(directory, relative);
         if (!path || application_module(&rt->app, path) < 0) {
             result = host_error(rt, "匯入: Packaged script not found: %s", path ? path : text);
@@ -418,6 +419,7 @@ static const char *asset_name(aqua_runtime *rt, const char *path) {
     if (strncmp(path, "/bottles/", 9) == 0) return path + 1;
     size_t n = rt->application_directory ? strlen(rt->application_directory) : 0;
     if (n && strncmp(path, rt->application_directory, n) == 0 && (path[n] == '/' || path[n] == '\\')) return path + n + 1;
+    if (!n && path[0] == '/') return path + 1; /* The web has an empty application directory. */
     return path;
 }
 const uint8_t *aqua_asset(aqua_runtime *rt, const char *path, size_t *length) {

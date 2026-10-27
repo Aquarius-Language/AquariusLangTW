@@ -11,5 +11,7 @@ set(CMAKE_RANLIB "${AQUA_LLVM}/bin/llvm-ranlib" CACHE FILEPATH "")
 set(CMAKE_C_COMPILER_TARGET x86_64-unknown-linux-gnu)
 set(CMAKE_CXX_COMPILER_TARGET x86_64-unknown-linux-gnu)
 set(CMAKE_CXX_FLAGS_INIT "-stdlib=libc++")
+# libc++.a leaves exception/RTTI support in libc++abi.a; external C++ libraries must carry both.
+set(CMAKE_CXX_STANDARD_LIBRARIES_INIT "-Wl,-Bstatic -Wl,--start-group -lc++ -lc++abi -Wl,--end-group -Wl,-Bdynamic")
 set(CMAKE_EXE_LINKER_FLAGS_INIT "-fuse-ld=lld -static-libstdc++ -Wl,--export-dynamic")
-set(CMAKE_SHARED_LINKER_FLAGS_INIT "-fuse-ld=lld -static-libstdc++")
+set(CMAKE_SHARED_LINKER_FLAGS_INIT "-fuse-ld=lld -static-libstdc++ -Wl,--exclude-libs,ALL")

@@ -198,6 +198,57 @@ public class WebTargetTest
     private static string? Node() => Processes.OnPath(OperatingSystem.IsWindows() ? "node.exe" : "node");
 
     [WebFact]
+    public void WebGLGlueTranslatesPixelsBuffersAndObjectLifetimes()
+    {
+        if (Node() is not { } node || Playwright() is not { } playwright) return;
+        using var t = new TestFolder();
+        string site = t.FilePath("site");
+        new WebTarget().Build(new WasmBuildRequest(Compile(t, new Dictionary<string, string> { ["main.aqua"] = "42;" }), site));
+        t.Write("site/index.html", """
+            <script type="module">
+            import {GlueContext,glueImports} from './glue/core/glue.mjs';
+            import './glue/webgl/webgl.mjs';
+            window.aquarius={state:{status:'running',lines:[]}};
+            try {
+              const context=new GlueContext();context.memory=new WebAssembly.Memory({initial:8});
+              let heap=1024,freed=0;
+              context.linker={symbol:name=>name==='malloc'?size=>{const p=heap;heap+=(size+7)&~7;return p;}:()=>{freed++;}};
+              const api=glueImports(context),canvas=document.createElement('canvas');canvas.width=2;canvas.height=2;
+              document.body.append(canvas);
+              const handle=api.webgl_context_create(context.retain({canvas}));
+              if(!handle)throw Error('WebGL 2 unavailable');
+              api.webgl_context_current(handle);
+              api.glClearColor(.25,.5,.75,1);api.glClear(0x4000);
+              const buffer=api.webgl_create_buffer();api.glBindBuffer(0x88EB,buffer);
+              api.glBufferData(0x88EB,4,0,0x88E1);api.glReadPixels(0,0,1,1,0x1908,0x1401,0);
+              api.glGetBufferSubData(0x88EB,0,4,64);
+              if(String([...context.bytes.subarray(64,68)])!=='64,128,191,255')throw Error('Pixel pack transfer failed');
+              api.glBindBuffer(0x88EB,0);api.webgl_delete_buffer(buffer);
+              if(context.object(buffer)!==undefined)throw Error('Deleted buffer retained');
+              const texture=api.webgl_create_texture();api.glBindTexture(0x8C1A,texture);
+              api.glTexStorage3D(0x8C1A,1,0x8233,2,1,1);
+              new Int16Array(context.memory.buffer,80,2).set([-123,456]);
+              api.glTexSubImage3D(0x8C1A,0,0,0,0,2,1,1,0x8D94,0x1402,80);
+              if(api.glGetError()!==0)throw Error('Signed texture upload failed');
+              const supported=canvas.getContext('webgl2').getSupportedExtensions();
+              for(const name of supported)api.webgl_extension(context.allocate(name)[0]);
+              const extensions=context.text(api.glGetString(0x1F03)).split(' ');
+              for(const name of supported) {
+                if(!extensions.includes(name.startsWith('WEBGL_')?name:'GL_'+name))throw Error('GLES extension name conversion failed');
+              }
+              api.glGetString(0x1F02);api.webgl_context_release(handle);
+              if(context.object(texture)!==undefined || freed!==2)throw Error('Context resources retained');
+              window.aquarius.state={status:'finished',exitCode:0,lines:['WEBGL_GLUE_OK']};
+            }catch(error){window.aquarius.state={status:'finished',exitCode:1,lines:[String(error)]};}
+            </script>
+            """);
+        var result = Processes.Run(node, t.Path, [t.Write("run-site.mjs", RunSite), site, playwright], timeoutMs: 120_000);
+        if (result.ExitCode == 4) return;
+        Assert.True(result.ExitCode == 0, result.Output + result.Error);
+        Assert.Equal("WEBGL_GLUE_OK\n", result.Output);
+    }
+
+    [WebFact]
     public void TheSiteRunsInChromium()
     {
         if (Node() is not { } node || Playwright() is not { } playwright) return; // Optional: needs node and Playwright.
@@ -209,8 +260,12 @@ public class WebTargetTest
             ["main.aqua"] = """
                 變數 s = 匯入("星星"); 變數 c = import("StarChart");
                 印出("網頁", 40 + 2, s.亮度(3), c.繪製(), 型別(匯入("Audio")), 是網頁());
+                印出(匯入(目前工作目錄 + "/lib/value.aqua").answer);
 
-                """ + (files ? "印出(匯入(\"Files\").讀取資產文字(\"assets/字.txt\", \"utf-8\"));\n" : ""),
+                """ + (files ? "印出(匯入(\"Files\").讀取資產文字(\"assets/字.txt\", \"utf-8\"));\n" +
+                    "印出(匯入(\"Files\").讀取資產文字(目前工作目錄 + \"/assets/字.txt\", \"utf-8\"));\n" : ""),
+            ["lib/value.aqua"] = "var answer = import(currWorkingDir + \"/nested/answer.aqua\").answer;",
+            ["lib/nested/answer.aqua"] = "var answer = 42;",
         }, Fixtures.WithDefaults(Fixtures.Library("stars")));
         string site = t.FilePath("site");
         new WebTarget().Build(new WasmBuildRequest(wasm, site));
@@ -219,6 +274,6 @@ public class WebTargetTest
         var result = Processes.Run(node, t.Path, [script, site, playwright], timeoutMs: 120_000);
         if (result.ExitCode == 4) return; // No Chromium for Playwright on this machine.
         Assert.True(result.ExitCode == 0, result.Output + result.Error);
-        Assert.Equal("網頁 42 30 星星圖 module 真\n" + (files ? "網頁資產\n" : ""), result.Output);
+        Assert.Equal("網頁 42 30 星星圖 module 真\n42\n" + (files ? "網頁資產\n網頁資產\n" : ""), result.Output);
     }
 }

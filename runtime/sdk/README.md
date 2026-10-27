@@ -3,6 +3,12 @@
 Everything a library needs to extend AquariusLang on every target from one source tree. Default libraries
 (`libraries/<name>/`) and external libraries (Bottle packages) use the same SDK; only the build mode differs.
 
+Toolchain location overrides (`AQUARIUS_SDK_ROOT`, `AQUARIUS_NATIVE_BUILD`, `AQUARIUS_LLVM`) accept native Windows paths
+as well as forward slashes; the shared CMake toolchain normalizes them before configuring compilers.
+
+Packaged asset and script paths built from `currWorkingDir` / `目前工作目錄` also work when the web host's application
+directory is empty: a leading slash then denotes the application package root.
+
 | Target | What a library builds to | How the runtime uses it |
 | --- | --- | --- |
 | `windows-x64` | Clang + MinGW (never MSVC) | default: linked into `aquarius.exe`; external: `aqua_<name>.dll` |
@@ -109,6 +115,9 @@ cmake -S runtime -B .native-build/runtime/windows-x64 -G Ninja -DCMAKE_TOOLCHAIN
 cmake --build .native-build/runtime/windows-x64
 # A subset of default libraries while developing one: -DAQUA_LIBRARIES=graphics
 ```
+
+Linux C++ libraries link both libc++ and libc++abi statically, including exception and RTTI support, so they do not
+depend on a machine's installed C++ standard library.
 
 The same with `web.cmake` builds `aquarius.wasm` and every library's side module; `cmake --install <build> --prefix
 <dir>` gathers a target's runtime files. Linux builds run under WSL with the Linux LLVM release (`AQUARIUS_LLVM`).

@@ -19,6 +19,7 @@ web-glue/
   core/              loader, WASI, application start, the registry (glue.mjs)
   page/              index.html and app.mjs of exported websites
   window/            <canvas> windows and DOM input for aqua/window.h
+  webgl/             WebGL 2 calls, typed pixel/buffer views and opaque GL object handles
   <domain>/          one folder per Web API: webgpu, webgl, canvas, audio, network, storage, ...
 ```
 
@@ -44,3 +45,8 @@ then add `import './network/network.mjs';` to `index.mjs`. Rules:
 - Asynchronous APIs take a C callback (a function pointer) and its data; call it with `context.callPointer` when the
   operation settles, then `context.wake()` so the runtime takes a turn. The C side resolves its deferred call there.
 - No state beyond what the Web API needs (handles, event queues); no decisions a C implementation could make.
+
+`network` exposes WebSocket subprotocol selection and the page host/port/security properties for C clients.
+`webrtc` exposes peer connections, SDP operations, ICE candidates and data channels. Its asynchronous operations
+return strings through C callbacks; peer/channel state, negotiation policy, JSON and event queues belong to the
+calling library. Both domains are available to external SDK side modules through `aqua_web` imports.
