@@ -80,6 +80,27 @@ public class NativeFunctionTest
         }
     }
 
+    /// <summary>Native code deoptimizes at every quantum's end and resumes natively at the marked site; when it declines
+    /// (no budget left) the generic body continues the frame, and a later resume must not repeat work from the old site.
+    /// Two recursive calls per activation make every kind of site resume under many small quanta.</summary>
+    [RuntimeFact]
+    public void ResumesNeverRepeatWorkUnderAnyQuantum()
+    {
+        string[] programs = [
+            "var build = function(d: int): array { if (d == 0) { return [0, 0]; } return [build(d - 1), build(d - 1)]; }; " +
+            "var check = function(t: array, d: int): int { if (d == 0) { return 1; } return 1 + check(t[0], d - 1) + check(t[1], d - 1); }; " +
+            "var total = 0; for (var i = 0; i < 4; i++) { total += check(build(6), 6); } print(total);",
+            "var fib = function(n: int): int { if (n < 2) { return n; } return fib(n - 1) + fib(n - 2); }; print(fib(16));",
+            "var sum = function(n: int): int { var t: int = 0; for (var i: int = 0; i < n; i++) { t += i % 5; } return t; }; " +
+            "var twice = function(n: int): int { return sum(n) + sum(n + 1); }; print(twice(300));",
+        ];
+        foreach (string program in programs) {
+            string expected = WasmTestHost.Run(program).Succeeded().Output;
+            for (int quantum = 1; quantum <= 40; quantum++)
+                Assert.Equal(expected, WasmTestHost.Run(program, new Dictionary<string, string> { ["AQUARIUS_FUEL_QUANTUM"] = quantum.ToString() }).Succeeded().Output);
+        }
+    }
+
     [RuntimeFact]
     public void TypedFunctionsTakeTheNativeTier()
     {
