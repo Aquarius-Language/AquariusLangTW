@@ -19,6 +19,7 @@ public sealed class LoweringCompiler {
     private readonly List<object> constants = new();
     private readonly Dictionary<string, int> names = new();
     private readonly Stack<List<int>> breaks = new();
+    private readonly List<(int, int, int, NativeSignature?)> loops = new();
     // The TypeChecker result for the whole program (runtime checks, native candidates), shared by nested function bodies.
     private TypeChecker? types;
 
@@ -36,19 +37,19 @@ public sealed class LoweringCompiler {
 
     public LoweredProgram Compile(INode node) {
         if (node == null) throw new ArgumentNullException(nameof(node));
-        code.Clear(); constants.Clear(); names.Clear(); breaks.Clear();
+        code.Clear(); constants.Clear(); names.Clear(); breaks.Clear(); loops.Clear();
         if (node is AbstractSyntaxTree tree && types == null) {
             var checker = TypeChecker.Check(tree);
             if (checker.Errors.Count > 0) throw new CompilationException(string.Join("\n", checker.Errors.Select(e => e.Message)));
             types = checker;
         }
         Node(node);
-        return new LoweredProgram(code.ToArray(), constants.ToArray(), !(node is AbstractSyntaxTree));
+        return new LoweredProgram(code.ToArray(), constants.ToArray(), !(node is AbstractSyntaxTree), loops.ToArray());
     }
 
     /// <summary>A function body: typed parameters are checked on entry and the implicit result like a return.</summary>
     internal LoweredProgram CompileFunction(FunctionLiteral function) {
-        code.Clear(); constants.Clear(); names.Clear(); breaks.Clear();
+        code.Clear(); constants.Clear(); names.Clear(); breaks.Clear(); loops.Clear();
         foreach (var parameter in function.Parameters ?? Array.Empty<Identifier>()) {
             if (parameter.Type == null) continue;
             // Assign consumes the target's loaded value below the new value, like `p = p`.
@@ -60,7 +61,7 @@ public sealed class LoweringCompiler {
         }
         Node(function.Body);
         Check(function);
-        return new LoweredProgram(code.ToArray(), constants.ToArray(), true);
+        return new LoweredProgram(code.ToArray(), constants.ToArray(), true, loops.ToArray());
     }
 
     // The subject shares the name constant: emitters identify a binding by its first name constant.
@@ -205,7 +206,7 @@ public sealed class LoweringCompiler {
     }
 
     private void Loop(ForLoopLiteral loop) {
-        Emit(IrOperation.EnterLoop, loop.DeclareStatement == null ? -1 : Name(loop.DeclareStatement.Name.Value));
+        int enter = Emit(IrOperation.EnterLoop, loop.DeclareStatement == null ? -1 : Name(loop.DeclareStatement.Name.Value));
         if (loop.DeclareStatement != null) { Node(loop.DeclareStatement); Emit(IrOperation.Pop); }
         int condition = code.Count;
         if (loop.ConditionalExpression != null) Node(loop.ConditionalExpression); else Emit(IrOperation.Void);
@@ -216,6 +217,7 @@ public sealed class LoweringCompiler {
         Emit(IrOperation.NextIteration); Emit(IrOperation.Jump, condition);
         Patch(end);
         foreach (int jump in breaks.Pop()) Patch(jump);
-        Emit(IrOperation.LeaveLoop);
+        int leave = Emit(IrOperation.LeaveLoop);
+        loops.Add((enter, condition, leave, types != null && types.Loops.TryGetValue(loop, out var region) ? region : null));
     }
 }

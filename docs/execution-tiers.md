@@ -119,6 +119,19 @@ A native error (integer division by zero, an out-of-bounds typed array index) is
 functions return only their result; a signal global carries 5 after an error or the outermost frame after a
 deoptimization. `AQUARIUS_WASM_TIER_DIAGNOSTICS=1` reports typed functions the native tier rejects.
 
+## Native regions in untyped code
+
+A loop of an untyped body (a top-level script, or an untyped function whose loop scopes are promoted) whose code only
+uses typed bindings of the enclosing scope (`變數 總和: 整數 = 0;` before the loop), its own loop variables, typed arrays
+and the core conversions becomes a native region (`WasmNativeFunction.SelectRegions`): the same native code, entered at
+its loop heads instead of a function entry. At every loop-head block of the region, the generic body writes its
+registers back and calls the region with the frame; the region resolves its outer bindings from the frame's scope, checks
+their types and the types of the frame slots it uses, runs from that loop head, and returns the generic block to continue
+at: the loop's exit, or the loop head where the budget ran out, whose generic checkpoint then yields (a later resumption
+enters the region again). A region that cannot run in an activation (a binding of another type) returns -2 and the
+generic body skips it until the next resumption; a raised error returns -3. Regions make no calls, so their state is only
+the frame's slots and the outer bindings.
+
 ## Garbage collector
 
 Blocks tile the heap contiguously. The sweep is a single pass by address that clears marks,

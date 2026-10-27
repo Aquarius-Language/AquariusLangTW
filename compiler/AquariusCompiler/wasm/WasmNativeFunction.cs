@@ -54,11 +54,41 @@ internal sealed class WasmNativeFunction
     private readonly List<string> callNames = new();
     private int capacity = 1;
 
-    private WasmNativeFunction(int bodyIndex, NativeSignature signature, LoweredProgram body, WasmScopePlan plan)
+    /// <summary>A native region: one loop of an untyped body, [Start, Stop] = its EnterLoop and LeaveLoop, entered and
+    /// resumed at its loop heads from the generic frame and leaving to the generic block at Stop (or a loop head).</summary>
+    internal bool IsRegion { get; }
+    internal int Start { get; }
+    internal int Stop { get; }
+
+    private WasmNativeFunction(int bodyIndex, NativeSignature signature, LoweredProgram body, WasmScopePlan plan, int start = 0, int end = -1)
     {
         Body = bodyIndex; Signature = signature; this.body = body; this.plan = plan;
+        IsRegion = end >= 0; Start = start; Stop = IsRegion ? end : body.Code.Length;
         slotTypes = Enumerable.Repeat(Unknown, plan.Locals).ToArray();
         for (int p = 0; p < signature.Parameters.Length; p++) slotTypes[p] = signature.Parameters[p];
+        // A region also uses the generic frame's slots declared before it, with the types the generic dataflow proves.
+        if (IsRegion && plan.SlotTags[start] is { } proven)
+            for (int s = 0; s < proven.Length; s++)
+                if (plan.SlotDecl[start]![s] == WasmScopePlan.Yes && proven[s] is IntType or FloatType or DoubleType or BoolType) slotTypes[s] = proven[s];
+    }
+
+    /// <summary>The outermost loops of untyped bodies that the native tier accepts as regions.</summary>
+    internal static List<WasmNativeFunction> SelectRegions(IReadOnlyList<LoweredProgram> bodies, IReadOnlyList<FunctionCode?> codes,
+        IReadOnlyList<WasmScopePlan> plans, Action<int, string>? rejected = null)
+    {
+        var regions = new List<WasmNativeFunction>();
+        for (int f = 0; f < bodies.Count; f++) {
+            // Fully typed functions run their loops natively already.
+            if (codes[f]?.Native != null || !plans[f].Scopes.Skip(1).All(scope => scope.Promoted)) continue;
+            int covered = -1;
+            foreach (var (enter, head, leave, region) in bodies[f].Loops.OrderBy(l => l.Enter)) {
+                if (enter < covered || region == null || plans[f].Depth[enter] != 0) continue;
+                var candidate = new WasmNativeFunction(f, region, bodies[f], plans[f], enter, leave);
+                if (candidate.Analyze(_ => -1)) { candidate.Pointers = candidate.OwnPointers.Keys.ToArray(); regions.Add(candidate); covered = leave; }
+                else rejected?.Invoke(f, $"loop at {enter}: " + (candidate.Rejection ?? "its control flow does not nest"));
+            }
+        }
+        return regions;
     }
 
     private static bool Numeric(int type) => type is IntType or FloatType or DoubleType;
@@ -202,7 +232,7 @@ internal sealed class WasmNativeFunction
     {
         var code = body.Code; int n = code.Length;
         states.Clear(); Callees.Clear(); OwnPointers.Clear(); Guards.Clear(); ClosureGuards.Clear(); Written.Clear(); callNames.Clear();
-        var work = new Queue<(int Pc, int[] Stack)>(); work.Enqueue((0, Array.Empty<int>()));
+        var work = new Queue<(int Pc, int[] Stack)>(); work.Enqueue((Start, Array.Empty<int>()));
         int pc = 0;
         bool Reject(int at) { Rejection = at < code.Length ? $"{code[at].Code} at instruction {at}" : "the result"; return false; }
         bool returns = false;
@@ -217,6 +247,8 @@ internal sealed class WasmNativeFunction
                 if (merged.SequenceEqual(old)) continue;
                 states[pc] = merged; state = (pc, merged);
             } else states.Add(pc, state.Stack); capacity = Math.Max(capacity, state.Stack.Length + 1);
+            if (IsRegion && pc == Stop) { if (state.Stack.Length != 0) return Reject(pc); returns = true; continue; }
+            if (IsRegion && (pc < Start || pc > Stop)) return Reject(pc);
             if (pc == n) { if (state.Stack.Length == 0 || state.Stack[^1] != Signature.Result) return Reject(pc); returns = true; continue; }
             if (plan.Depth[pc] < 0) return Reject(pc);
             var stack = state.Stack.ToList(); var op = code[pc]; int operand = op.Operand;
@@ -329,7 +361,7 @@ internal sealed class WasmNativeFunction
                     } else if (callee >= BuiltinBase) {
                         if (count != 1 || !Numeric(arguments[0])) return Reject(pc);
                         result = callee - BuiltinBase - ConvertFirst + IntType;
-                    } else if (callee >= CallableBase) {
+                    } else if (callee >= CallableBase && !IsRegion) {
                         var target = Signature.Outer[callNames[callee - CallableBase]].Function!;
                         var parameters = target.Parameters ?? Array.Empty<AquariusLang.ast.Identifier>();
                         if (parameters.Length != count) return Reject(pc);
@@ -339,7 +371,7 @@ internal sealed class WasmNativeFunction
                     Pop(count + 1); stack.Add(result); break;
                 }
                 case IrOperation.Return:
-                    if (Top() != Signature.Result) return Reject(pc);
+                    if (IsRegion || Top() != Signature.Result) return Reject(pc);
                     returns = true; continue;
                 default: return Reject(pc); // Closures, heap objects, members, strings and errors stay generic.
             }
@@ -347,9 +379,14 @@ internal sealed class WasmNativeFunction
         }
         // A loop head is a deoptimization site: its operands must all be materializable.
         foreach (var (head, operands) in states)
-            if (operands.Contains(MixedType) && code.Take(n).Select((op, at) => (op, at)).Any(x => x.op.Code == IrOperation.Jump && x.op.Operand == head && head <= x.at)) {
-                Rejection = $"loop head {head} has operands of mixed types ({string.Join(",", operands)})"; return false;
+            if ((operands.Contains(MixedType) || IsRegion && operands.Length > 0)
+                && code.Take(n).Select((op, at) => (op, at)).Any(x => x.op.Code == IrOperation.Jump && x.op.Operand == head && head <= x.at)) {
+                Rejection = $"loop head {head} has operands a region or deoptimization cannot keep ({string.Join(",", operands)})"; return false;
             }
+        // The generic body keeps type-stable slots in registers: a region must agree with their types.
+        if (IsRegion)
+            foreach (var (slot, tag) in plan.RegisterSlots)
+                if (slotTypes[slot] != Unknown && slotTypes[slot] != tag) { Rejection = $"slot {slot} disagrees with its register type"; return false; }
         return returns;
     }
 
@@ -377,6 +414,8 @@ internal sealed class WasmNativeFunction
     /// loop head.</summary>
     private int[] LoopHeads => constructs!.Where(c => c.Loop).Select(c => c.Start).OrderBy(pc => pc).ToArray();
     private int SiteOf(int pc) => pc == 0 ? 1 : 2 + Array.IndexOf(LoopHeads, pc);
+    /// <summary>A region's loop heads and the site its function resumes at for each.</summary>
+    internal (int Head, int Site)[] HeadSites => LoopHeads.Select(h => (h, SiteOf(h))).ToArray();
 
     /// <summary>The entry adapter, (args, out, execution) -> status, called by rt_call through the function's numeric
     /// table slot; or, with <paramref name="resume"/>, the resume adapter, (frame, out, execution) -> status, called by
@@ -497,8 +536,11 @@ internal sealed class WasmNativeFunction
     }
 
     internal void EmitImplementation(BinaryWriter w, IReadOnlyDictionary<int, (int Function, WasmNativeFunction Native)> natives,
-        IReadOnlyDictionary<string, int> runtime, IReadOnlySet<string> cacheable, int signal, int execution, bool resume = false)
+        IReadOnlyDictionary<string, int> runtime, IReadOnlySet<string> cacheable, int signal, int execution, bool resume = false,
+        Func<string, int>? text = null)
     {
+        bool region = IsRegion;
+        if (region) resume = true; // A region always enters at a loop head from the generic frame.
         var code = body.Code; int n = code.Length;
         var fuel = WasmFuel.Checkpoints(body);
         var starts = WasmBodyEmitter.BlockStarts(body, plan);
@@ -507,12 +549,14 @@ internal sealed class WasmNativeFunction
         // ---- locals --------------------------------------------------------------------------------------------
         // Parameters: recursion depth 0, own closure 1, pointers, then the arguments, or (resuming) the site and the
         // deoptimized frame. The execution is a global the adapter sets.
-        int pointerBase = 2, argumentBase = 2 + Pointers.Length, first = argumentBase + (resume ? 2 : Signature.Parameters.Length);
-        int siteParameter = argumentBase, frameParameter = argumentBase + 1;
+        // A region's parameters are (frame, site, unused); its pointers are locals it resolves itself.
+        int pointerBase = region ? 3 : 2, argumentBase = 2 + Pointers.Length;
+        int first = region ? 3 + Pointers.Length : argumentBase + (resume ? 2 : Signature.Parameters.Length);
+        int siteParameter = region ? 1 : argumentBase, frameParameter = region ? 0 : argumentBase + 1;
         void Execution() { Op(0x23); U(w, execution); }
         int slots = plan.Locals, cap = capacity;
         var cached = Pointers.Where(p => OwnPointers.TryGetValue(p, out var e) && e.Callee < 0 && cacheable.Contains(p)).ToArray();
-        int i32Count = slots * 2 + cap + 8 + cached.Length, f64Count = slots + cap + 3 + cached.Length;
+        int i32Count = slots * 2 + cap + 8 + cached.Length + (region ? Pointers.Length : 0), f64Count = slots + cap + 3 + cached.Length;
         int SlotI(int s) => first + s;
         int Flag(int s) => first + slots + s;
         int StackI(int k) => first + slots * 2 + k;
@@ -525,12 +569,15 @@ internal sealed class WasmNativeFunction
         // the stored budget is clamped to the generic value.
         void SaveBudget() { Execution(); Get(w, budget); I(w, 0); Get(w, budget); I(w, 0); Op(0x4a, 0x1b); Memory(w, I32Store, 2, ExecutionBudget); }
         void LoadBudget() { Execution(); Memory(w, I32Load, 2, ExecutionBudget); Set(w, budget); }
-        int f64First = first + i32Count;
+        int f64First = first + i32Count - (region ? Pointers.Length : 0);
         int SlotF(int s) => f64First + s;
         int StackF(int k) => f64First + slots + k;
         int resultF = f64First + slots + cap, tempF = resultF + 1, tempG = resultF + 2;
         int CacheF(int c) => resultF + 3 + c;
         U(w, 2); U(w, i32Count); w.Write((byte)0x7f); U(w, f64Count); w.Write((byte)0x7c);
+        // A region's results: the generic block to continue at, -1 to run the generic body now (no budget left or a
+        // collection pending), -2 when a binding or slot has another type (generic from now on), -3 after an error.
+        void RegionExit(int block) { WriteSlots(); SaveBudget(); I(w, block); Op(Return); }
         int PointerOf(string name) => pointerBase + Array.IndexOf(Pointers, name);
         int CacheOf(string name) => Array.IndexOf(cached, name);
 
@@ -562,6 +609,17 @@ internal sealed class WasmNativeFunction
         }
 
         void Zero() { if (Wide(Signature.Result)) F(w, 0); else I(w, 0); }
+        // A region leaving to the generic body writes every slot it holds back into the frame (undeclared ones too).
+        void WriteSlots() {
+            for (int s = 0; s < slots; s++) {
+                int type = slotTypes[s];
+                if (type == Unknown) continue;
+                Get(w, Flag(s)); Op(If, 0x40);
+                StoreValue(FrameValues + ValueSize * s, type, () => { Local(type, SlotI(s), SlotF(s)); if (!IsArray(type)) AsPayload(type); });
+                Op(Else); Get(w, frame); I(w, -1); Memory(w, I32Store, 2, FrameValues + ValueSize * s + ValueTag);
+                Op(End);
+            }
+        }
         void Raise(Action value) { value(); Op(0x24); U(w, signal); Zero(); Op(Return); }
         void ExitWith(int type, int k) { SaveBudget(); PushStack(type, k); Op(Return); }
         // Errors and deoptimizations leave the body through one handler after it, so loops contain no runtime calls
@@ -667,7 +725,42 @@ internal sealed class WasmNativeFunction
         }
 
         // ---- body -----------------------------------------------------------------------------------------------
-        if (resume) {
+        if (region) {
+            Get(w, frameParameter); Set(w, frame);
+            Get(w, frame); Memory(w, I32Load, 2, FrameExecution); Op(0x24); U(w, execution);
+            Execution(); Memory(w, I32Load, 2, ExecutionBudget); Op(0x45);
+            Execution(); Memory(w, I32Load, 2, ExecutionPoll); Op(0x72, If, 0x40); I(w, -1); Op(Return); Op(End);
+            void Unless(Action condition) { condition(); Op(0x45, If, 0x40); I(w, -2); Op(Return); Op(End); }
+            void Lookup(string name, int into) {
+                Get(w, frame); Memory(w, I32Load, 2, FrameScope); I(w, text!(name)); Op(Call); U(w, runtime["aqua_scope_get"]); Set(w, into);
+                Unless(() => Get(w, into));
+            }
+            for (int k = 0; k < Pointers.Length; k++) {
+                int pointer = pointerBase + k, tag = OwnPointers[Pointers[k]].Tag;
+                Lookup(Pointers[k], pointer);
+                Unless(() => { Get(w, pointer); Memory(w, I32Load, 2, ValueTag); I(w, IsArray(tag) ? ArrayTag : tag); Op(0x46); });
+                if (IsArray(tag)) Unless(() => { Get(w, pointer); Memory(w, I32Load, 2, ValueRef); Memory(w, I32Load, 2, ArrayElement); I(w, tag & 15); Op(0x46); });
+            }
+            foreach (var (name, id) in Guards) {
+                Lookup(name, tempI);
+                Unless(() => { Get(w, tempI); Memory(w, I32Load, 2, ValueTag); I(w, BuiltinTag); Op(0x46); Get(w, tempI); Memory(w, I32Load, 2, ValueRef); I(w, id); Op(0x46, 0x71); });
+            }
+            // Every slot the region holds is undeclared or has the region's type.
+            for (int s = 0; s < slots; s++) {
+                int type = slotTypes[s], offset = FrameValues + ValueSize * s;
+                if (type == Unknown) continue;
+                Get(w, frame); Memory(w, I32Load, 2, offset + ValueTag); Set(w, tempI);
+                Get(w, tempI); I(w, -1); Op(0x47); Set(w, Flag(s));
+                Unless(() => {
+                    Get(w, Flag(s)); Op(0x45);
+                    Get(w, tempI); I(w, IsArray(type) ? ArrayTag : type); Op(0x46);
+                    if (IsArray(type)) { Get(w, frame); Memory(w, I32Load, 2, offset + ValueRef); Memory(w, I32Load, 2, ArrayElement); I(w, type & 15); Op(0x46, 0x71); }
+                    Op(0x72);
+                });
+                LoadPayload(() => Get(w, frame), offset, type); SetLocal(type, SlotI(s), SlotF(s));
+            }
+            Get(w, siteParameter); Set(w, resumeAt);
+        } else if (resume) {
             // The deoptimized frame: declared slots (an undeclared slot keeps its flag clear), then the operands below
             // the resumed loop head.
             for (int s = 0; s < slots; s++) {
@@ -699,7 +792,7 @@ internal sealed class WasmNativeFunction
             LoadPayload(() => Get(w, PointerOf(name)), 0, type); SetLocal(type, CacheI(c), CacheF(c)); }
         OpenSkips(-1);
 
-        for (int pc = 0; pc <= n; pc++) {
+        for (int pc = Start; pc <= Stop; pc++) {
             while (open.Count > 1 && open[^1].End == pc) { open.RemoveAt(open.Count - 1); Op(End); }
             foreach (var c in constructs.Where(c => c.Start == pc).OrderByDescending(c => c.End).ThenBy(c => c.Loop)) {
                 if (c.End > open[^1].End) throw new InvalidOperationException("Native control flow is not structured.");
@@ -710,6 +803,7 @@ internal sealed class WasmNativeFunction
             }
             if (!states.TryGetValue(pc, out var stack)) continue;
             int depth = stack.Length, top = depth - 1, below = depth - 2;
+            if (region && pc == Stop) { RegionExit(BlockOf(Stop)); break; }
             if (pc == n) { ExitWith(stack[top], top); break; }
             var op = code[pc]; int operand = op.Operand;
             int TopType(int k = 1) => stack[depth - k];
@@ -901,7 +995,9 @@ internal sealed class WasmNativeFunction
         for (int k = 0; k < sites.Count; k++) {
             Op(End);
             var (kind, block, operands, message) = sites[k];
+            if (kind == ErrorSite && region) { Execution(); I(w, message); Op(Call); U(w, runtime["rt_nativeFailure"]); Op(Drop); I(w, -3); Op(Return); continue; }
             if (kind == ErrorSite) { Raise(() => { Execution(); I(w, message); Op(Call); U(w, runtime["rt_nativeFailure"]); }); continue; }
+            if (region) { RegionExit(block); continue; } // A loop head: the generic body continues there and yields.
             // A checkpoint consumed nothing yet; after a call the callee already stored the budget.
             if (kind == CheckpointSite) SaveBudget();
             Materialize(block, operands);

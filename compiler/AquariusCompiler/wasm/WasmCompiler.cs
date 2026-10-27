@@ -85,6 +85,17 @@ public sealed class WasmCompiler
             parameters.GetValueOrDefault(b, System.Array.Empty<string>()), capacities[f],
             b.Code.Any(op => op.Code == IrOperation.EnterLoop) || plans[f].PromotedFunction,
             Locals: plans[f].Locals, PromotedScope: plans[f].PromotedFunction)).ToArray();
+        // Loops of untyped bodies whose code is native-eligible become native regions, entered from their loop heads.
+        // Their functions follow the bodies, so their indices are known before the bodies are emitted.
+        var codes = new FunctionCode?[bodies.Count];
+        foreach (var body in bodies) foreach (var item in body.Constants) if (item is FunctionCode code) codes[ids[code.BodyCode]] = code;
+        var regions = optimize ? WasmNativeFunction.SelectRegions(bodies, codes, plans, (f, reason) => Diagnose(f, "native region", "rejected: " + reason))
+            : new List<WasmNativeFunction>();
+        int regionFunctions = runtime.FunctionCount + bodies.Count;
+        var regionPlans = plans.ToArray();
+        var regionsOf = regions.Select((region, k) => (region, k)).GroupBy(p => p.region.Body)
+            .ToDictionary(g => g.Key, g => g.Select(p => (p.region.HeadSites, regionFunctions + p.k)).ToList());
+        foreach (var region in regions) Diagnose(region.Body, "native region", $"accepted: loop at {region.Start}");
         // Constant pool addresses depend only on pools and names, never on the plan, so every body is emitted exactly
         // once, at its final address. A promoted plan the emitter rejects is replaced by the dynamic plan.
         var layout = new WasmRuntimeImage.Data(); layout.Build(Functions());
@@ -94,7 +105,8 @@ public sealed class WasmCompiler
             byte[] Emit(WasmScopePlan plan)
             {
                 using var bytes = new MemoryStream(); using var code = new BinaryWriter(bytes, Encoding.UTF8, true);
-                WasmBodyEmitter.Emit(code, bodies[f], runtime.Functions, layout.Pools[f], plan, capacities[f], optimize); code.Flush(); return bytes.ToArray();
+                WasmBodyEmitter.Emit(code, bodies[f], runtime.Functions, layout.Pools[f], plan, capacities[f], optimize,
+                    plan == regionPlans[f] && regionsOf.TryGetValue(f, out var own) ? own : null); code.Flush(); return bytes.ToArray();
             }
             try { emitted[f] = Emit(plans[f]); }
             catch (InvalidOperationException e) when (plans[f].PromotedFunction || plans[f].Locals > 0) {
@@ -104,8 +116,6 @@ public sealed class WasmCompiler
         }
         var functions = Functions();
         // Fully typed functions get the native tier; the speculative scalar tiers handle the remaining ones.
-        var codes = new FunctionCode?[bodies.Count];
-        foreach (var body in bodies) foreach (var item in body.Constants) if (item is FunctionCode code) codes[ids[code.BodyCode]] = code;
         var natives = optimize ? WasmNativeFunction.Select(bodies, codes, plans, (f, reason) => Diagnose(f, "native", "rejected: " + reason)) : new List<WasmNativeFunction>();
         var nativeBodies = natives.Select(n => n.Body).ToHashSet();
         foreach (int f in nativeBodies) Diagnose(f, "native", "accepted");
@@ -122,18 +132,18 @@ public sealed class WasmCompiler
         var integerTypes = new int[numeric.Count];
         int extraFunctions = 0, extraTypes = 0;
         for (int p = 0; p < numeric.Count; p++) {
-            adapterIndices[p] = runtime.FunctionCount + bodies.Count + extraFunctions;
+            adapterIndices[p] = runtime.FunctionCount + bodies.Count + regions.Count + extraFunctions;
             extraFunctions += integers[p] == null ? 2 : 3;
             if (integers[p] != null) integerTypes[p] = runtime.TypeCount + 2 + numeric.Count + extraTypes++;
         }
-        int nativeFunctions = runtime.FunctionCount + bodies.Count + extraFunctions;
+        int nativeFunctions = runtime.FunctionCount + bodies.Count + regions.Count + extraFunctions;
         int nativeTypes = runtime.TypeCount + 2 + numeric.Count + extraTypes;
         for (int k = 0; k < natives.Count; k++)
             functions[natives[k].Body] = functions[natives[k].Body] with { NumericTable = bodies.Count + 1 + numeric.Count + 2 * k, NumericRecursiveName = null, Native = true };
         var data = new WasmRuntimeImage.Data(); data.Build(functions);
         if (!data.Pools.SequenceEqual(layout.Pools)) throw new InvalidOperationException("Constant pool layout changed after tier selection.");
         // Names the native adapters look up, resolved to their texts before the heap start is fixed.
-        var texts = natives.SelectMany(n => n.Pointers.Concat(n.Guards.Keys).Concat(n.ClosureGuards.Keys)).Distinct().ToDictionary(name => name, data.Text, StringComparer.Ordinal);
+        var texts = natives.Concat(regions).SelectMany(n => n.Pointers.Concat(n.Guards.Keys).Concat(n.ClosureGuards.Keys)).Distinct().ToDictionary(name => name, data.Text, StringComparer.Ordinal);
         // Per native function: entry adapter, implementation, resume adapter, resume implementation.
         var nativeByBody = natives.Select((native, k) => (native, k)).ToDictionary(p => p.native.Body, p => (Function: nativeFunctions + 4 * p.k + 1, Native: p.native));
         var written = natives.SelectMany(n => n.Written).ToHashSet(StringComparer.Ordinal);
@@ -141,7 +151,7 @@ public sealed class WasmCompiler
         // The native tier's signal global (WasmNativeFunction): 0, 5 after an error, or a deoptimized frame.
         int signal = runtime.Sections.TryGetValue(6, out var globals) ? WasmRuntimeImage.Count(globals) : 0;
         int execution = signal + 1; // The execution the adapter entered, for fuel, deoptimization and errors.
-        if (natives.Count > 0)
+        if (natives.Count + regions.Count > 0)
             runtime.Sections[6] = globals == null ? new byte[] { 2, 0x7f, 1, 0x41, 0, 0x0b, 0x7f, 1, 0x41, 0, 0x0b }
                 : WasmRuntimeImage.Extend(globals, 2, w => w.Write(new byte[] { 0x7f, 1, 0x41, 0, 0x0b, 0x7f, 1, 0x41, 0, 0x0b }));
         var metadata = new WasmMetadata(WasmAbi.Version, entry, exports, bodies.Count, assets?.Keys.ToArray() ?? System.Array.Empty<string>(),
@@ -164,8 +174,9 @@ public sealed class WasmCompiler
         // Memory may grow to 2 GiB: library data (Processing pixel arrays, images, tensors) lives in the guest's memory
         // now, and every u32 address plus size stays below 4 GiB.
         using (var memory = new MemoryStream()) { using var w = new BinaryWriter(memory); U(w, 1); U(w, 1); U(w, Math.Max(256, checked((data.End + 65535) / 65536))); U(w, 32768); runtime.Sections[5] = memory.ToArray(); }
-        runtime.Sections[3] = WasmRuntimeImage.Extend(runtime.Sections[3], bodies.Count + extraFunctions + 4 * natives.Count, w => {
+        runtime.Sections[3] = WasmRuntimeImage.Extend(runtime.Sections[3], bodies.Count + regions.Count + extraFunctions + 4 * natives.Count, w => {
             foreach (var _ in bodies) U(w, runtime.TypeCount);
+            foreach (var _ in regions) U(w, runtime.TypeCount + 1);
             for (int p = 0; p < numeric.Count; p++) {
                 U(w, runtime.TypeCount + 1); U(w, runtime.TypeCount + 2 + p);
                 if (integers[p] != null) U(w, integerTypes[p]);
@@ -177,11 +188,18 @@ public sealed class WasmCompiler
         runtime.Sections[7] = WasmRuntimeImage.Extend(runtime.Sections[7], bodies.Count, w =>
             { for (int i = 0; i < bodies.Count; i++) { Name(w, $"aqua_f{i}"); w.Write((byte)0); U(w, runtime.FunctionCount + i); } });
         using (var elements = new MemoryStream()) { using var w = new BinaryWriter(elements); U(w, 1); U(w, 0); w.Write((byte)0x41); S(w, 1); w.Write((byte)0x0b); U(w, bodies.Count + numeric.Count + 2 * natives.Count); for (int i = 0; i < bodies.Count; i++) U(w, runtime.FunctionCount + i); foreach (int adapter in adapterIndices) U(w, adapter); for (int k = 0; k < natives.Count; k++) { U(w, nativeFunctions + 4 * k); U(w, nativeFunctions + 4 * k + 2); } runtime.Sections[9] = elements.ToArray(); }
-        runtime.Sections[10] = WasmRuntimeImage.Extend(runtime.Sections[10], bodies.Count + extraFunctions + 4 * natives.Count, w =>
+        runtime.Sections[10] = WasmRuntimeImage.Extend(runtime.Sections[10], bodies.Count + regions.Count + extraFunctions + 4 * natives.Count, w =>
         {
             for (int f = 0; f < bodies.Count; f++)
             {
                 U(w, emitted[f].Length); w.Write(emitted[f]);
+            }
+            foreach (var region in regions) {
+                using var bytes = new MemoryStream();
+                using (var code = new BinaryWriter(bytes, Encoding.UTF8, true))
+                    region.EmitImplementation(code, new Dictionary<int, (int, WasmNativeFunction)>(), runtime.Functions,
+                        region.Pointers.Where(name => !region.Written.Contains(name)).ToHashSet(StringComparer.Ordinal), signal, execution, text: name => texts[name]);
+                U(w, (int)bytes.Length); w.Write(bytes.ToArray());
             }
             for (int p = 0; p < numeric.Count; p++) {
                 int implementation = adapterIndices[p] + 1;

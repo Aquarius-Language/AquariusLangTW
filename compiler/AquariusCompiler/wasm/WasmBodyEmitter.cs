@@ -46,7 +46,12 @@ internal sealed class WasmBodyEmitter
     private int[] starts = System.Array.Empty<int>();
     private bool[] deadTop = System.Array.Empty<bool>();
 
-    private WasmBodyEmitter(BinaryWriter w, LoweredProgram body, IReadOnlyDictionary<string, int> helpers, int pool, WasmScopePlan plan, int capacity, bool shadowBindings)
+    // Native regions of this body (WasmNativeFunction): the loop heads where each is entered, its function and the local
+    // that disables it for this activation after a binding or slot turned out to have another type.
+    private readonly Dictionary<int, (int Function, int Site, int Disabled)> regionAt = new();
+
+    private WasmBodyEmitter(BinaryWriter w, LoweredProgram body, IReadOnlyDictionary<string, int> helpers, int pool, WasmScopePlan plan, int capacity, bool shadowBindings,
+        IReadOnlyList<((int Head, int Site)[] Heads, int Function)>? regions = null)
     {
         this.w = w; this.body = body; this.helpers = helpers; this.pool = pool; this.plan = plan;
         locals = plan.Locals; this.capacity = capacity; loc = new Loc[capacity];
@@ -63,6 +68,10 @@ internal sealed class WasmBodyEmitter
         if (shadowBindings) foreach (int constant in ShadowCandidates()) { shadows.Add(constant, (next, next + 1, next + 2)); next += 3; }
         var readOnly = shadowBindings ? ReadShadowCandidates() : System.Array.Empty<int>();
         foreach (int constant in readOnly) { readShadows.Add(constant, (next, next + 1, next + 2, 0)); next += 3; }
+        foreach (var (heads, function) in regions ?? System.Array.Empty<((int, int)[], int)>()) {
+            int disabled = next++;
+            foreach (var (head, site) in heads) regionAt[head] = (function, site, disabled);
+        }
         i32Count = next - 1;
         wide = next++;
         x = next++; y = next++; numberBase = next; next += capacity;
@@ -73,8 +82,9 @@ internal sealed class WasmBodyEmitter
 
 
     /// <param name="shadowBindings">Keep integer accumulators of dynamic bindings in registers (off for the unoptimized reference).</param>
-    internal static void Emit(BinaryWriter w, LoweredProgram body, IReadOnlyDictionary<string, int> helpers, int pool, WasmScopePlan plan, int capacity, bool shadowBindings = true)
-        => new WasmBodyEmitter(w, body, helpers, pool, plan, capacity, shadowBindings).Emit();
+    internal static void Emit(BinaryWriter w, LoweredProgram body, IReadOnlyDictionary<string, int> helpers, int pool, WasmScopePlan plan, int capacity, bool shadowBindings = true,
+        IReadOnlyList<((int Head, int Site)[] Heads, int Function)>? regions = null)
+        => new WasmBodyEmitter(w, body, helpers, pool, plan, capacity, shadowBindings, regions).Emit();
 
     private int T(int p) => tagBase + p;
     private int R(int p) => refBase + p;
@@ -530,6 +540,7 @@ internal sealed class WasmBodyEmitter
             if (depth < 0) { w.Write((byte)0x00); continue; }
             System.Array.Fill(loc, Loc.Mem); fusedTruth = -1;
             if (start == n) { pc = n; StoreSp(depth); ShadowWriteBack(); Resume(-1); continue; }
+            if (regionAt.TryGetValue(start, out var region)) EnterRegion(region, depth);
             if (checkpointBlocks.TryGetValue(block, out int weight)) Checkpoint(depth, weight);
             bool terminated = false;
             for (pc = start; pc < starts[block + 1]; pc++) {
@@ -553,6 +564,24 @@ internal sealed class WasmBodyEmitter
         Get(E); LoadI32(ExecutionPoll); Op(0x45); Op(0x71);
         If(); Get(E); Get(G); I32(weight); Op(0x6b); StoreI32(ExecutionBudget);
         Else(); StoreSp(depth); WriteBack(); ShadowWriteBack(); Get(F); I32(weight); Call("checkpoint"); If(); Resume(block); End();
+        End();
+    }
+
+    /// <summary>At a loop head of a native region: with the frame exact, the region runs natively from this loop head
+    /// and returns the block to continue at (its exit, or a loop head where its budget ran out), -1 to continue here
+    /// (the checkpoint then yields), -2 when it cannot run in this activation, or -3 after raising an error.</summary>
+    private void EnterRegion((int Function, int Site, int Disabled) region, int depth)
+    {
+        Get(region.Disabled); Op(0x45); If();
+        StoreSp(depth); WriteBack(); ShadowWriteBack();
+        Get(F); I32(region.Site); I32(0); w.Write((byte)0x10); U(region.Function); Set(G);
+        Get(G); I32(0); Op(0x4e); If();
+        foreach (int slot in slotRegisters.Keys) Reload(slot);
+        InvalidateAddresses();
+        Get(G); Set(PC); w.Write((byte)0x0c); U(count - block + nest);
+        End();
+        Get(G); I32(-3); Op(0x46); If(); I32(-1); Return(); End();
+        Get(G); I32(-2); Op(0x46); If(); I32(1); Set(region.Disabled); End();
         End();
     }
 

@@ -47,7 +47,9 @@ public sealed class TypeChecker {
 
     internal readonly Dictionary<INode, TypeCheck> Checks = new(ReferenceEqualityComparer.Instance);
     internal readonly Dictionary<FunctionLiteral, NativeSignature> Natives = new(ReferenceEqualityComparer.Instance);
-    // Each function being checked: its own scope and, for a fully typed one, the outer names its body uses.
+    /// <summary>Every loop as a candidate native region of untyped code (no parameters, no result).</summary>
+    internal readonly Dictionary<ForLoopLiteral, NativeSignature> Loops = new(ReferenceEqualityComparer.Instance);
+    // Each function and loop being checked: its own scope and the outer names its body uses.
     private readonly Stack<(Scope Own, NativeSignature? Native, Dictionary<string, (Declaration, Scope)> Uses)> functions = new();
     private readonly List<(NativeSignature Native, Dictionary<string, (Declaration, Scope)> Uses)> pending = new();
     private readonly List<ParseError> errors = new();
@@ -117,13 +119,13 @@ public sealed class TypeChecker {
     }
 
     private Declaration? Resolve(string name) {
-        bool inside = true;
+        int passed = 0; // enclosing functions and loops (innermost first) whose own scope the walk has left
         for (var s = scope; s != null; s = s.Outer) {
             if (s.Names.TryGetValue(name, out var declaration)) {
-                if (!inside && functions.Count > 0) functions.Peek().Uses.TryAdd(name, (declaration, s));
+                foreach (var region in functions.Take(passed)) region.Uses.TryAdd(name, (declaration, s));
                 return declaration;
             }
-            if (functions.Count > 0 && s == functions.Peek().Own) inside = false;
+            while (passed < functions.Count && functions.ElementAt(passed).Own == s) passed++;
         }
         return null;
     }
@@ -190,6 +192,9 @@ public sealed class TypeChecker {
             }
             case ForLoopLiteral loop: {
                 var outer = scope; scope = new Scope(outer);
+                var region = new NativeSignature(System.Array.Empty<int>(), 0, outer);
+                var uses = new Dictionary<string, (Declaration, Scope)>(System.StringComparer.Ordinal);
+                Loops[loop] = region; pending.Add((region, uses)); functions.Push((scope, region, uses));
                 var parts = new List<IStatement>();
                 if (loop.DeclareStatement != null) parts.Add(loop.DeclareStatement);
                 if (loop.ValueChangeStatement != null) parts.Add(loop.ValueChangeStatement);
@@ -199,6 +204,7 @@ public sealed class TypeChecker {
                 Expression(loop.ConditionalExpression);
                 if (loop.Body != null) Statement(loop.Body);
                 if (loop.ValueChangeStatement != null) Statement(loop.ValueChangeStatement);
+                functions.Pop();
                 scope = outer;
                 return Dynamic;
             }

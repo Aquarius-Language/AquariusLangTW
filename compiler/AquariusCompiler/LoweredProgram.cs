@@ -31,8 +31,12 @@ public sealed class LoweredProgram {
     public IReadOnlyList<Instruction> Instructions { get; }
     public IReadOnlyList<object> Constants { get; }
 
-    internal LoweredProgram(Instruction[] code, object[] constants, bool wrapReturn) {
-        Code = code; Pool = constants; WrapReturn = wrapReturn;
+    /// <summary>Each loop's EnterLoop, condition (loop head) and LeaveLoop positions, with its native region
+    /// candidate from the TypeChecker (outer names it resolves outside itself).</summary>
+    internal (int Enter, int Head, int Leave, NativeSignature? Region)[] Loops { get; }
+
+    internal LoweredProgram(Instruction[] code, object[] constants, bool wrapReturn, (int, int, int, NativeSignature?)[]? loops = null) {
+        Code = code; Pool = constants; WrapReturn = wrapReturn; Loops = loops ?? System.Array.Empty<(int, int, int, NativeSignature?)>();
         Instructions = System.Array.AsReadOnly(code);
         Constants = System.Array.AsReadOnly(constants);
     }
