@@ -4,9 +4,15 @@
 $aquaRepository = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 $AquaPins = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'toolchain.json') -Raw | ConvertFrom-Json
 $aquaWindows = [IO.Path]::DirectorySeparatorChar -eq '\'
-$aquaArchitecture = [Runtime.InteropServices.RuntimeInformation]::OSArchitecture.ToString()
+# The host's architecture (X64, Arm64, ...): Windows names it in its environment (PROCESSOR_ARCHITEW6432 from a 32-bit
+# PowerShell); elsewhere .NET or uname does. RuntimeInformation alone is not enough: some Windows PowerShell 5.1
+# sessions resolve it to an assembly without OSArchitecture.
+$aquaArchitecture = if ($aquaWindows) { @($env:PROCESSOR_ARCHITEW6432, $env:PROCESSOR_ARCHITECTURE) | Where-Object { $_ } | Select-Object -First 1 }
+if (-not $aquaArchitecture) { $aquaArchitecture = [string][Runtime.InteropServices.RuntimeInformation]::OSArchitecture }
+if (-not $aquaArchitecture -and -not $aquaWindows) { $aquaArchitecture = (& uname -m) }
+$aquaArchitecture = switch -Regex ([string]$aquaArchitecture) { '^(AMD64|X64|x86_64)$' { 'X64' } '^(ARM64|Arm64|aarch64|arm64)$' { 'Arm64' } default { $_ } }
 $aquaPlatform = if ($aquaWindows) { if ($aquaArchitecture -eq 'X64') { 'windows-x64' } }
-    elseif ([Runtime.InteropServices.RuntimeInformation]::IsOSPlatform([Runtime.InteropServices.OSPlatform]::OSX)) { if ($aquaArchitecture -eq 'Arm64') { 'macos-arm64' } }
+    elseif ((& uname -s) -eq 'Darwin') { if ($aquaArchitecture -eq 'Arm64') { 'macos-arm64' } }
     elseif ($aquaArchitecture -eq 'X64') { 'linux-x64' }
 if (-not $aquaPlatform) { throw "The pinned LLVM toolchain is published for Windows x64, Linux x64 and macOS arm64, not this host ($aquaArchitecture)." }
 $aquaNative = if ($env:AQUARIUS_NATIVE_BUILD) { $env:AQUARIUS_NATIVE_BUILD } else { Join-Path $aquaRepository '.native-build' }
