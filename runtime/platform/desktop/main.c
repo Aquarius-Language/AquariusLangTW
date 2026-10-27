@@ -234,7 +234,12 @@ bool platform_load_library(aqua_runtime *rt, const char *name, char **error) {
 
 static int run(uint8_t *module, size_t length, const char *directory, const char *entry, const char *const *launch, uint32_t launch_count) {
     char *materialize = platform_temporary_directory("aquarius-resources");
-    runtime_options options = {directory, entry, launch, launch_count, materialize};
+    /* Desktop processes share no UI thread with a browser or Android's watchdog, so a run slice is 16 times the
+       portable quantum: hot typed loops leave native code (and re-enter it) 16 times less often. Results are the same
+       with any quantum; AQUARIUS_FUEL_QUANTUM overrides it (tests compare it with the portable one). */
+    const char *quantum = platform_environment("AQUARIUS_FUEL_QUANTUM");
+    runtime_options options = {directory, entry, launch, launch_count, materialize,
+        quantum && *quantum ? (uint32_t)strtoul(quantum, NULL, 10) : 1048576u};
     char *error = NULL;
     aqua_runtime *rt = runtime_create(module, length, &options, &error);
     free(materialize);

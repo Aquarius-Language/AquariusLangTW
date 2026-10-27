@@ -53,6 +53,26 @@ public class NativeFunctionTest
         EmitterTiers.AssertSame(Programs);
     }
 
+    /// <summary>The desktop host runs longer run slices than the portable quantum (runtime/platform/desktop/main.c);
+    /// results must not depend on it, including where native code deoptimizes at a slice's end.</summary>
+    [RuntimeFact]
+    public void TheDesktopQuantumGivesThePortableResults()
+    {
+        string[] programs = [
+            "var spin = function(n: int): int { var c: int = 0; for (var i: int = 0; i < n; i++) { c += i % 7; c = c * 3 % 1000003; } return c; }; print(spin(3000000));",
+            "var depth = function(k: int): int { if (k == 0) { return 0; } return 1 + depth(k - 1); }; print(depth(30000));",
+            "var half = function(x: double, k: int): double { return x / 2.0d + k; }; var run = function(n: int): double { var t: double = 0.0d; for (var i: int = 0; i < n; i++) { t += half(i, 1); } return t; }; print(run(3000000));",
+            "var t = 0; for (var i = 0; i < 2000000; i++) { t += i % 3; } print(t);",
+        ];
+        foreach (string program in programs) {
+            string desktop = WasmTestHost.Run(program).Succeeded().Output;
+            string portable = WasmTestHost.Run(program, new Dictionary<string, string> { ["AQUARIUS_FUEL_QUANTUM"] = "65536" }).Succeeded().Output;
+            string tiny = WasmTestHost.Run(program, new Dictionary<string, string> { ["AQUARIUS_FUEL_QUANTUM"] = "17" }).Succeeded().Output;
+            Assert.Equal(portable, desktop);
+            Assert.Equal(portable, tiny);
+        }
+    }
+
     [RuntimeFact]
     public void TypedFunctionsTakeTheNativeTier()
     {

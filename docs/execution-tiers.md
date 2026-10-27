@@ -179,6 +179,15 @@ API and reads guest memory through the memory export's base pointer, refreshed a
 is a side module in the application's own memory, so it reads guest values directly. Engine-specific code stays in
 `engine_*.c`; compilation and artifact layout are the same for every target.
 
+## Target-specific tuning
+
+Every target runs the same artifact; a target may tune only its engine or platform layer (CLAUDE.md rule 11). The
+desktop host (`runtime/platform/desktop/main.c`) runs executions in run slices of 2^20 fuel instead of the portable
+65536: a desktop process shares no UI thread with a browser and has no Android input watchdog, and hot typed loops
+then leave native code at a slice's end (deoptimize, yield, re-enter) 16 times less often. The quantum never changes
+results; `AQUARIUS_FUEL_QUANTUM` overrides it, and `NativeFunctionTest.TheDesktopQuantumGivesThePortableResults`
+compares the desktop, portable and a tiny quantum. Web and Android keep the portable quantum.
+
 ## Startup
 
 Wasmtime compiles an application in tens of milliseconds, so the native host keeps the compiled code between runs:
