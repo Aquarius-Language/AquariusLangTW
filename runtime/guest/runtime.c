@@ -350,6 +350,10 @@ static int native_resume(Execution*e,Frame*f) {
     if(status==4){Frame*outer=pointer(out.ref);outer->parent=parent;e->current=e->numeric_innermost;return 1;}
     e->current=parent;if(!parent){e->result=out;e->status=4;}else push(parent,out);return 1;
 }
+/* A frame marked to resume natively (native_site) stays marked only while it is still at the marked block: when native
+   code declines (no budget left, a collection pending) the generic body runs it, and if that body suspends it anywhere
+   else, resuming at the old site would repeat work, so the mark is dropped. */
+static void suspended(Frame*f,int next) { if(f->native_site&&(u32)next!=f->pc)f->native_site=0;f->pc=(u32)next; }
 static int run_callee(Frame*f) {
     // Deoptimized specializations can push a chain of frames, so run until control returns to f.
     Execution*e=f->execution;
@@ -359,7 +363,7 @@ static int run_callee(Frame*f) {
         if(callee->native_site&&native_resume(e,callee)){if(e->status)return 1;continue;}
         native_depth++;int next=((int(*)(Frame*))(uintptr_t)callee->function->table)(callee);native_depth--;
         if(e->status==3)return 1;
-        if(next>=0){callee->pc=(u32)next;return 1;}
+        if(next>=0){suspended(callee,next);return 1;}
         complete_frame(e,callee);if(e->status)return 1;
     }
     return 0;
@@ -421,7 +425,7 @@ u32 aqua_run(u32 ptr,u32 budget) {
         int next=((int(*)(Frame*))(uintptr_t)f->function->table)(f);
         if(e->status==3)return 3;
         if(next<0){Value result=f->sp>f->function->locals?pop(f):empty;Frame*parent=f->parent;if(!(f->function->flags&PROMOTED_SCOPE))dispose_scope(f->scope);release_frame(f);e->current=parent;if(!parent){e->result=result;e->status=4;return 4;}push(parent,result);}
-        else f->pc=(u32)next;
+        else suspended(f,next);
         if(e->status==2)return 2;if(e->status==1)return 1;
     }e->status=4;return 4;
 }
