@@ -29,6 +29,12 @@ public class NativeFunctionTest
         "var wrap = function(a: int): int { var x: int = a; for (var i: int = 0; i < 40; i++) { x = x * 31 + 7; x -= i; } return x; }; wrap(123456789);",
         "var rem = function(a: double, b: double): double { return a % b; }; [rem(7.5d, 2.0d), rem(0.0d - 7.5d, 2.0d)];",
         "var cmp = function(a: int, b: double): bool { return a < b && !(a == b) || a >= 100; }; [cmp(1, 1.5d), cmp(2, 1.5d), cmp(100, 0.0d)];",
+        // Typed arrays: reads, writes through shared (copy-on-write) storage, len, outer typed arrays and recursion.
+        "var sort = function(a: int[], lo: int, hi: int): int { var i = lo; var j = hi; var pivot = a[(lo + hi) / 2]; for (var g = 0; i <= j; 0) { for (var l = 0; a[i] < pivot; i++) { } for (var r = 0; a[j] > pivot; j -= 1) { } if (i <= j) { var tmp = a[i]; a[i] = a[j]; a[j] = tmp; i++; j -= 1; } } if (lo < j) { sort(a, lo, j); } if (i < hi) { sort(a, i, hi); } return 0; }; var v: int[] = Array.Make(0, 0, 3000); var seed = 42; for (var i = 0; i < 3000; i++) { seed = (seed * 251 + 17) % 65536; Array.Append(v, seed); } var copy = v; sort(v, 0, 2999); [v[0], v[1500], v[2999], copy[0], len(v)];",
+        "var sieve = function(flags: bool[], n: int): int { flags[0] = false; flags[1] = false; for (var p: int = 2; p * p <= n; p++) { if (flags[p]) { for (var j: int = p * p; j <= n; j += p) { flags[j] = false; } } } var count: int = 0; for (var i: int = 2; i <= n; i++) { if (flags[i]) { count += 1; } } return count; }; var f: bool[] = Array.Make(20001, true); sieve(f, 20000);",
+        "var n: int = 8; var board: int[] = Array.Make(8, 0); var solve = function(row: int): int { if (row == n) { return 1; } var count: int = 0; for (var col: int = 0; col < n; col++) { var safe = true; for (var prev: int = 0; prev < row; prev++) { var delta = row - prev; if (board[prev] == col || board[prev] == col - delta || board[prev] == col + delta) { safe = false; break; } } if (safe) { board[row] = col; count += solve(row + 1); } } return count; }; solve(0);",
+        "var m: int = 40; var element = function(i: int, j: int): double { var s = i + j; return 1.0d / (s * (s + 1) / 2 + i + 1); }; var multiply = function(src: double[], dst: double[], transpose: bool): int { for (var i: int = 0; i < m; i++) { var total: double = 0.0d; for (var j: int = 0; j < m; j++) { var c: double = 0.0d; if (transpose) { c = element(j, i); } else { c = element(i, j); } total += c * src[j]; } dst[i] = total; } return 0; }; var u: double[] = Array.Make(m, 1.0d); var t: double[] = Array.Make(m, 0.0d); var w: double[] = Array.Make(m, 0.0d); for (var k = 0; k < 10; k++) { multiply(u, t, false); multiply(t, w, true); multiply(w, t, false); multiply(t, u, true); } u[0] + u[39];",
+        "var mat = function(a: int[], b: int[], n: int): int { var sum: int = 0; for (var i: int = 0; i < n; i++) { for (var j: int = 0; j < n; j++) { var total: int = 0; for (var k: int = 0; k < n; k++) { total += a[i * n + k] * b[k * n + j]; } sum += total; } } return sum; }; var a: int[] = Array.Make(3600, 3); var b: int[] = Array.Make(3600, 5); a[7] = 11; mat(a, b, 60);",
         "var mandel = function(n: int): int { var sum: int = 0; for (var y: int = 0; y < n; y++) { var ci = 2.0d * y / n - 1.0d; for (var x: int = 0; x < n; x++) { var cr = 3.0d * x / n - 2.0d; var zr = 0.0d; var zi = 0.0d; var c: int = 0; for (var g: int = 0; c < 60 && zr * zr + zi * zi <= 4.0d; c++) { var nr = zr * zr - zi * zi + cr; zi = 2.0d * zr * zi + ci; zr = nr; } sum += c; } } return sum; }; mandel(40);",
     ];
 
@@ -46,7 +52,7 @@ public class NativeFunctionTest
         WasmCompiler.TierDiagnostics = reasons.Add;
         try { foreach (string program in Programs) new WasmCompiler().Compile(program); }
         finally { WasmCompiler.TierDiagnostics = previous; }
-        Assert.DoesNotContain(reasons, r => r.Contains("native: the typed body"));
+        Assert.DoesNotContain(reasons, r => r.Contains("native: rejected"));
         int typedFunctions = Programs.Sum(p => System.Text.RegularExpressions.Regex.Matches(p, @"\):\s*(int|double|float|bool)\s*\{").Count);
         Assert.Equal(typedFunctions, reasons.Count(r => r.EndsWith("native: accepted")));
     }
@@ -54,11 +60,34 @@ public class NativeFunctionTest
     [RuntimeFact]
     public void TypedResultsEqualUntypedResults()
     {
-        string[] untyped = Programs.Select(p => System.Text.RegularExpressions.Regex.Replace(p, @":\s*(int|double|float|bool)\b", "")).ToArray();
+        string[] untyped = Programs.Select(p => System.Text.RegularExpressions.Regex.Replace(p, @":\s*(int|double|float|bool)\b(\[\])?", "")).ToArray();
         // Untyped integer division of a double by an int literal stays a double, so the programs mean the same.
         var typed = WasmTestHost.EvalMany(Programs);
         var plain = WasmTestHost.EvalMany(untyped);
         for (int i = 0; i < Programs.Length; i++) Assert.True(typed[i] == plain[i], $"{Programs[i]}\n  typed:   {typed[i]}\n  untyped: {plain[i]}");
+    }
+
+    [RuntimeFact]
+    public void TypedArraysKeepTheirElementType()
+    {
+        var results = EmitterTiers.AssertSame([
+            "var a: int[] = [1, 2, 3]; var alias = a; alias[0] = 2.5d; a;",
+            "var a: int[] = [1, 2, 3]; Array.Append(a, \"x\"); a;",
+            "var a: int[] = [1, 2, 3]; Array.Fill(a, 9); a;",
+            "var a: int[] = [1, 2, 3]; a[7];",
+            "var read = function(a: int[], i: int): int { return a[i]; }; var a: int[] = [1, 2, 3]; read(a, 3);",
+            "var write = function(a: int[], i: int): int { a[i] = 1; return 0; }; var a: int[] = [1, 2, 3]; write(a, -1);",
+            "var a: int[] = []; var b: double[] = a; b;",
+            "var plain = [1, 2, 3]; plain[7];",
+        ]);
+        Assert.Contains("the array holds int, got DOUBLE", results[0].Message);
+        Assert.Contains("the array holds int, got STRING", results[1].Message);
+        Assert.Equal(new TestValue("array", "[9, 9, 9]"), results[2]);
+        Assert.Contains("Array index is out of bounds", results[3].Message);
+        Assert.Contains("Array index is out of bounds", results[4].Message);
+        Assert.Contains("Array assignment index is out of bounds", results[5].Message);
+        Assert.Contains("b expects", results[6].Message);
+        Assert.Equal(new TestValue("null", "null"), results[7]);
     }
 
     [RuntimeFact]

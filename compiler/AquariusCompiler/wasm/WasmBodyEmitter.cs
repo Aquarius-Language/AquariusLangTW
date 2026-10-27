@@ -954,7 +954,12 @@ internal sealed class WasmBodyEmitter
             Branch(() => {
                 Get(R(a)); LoadI32(ArrayValues); IndexOf(i, ti); I32(4); Op(0x74); Op(0x6a); Set(B);
                 LoadValue(a, B, 0, Unknown); loc[a] = Loc.Reg; return false;
-            }, () => { I32(NullTag); Set(T(a)); I32(0); Set(R(a)); F64(0); Set(N(a)); loc[a] = Loc.Reg; return false; });
+            }, () => {
+                // A typed array's out-of-range read is the helper's error.
+                Get(R(a)); LoadI32(ArrayElement);
+                Branch(() => { Slow(); return false; }, () => { I32(NullTag); Set(T(a)); I32(0); Set(R(a)); F64(0); Set(N(a)); loc[a] = Loc.Reg; return false; }, i);
+                return false;
+            }, i);
             return false;
         }, () => { Slow(); return false; }, i);
     }
@@ -981,7 +986,10 @@ internal sealed class WasmBodyEmitter
         if (ta != ArrayTag && ta != Unknown || ti != IntTag && ti != Unknown) { Slow(); return; }
         // Owned, unexposed storage needs no copy-on-write or host dirty tracking.
         ArrayWriteTest(a, ta, i, ti);
-        If(0x7f); Get(R(a)); LoadI32(ArrayStorage); LoadI32(ArrayStorageReferences); I32(1); Op(0x46); Get(R(a)); LoadI32(ArrayExposed); Op(0x45); Op(0x71); Else(); I32(0); End();
+        // A typed array (element tag set) takes only its element type here; the helper reports anything else.
+        If(0x7f); Get(R(a)); LoadI32(ArrayStorage); LoadI32(ArrayStorageReferences); I32(1); Op(0x46); Get(R(a)); LoadI32(ArrayExposed); Op(0x45); Op(0x71);
+        Get(R(a)); LoadI32(ArrayElement); Set(C); Get(C); Op(0x45); Get(C); if (tv == Unknown) Get(T(v)); else I32(tv); Op(0x46, 0x72, 0x71);
+        Else(); I32(0); End();
         Branch(() => {
             Get(R(a)); LoadI32(ArrayValues); IndexOf(i, ti); I32(4); Op(0x74); Op(0x6a); Set(B);
             StoreValue(v, B, 0, tv);

@@ -97,3 +97,16 @@ capacity or Grow plus Append avoids a new array header for every element.
 Examples: [繁體中文](../examples/arrays/traditional_chinese.aqua),
 [English](../examples/arrays/english.aqua). Shared correctness corpus:
 `tests/array-library.json`, executed by both Wasmtime and JavaScript WebAssembly tests.
+
+## 型別陣列 / Typed arrays
+
+An annotation such as `變數 旗標: 布林[] = 陣列.建立(n, 真);` or `var a: int[] = Array.Make(n, 0);` checks that every
+element has that exact type (`整數[]`/`int[]`, `浮點數[]`/`float[]`, `雙精度[]`/`double[]`, `布林[]`/`bool[]`) and then
+fixes the array's element type: the same array object, so every alias sees the same contents, but writing another type
+through any alias (`a[i] = 2.5d`, `Array.Append`, `Array.Fill`, `Array.Copy`, `floodFill`) is an error. Reading or writing
+a typed array outside its bounds is an error instead of `null`. Use `0.0d` (not `0`) to make a `double[]`. Fully typed
+functions read and write typed arrays natively (see [execution tiers](execution-tiers.md)); arrays copied by `push`,
+`Array.Clone` or `Array.Slice` start untyped. Native libraries that write an array's values directly are not checked.
+
+標註 `整數[]`、`浮點數[]`、`雙精度[]`、`布林[]` 會檢查每個元素的型別，之後該陣列（含所有別名）只能寫入相同型別；
+型別陣列越界讀寫會回報錯誤，不再回傳 `null`。

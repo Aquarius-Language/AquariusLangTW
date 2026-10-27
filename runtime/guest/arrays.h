@@ -44,7 +44,9 @@ static Value array_call(Frame*f,u32 id,Value*args,u32 n) {
     }
     if(id==10||id==11){
         Array*b=0;count=1;
-        if(id==11){if(args[1].tag!=ARRAY){failure(f,"Array.AppendArray requires an array source.");return empty;}b=pointer(args[1].ref);count=b->count;}
+        if(id==11){if(args[1].tag!=ARRAY){failure(f,"Array.AppendArray requires an array source.");return empty;}b=pointer(args[1].ref);count=b->count;
+            if(a->element)for(u32 i=0;i<count;i++)if(!element_fits(f,a,b->values[i]))return empty;}
+        else if(!element_fits(f,a,args[1]))return empty;
         if(count>ARRAY_LIMIT-a->count){failure(f,"Array length exceeds the Wasm array limit.");return empty;}
         if(!count)return args[0];start=a->count;writable_array(a,start+count);
         if(b)memmove(a->values+start,b->values,count*sizeof(Value));else a->values[start]=args[1];
@@ -57,6 +59,7 @@ static Value array_call(Frame*f,u32 id,Value*args,u32 n) {
         if(n>=4&&!array_size(f,args[3],&end))return empty;
         if(start>a->count||end>b->count){failure(f,"Array.Copy index is out of bounds.");return empty;}
         count=a->count-start;if(count>b->count-end)count=b->count-end;
+        if(a->element)for(u32 i=0;i<count&&i<b->count-end;i++)if(!element_fits(f,a,b->values[end+i]))return empty;
         if(n==5){u32 requested;if(!array_size(f,args[4],&requested))return empty;if(requested<count)count=requested;}
         if(count){writable_array(a,a->count);memmove(a->values+start,b->values+end,count*sizeof(Value));array_changed(a);}return number(count,INT);
     }
@@ -67,6 +70,7 @@ static Value array_call(Frame*f,u32 id,Value*args,u32 n) {
         Array*b=array(end-start);memcpy(b->values,a->values+start,b->count*sizeof(Value));return value(ARRAY,address(b),0);
     }
     if(id==15){
+        if(!element_fits(f,a,args[1]))return empty;
         if(a->count){writable_array(a,a->count);for(u32 i=0;i<a->count;i++)a->values[i]=args[1];array_changed(a);}return args[0];
     }
     if(id==16){

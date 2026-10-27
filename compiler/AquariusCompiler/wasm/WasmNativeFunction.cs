@@ -28,7 +28,7 @@ namespace AquariusLang.Wasm;
 internal sealed class WasmNativeFunction
 {
     private const int Unknown = -1, VoidType = 0, IntType = 1, FloatType = 2, DoubleType = 3, BoolType = 4, NullType = 11;
-    private const int CallableBase = 1000, BuiltinBase = 2000;
+    private const int CallableBase = 1000, BuiltinBase = 2000, MixedType = 999;
     private const int ConvertFirst = 46;
 
     internal int Body { get; }
@@ -46,6 +46,8 @@ internal sealed class WasmNativeFunction
     internal SortedDictionary<string, int> ClosureGuards { get; } = new(StringComparer.Ordinal);
     internal readonly HashSet<string> Written = new(StringComparer.Ordinal);
     internal readonly HashSet<int> Callees = new();
+    /// <summary>Why the analysis rejected the body (for AQUARIUS_WASM_TIER_DIAGNOSTICS).</summary>
+    internal string? Rejection { get; private set; }
 
     private readonly int[] slotTypes;
     private readonly Dictionary<int, int[]> states = new();
@@ -61,16 +63,21 @@ internal sealed class WasmNativeFunction
 
     private static bool Numeric(int type) => type is IntType or FloatType or DoubleType;
     private static bool Wide(int type) => type is FloatType or DoubleType;
-    private static bool Value(int type) => type is IntType or FloatType or DoubleType or BoolType;
+    /// <summary>Types a native local holds: numbers, Booleans and typed arrays (an Array* in an i32).</summary>
+    private static bool Value(int type) => type is IntType or FloatType or DoubleType or BoolType || IsArray(type);
+    private static bool IsArray(int type) => (type & 16) != 0 && (type & 15) is >= IntType and <= BoolType;
+    private const int LengthBuiltin = 1;
     private static bool Widens(int from, int to) => from == to || from is IntType or FloatType && to is FloatType or DoubleType && from < to;
     private static int BuiltinOf(string name) => name switch {
-        "int" or "整數" => ConvertFirst, "float" or "浮點數" => ConvertFirst + 1, "double" or "雙精度" => ConvertFirst + 2, _ => -1 };
+        "int" or "整數" => ConvertFirst, "float" or "浮點數" => ConvertFirst + 1, "double" or "雙精度" => ConvertFirst + 2,
+        "len" or "長度" => LengthBuiltin, _ => -1 };
 
     // ---- selection ----------------------------------------------------------------------------------------------
 
     /// <summary>The fully typed bodies the native tier accepts. A function calls another directly only when both are
     /// declared in the same scope, so their outer names resolve to the same bindings.</summary>
-    internal static List<WasmNativeFunction> Select(IReadOnlyList<LoweredProgram> bodies, IReadOnlyList<FunctionCode?> codes, IReadOnlyList<WasmScopePlan> plans)
+    internal static List<WasmNativeFunction> Select(IReadOnlyList<LoweredProgram> bodies, IReadOnlyList<FunctionCode?> codes, IReadOnlyList<WasmScopePlan> plans,
+        Action<int, string>? rejected = null)
     {
         var bodyOf = new Dictionary<AquariusLang.ast.FunctionLiteral, int>(ReferenceEqualityComparer.Instance);
         for (int f = 0; f < codes.Count; f++) if (codes[f] is { } code) bodyOf[code.Literal] = f;
@@ -83,6 +90,7 @@ internal sealed class WasmNativeFunction
                 if (native.Analyze(literal => bodyOf.TryGetValue(literal, out int g) && candidates.Contains(g)
                         && codes[g]!.Native!.DefiningScope == codes[f]!.Native!.DefiningScope ? g : -1))
                     accepted.Add(f, native);
+                else rejected?.Invoke(f, native.Rejection ?? "its control flow does not nest");
             }
             if (accepted.Count == candidates.Count) break;
             candidates = accepted.Keys.ToHashSet();
@@ -195,18 +203,27 @@ internal sealed class WasmNativeFunction
         var code = body.Code; int n = code.Length;
         states.Clear(); Callees.Clear(); OwnPointers.Clear(); Guards.Clear(); ClosureGuards.Clear(); Written.Clear(); callNames.Clear();
         var work = new Queue<(int Pc, int[] Stack)>(); work.Enqueue((0, Array.Empty<int>()));
+        int pc = 0;
+        bool Reject(int at) { Rejection = at < code.Length ? $"{code[at].Code} at instruction {at}" : "the result"; return false; }
         bool returns = false;
         while (work.TryDequeue(out var state)) {
-            int pc = state.Pc;
-            if (states.TryGetValue(pc, out var old)) { if (!old.SequenceEqual(state.Stack)) return false; continue; }
-            states.Add(pc, state.Stack); capacity = Math.Max(capacity, state.Stack.Length + 1);
-            if (pc == n) { if (state.Stack.Length == 0 || state.Stack[^1] != Signature.Result) return false; returns = true; continue; }
-            if (plan.Depth[pc] < 0) return false;
+            pc = state.Pc;
+            if (states.TryGetValue(pc, out var old)) {
+                if (old.SequenceEqual(state.Stack)) continue;
+                // Operands whose types differ between the paths (a conditional's result that is only popped) merge
+                // into a value no instruction may use; the merged state is propagated again.
+                if (old.Length != state.Stack.Length) return Reject(pc);
+                var merged = old.Zip(state.Stack, (a, b) => a == b ? a : MixedType).ToArray();
+                if (merged.SequenceEqual(old)) continue;
+                states[pc] = merged; state = (pc, merged);
+            } else states.Add(pc, state.Stack); capacity = Math.Max(capacity, state.Stack.Length + 1);
+            if (pc == n) { if (state.Stack.Length == 0 || state.Stack[^1] != Signature.Result) return Reject(pc); returns = true; continue; }
+            if (plan.Depth[pc] < 0) return Reject(pc);
             var stack = state.Stack.ToList(); var op = code[pc]; int operand = op.Operand;
             int Top(int k = 1) => stack.Count >= k ? stack[^k] : Unknown;
             void Pop(int k) => stack.RemoveRange(stack.Count - k, k);
             bool Store(int slot, int type) {
-                if (slot < 0 || !Value(type)) return false;
+                if (slot < 0 || !Value(type)) return Reject(pc);
                 if (slotTypes[slot] == Unknown) slotTypes[slot] = type;
                 return slotTypes[slot] == type;
             }
@@ -223,95 +240,116 @@ internal sealed class WasmNativeFunction
                 case IrOperation.Constant:
                     int constant = body.Pool[operand] switch {
                         IntegerObj => IntType, FloatObj => FloatType, DoubleObj => DoubleType, BooleanObj => BoolType, NullObj => NullType, _ => Unknown };
-                    if (constant == Unknown) return false;
+                    if (constant == Unknown) return Reject(pc);
                     stack.Add(constant); break;
                 case IrOperation.Void: stack.Add(VoidType); break;
                 case IrOperation.Null: stack.Add(NullType); break;
-                case IrOperation.Pop: if (stack.Count == 0) return false; Pop(1); break;
+                case IrOperation.Pop: if (stack.Count == 0) return Reject(pc); Pop(1); break;
                 case IrOperation.Load: {
                     int slot = SlotAt(pc, plan.Accesses[pc]!);
-                    if (slot == -2) return false;
+                    if (slot == -2) return Reject(pc);
                     int type = slot >= 0 ? slotTypes[slot] : Outer(NameOf(operand), nativeBody);
-                    if (type == Unknown) return false;
+                    if (type == Unknown) return Reject(pc);
                     stack.Add(type); break;
                 }
                 case IrOperation.Declare:
-                    if (!Store(plan.DeclareSlot[pc], Top())) return false;
+                    if (!Store(plan.DeclareSlot[pc], Top())) return Reject(pc);
                     stack[^1] = VoidType; break;
                 case IrOperation.Assign: {
-                    if (stack.Count < 2) return false;
+                    if (stack.Count < 2) return Reject(pc);
                     int slot = SlotAt(pc, plan.Accesses[pc]!);
-                    if (slot >= 0) { if (!Store(slot, Top())) return false; }
-                    else if (Target(plan.Accesses[pc]!, NameOf(operand)) != Top()) return false;
+                    if (slot >= 0) { if (!Store(slot, Top())) return Reject(pc); }
+                    else if (Target(plan.Accesses[pc]!, NameOf(operand)) != Top()) return Reject(pc);
                     Pop(2); stack.Add(VoidType); break;
                 }
                 case IrOperation.CompoundAssign: {
-                    if (stack.Count < 2 || !Numeric(Top()) || !Numeric(Target(plan.Accesses[pc]!, NameOf(operand)))) return false;
+                    if (stack.Count < 2 || !Numeric(Top()) || !Numeric(Target(plan.Accesses[pc]!, NameOf(operand)))) return Reject(pc);
                     Pop(2); stack.Add(VoidType); break;
                 }
                 case IrOperation.IncrementPrefix: case IrOperation.IncrementPostfix: {
                     int type = Target(plan.Accesses[pc]!, NameOf(operand));
-                    if (!Numeric(type)) return false;
+                    if (!Numeric(type)) return Reject(pc);
                     stack.Add(type); break;
                 }
                 case IrOperation.Add: case IrOperation.Subtract: case IrOperation.Multiply: case IrOperation.Divide: case IrOperation.Modulo:
-                    if (!Numeric(Top()) || !Numeric(Top(2))) return false;
+                    if (!Numeric(Top()) || !Numeric(Top(2))) return Reject(pc);
                     { int type = Math.Max(Top(), Top(2)); Pop(2); stack.Add(type); }
                     break;
                 case IrOperation.Less: case IrOperation.Greater: case IrOperation.LessEqual: case IrOperation.GreaterEqual:
-                    if (!Numeric(Top()) || !Numeric(Top(2))) return false;
+                    if (!Numeric(Top()) || !Numeric(Top(2))) return Reject(pc);
                     Pop(2); stack.Add(BoolType); break;
                 case IrOperation.Equal: case IrOperation.NotEqual:
-                    if (!(Numeric(Top()) && Numeric(Top(2)) || Top() == BoolType && Top(2) == BoolType)) return false;
+                    if (!(Numeric(Top()) && Numeric(Top(2)) || Top() == BoolType && Top(2) == BoolType)) return Reject(pc);
                     Pop(2); stack.Add(BoolType); break;
                 case IrOperation.And: case IrOperation.Or:
-                    if (Top() != BoolType || Top(2) != BoolType) return false;
+                    if (Top() != BoolType || Top(2) != BoolType) return Reject(pc);
                     Pop(2); stack.Add(BoolType); break;
-                case IrOperation.Negate: if (!Numeric(Top())) return false; break;
-                case IrOperation.Not: if (Top() != BoolType) return false; break;
+                case IrOperation.Negate: if (!Numeric(Top())) return Reject(pc); break;
+                case IrOperation.Not: if (Top() != BoolType) return Reject(pc); break;
                 case IrOperation.CheckType: {
                     int want = operand & 31;
-                    if ((want & 16) != 0 || !Widens(Top(), want)) return false;
+                    if (IsArray(want) ? Top() != want : !Widens(Top(), want)) return Reject(pc);
                     stack[^1] = want; break;
                 }
+                case IrOperation.Index:
+                    if (!IsArray(Top(2)) || Top() != IntType) return Reject(pc);
+                    { int element = Top(2) & 15; Pop(2); stack.Add(element); }
+                    break;
+                case IrOperation.CheckArrayWrite:
+                    if (!IsArray(Top(2)) || Top() != IntType) return Reject(pc);
+                    break;
+                case IrOperation.WriteIndex:
+                    // An element of the array's type only; the generic write reports any other value.
+                    if (stack.Count < 3 || !IsArray(Top(3)) || Top(2) != IntType || Top() != (Top(3) & 15)) return Reject(pc);
+                    { int value = Top(); Pop(3); stack.Add(value); }
+                    break;
                 case IrOperation.Jump:
                     work.Enqueue((operand, stack.ToArray())); continue;
                 case IrOperation.JumpIfFalse: case IrOperation.LoopCondition:
-                    if (Top() != BoolType) return false;
+                    if (Top() != BoolType) return Reject(pc);
                     Pop(1); work.Enqueue((operand, stack.ToArray())); break;
                 case IrOperation.JumpIfBreak: break; // Typed values are never a break value.
                 case IrOperation.Break: {
                     int base_ = plan.LoopBase[pc];
-                    if (base_ < 0 || base_ > stack.Count) return false;
+                    if (base_ < 0 || base_ > stack.Count) return Reject(pc);
                     work.Enqueue((operand, stack.Take(base_).ToArray())); continue;
                 }
                 case IrOperation.EnterLoop: case IrOperation.NextIteration: break;
                 case IrOperation.LeaveLoop: stack.Add(VoidType); break;
                 case IrOperation.Call: {
                     int count = operand;
-                    if (stack.Count < count + 1) return false;
+                    if (stack.Count < count + 1) return Reject(pc);
                     int callee = stack[stack.Count - count - 1];
+                    if (stack.Contains(MixedType)) return Reject(pc);
                     var arguments = stack.Skip(stack.Count - count).ToArray();
                     int result;
-                    if (callee >= BuiltinBase) {
-                        if (count != 1 || !Numeric(arguments[0])) return false;
+                    if (callee == BuiltinBase + LengthBuiltin) {
+                        if (count != 1 || !IsArray(arguments[0])) return Reject(pc);
+                        result = IntType;
+                    } else if (callee >= BuiltinBase) {
+                        if (count != 1 || !Numeric(arguments[0])) return Reject(pc);
                         result = callee - BuiltinBase - ConvertFirst + IntType;
                     } else if (callee >= CallableBase) {
                         var target = Signature.Outer[callNames[callee - CallableBase]].Function!;
                         var parameters = target.Parameters ?? Array.Empty<AquariusLang.ast.Identifier>();
-                        if (parameters.Length != count) return false;
-                        for (int i = 0; i < count; i++) if (!Widens(arguments[i], parameters[i].Type!.Code)) return false;
+                        if (parameters.Length != count) return Reject(pc);
+                        for (int i = 0; i < count; i++) if (!Widens(arguments[i], parameters[i].Type!.Code)) return Reject(pc);
                         result = target.ReturnType!.Code;
-                    } else return false;
+                    } else return Reject(pc);
                     Pop(count + 1); stack.Add(result); break;
                 }
                 case IrOperation.Return:
-                    if (Top() != Signature.Result) return false;
+                    if (Top() != Signature.Result) return Reject(pc);
                     returns = true; continue;
-                default: return false; // Closures, heap objects, members, strings and errors stay generic.
+                default: return Reject(pc); // Closures, heap objects, members, strings and errors stay generic.
             }
             work.Enqueue((pc + 1, stack.ToArray()));
         }
+        // A loop head is a deoptimization site: its operands must all be materializable.
+        foreach (var (head, operands) in states)
+            if (operands.Contains(MixedType) && code.Take(n).Select((op, at) => (op, at)).Any(x => x.op.Code == IrOperation.Jump && x.op.Operand == head && head <= x.at)) {
+                Rejection = $"loop head {head} has operands of mixed types ({string.Join(",", operands)})"; return false;
+            }
         return returns;
     }
 
@@ -366,7 +404,10 @@ internal sealed class WasmNativeFunction
             Get(w, scope); I(w, text(name)); w.Write(Call); U(w, runtime["aqua_scope_get"]); Set(w, Pointer(k));
             Unless(() => Get(w, Pointer(k)));
             var expected = natives.Values.First(n => n.OwnPointers.ContainsKey(name)).OwnPointers[name];
-            Unless(() => { Get(w, Pointer(k)); Memory(w, I32Load, 2, ValueTag); I(w, expected.Tag); w.Write((byte)0x46); });
+            Unless(() => { Get(w, Pointer(k)); Memory(w, I32Load, 2, ValueTag); I(w, IsArray(expected.Tag) ? ArrayTag : expected.Tag); w.Write((byte)0x46); });
+            // A typed array binding must hold an array locked to that element type.
+            if (IsArray(expected.Tag))
+                Unless(() => { Get(w, Pointer(k)); Memory(w, I32Load, 2, ValueRef); Memory(w, I32Load, 2, ArrayElement); I(w, expected.Tag & 15); w.Write((byte)0x46); });
             if (expected.Callee >= 0) {
                 // The callee's binding must still hold the closure of that body from this program.
                 Get(w, Pointer(k)); Memory(w, I32Load, 2, ValueRef); Set(w, scratch);
@@ -402,7 +443,14 @@ internal sealed class WasmNativeFunction
                 int type = Signature.Parameters[p], offset = p * ValueSize;
                 Unless(() => {
                     Get(w, 0); Memory(w, I32Load, 2, offset + ValueTag); Set(w, scratch);
-                    if (type is IntType or BoolType) { Get(w, scratch); I(w, type); w.Write((byte)0x46); }
+                    if (IsArray(type)) {
+                        // Only an array an annotation check already locked to this element type.
+                        Get(w, scratch); I(w, ArrayTag); w.Write((byte)0x46);
+                        Get(w, scratch); I(w, ArrayTag); w.Write((byte)0x46); w.Write(new byte[] { 0x04, 0x7f });
+                        Get(w, 0); Memory(w, I32Load, 2, offset + ValueRef); Memory(w, I32Load, 2, ArrayElement); I(w, type & 15); w.Write((byte)0x46);
+                        w.Write((byte)0x05); I(w, 0); w.Write(new byte[] { 0x0b, 0x71 });
+                    }
+                    else if (type is IntType or BoolType) { Get(w, scratch); I(w, type); w.Write((byte)0x46); }
                     else { Get(w, scratch); I(w, IntType); w.Write((byte)0x4f); Get(w, scratch); I(w, type); w.Write(new byte[] { 0x4d, 0x71 }); }
                 });
             }
@@ -411,8 +459,9 @@ internal sealed class WasmNativeFunction
             I(w, 0); Get(w, closure);
             for (int k = 0; k < Pointers.Length; k++) Get(w, Pointer(k));
             for (int p = 0; p < Signature.Parameters.Length; p++) {
-                Get(w, 0); Memory(w, F64Load, 3, argumentBase + p * ValueSize + ValueNumber);
                 int type = Signature.Parameters[p];
+                if (IsArray(type)) { Get(w, 0); Memory(w, I32Load, 2, argumentBase + p * ValueSize + ValueRef); continue; }
+                Get(w, 0); Memory(w, F64Load, 3, argumentBase + p * ValueSize + ValueNumber);
                 if (type is IntType or BoolType) w.Write(new byte[] { 0xfc, 0x02 });
                 else if (type == FloatType) w.Write(new byte[] { 0xb6, 0xbb });
             }
@@ -432,11 +481,12 @@ internal sealed class WasmNativeFunction
         w.Write((byte)0x23); U(w, signal); Set(w, status); I(w, 0); w.Write((byte)0x24); U(w, signal);
         // Signal 0: a result; 5: a raised error; otherwise the outermost generic frame of a deoptimization.
         Get(w, status); w.Write(new byte[] { 0x45, 0x04, 0x40 });
-        Get(w, 1); I(w, Signature.Result); Memory(w, I32Store, 2, ValueTag);
-        Get(w, 1); I(w, 0); Memory(w, I32Store, 2, ValueRef);
+        Get(w, 1); I(w, IsArray(Signature.Result) ? ArrayTag : Signature.Result); Memory(w, I32Store, 2, ValueTag);
+        Get(w, 1); if (IsArray(Signature.Result)) Get(w, resultI); else I(w, 0); Memory(w, I32Store, 2, ValueRef);
         Get(w, 1);
         if (Signature.Result == IntType) { Get(w, resultI); w.Write((byte)0xb7); }
         else if (Signature.Result == BoolType) { Get(w, resultI); w.Write((byte)0xb8); }
+        else if (IsArray(Signature.Result)) F(w, 0);
         else Get(w, resultF);
         Memory(w, F64Store, 3, ValueNumber);
         I(w, 1); w.Write((byte)0x0f);
@@ -493,16 +543,22 @@ internal sealed class WasmNativeFunction
         void RoundFloat() => Op(0xb6, 0xbb);
         // A typed value as the f64 payload of a generic Value.
         void AsPayload(int type) { if (type == IntType) Op(0xb7); else if (type == BoolType) Op(0xb8); }
+        // A generic Value at base + offset as a typed local value: an array's reference, or the converted payload.
+        void LoadPayload(Action pushBase, int offset, int type) {
+            pushBase();
+            if (IsArray(type)) { Memory(w, I32Load, 2, offset + ValueRef); return; }
+            Memory(w, F64Load, 3, offset + ValueNumber); if (!Wide(type)) Op(0xfc, 0x02);
+        }
 
         // Outer typed bindings: a cached local when no native code writes them, else the binding's payload.
         void ReadOuter(string name, int type) {
             int c = CacheOf(name);
             if (c >= 0) { Local(type, CacheI(c), CacheF(c)); return; }
-            Get(w, PointerOf(name)); Memory(w, F64Load, 3, ValueNumber);
-            if (!Wide(type)) Op(0xfc, 0x02);
+            LoadPayload(() => Get(w, PointerOf(name)), 0, type);
         }
         void WriteOuterFrom(string name, int type, Action value) {
-            Get(w, PointerOf(name)); value(); AsPayload(type); Memory(w, F64Store, 3, ValueNumber);
+            Get(w, PointerOf(name)); value();
+            if (IsArray(type)) Memory(w, I32Store, 2, ValueRef); else { AsPayload(type); Memory(w, F64Store, 3, ValueNumber); }
         }
 
         void Zero() { if (Wide(Signature.Result)) F(w, 0); else I(w, 0); }
@@ -520,6 +576,12 @@ internal sealed class WasmNativeFunction
 
         // Deoptimization: a generic frame resuming at block of pc with the given operands, declared slots written.
         void StoreValue(int offset, int type, Action payload) {
+            if (IsArray(type)) {
+                Get(w, frame); I(w, ArrayTag); Memory(w, I32Store, 2, offset + ValueTag);
+                Get(w, frame); payload(); Memory(w, I32Store, 2, offset + ValueRef);
+                Get(w, frame); F(w, 0); Memory(w, F64Store, 3, offset + ValueNumber);
+                return;
+            }
             Get(w, frame); I(w, type == NullType ? NullTag : type); Memory(w, I32Store, 2, offset + ValueTag);
             Get(w, frame); I(w, 0); Memory(w, I32Store, 2, offset + ValueRef);
             Get(w, frame); payload(); Memory(w, F64Store, 3, offset + ValueNumber);
@@ -530,7 +592,7 @@ internal sealed class WasmNativeFunction
                 int type = slotTypes[s];
                 if (type == Unknown) continue;
                 Get(w, Flag(s)); Op(If, 0x40);
-                StoreValue(FrameValues + ValueSize * s, type, () => { Local(type, SlotI(s), SlotF(s)); AsPayload(type); });
+                StoreValue(FrameValues + ValueSize * s, type, () => { Local(type, SlotI(s), SlotF(s)); if (!IsArray(type)) AsPayload(type); });
                 Op(End);
             }
             for (int k = 0; k < operands.Length; k++) {
@@ -550,7 +612,7 @@ internal sealed class WasmNativeFunction
                         int pointer = PointerOf(name);
                         for (int o = 0; o <= 8; o += 8) { Get(w, frame); Get(w, pointer); Memory(w, I64Load, 3, o); Memory(w, I64Store, 3, offset + o); }
                     }
-                } else if (Value(type)) StoreValue(offset, type, () => { PushStack(type, k); AsPayload(type); });
+                } else if (Value(type)) StoreValue(offset, type, () => { PushStack(type, k); if (!IsArray(type)) AsPayload(type); });
                 else StoreValue(offset, type, () => F(w, 0));
             }
         }
@@ -612,7 +674,7 @@ internal sealed class WasmNativeFunction
                 int type = slotTypes[s];
                 if (type == Unknown) { I(w, 0); Set(w, Flag(s)); continue; }
                 Get(w, frameParameter); Memory(w, I32Load, 2, FrameValues + ValueSize * s + ValueTag); I(w, -1); Op(0x47); Set(w, Flag(s));
-                Get(w, frameParameter); Memory(w, F64Load, 3, FrameValues + ValueSize * s + ValueNumber); if (!Wide(type)) Op(0xfc, 0x02);
+                LoadPayload(() => Get(w, frameParameter), FrameValues + ValueSize * s, type);
                 SetLocal(type, SlotI(s), SlotF(s));
             }
             foreach (int head in loopHeads) {
@@ -621,8 +683,7 @@ internal sealed class WasmNativeFunction
                 Get(w, siteParameter); I(w, SiteOf(head)); Op(0x46, If, 0x40);
                 for (int k = 0; k < operands.Length; k++) {
                     if (!Value(operands[k])) continue;
-                    Get(w, frameParameter); Memory(w, F64Load, 3, FrameValues + ValueSize * (plan.Locals + k) + ValueNumber);
-                    if (!Wide(operands[k])) Op(0xfc, 0x02);
+                    LoadPayload(() => Get(w, frameParameter), FrameValues + ValueSize * (plan.Locals + k), operands[k]);
                     PopStack(operands[k], k);
                 }
                 Op(End);
@@ -635,7 +696,7 @@ internal sealed class WasmNativeFunction
         Op(Block, 0x40);
         if (resume) LoadBudget(); else Checkpoint(0, true);
         for (int c = 0; c < cached.Length; c++) { string name = cached[c]; int type = OwnPointers[name].Tag;
-            Get(w, PointerOf(name)); Memory(w, F64Load, 3, ValueNumber); if (!Wide(type)) Op(0xfc, 0x02); SetLocal(type, CacheI(c), CacheF(c)); }
+            LoadPayload(() => Get(w, PointerOf(name)), 0, type); SetLocal(type, CacheI(c), CacheF(c)); }
         OpenSkips(-1);
 
         for (int pc = 0; pc <= n; pc++) {
@@ -753,6 +814,28 @@ internal sealed class WasmNativeFunction
                     else { Get(w, StackF(top)); Op(0x9a); Set(w, StackF(top)); }
                     break;
                 case IrOperation.Not: Get(w, StackI(top)); Op(0x45); Set(w, StackI(top)); break;
+                case IrOperation.Index: {
+                    // Typed reads are checked: an index outside the array is an error, not null.
+                    Get(w, StackI(top)); Get(w, StackI(below)); Memory(w, I32Load, 2, ArrayCount); Op(0x49, 0x45, If, 0x40); Fail(2); Op(End);
+                    int element = TopType(2) & 15;
+                    Get(w, StackI(below)); Memory(w, I32Load, 2, ArrayValues); Get(w, StackI(top)); I(w, 4); Op(0x74, 0x6a);
+                    Memory(w, F64Load, 3, ValueNumber); if (!Wide(element)) Op(0xfc, 0x02);
+                    PopStack(element, below); break;
+                }
+                case IrOperation.CheckArrayWrite:
+                    Get(w, StackI(top)); Get(w, StackI(below)); Memory(w, I32Load, 2, ArrayCount); Op(0x49, 0x45, If, 0x40); Fail(3); Op(End);
+                    break;
+                case IrOperation.WriteIndex: {
+                    int array = depth - 3, index = depth - 2, type = TopType();
+                    // Shared (copy-on-write) or host-exposed storage goes through the runtime first.
+                    Get(w, StackI(array)); Memory(w, I32Load, 2, ArrayStorage); Memory(w, I32Load, 2, ArrayStorageReferences); I(w, 1); Op(0x47);
+                    Get(w, StackI(array)); Memory(w, I32Load, 2, ArrayExposed); Op(0x72, If, 0x40);
+                    Get(w, StackI(array)); Op(Call); U(w, runtime["rt_nativeWritable"]); Op(Drop);
+                    Op(End);
+                    Get(w, StackI(array)); Memory(w, I32Load, 2, ArrayValues); Get(w, StackI(index)); I(w, 4); Op(0x74, 0x6a);
+                    PushStack(type, top); AsPayload(type); Memory(w, F64Store, 3, ValueNumber);
+                    PushStack(type, top); PopStack(type, array); break;
+                }
                 case IrOperation.CheckType: {
                     int want = operand & 31, from = TopType();
                     if (from == want) break;
@@ -774,6 +857,7 @@ internal sealed class WasmNativeFunction
                 case IrOperation.LeaveLoop: ClearScope(plan.ScopeAt[pc], -1); break;
                 case IrOperation.Call: {
                     int count = operand, at = depth - count - 1, callee = stack[at];
+                    if (callee == BuiltinBase + LengthBuiltin) { Get(w, StackI(top)); Memory(w, I32Load, 2, ArrayCount); Set(w, StackI(at)); break; }
                     if (callee >= BuiltinBase) {
                         int result = callee - BuiltinBase - ConvertFirst + IntType, argument = stack[top];
                         if (result == IntType) {

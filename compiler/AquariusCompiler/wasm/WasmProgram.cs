@@ -283,7 +283,7 @@ public sealed class WasmProgram
         if (Metadata.HeapStart != Metadata.ProgramAddress + ProgramSegment().Length) throw new InvalidDataException("Application metadata does not match its memory layout.");
         foreach (var f in Functions) {
             if (f.StackCapacity < 16 || f.StackCapacity > 1000000 || f.Parameters.Any(string.IsNullOrWhiteSpace)) throw new InvalidDataException("Invalid function frame layout.");
-            if (f.NumericTable < 0 || f.NumericTable > Metadata.FunctionCount * 2 || f.NumericRecursiveName != null && (string.IsNullOrWhiteSpace(f.NumericRecursiveName) || f.NumericTable == 0))
+            if (f.NumericTable < 0 || f.NumericTable > Metadata.FunctionCount * 4 + 1 || f.NumericRecursiveName != null && (string.IsNullOrWhiteSpace(f.NumericRecursiveName) || f.NumericTable == 0))
                 throw new InvalidDataException("Invalid numeric function layout.");
             if (f.Locals < 0 || f.Locals > 1000000 || f.PromotedScope && f.Locals < f.Parameters.Length) throw new InvalidDataException("Invalid frame local layout.");
         }

@@ -106,10 +106,9 @@ public sealed class WasmCompiler
         // Fully typed functions get the native tier; the speculative scalar tiers handle the remaining ones.
         var codes = new FunctionCode?[bodies.Count];
         foreach (var body in bodies) foreach (var item in body.Constants) if (item is FunctionCode code) codes[ids[code.BodyCode]] = code;
-        var natives = optimize ? WasmNativeFunction.Select(bodies, codes, plans) : new List<WasmNativeFunction>();
+        var natives = optimize ? WasmNativeFunction.Select(bodies, codes, plans, (f, reason) => Diagnose(f, "native", "rejected: " + reason)) : new List<WasmNativeFunction>();
         var nativeBodies = natives.Select(n => n.Body).ToHashSet();
-        for (int f = 0; f < bodies.Count; f++)
-            if (codes[f]?.Native != null) Diagnose(f, "native", nativeBodies.Contains(f) ? "accepted" : "the typed body uses something the native tier does not support");
+        foreach (int f in nativeBodies) Diagnose(f, "native", "accepted");
         var numeric = new List<(int Body, WasmNumericFunction Plan)>();
         if (optimize) for (int f = 0; f < bodies.Count; f++)
             if (!nativeBodies.Contains(f) && parameters.TryGetValue(bodies[f], out var args) && WasmNumericFunction.Analyze(bodies[f], args) is { } plan)

@@ -274,8 +274,10 @@ public sealed class TypeChecker {
     private void Function(FunctionLiteral function) {
         var outer = scope; scope = new Scope(outer);
         var parameterTypes = (function.Parameters ?? System.Array.Empty<Identifier>()).Select(p => Code(p.Type)).ToArray();
-        NativeSignature? native = function.ReturnType != null && parameterTypes.All(t => t is Int or Float or Double or Bool)
-            && Code(function.ReturnType) is Int or Float or Double or Bool ? new NativeSignature(parameterTypes, Code(function.ReturnType), outer) : null;
+        // Numbers, Booleans and typed arrays; string parameters or results keep the function generic.
+        static bool NativeType(int t) => (t & 15) is Int or Float or Double or Bool;
+        NativeSignature? native = function.ReturnType != null && parameterTypes.All(NativeType) && NativeType(Code(function.ReturnType))
+            ? new NativeSignature(parameterTypes, Code(function.ReturnType), outer) : null;
         var uses = new Dictionary<string, (Declaration, Scope)>(System.StringComparer.Ordinal);
         functions.Push((scope, native, uses));
         if (native != null) { Natives[function] = native; pending.Add((native, uses)); }
