@@ -276,4 +276,31 @@ public class WebTargetTest
         Assert.True(result.ExitCode == 0, result.Output + result.Error);
         Assert.Equal("網頁 42 30 星星圖 module 真\n42\n" + (files ? "網頁資產\n網頁資產\n" : ""), result.Output);
     }
+
+    [WebFact]
+    public void LargeHeapsRunInChromiumAsOnTheDesktop()
+    {
+        // The web host's stack and libc arena live in the guest's heap: once the heap grew over them (it started anew after
+        // they were reserved), programs with a live heap past about 16 MB crashed. A deep chain, over 100 MB of arrays and
+        // binary trees of depth 16 must print what they print on the desktop.
+        if (Node() is not { } node || Playwright() is not { } playwright) return;
+        using var t = new TestFolder();
+        const string source = """
+            var last = [0, 0]; for (var i = 0; i < 500000; i++) { last = [i, last]; }
+            var keep = []; for (var i = 0; i < 500000; i++) { Array.Append(keep, Array.Make(24, i)); }
+            var sum = 0; for (var i = 0; i < 500000; i += 1000) { sum += keep[i][5]; }
+            var tree = function(d) { if (d == 0) { return [0, 0]; } return [tree(d - 1), tree(d - 1)]; };
+            var count = function(t, d) { if (d == 0) { return 1; } return 1 + count(t[0], d - 1) + count(t[1], d - 1); };
+            var nodes = 0; for (var r = 0; r < 4; r++) { nodes += count(tree(16), 16); }
+            print(len(last), len(keep), sum, nodes);
+            """;
+        string wasm = Compile(t, new Dictionary<string, string> { ["main.aqua"] = source });
+        string site = t.FilePath("site");
+        new WebTarget().Build(new WasmBuildRequest(wasm, site));
+        var result = Processes.Run(node, t.Path, [t.Write("run-site.mjs", RunSite), site, playwright], timeoutMs: 300_000);
+        if (result.ExitCode == 4) return; // No Chromium for Playwright on this machine.
+        Assert.True(result.ExitCode == 0, result.Output + result.Error);
+        Assert.Equal("2 500000 124750000 524284\n", result.Output);
+        Assert.Equal(result.Output, WasmTestHost.Output(source));
+    }
 }

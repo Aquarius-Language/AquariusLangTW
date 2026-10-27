@@ -23,8 +23,11 @@ public sealed class WasmCompiler
     public WasmCompiler(bool optimize, LibrarySet? libraries = null) { this.optimize = optimize; this.libraries = libraries; }
     public WasmCompiler(LibrarySet libraries) : this(true, libraries) { }
     /// <summary>Receives "function N: tier: reason" when a body falls back to a slower tier. Defaults to standard
-    /// error when AQUARIUS_WASM_TIER_DIAGNOSTICS=1.</summary>
-    public static Action<string>? TierDiagnostics { get; set; } =
+    /// error when AQUARIUS_WASM_TIER_DIAGNOSTICS=1. A receiver set here applies to the setter's own execution context
+    /// (its thread and the tasks it starts), so concurrent compilations do not report to each other's receivers.</summary>
+    public static Action<string>? TierDiagnostics { get => tierDiagnostics.Value ?? environmentDiagnostics; set => tierDiagnostics.Value = value; }
+    private static readonly System.Threading.AsyncLocal<Action<string>?> tierDiagnostics = new();
+    private static readonly Action<string>? environmentDiagnostics =
         System.Environment.GetEnvironmentVariable("AQUARIUS_WASM_TIER_DIAGNOSTICS") == "1" ? Console.Error.WriteLine : null;
     private static void Diagnose(int function, string tier, string reason) => TierDiagnostics?.Invoke($"function {function}: {tier}: {reason}");
     public WasmProgram Compile(string source) => Compile(new LoweringCompiler().Compile(source));

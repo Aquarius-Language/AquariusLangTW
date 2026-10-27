@@ -116,7 +116,9 @@ static void initialize_allocation(void *p,u32 n,u32 kind) {
    inline into the hot constructors. */
 static void arm_collection(void) { if(!gc_armed&&collection_due()){gc_armed=1;for(Execution*e=executions;e;e=e->next)e->poll=1;} }
 /* When another module sharing this memory grew it since the heap last did, its pages lie between heap_limit and the
-   memory's end: cover them (and the heap's unused tail) with a FOREIGN block and continue the heap after them. */
+   memory's end: cover them (and the heap's unused tail) with a FOREIGN block and continue the heap after them. The
+   block's header goes at heap_end, so the heap never fills the last sizeof(Block) bytes below heap_limit: otherwise the
+   header would overwrite the first bytes of the other module's pages (the web host's malloc, sharing the memory). */
 static void own_memory(void) {
     u32 size=(u32)__builtin_wasm_memory_size(0)*65536;
     if(size==heap_limit)return;
@@ -134,7 +136,7 @@ static __attribute__((noinline)) void *allocate_slow(u32 n,u32 bucket,u32 kind) 
     own_memory();
     if(n>HEAP_LIMIT-heap_end-sizeof(Block))__builtin_trap();
     u32 end=heap_end+sizeof(Block)+n;
-    if(end>heap_limit){if(__builtin_wasm_memory_grow(0,(end-heap_limit+65535)/65536)==(size_t)-1)__builtin_trap();heap_limit=(u32)__builtin_wasm_memory_size(0)*65536;}
+    if(end+sizeof(Block)>heap_limit){if(__builtin_wasm_memory_grow(0,(end+sizeof(Block)-heap_limit+65535)/65536)==(size_t)-1)__builtin_trap();heap_limit=(u32)__builtin_wasm_memory_size(0)*65536;}
     if(end>heap_high){heap_growth+=end-(heap_high>heap_end?heap_high:heap_end);heap_high=end;arm_collection();}
     Block *b=pointer(heap_end);b->size=n;b->reserved=0;b->kind=kind;b->marked=0;heap_end=end;initialize_allocation(b+1,n,kind);return b+1;
 }
@@ -147,14 +149,15 @@ static inline __attribute__((always_inline)) void *allocate(u32 n,u32 kind) {
     if(free_mask>>bucket&1){Block*b=pop_free(bucket);b->kind=kind;b->marked=0;initialize_allocation(b+1,b->size,kind);return b+1;}
     // Bump directly while no free run could serve the request and the heap has room.
     if(!carving&&!(free_mask>>bucket)){u32 end=heap_end+sizeof(Block)+n;
-        if(end<=heap_limit&&n<=HEAP_LIMIT-heap_end-sizeof(Block)){if(end>heap_high){heap_growth+=end-(heap_high>heap_end?heap_high:heap_end);heap_high=end;if(heap_growth/2>=gc_threshold)arm_collection();}
+        if(end+sizeof(Block)<=heap_limit&&n<=HEAP_LIMIT-heap_end-sizeof(Block)){if(end>heap_high){heap_growth+=end-(heap_high>heap_end?heap_high:heap_end);heap_high=end;if(heap_growth/2>=gc_threshold)arm_collection();}
             Block*b=pointer(heap_end);b->size=n;b->reserved=0;b->kind=kind;b->marked=0;heap_end=end;initialize_allocation(b+1,n,kind);return b+1;}}
     return allocate_slow(n,bucket,kind);
 }
 u32 aqua_initialize(u32 start) { if(!heap_start){heap_start=heap_end=(start+15)&~15u;heap_limit=(u32)__builtin_wasm_memory_size(0)*65536;}return heap_start; }
 u32 aqua_allocate(u32 n) { return address(allocate(n,RAW)); }
-/* Memory the host keeps for the life of the instance (the web host's module data and stacks): never collected or moved. */
-u32 aqua_reserve(u32 n) { Block*b=(Block*)allocate(n,RAW)-1;b->kind=FOREIGN;bytes_since_collection=bytes_since_collection>b->size?bytes_since_collection-b->size:0;return address(b+1); }
+/* Memory the host keeps for the life of the instance (the web host's module data and stacks): never collected or moved.
+   Only after aqua_initialize: initialization starts the heap anew, which would then allocate over earlier reservations. */
+u32 aqua_reserve(u32 n) { if(!heap_start)__builtin_trap();Block*b=(Block*)allocate(n,RAW)-1;b->kind=FOREIGN;bytes_since_collection=bytes_since_collection>b->size?bytes_since_collection-b->size:0;return address(b+1); }
 u32 aqua_heap_bytes(void) { return heap_end-heap_start; }
 u32 aqua_heap_free(void) { u32 n=0;for(u32 a=heap_start;a<heap_end;a+=sizeof(Block)+((Block*)pointer(a))->size)if(((Block*)pointer(a))->kind==FREE)n+=((Block*)pointer(a))->size;return n; }
 /* Net allocation leads; growth triggers only at twice the threshold, so it backs up net allocation when releases keep
