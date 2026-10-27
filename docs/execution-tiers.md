@@ -119,6 +119,29 @@ A native error (integer division by zero, an out-of-bounds typed array index) is
 functions return only their result; a signal global carries 5 after an error or the outermost frame after a
 deoptimization. `AQUARIUS_WASM_TIER_DIAGNOSTICS=1` reports typed functions the native tier rejects.
 
+Code quality details, all plain Wasm:
+
+- **Static declaredness at deoptimization sites.** A deoptimization writes the slots the scope plan proves declared at
+  that point and skips those it proves undeclared; only uncertain slots test their runtime flag. Values that are dead at
+  a loop head therefore stay dead, and Cranelift no longer keeps (and spills) copies of them around the loop.
+- **Array companions.** Every local that can hold a typed array (slot, operand, cached outer binding) has two companion
+  locals, the array's count and values pointer. They are copied with the array and loaded only where an array enters a
+  local from memory, so indexing in a loop is a compare against a register and one load. Native code never resizes
+  an array; after a copy-on-write (`rt_nativeWritable`) or a call to a function that can write, the values pointers
+  are read again.
+- **Exact integer payloads.** Integer and Boolean payloads are always exact 32-bit integers, so typed loads convert
+  them with `f64.add 1.5·2^52` and a reinterpretation instead of a saturating conversion and its branches.
+- **Pure calls.** A call to a function that (transitively) assigns no outer binding and writes no array element does
+  not reload outer bindings or array companions afterwards.
+- **Inlining.** A small native leaf (no calls, loops or outer bindings, nothing it can mutate) is emitted in place of
+  its calls. The caller tests the callee's entry checkpoint first (depth bound and budget); where it would deoptimize,
+  the out-of-line handler builds the callee's generic frame at its entry and the caller's frame after the call, exactly
+  what the call would have left, so the loop around an inlined call contains no call and keeps its values in registers.
+  The budget consumed is the callee's entry weight, as before.
+- **Collections are polled by the adapters.** Native code only allocates when it leaves (a deoptimization) or copies an
+  array on write, so the entry checkpoint no longer reads `Execution.poll`; the entry adapter sends a call made while a
+  collection is pending to the generic body, whose entry checkpoint collects.
+
 ## Native regions in untyped code
 
 A loop of an untyped body (a top-level script, an untyped function whose loop scopes are promoted, or a typed function
