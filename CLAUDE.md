@@ -52,7 +52,10 @@ it works. (繁中摘要見文末。)
     `runtime/platform/<os>/`) or in a library's `src/platform/<os>.c`, always with the portable path as the
     fallback. Such an optimization must give identical observable results (output, errors, numeric rules), never
     remove or limit what any target can compile or run, and be covered by a test that compares it with the portable
-    path. Portable optimizations (in the compiler or the guest runtime) are preferred because every target gains.
+    path. Portable optimizations (in the compiler or the guest runtime) are preferred because every target gains. The
+    desktop runtime JIT (`runtime/platform/desktop/jit.c`) is such a layer: it builds Wasm modules while the program runs
+    from the typed variants (stencils) the compiler stores in the artifact, and is the only Wasm encoder outside the
+    compiler's `WasmEncoding.cs`; `AQUARIUS_JIT=0` turns it off.
 
 ## Layout
 

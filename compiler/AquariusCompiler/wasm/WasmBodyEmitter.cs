@@ -49,10 +49,18 @@ internal sealed class WasmBodyEmitter
     // Native regions of this body (WasmNativeFunction): the loop heads where each is entered, its function and the local
     // that disables it for this activation after a binding or slot turned out to have another type.
     private readonly Dictionary<int, (int Function, int Site, int Disabled)> regionAt = new();
+    // Loops the desktop runtime JIT may compile (WasmNativeFunction.Stencil): at each of its loop heads, the loop's
+    // number, the head's site, its globals (the installed table index, 0 while cold, -1 when none applies; the count of
+    // cold iterations) and the region type for call_indirect.
+    private readonly Dictionary<int, (int Loop, int Site, int Slot, int Counter, int Type)> jitAt = new();
+    /// <summary>Cold iterations of a loop head before it asks the runtime JIT for native code.</summary>
+    internal const int JitThreshold = 1000;
 
     private WasmBodyEmitter(BinaryWriter w, LoweredProgram body, IReadOnlyDictionary<string, int> helpers, int pool, WasmScopePlan plan, int capacity, bool shadowBindings,
-        IReadOnlyList<((int Head, int Site)[] Heads, int Function)>? regions = null)
+        IReadOnlyList<((int Head, int Site)[] Heads, int Function)>? regions = null, IReadOnlyList<JitLoop>? jit = null)
     {
+        foreach (var loop in jit ?? System.Array.Empty<JitLoop>())
+            foreach (var (head, site) in loop.Heads) jitAt[head] = (loop.Loop, site, loop.Slot, loop.Slot + 1, loop.Type);
         this.w = w; this.body = body; this.helpers = helpers; this.pool = pool; this.plan = plan;
         locals = plan.Locals; this.capacity = capacity; loc = new Loc[capacity];
         int addresses = 0;
@@ -83,8 +91,12 @@ internal sealed class WasmBodyEmitter
 
     /// <param name="shadowBindings">Keep integer accumulators of dynamic bindings in registers (off for the unoptimized reference).</param>
     internal static void Emit(BinaryWriter w, LoweredProgram body, IReadOnlyDictionary<string, int> helpers, int pool, WasmScopePlan plan, int capacity, bool shadowBindings = true,
-        IReadOnlyList<((int Head, int Site)[] Heads, int Function)>? regions = null)
-        => new WasmBodyEmitter(w, body, helpers, pool, plan, capacity, shadowBindings, regions).Emit();
+        IReadOnlyList<((int Head, int Site)[] Heads, int Function)>? regions = null, IReadOnlyList<JitLoop>? jit = null)
+        => new WasmBodyEmitter(w, body, helpers, pool, plan, capacity, shadowBindings, regions, jit).Emit();
+
+    /// <summary>A loop of this body the runtime JIT may compile: its number, loop heads and sites, its first global (the
+    /// table index; the next is the cold iteration count) and the region type index.</summary>
+    internal sealed record JitLoop(int Loop, (int Head, int Site)[] Heads, int Slot, int Type);
 
     private int T(int p) => tagBase + p;
     private int R(int p) => refBase + p;
@@ -541,6 +553,7 @@ internal sealed class WasmBodyEmitter
             System.Array.Fill(loc, Loc.Mem); fusedTruth = -1;
             if (start == n) { pc = n; StoreSp(depth); ShadowWriteBack(); Resume(-1); continue; }
             if (regionAt.TryGetValue(start, out var region)) EnterRegion(region, depth);
+            if (jitAt.TryGetValue(start, out var jit)) EnterJit(jit, depth, regionAt.TryGetValue(start, out var aot) ? aot.Disabled : -1);
             if (checkpointBlocks.TryGetValue(block, out int weight)) Checkpoint(depth, weight);
             bool terminated = false;
             for (pc = start; pc < starts[block + 1]; pc++) {
@@ -584,6 +597,34 @@ internal sealed class WasmBodyEmitter
         Get(G); I32(-2); Op(0x46); If(); I32(1); Set(region.Disabled); End();
         End();
     }
+
+    /// <summary>At a loop head the runtime JIT may compile: run its installed native code like a region; a variant whose
+    /// entry check rejects the values (-2) asks the runtime for the next one. While cold, count iterations and ask for
+    /// code after <see cref="JitThreshold"/> of them. Where no runtime JIT exists the answer is -1 and the loop stays here.</summary>
+    private void EnterJit((int Loop, int Site, int Slot, int Counter, int Type) jit, int depth, int disabled)
+    {
+        // Behind a compiled region, only once its entry check failed in this activation.
+        if (disabled >= 0) { Get(disabled); If(); }
+        GlobalGet(jit.Slot); I32(0); Op(0x4a); If();
+        StoreSp(depth); WriteBack(); ShadowWriteBack();
+        Get(F); I32(jit.Site); I32(0); GlobalGet(jit.Slot); w.Write((byte)0x11); U(jit.Type); U(0); Set(G);
+        Get(G); I32(0); Op(0x4e); If();
+        foreach (int slot in slotRegisters.Keys) Reload(slot);
+        InvalidateAddresses();
+        Get(G); Set(PC); w.Write((byte)0x0c); U(count - block + nest);
+        End();
+        Get(G); I32(-3); Op(0x46); If(); I32(-1); Return(); End();
+        Get(G); I32(-2); Op(0x46); If(); Get(F); I32(jit.Loop); Call("jitRequest"); GlobalSet(jit.Slot); End();
+        Else();
+        GlobalGet(jit.Slot); Op(0x45); If();
+        GlobalGet(jit.Counter); I32(1); Op(0x6a); GlobalSet(jit.Counter);
+        GlobalGet(jit.Counter); I32(JitThreshold); Op(0x4f); If(); Get(F); I32(jit.Loop); Call("jitRequest"); GlobalSet(jit.Slot); End();
+        End();
+        End();
+        if (disabled >= 0) End();
+    }
+    private void GlobalGet(int global) { w.Write((byte)0x23); U(global); }
+    private void GlobalSet(int global) { w.Write((byte)0x24); U(global); }
 
     private void WriteBack() { foreach (int slot in slotRegisters.Keys) WriteBack(slot); }
     private void WriteBack(int slot)

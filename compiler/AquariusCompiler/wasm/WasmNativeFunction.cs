@@ -73,10 +73,14 @@ internal sealed class WasmNativeFunction
     internal bool IsRegion { get; }
     internal int Start { get; }
     internal int Stop { get; }
+    /// <summary>The types a region assumes for untyped bindings instead of their guesses (a JIT stencil's variant).</summary>
+    private readonly IReadOnlyDictionary<string, int>? assumed;
+    private int Assumed(string name, NativeSignature.OuterName outer) => assumed != null && assumed.TryGetValue(name, out int type) ? type : outer.Guess;
 
-    private WasmNativeFunction(int bodyIndex, NativeSignature signature, LoweredProgram body, WasmScopePlan plan, int start = 0, int end = -1)
+    private WasmNativeFunction(int bodyIndex, NativeSignature signature, LoweredProgram body, WasmScopePlan plan, int start = 0, int end = -1,
+        IReadOnlyDictionary<string, int>? assumed = null)
     {
-        Body = bodyIndex; Signature = signature; this.body = body; this.plan = plan;
+        Body = bodyIndex; Signature = signature; this.body = body; this.plan = plan; this.assumed = assumed;
         IsRegion = end >= 0; Start = start; Stop = IsRegion ? end : body.Code.Length;
         slotTypes = Enumerable.Repeat(Unknown, plan.Locals).ToArray();
         for (int p = 0; p < signature.Parameters.Length; p++) slotTypes[p] = signature.Parameters[p];
@@ -92,6 +96,16 @@ internal sealed class WasmNativeFunction
                 var declared = plan.Scopes.Where(scope => scope.Slots.ContainsKey(name)).Select(scope => scope.Slots[name])
                     .Where(slot => plan.SlotDecl[start]![slot] == WasmScopePlan.Yes).ToArray();
                 if (declared.Length == 1 && slotTypes[declared[0]] == Unknown) slotTypes[declared[0]] = outer.Type;
+            }
+        // Untyped slots declared before the loop (parameters and locals of the function) are speculated to hold their
+        // guessed scalar types (TypeChecker): the entry checks every slot's tag, and a wrong guess leaves the loop generic.
+        if (IsRegion)
+            foreach (var (name, outer) in signature.Outer) {
+                int guess = Assumed(name, outer);
+                if (outer.Type != 0 || guess is not (IntType or FloatType or DoubleType or BoolType)) continue;
+                var declared = plan.Scopes.Where(scope => scope.Slots.ContainsKey(name)).Select(scope => scope.Slots[name])
+                    .Where(slot => plan.SlotDecl[start]![slot] == WasmScopePlan.Yes).ToArray();
+                if (declared.Length == 1 && slotTypes[declared[0]] == Unknown) slotTypes[declared[0]] = guess;
             }
     }
 
@@ -112,6 +126,47 @@ internal sealed class WasmNativeFunction
             }
         }
         return regions;
+    }
+
+    /// <summary>A JIT stencil: one loop of an untyped body compiled natively under assumed types for its untyped bindings.
+    /// The desktop runtime JIT installs the first variant of a hot loop whose entry check accepts the values it sees.</summary>
+    internal sealed record Stencil(int Loop, WasmNativeFunction Region, IReadOnlyDictionary<string, int> Types);
+
+    /// <summary>Stencils for the loops of untyped bodies that the regions do not cover: every assignment of integer or
+    /// double to the loop's untyped scalar bindings (up to three) other than the guessed one a region already runs.
+    /// Loops are numbered in order; a loop's variants come most likely first (its guesses, then integers).</summary>
+    internal static List<Stencil> SelectStencils(IReadOnlyList<LoweredProgram> bodies, IReadOnlyList<WasmScopePlan> plans,
+        IReadOnlySet<int> natives, IReadOnlyList<WasmNativeFunction> regions)
+    {
+        var stencils = new List<Stencil>();
+        int loop = 0;
+        for (int f = 0; f < bodies.Count; f++) {
+            if (natives.Contains(f) || !plans[f].Scopes.Skip(1).All(scope => scope.Promoted)) continue;
+            var covered = regions.Where(r => r.Body == f).Select(r => (r.Start, r.Stop)).ToList();
+            foreach (var (enter, _, leave, region) in bodies[f].Loops.OrderBy(l => l.Enter)) {
+                if (region == null || plans[f].Depth[enter] != 0 || covered.Any(c => c.Start <= enter && enter <= c.Stop && !(c.Start == enter))) continue;
+                var names = region.Outer.Where(o => o.Value.Type == 0 && o.Value.Function == null && o.Value.Struct == null).Select(o => o.Key).ToArray();
+                if (names.Length is 0 or > 3) continue;
+                var accepted = regions.FirstOrDefault(r => r.Body == f && r.Start == enter);
+                var guessed = names.ToDictionary(n => n, n => region.Outer[n].Guess, StringComparer.Ordinal);
+                var variants = new List<Dictionary<string, int>>();
+                for (int bits = 0; bits < 1 << names.Length; bits++)
+                    variants.Add(names.Select((n, i) => (n, (bits >> i & 1) == 0 ? IntType : DoubleType)).ToDictionary(p => p.n, p => p.Item2, StringComparer.Ordinal));
+                // The guessed assignment first, unless a region already runs it.
+                variants = variants.OrderBy(v => v.All(p => guessed[p.Key] == p.Value) ? 0 : 1).ToList();
+                var found = new List<Stencil>();
+                foreach (var types in variants) {
+                    if (accepted != null && types.All(p => guessed[p.Key] == p.Value)) continue;
+                    var candidate = new WasmNativeFunction(f, region, bodies[f], plans[f], enter, leave, types);
+                    if (!candidate.Analyze(_ => -1)) continue;
+                    candidate.Pointers = candidate.OwnPointers.Keys.ToArray();
+                    found.Add(new Stencil(loop, candidate, types));
+                }
+                if (found.Count == 0) continue;
+                stencils.AddRange(found); loop++;
+            }
+        }
+        return stencils;
     }
 
     private static bool Numeric(int type) => type is IntType or FloatType or DoubleType;
@@ -233,9 +288,12 @@ internal sealed class WasmNativeFunction
                 int index = callNames.IndexOf(name); if (index < 0) { index = callNames.Count; callNames.Add(name); }
                 return CallableBase + index;
             }
-            if (!Value(outer.Type)) return Unknown;
-            OwnPointers[name] = (outer.Type, -1);
-            return outer.Type;
+            // A region speculates that an untyped binding holds its guessed type (TypeChecker): its entry checks the tag and
+            // leaves the loop to the generic code when the guess is wrong, so speculation never changes a result.
+            int type = outer.Type == 0 && IsRegion ? Assumed(name, outer) : outer.Type;
+            if (!Value(type) || outer.Type == 0 && IsArray(type)) return Unknown;
+            OwnPointers[name] = (type, -1);
+            return type;
         }
         int builtin = BuiltinOf(name);
         if (builtin < 0) return Unknown;

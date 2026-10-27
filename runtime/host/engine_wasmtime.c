@@ -20,6 +20,9 @@ struct engine {
     engine_service service; void *service_data;
     bool worker;
     char *trap;               /* first trap message, until taken */
+    const uint8_t *bytes; size_t length; /* the application module (owned by the runtime) */
+    wasmtime_caller_t *caller; /* during a service call: the guest's caller, whose context the JIT uses */
+    void *jit;                /* the runtime JIT's state (platform_jit) */
 };
 
 static const char *const export_names[GUEST_EXPORT_COUNT] = {
@@ -45,11 +48,15 @@ static char *message_of(wasmtime_error_t *error, wasm_trap_t *trap) {
 }
 
 static wasm_trap_t *service_trampoline(void *env, wasmtime_caller_t *caller, wasmtime_val_raw_t *values, size_t count) {
-    (void)caller; (void)count;
+    (void)count;
     engine *e = env;
     int32_t arguments[7];
     for (int i = 0; i < 7; i++) arguments[i] = values[i].i32;
-    values[0].i32 = e->service(e->service_data, arguments);
+    wasmtime_caller_t *outer = e->caller;
+    e->caller = caller;
+    /* Operation 5 is a hot loop asking the runtime JIT of this instance (the main one or a Thread worker's). */
+    values[0].i32 = arguments[0] == 5 ? platform_jit(e, arguments[2]) : e->service(e->service_data, arguments);
+    e->caller = outer;
     return NULL;
 }
 
@@ -106,12 +113,13 @@ static engine *instantiate(wasm_engine_t *wasm, wasmtime_module_t *module, engin
    Wasmtime rejects code compiled by another version or configuration, which then recompiles. The cache lives in the
    user's (or the app's) own directory: its contents are trusted like the runtime's own files. */
 #define CACHE_SLOTS 32 /* an entry is a few megabytes (each application carries the guest runtime) */
-static char *cache_slot(const uint8_t digest[32], char **directory) {
+/* Kinds of cached code: applications ("wasmtime") and the runtime JIT's modules ("wasmtime-jit"), in separate slots. */
+static char *cache_slot(const uint8_t digest[32], char **directory, const char *kind) {
     *directory = platform_cache_directory();
     if (!*directory) return NULL;
-    size_t n = strlen(*directory) + 32;
+    size_t n = strlen(*directory) + strlen(kind) + 32;
     char *path = malloc(n);
-    snprintf(path, n, "%s/wasmtime-%02x.bin", *directory, digest[0] % CACHE_SLOTS);
+    snprintf(path, n, "%s/%s-%02x.bin", *directory, kind, digest[0] % CACHE_SLOTS);
     return path;
 }
 static wasmtime_module_t *cached_module(wasm_engine_t *wasm, const char *slot, const uint8_t digest[32]) {
@@ -139,29 +147,65 @@ static void cache_module(const wasmtime_module_t *module, const char *directory,
     free(partial); free(entry);
     wasm_byte_vec_delete(&code);
 }
+/* Compiled code for a module: from the cache, or compiled and cached. */
+static wasmtime_module_t *compile(wasm_engine_t *wasm, const uint8_t *module, size_t length, const char *kind, wasmtime_error_t **failure) {
+    uint8_t digest[32];
+    sha256(module, length, digest);
+    char *directory = NULL, *slot = cache_slot(digest, &directory, kind);
+    wasmtime_module_t *compiled = slot ? cached_module(wasm, slot, digest) : NULL;
+    if (!compiled) {
+        *failure = wasmtime_module_new(wasm, module, length, &compiled);
+        if (!*failure && slot) cache_module(compiled, directory, slot, digest);
+    }
+    free(slot); free(directory);
+    return compiled;
+}
 
 engine *engine_create(const uint8_t *module, size_t length, engine_service service, void *data, char **error) {
     wasm_engine_t *wasm = shared_engine();
-    uint8_t digest[32];
-    sha256(module, length, digest);
-    char *directory = NULL, *slot = cache_slot(digest, &directory);
-    wasmtime_module_t *compiled = slot ? cached_module(wasm, slot, digest) : NULL;
     wasmtime_error_t *failure = NULL;
-    if (!compiled) {
-        failure = wasmtime_module_new(wasm, module, length, &compiled);
-        if (!failure && slot) cache_module(compiled, directory, slot, digest);
-    }
-    free(slot); free(directory);
+    wasmtime_module_t *compiled = compile(wasm, module, length, "wasmtime", &failure);
     if (failure) { if (error) *error = message_of(failure, NULL); wasm_engine_delete(wasm); return NULL; }
     engine *e = instantiate(wasm, compiled, service, data, error);
-    if (!e) { wasmtime_module_delete(compiled); wasm_engine_delete(wasm); }
+    if (!e) { wasmtime_module_delete(compiled); wasm_engine_delete(wasm); return NULL; }
+    e->bytes = module; e->length = length;
     return e;
 }
 
 engine *engine_worker(engine *parent, engine_service service, void *data, char **error) {
     engine *e = instantiate(parent->wasm, parent->module, service, data, error);
-    if (e) e->worker = true;
+    if (e) { e->worker = true; e->bytes = parent->bytes; e->length = parent->length; }
     return e;
+}
+
+const uint8_t *engine_module(engine *e, size_t *length) { *length = e->length; return e->bytes; }
+void **engine_jit_state(engine *e) { return &e->jit; }
+
+int32_t engine_install(engine *e, const uint8_t *module, size_t length, char **error) {
+    wasmtime_context_t *context = e->caller ? wasmtime_caller_context(e->caller) : e->context;
+    wasmtime_error_t *failure = NULL;
+    wasmtime_module_t *compiled = compile(e->wasm, module, length, "wasmtime-jit", &failure);
+    if (failure) { *error = message_of(failure, NULL); return -1; }
+    wasmtime_linker_t *linker = wasmtime_linker_new(e->wasm);
+    wasmtime_instance_t instance;
+    wasm_trap_t *trap = NULL;
+    failure = wasmtime_linker_define_instance(linker, context, "app", 3, &e->instance);
+    if (!failure) failure = wasmtime_linker_instantiate(linker, context, compiled, &instance, &trap);
+    wasmtime_linker_delete(linker);
+    wasmtime_module_delete(compiled);
+    if (failure || trap) { *error = message_of(failure, trap); return -1; }
+    wasmtime_extern_t run, table;
+    if (!wasmtime_instance_export_get(context, &instance, "run", 3, &run) || run.kind != WASMTIME_EXTERN_FUNC
+        || !wasmtime_instance_export_get(context, &e->instance, "__indirect_function_table", 25, &table) || table.kind != WASMTIME_EXTERN_TABLE) {
+        *error = strdup("The JIT module or the application lacks an export.");
+        return -1;
+    }
+    wasmtime_val_t function = {.kind = WASMTIME_FUNCREF};
+    function.of.funcref = run.of.func;
+    uint64_t index = 0;
+    failure = wasmtime_table_grow(context, &table.of.table, 1, &function, &index);
+    if (failure) { *error = message_of(failure, NULL); return -1; }
+    return index < INT32_MAX ? (int32_t)index : -1;
 }
 
 void engine_destroy(engine *e) {
@@ -169,6 +213,7 @@ void engine_destroy(engine *e) {
     wasmtime_store_delete(e->store);
     if (!e->worker) { wasmtime_module_delete(e->module); wasm_engine_delete(e->wasm); }
     free(e->trap);
+    free(e->jit);
     free(e);
 }
 

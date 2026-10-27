@@ -162,6 +162,42 @@ enters the region again). A region that cannot run in an activation (a binding o
 generic body skips it until the next resumption; a raised error returns -3. Regions make no calls, so their state is only
 the frame's slots and the outer bindings.
 
+### Speculation on untyped variables (every target)
+
+Untyped variables a loop uses also make regions, typed by a *guess*: the TypeChecker records the static type of every
+value a single declaration and its plain assignments give a variable (`變數 n = 60;` is an integer), and of every argument
+of the direct calls of a function for its untyped parameters; disagreeing values give no guess. A region assumes each
+untyped variable it uses (an outer binding or a frame slot declared before the loop) holds its guessed number or Boolean
+type. Since the region checks those types at every entry, a wrong guess only returns -2 and the loop runs generically,
+so speculation never changes a result (`SpeculationTest` compares it with the unoptimized compiler, also when a
+variable changes type between entries and under tiny quanta). This is plain Wasm in the artifact, so web and Android
+gain too: the untyped mandelbrot benchmark runs as fast as the typed one.
+
+### Desktop runtime JIT
+
+Variables whose type no guess finds (values from untyped calls, parameters of callbacks) are left to the desktop
+runtime JIT, a copy-and-patch JIT. For each loop of untyped code that no region covers, the compiler stores typed
+variants (stencils) in the `aquarius.jit` custom section (`WasmJit`, `WasmNativeFunction.SelectStencils`): the loop's
+region under every assignment of integer or double to its untyped scalar variables (up to three), most likely first.
+Each stencil is region code emitted against its own imports: the runtime helpers it calls, the application's memory and
+table, and the native tier's signal and execution globals, which the application exports as `aqua_signal` and
+`aqua_execution`. Other engines ignore the section.
+
+The generic code of such a loop head (`WasmBodyEmitter.EnterJit`) keeps two globals: the table index of the loop's
+installed variant (0 while cold, -1 when none applies) and a count of cold iterations. After
+`WasmBodyEmitter.JitThreshold` iterations it calls `rt_jitRequest`, a host service the Wasmtime engine answers through
+`platform_jit`. On Windows and Linux, `runtime/platform/desktop/jit.c` builds a module around the loop's next variant
+(the application's own type section, the imports, the stencil as function `run`), and `engine_install` compiles it with
+the caching of applications (`wasmtime-jit-<slot>.bin`), instantiates it in the requesting store (the main instance or a
+Thread worker's) and appends it to the function table. Because regions enter at loop heads, a long loop switches to
+native code in the middle of its run. A variant whose entry check rejects the values returns -2 and the loop asks for
+the next variant, until none is left (-1). Android and the web answer -1, so their loops stay generic.
+
+`AQUARIUS_JIT=0` turns the JIT off; `AQUARIUS_JIT_DIAGNOSTICS=1` reports each installation and how long it took (a few
+milliseconds, a fraction of one once cached). `JitTest` runs untyped programs with the JIT on and off (and against the
+unoptimized compiler): type changes between and inside runs, entry checks that fail, errors raised in native code,
+collections during native code, Thread workers and tiny quanta.
+
 ## Garbage collector
 
 Blocks tile the heap contiguously. The sweep is a single pass by address that clears marks,

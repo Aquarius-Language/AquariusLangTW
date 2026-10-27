@@ -391,7 +391,7 @@ u32 aqua_invoke(u32 closure,u32 arguments,u32 count) {
    only those two calls. */
 static int worker;
 static int host_service(int operation, int context, int subject, int name, int arguments, int count, int output) {
-    if(!worker||(operation==4&&(subject==106||subject==107)))return host_import(operation,context,subject,name,arguments,count,output);
+    if(!worker||operation==5||(operation==4&&(subject==106||subject==107)))return host_import(operation,context,subject,name,arguments,count,output);
     Value*out=pointer((u32)output);
     if(operation==0){
         static const uint16_t *const builtins[][2]={{u"len",u"長度"},{u"last",u"最後一個"},{u"rest",u"其餘"},{u"push",u"加入"},{u"floodFill",u"區域填色"}};
@@ -558,6 +558,9 @@ int rt_numericFrame(Execution*e,int pc,int depth) {
     Frame*f=frame(e,0,c->program,c->function,c->scope,c->context);f->binding_cache=closure_cache(c,fn);
     f->pc=(u32)pc;f->sp=fn->locals+(u32)depth;if(!e->numeric_innermost)e->numeric_innermost=f;return (int)address(f);
 }
+/* A hot loop asks the runtime JIT (desktop hosts) for native code: the host answers the table index of the next variant
+   to try, or -1 when none remains or it has no JIT. */
+int rt_jitRequest(Frame*f,int loop) { int index=host_service(5,f->context,loop,0,0,0,0);return index>0?index:-1; }
 /* Deoptimization of a native (fully typed) function: like rt_numericFrame, for the given closure, since native
    functions call each other directly. The caller writes the frame's variables and operands. */
 int rt_nativeFrame(Execution*e,int closure,int pc,int depth) {

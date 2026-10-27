@@ -14,7 +14,7 @@ internal sealed record TypeCheck(int Code, string Subject);
 /// candidate for the native tier. <see cref="Outer"/> holds the names its body resolves outside itself, with the
 /// declaration they resolve to; names it does not resolve (core globals such as 整數 or 長度) are absent.</summary>
 internal sealed class NativeSignature {
-    internal sealed record OuterName(int Type, FunctionLiteral? Function, bool Assigned, bool Sibling, StructStatement? Struct = null);
+    internal sealed record OuterName(int Type, FunctionLiteral? Function, bool Assigned, bool Sibling, StructStatement? Struct = null, int Guess = 0);
     /// <summary>The struct types the program's annotations name, by code (shared by every signature of a program).</summary>
     internal IReadOnlyDictionary<int, StructStatement> Structs = new Dictionary<int, StructStatement>();
     internal readonly int[] Parameters;
@@ -46,6 +46,15 @@ public sealed class TypeChecker {
         internal StructStatement? Struct;
         internal int Count;
         internal bool Assigned;
+        /// <summary>An untyped binding's likely type, a guess the native tier may speculate on behind a tag check: the
+        /// static type of every value its declaration and plain assignments give it when they agree (0 when none is
+        /// known, Conflict when they disagree).</summary>
+        internal int Guess;
+        internal const int Conflict = -2;
+        internal void Observe(int value) {
+            if (value == Conflict) Guess = Conflict;
+            else if (value > 0 && Guess != Conflict) Guess = Guess == 0 || Guess == value ? value : Conflict;
+        }
     }
     private sealed class Scope {
         internal readonly Scope? Outer;
@@ -61,6 +70,9 @@ public sealed class TypeChecker {
     private readonly Stack<(Scope Own, NativeSignature? Native, Dictionary<string, (Declaration, Scope)> Uses)> functions = new();
     private readonly List<(NativeSignature Native, Dictionary<string, (Declaration, Scope)> Uses)> pending = new();
     private readonly List<ParseError> errors = new();
+    // Guesses for untyped parameters: the static argument types of every direct call, merged like Declaration.Observe.
+    private readonly Dictionary<FunctionLiteral, Declaration[]> parameterDeclarations = new(ReferenceEqualityComparer.Instance);
+    private readonly List<(FunctionLiteral Function, int Index, int Type)> arguments = new();
     private readonly Stack<TypeAnnotation?> returns = new();
     private Scope scope = new(null);
 
@@ -71,11 +83,14 @@ public sealed class TypeChecker {
         var checker = new TypeChecker();
         checker.Declare(tree.Statements);
         foreach (var statement in tree.Statements) checker.Statement(statement);
-        // Assignments anywhere in the program are known only now.
+        // Assignments and calls anywhere in the program are known only now.
+        foreach (var (function, index, type) in checker.arguments)
+            if (checker.parameterDeclarations.TryGetValue(function, out var declared) && index < declared.Length) declared[index].Observe(type);
         foreach (var (native, uses) in checker.pending)
             foreach (var (name, (declaration, owner)) in uses)
                 native.Outer[name] = new NativeSignature.OuterName(Code(declaration.Type), declaration.Count == 1 ? declaration.Function : null,
-                    declaration.Assigned || declaration.Count != 1, owner == native.DefiningScope, declaration.Count == 1 ? declaration.Struct : null);
+                    declaration.Assigned || declaration.Count != 1, owner == native.DefiningScope, declaration.Count == 1 ? declaration.Struct : null,
+                    declaration.Count == 1 && declaration.Guess > 0 ? declaration.Guess : 0);
         foreach (var (native, _) in checker.pending) native.Structs = checker.Structs;
         return checker;
     }
@@ -176,6 +191,7 @@ public sealed class TypeChecker {
             case LetStatement let: {
                 int value = Expression(let.Value);
                 if (let.Name.Type != null) Require(let.Name.Type.Code, value, let, let.Name.Value, let.Name.Token);
+                else if (scope.Names.TryGetValue(let.Name.Value, out var declared)) declared.Observe(value);
                 break;
             }
             case ReturnStatement returned: {
@@ -300,7 +316,7 @@ public sealed class TypeChecker {
             var declaration = Resolve(variable.Value);
             if (declaration == null) return Void;
             if (op == "=") declaration.Assigned = true;
-            if (declaration.Type is not { } type) return Void;
+            if (declaration.Type is not { } type) { if (op == "=") declaration.Observe(value); return Void; }
             if (op == "=") Require(type.Code, value, infix, variable.Value, variable.Token);
             else if (value != Dynamic && !(Numeric(type.Code) && Numeric(value) || op == "+=" && type.Code == String && value == String))
                 Error($"型別不符：{variable.Value} ({Name(type.Code)}) 不能使用 {op} {Name(value)} / Type mismatch: {variable.Value} ({Name(type.Code)}) cannot use {op} with {Name(value)}.", infix.Token);
@@ -371,12 +387,17 @@ public sealed class TypeChecker {
         if (declaration.Function is not { } function || declaration.Assigned || declaration.Count != 1) return Dynamic;
         var parameters = function.Parameters ?? System.Array.Empty<Identifier>();
         if (parameters.Length == arguments.Length)
+            for (int i = 0; i < arguments.Length; i++) this.arguments.Add((function, i, arguments[i] == Dynamic ? Guessed(call.Arguments![i]) : arguments[i]));
+        if (parameters.Length == arguments.Length)
             for (int i = 0; i < arguments.Length; i++)
                 if (parameters[i].Type is { } type && arguments[i] != Dynamic && arguments[i] != type.Code && !Widens(arguments[i], type.Code)
                     && !(arguments[i] == ArrayFlag && (type.Code & ArrayFlag) != 0))
                     Error($"型別不符：參數 {parameters[i].Value} 需要 {Name(type.Code)}，卻是 {Name(arguments[i])} / Type mismatch: parameter {parameters[i].Value} expects {Name(type.Code)}, got {Name(arguments[i])}.", name.Token);
         return Code(function.ReturnType);
     }
+
+    /// <summary>An untyped argument's guessed type: a variable's guess so far (a guess, never proven).</summary>
+    private int Guessed(IExpression argument) => argument is Identifier name && Resolve(name.Value) is { Type: null, Count: 1 } d && d.Guess > 0 ? d.Guess : 0;
 
     private void Function(FunctionLiteral function) {
         var outer = scope; scope = new Scope(outer);
@@ -391,6 +412,7 @@ public sealed class TypeChecker {
         functions.Push((scope, native, uses));
         if (native != null) { Natives[function] = native; pending.Add((native, uses)); }
         foreach (var parameter in function.Parameters ?? System.Array.Empty<Identifier>()) Add(parameter, null);
+        parameterDeclarations[function] = (function.Parameters ?? System.Array.Empty<Identifier>()).Select(p => scope.Names[p.Value]).ToArray();
         var statements = function.Body?.Statements ?? System.Array.Empty<IStatement>();
         Declare(statements);
         returns.Push(function.ReturnType);
