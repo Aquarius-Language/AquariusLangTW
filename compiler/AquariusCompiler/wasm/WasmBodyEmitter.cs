@@ -672,6 +672,11 @@ internal sealed class WasmBodyEmitter
             case IrOperation.Array: Helper("array", n, d, n); return false;
             case IrOperation.Hash: Helper("hash", n, d, n * 2); return false;
             case IrOperation.CheckHashKey: Helper("checkHashKey", n, d, 0); return false;
+            case IrOperation.StructType: Helper("structType", n, d, 0); return false;
+            case IrOperation.CheckStruct: Helper("checkStruct", n, d, 1); return false;
+            case IrOperation.SetMember: Helper("setMember", n, d, 2); return false;
+            case IrOperation.CompoundMember: Helper("compoundMember", n, d, 2); return false;
+            case IrOperation.CallNamed: Helper("callNamed", n, d, body.NamedArguments(n) + 1); return false;
             case IrOperation.CheckType: CheckType(n, d); return false;
             case IrOperation.Member: case IrOperation.MemberFunction: Helper("member", n, d, 1); return false;
             case IrOperation.EnterLoop: {

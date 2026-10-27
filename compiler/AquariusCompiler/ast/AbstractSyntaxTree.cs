@@ -838,8 +838,8 @@ public class CallExpression : IExpression {
         StringBuilder builder = new StringBuilder();
 
         List<string> args = new List<string>();
-        foreach (var arg in arguments) {
-            args.Add(arg.String());
+        for (int i = 0; i < arguments.Length; i++) {
+            args.Add((ArgumentNames != null ? ArgumentNames[i] + ": " : "") + arguments[i].String());
         }
         
         builder.Append(function.String())
@@ -866,6 +866,33 @@ public class CallExpression : IExpression {
     public IExpression[] Arguments {
         get => arguments;
         set => arguments = value;
+    }
+
+    /// <summary>The names of named arguments (<c>節點(左: a, 值: 3)</c>, a struct construction), or null.</summary>
+    public string[]? ArgumentNames { get; set; }
+}
+
+/// <summary>A struct type declaration: <c>結構 節點 { 左: 節點; 右: 節點; 值: 整數 }</c> /
+/// <c>struct Node { left: Node; value: int }</c>. It binds the name to the struct type, which constructs values when
+/// called. Fields may be annotated; struct-typed and untyped fields default to null.</summary>
+public class StructStatement : IStatement {
+    public Token Token { get; set; }
+    public Identifier Name { get; set; } = null!;
+    public Identifier[] Fields { get; set; } = System.Array.Empty<Identifier>();
+    public StructStatement(Token token) { Token = token; }
+    public string TokenLiteral() => Token.Literal;
+    public void StatementNode() { }
+    public string String() => $"{Token.Literal} {Name.Value} {{ {string.Join("; ", Fields.Select(f => f.Declared()))} }}";
+
+    /// <summary>The type's program-wide id: a hash of its declaration (name, fields and position), the same in every
+    /// compilation of the same source, so annotations in other functions agree with the runtime type.</summary>
+    public int Id {
+        get {
+            uint hash = 2166136261u;
+            void Mix(string text) { foreach (char c in text) hash = (hash ^ c) * 16777619u; hash = (hash ^ 0xffff) * 16777619u; }
+            Mix(Name.Value); foreach (var field in Fields) Mix(field.Declared()); Mix(Token.Start.ToString(System.Globalization.CultureInfo.InvariantCulture));
+            return (int)(hash & 0x7fffff);
+        }
     }
 }
 
@@ -1100,10 +1127,14 @@ public sealed class TypeAnnotation {
     public ScalarType Element { get; }
     public bool IsArray { get; }
     public TypeAnnotation(Token token, ScalarType element, bool isArray) { Token = token; Element = element; IsArray = isArray; }
+    /// <summary>A struct type's name (結構 / struct); its code is set when the TypeChecker resolves the name.</summary>
+    public string? StructName { get; init; }
+    public int StructCode { get; set; }
 
-    /// <summary>Compact code shared with the Wasm emitter and runtime checks: the element tag, plus 16 for arrays.</summary>
-    public int Code => (int)Element | (IsArray ? 16 : 0);
-    public string String() => Token.Literal + (IsArray && Element != 0 ? "[]" : "");
+    /// <summary>Compact code shared with the Wasm emitter and runtime checks: the element tag, plus 16 for arrays, or a
+    /// struct type's 32 | id &lt;&lt; 6.</summary>
+    public int Code => StructName != null ? StructCode : (int)Element | (IsArray ? 16 : 0);
+    public string String() => Token.Literal + (IsArray && Element != 0 && StructName == null ? "[]" : "");
 }
 
 }

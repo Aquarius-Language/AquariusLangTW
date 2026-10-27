@@ -232,7 +232,10 @@ var flags: bool[] = Array.Make(10, true);
 | `string` | `字串` | text |
 | `int[]`, `float[]`, `double[]`, `bool[]` | `整數[]` etc. | array with a fixed element type |
 | `array` | `陣列` | array whose elements may be any values (nested arrays, for example) |
+| struct name | 結構名稱 | a [struct](docs/structs.md) declared with `struct` / `結構` |
 
+`struct Node { left: Node; right: Node; value: int }` declares a struct type; `Node(left: a, value: 3)` or
+`Node(a, b, 3)` constructs one (fields left out are `null`) and `tree.value` reads or writes a field.
 Type names only mean something after `:`; they are not reserved words. A mismatch
 the compiler can see is a compile error, anything else is checked at run time.
 Integers widen to float and double automatically; the other direction needs

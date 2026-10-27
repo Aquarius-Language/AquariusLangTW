@@ -55,7 +55,7 @@ public sealed class LoweringCompiler {
             // Assign consumes the target's loaded value below the new value, like `p = p`.
             Emit(IrOperation.Load, Name(parameter.Value));
             Emit(IrOperation.Load, Name(parameter.Value));
-            Emit(IrOperation.CheckType, TypeOperand(new TypeCheck(parameter.Type.Code, parameter.Value)));
+            EmitCheck(new TypeCheck(parameter.Type.Code, parameter.Value));
             Emit(IrOperation.Assign, Name(parameter.Value));
             Emit(IrOperation.Pop);
         }
@@ -67,7 +67,12 @@ public sealed class LoweringCompiler {
     // The subject shares the name constant: emitters identify a binding by its first name constant.
     private int TypeOperand(TypeCheck check) => Name(check.Subject) << 5 | check.Code;
     private void Check(INode site) {
-        if (types != null && types.Checks.TryGetValue(site, out var check)) Emit(IrOperation.CheckType, TypeOperand(check));
+        if (types != null && types.Checks.TryGetValue(site, out var check)) EmitCheck(check);
+    }
+    // A struct annotation names its type: "id\1subject\1type name" (rt_checkStruct).
+    private void EmitCheck(TypeCheck check) {
+        if (!TypeChecker.IsStruct(check.Code)) { Emit(IrOperation.CheckType, TypeOperand(check)); return; }
+        Emit(IrOperation.CheckStruct, Constant($"{check.Code >> 6}\u0001{check.Subject}\u0001{TypeChecker.Name(check.Code)}"));
     }
 
     private int Emit(IrOperation op, int operand = 0) { code.Add(new Instruction(op, operand)); return code.Count - 1; }
@@ -111,6 +116,12 @@ public sealed class LoweringCompiler {
                 }
                 break;
             case ReturnStatement returned: Node(returned.ReturnValue); Check(returned); Emit(IrOperation.Return); break;
+            case StructStatement shape:
+                // "id\1name\1field\2code\2type\1...": the runtime's struct type descriptor (rt_structType).
+                Emit(IrOperation.StructType, Constant($"{shape.Id}\u0001{shape.Name.Value}" + string.Concat(shape.Fields.Select(f =>
+                    $"\u0001{f.Value}\u0002{f.Type?.Code ?? 0}\u0002{f.Type?.String() ?? ""}"))));
+                Emit(IrOperation.Declare, Name(shape.Name.Value));
+                break;
             case BreakStatement _:
                 if (breaks.Count > 0) breaks.Peek().Add(Emit(IrOperation.Break));
                 else Value(RepeatedPrimitives.BREAK);
@@ -137,7 +148,10 @@ public sealed class LoweringCompiler {
             case ForLoopLiteral loop: Loop(loop); break;
             case FunctionLiteral function: Emit(IrOperation.Closure, Constant(new FunctionCode(function, types))); break;
             case CallExpression call:
-                Node(call.Function); Arguments(call.Arguments); Emit(IrOperation.Call, call.Arguments.Length); break;
+                Node(call.Function); Arguments(call.Arguments);
+                if (call.ArgumentNames != null) Emit(IrOperation.CallNamed, Constant(string.Join("\u0001", call.ArgumentNames)));
+                else Emit(IrOperation.Call, call.Arguments.Length);
+                break;
             case ArrayLiteral array: Arguments(array.Elements); Emit(IrOperation.Array, array.Elements.Length); break;
             case HashLiteral hash:
                 foreach (var pair in hash.Pairs) { Node(pair.Key); Emit(IrOperation.CheckHashKey); Node(pair.Value); }
@@ -151,6 +165,13 @@ public sealed class LoweringCompiler {
 
     private void Infix(InfixExpression expression) {
         string op = expression.Operator;
+        if (expression.Left is InfixExpression { Operator: "." } target && target.Right is Identifier field
+            && op is "=" or "+=" or "-=" or "*=" or "/=" or "%=") {
+            Node(target.Left); Node(expression.Right);
+            if (op == "=") Emit(IrOperation.SetMember, Name(field.Value));
+            else Emit(IrOperation.CompoundMember, Constant(new Assignment(field.Value, BinaryCode(op.Substring(0, 1)))));
+            return;
+        }
         if (op == "=" && expression.Left is IndexExpression index) {
             Node(index.Left); Node(index.Index); Emit(IrOperation.CheckArrayWrite);
             Node(expression.Right); Emit(IrOperation.WriteIndex); return;

@@ -14,7 +14,9 @@ internal sealed record TypeCheck(int Code, string Subject);
 /// candidate for the native tier. <see cref="Outer"/> holds the names its body resolves outside itself, with the
 /// declaration they resolve to; names it does not resolve (core globals such as 整數 or 長度) are absent.</summary>
 internal sealed class NativeSignature {
-    internal sealed record OuterName(int Type, FunctionLiteral? Function, bool Assigned, bool Sibling);
+    internal sealed record OuterName(int Type, FunctionLiteral? Function, bool Assigned, bool Sibling, StructStatement? Struct = null);
+    /// <summary>The struct types the program's annotations name, by code (shared by every signature of a program).</summary>
+    internal IReadOnlyDictionary<int, StructStatement> Structs = new Dictionary<int, StructStatement>();
     internal readonly int[] Parameters;
     internal readonly int Result;
     internal readonly object DefiningScope;
@@ -31,11 +33,17 @@ internal sealed class NativeSignature {
 /// </summary>
 public sealed class TypeChecker {
     /// <summary>Static types: 0 is unknown (untyped), -1 is no value (void), otherwise a type code.</summary>
-    internal const int Dynamic = 0, Void = -1, Int = 1, Float = 2, Double = 3, Bool = 4, String = 5, ArrayFlag = 16;
+    internal const int Dynamic = 0, Void = -1, Int = 1, Float = 2, Double = 3, Bool = 4, String = 5, ArrayFlag = 16, StructFlag = 32;
+    internal static bool IsStruct(int code) => code > 0 && (code & StructFlag) != 0;
+    /// <summary>The names of struct type codes seen by any check (for messages).</summary>
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<int, string> structNames = new();
+    /// <summary>The declaration of each struct type code this program uses.</summary>
+    internal readonly Dictionary<int, StructStatement> Structs = new();
 
     private sealed class Declaration {
         internal TypeAnnotation? Type;
         internal FunctionLiteral? Function;
+        internal StructStatement? Struct;
         internal int Count;
         internal bool Assigned;
     }
@@ -67,13 +75,15 @@ public sealed class TypeChecker {
         foreach (var (native, uses) in checker.pending)
             foreach (var (name, (declaration, owner)) in uses)
                 native.Outer[name] = new NativeSignature.OuterName(Code(declaration.Type), declaration.Count == 1 ? declaration.Function : null,
-                    declaration.Assigned || declaration.Count != 1, owner == native.DefiningScope);
+                    declaration.Assigned || declaration.Count != 1, owner == native.DefiningScope, declaration.Count == 1 ? declaration.Struct : null);
+        foreach (var (native, _) in checker.pending) native.Structs = checker.Structs;
         return checker;
     }
 
     public static string Name(int code) {
         if (code == Void) return "無值 / no value";
         if (code == ArrayFlag) return "陣列 array";
+        if (IsStruct(code)) return structNames.TryGetValue(code, out var name) ? name : "結構 struct";
         string suffix = (code & ArrayFlag) != 0 ? "[]" : "";
         return (code & 15) switch {
             Int => $"整數{suffix} int{suffix}", Float => $"浮點數{suffix} float{suffix}", Double => $"雙精度{suffix} double{suffix}",
@@ -86,10 +96,37 @@ public sealed class TypeChecker {
 
     /// <summary>Records the declarations a scope owns: its statements, through blocks and conditionals but not into
     /// functions or loops, which own their own scopes.</summary>
-    private void Declare(IEnumerable<IStatement> statements) { foreach (var statement in statements) DeclareIn(statement); }
+    private void Declare(IEnumerable<IStatement> statements) {
+        // Struct types first, so annotations anywhere in the scope (and struct fields, recursively) can name them.
+        var list = statements.ToList();
+        foreach (var declaration in list.OfType<StructStatement>()) AddStruct(declaration);
+        foreach (var declaration in list.OfType<StructStatement>()) foreach (var field in declaration.Fields) Bind(field.Type);
+        foreach (var statement in list) DeclareIn(statement);
+    }
+    private void AddStruct(StructStatement declaration) {
+        if (scope.Names.ContainsKey(declaration.Name.Value)) {
+            Error($"{declaration.Name.Value} 在同一範圍重複宣告 / {declaration.Name.Value} is declared twice in the same scope.", declaration.Name.Token);
+            return;
+        }
+        scope.Names[declaration.Name.Value] = new Declaration { Struct = declaration, Count = 1 };
+    }
+    /// <summary>Resolves a struct type name in an annotation to its code (32 | id &lt;&lt; 6).</summary>
+    private void Bind(TypeAnnotation? type) {
+        if (type?.StructName == null || type.StructCode != 0) return;
+        for (var s = scope; s != null; s = s.Outer)
+            if (s.Names.TryGetValue(type.StructName, out var declaration)) {
+                if (declaration.Struct is not { } found) break;
+                type.StructCode = StructFlag | found.Id << 6;
+                Structs[type.StructCode] = found; structNames[type.StructCode] = found.Name.Value;
+                return;
+            }
+        Error($"未知的型別 {type.StructName}（可用：整數、浮點數、雙精度、布林、字串、陣列或結構名稱）/ Unknown type {type.StructName} (use int, float, double, bool, string, array or a struct name).", type.Token);
+    }
     private void DeclareIn(INode? node) {
         switch (node) {
+            case StructStatement: break;
             case LetStatement let:
+                Bind(let.Name.Type);
                 Add(let.Name, let.Value as FunctionLiteral);
                 if (let.Alias != null) Add(let.Alias, let.Value as FunctionLiteral);
                 DeclareIn(let.Value); break;
@@ -155,6 +192,10 @@ public sealed class TypeChecker {
     /// <paramref name="target"/> is required. Integers widen to float and double, floats to double.</summary>
     private void Require(int target, int value, INode site, string subject, Token token) {
         if (value == target) return;
+        if (IsStruct(target) && value != Dynamic) {
+            Error($"型別不符：{subject} 需要 {Name(target)}，卻是 {Name(value)} / Type mismatch: {subject} expects {Name(target)}, got {Name(value)}.", token);
+            return;
+        }
         // An array of any values may hold a typed array: that is checked when the program runs.
         if (value == Dynamic || Widens(value, target) || value == ArrayFlag && (target & ArrayFlag) != 0) { Checks[site] = new TypeCheck(target, subject); return; }
         Error($"型別不符：{subject} 需要 {Name(target)}，卻是 {Name(value)} / Type mismatch: {subject} expects {Name(target)}, got {Name(value)}.", token);
@@ -226,7 +267,10 @@ public sealed class TypeChecker {
     private int Infix(InfixExpression infix) {
         string op = infix.Operator;
         if (op == ".") {
-            Expression(infix.Left);
+            int receiver = Expression(infix.Left);
+            // A field of a value of a known struct type has the field's type.
+            if (IsStruct(receiver) && infix.Right is Identifier member && Structs.TryGetValue(receiver, out var shape))
+                return FieldType(shape, member);
             // The right side is a member name, a member call or an index chain on one; only its arguments are code here.
             var right = infix.Right;
             while (right is IndexExpression indexed) { Expression(indexed.Index); right = indexed.Left; }
@@ -235,6 +279,19 @@ public sealed class TypeChecker {
         }
         if (op == "=" && infix.Left is IndexExpression) {
             Expression(infix.Left); Expression(infix.Right);
+            return Void;
+        }
+        if (op is "=" or "+=" or "-=" or "*=" or "/=" or "%=" && infix.Left is InfixExpression { Operator: "." } target && target.Right is Identifier field) {
+            // A field assignment: definite mismatches are compile errors; the runtime checks every write anyway.
+            int receiver = Expression(target.Left), value = Expression(infix.Right);
+            if (!IsStruct(receiver) || !Structs.TryGetValue(receiver, out var shape)) return Void;
+            int type = FieldType(shape, field);
+            string subject = $"{shape.Name.Value}.{field.Value}";
+            if (type == Dynamic || value == Dynamic) return Void;
+            if (op == "=" && value != type && !Widens(value, type) && !(value == ArrayFlag && (type & ArrayFlag) != 0))
+                Error($"型別不符：{subject} 需要 {Name(type)}，卻是 {Name(value)} / Type mismatch: {subject} expects {Name(type)}, got {Name(value)}.", field.Token);
+            else if (op != "=" && !(Numeric(type) && Numeric(value) || op == "+=" && type == String && value == String))
+                Error($"型別不符：{subject} ({Name(type)}) 不能使用 {op} {Name(value)} / Type mismatch: {subject} ({Name(type)}) cannot use {op} with {Name(value)}.", infix.Token);
             return Void;
         }
         if (op is "=" or "+=" or "-=" or "*=" or "/=" or "%=") {
@@ -261,10 +318,50 @@ public sealed class TypeChecker {
         }
     }
 
+    private int FieldType(StructStatement shape, Identifier field) {
+        var declared = shape.Fields.FirstOrDefault(f => f.Value == field.Value);
+        if (declared == null) {
+            Error($"{shape.Name.Value} 沒有欄位 {field.Value} / {shape.Name.Value} has no field {field.Value}.", field.Token);
+            return Dynamic;
+        }
+        return Code(declared.Type);
+    }
+
+    /// <summary>A construction of a statically known struct type: every argument names (or, positionally, is) a field
+    /// of compatible type, and every field that cannot hold null (a typed number, Boolean, string or array) is given.</summary>
+    private int Construct(CallExpression call, StructStatement shape, int[] arguments, Token token) {
+        var given = new HashSet<string>(System.StringComparer.Ordinal);
+        if (call.ArgumentNames == null && arguments.Length > shape.Fields.Length)
+            Error($"{shape.Name.Value} 只有 {shape.Fields.Length} 個欄位 / {shape.Name.Value} has only {shape.Fields.Length} fields.", token);
+        for (int i = 0; i < arguments.Length; i++) {
+            var field = call.ArgumentNames == null ? (i < shape.Fields.Length ? shape.Fields[i] : null)
+                : shape.Fields.FirstOrDefault(f => f.Value == call.ArgumentNames[i]);
+            if (field == null) {
+                if (call.ArgumentNames != null) Error($"{shape.Name.Value} 沒有欄位 {call.ArgumentNames[i]} / {shape.Name.Value} has no field {call.ArgumentNames[i]}.", token);
+                continue;
+            }
+            given.Add(field.Value);
+            int type = Code(field.Type), value = arguments[i];
+            if (type != Dynamic && value != Dynamic && value != type && !Widens(value, type) && !(value == ArrayFlag && (type & ArrayFlag) != 0))
+                Error($"型別不符：{shape.Name.Value}.{field.Value} 需要 {Name(type)}，卻是 {Name(value)} / Type mismatch: {shape.Name.Value}.{field.Value} expects {Name(type)}, got {Name(value)}.", token);
+        }
+        foreach (var field in shape.Fields)
+            if (!given.Contains(field.Value) && field.Type != null && !IsStruct(field.Type.Code))
+                Error($"{shape.Name.Value}.{field.Value}（{Name(field.Type.Code)}）必須給值 / {shape.Name.Value}.{field.Value} ({Name(field.Type.Code)}) needs a value.", token);
+        return StructFlag | shape.Id << 6;
+    }
+
     private int Call(CallExpression call) {
         int[] arguments = (call.Arguments ?? System.Array.Empty<IExpression>()).Select(Expression).ToArray();
         if (call.Function is not Identifier name) { Expression(call.Function); return Dynamic; }
         var declaration = Resolve(name.Value);
+        if (declaration?.Struct is { } shape && declaration.Count == 1 && !declaration.Assigned) {
+            int code = Construct(call, shape, arguments, name.Token);
+            Structs[code] = shape; structNames[code] = shape.Name.Value;
+            return code;
+        }
+        if (call.ArgumentNames != null && declaration?.Function != null)
+            Error($"具名引數只能用於建立結構 / Named arguments construct structs; {name.Value} is a function.", name.Token);
         if (declaration == null) {
             // Unshadowed core globals with a known result type.
             return name.Value switch {
@@ -283,9 +380,11 @@ public sealed class TypeChecker {
 
     private void Function(FunctionLiteral function) {
         var outer = scope; scope = new Scope(outer);
+        foreach (var parameter in function.Parameters ?? System.Array.Empty<Identifier>()) Bind(parameter.Type);
+        Bind(function.ReturnType);
         var parameterTypes = (function.Parameters ?? System.Array.Empty<Identifier>()).Select(p => Code(p.Type)).ToArray();
         // Numbers, Booleans, typed arrays and arrays of any values; string parameters or results keep the function generic.
-        static bool NativeType(int t) => (t & 15) is Int or Float or Double or Bool || t == ArrayFlag;
+        static bool NativeType(int t) => (t & 15) is Int or Float or Double or Bool || t == ArrayFlag || IsStruct(t);
         NativeSignature? native = function.ReturnType != null && parameterTypes.All(NativeType) && NativeType(Code(function.ReturnType))
             ? new NativeSignature(parameterTypes, Code(function.ReturnType), outer) : null;
         var uses = new Dictionary<string, (Declaration, Scope)>(System.StringComparer.Ordinal);

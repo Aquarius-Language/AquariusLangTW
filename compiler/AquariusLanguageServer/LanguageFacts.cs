@@ -15,6 +15,7 @@ internal static class LanguageFacts
         ["回傳"] = "回傳 運算式; — Return a value from a function.",
         ["迴圈"] = "迴圈 (變數 索引 = 0; 條件; 索引++) { ... } — For loop.",
         ["中斷"] = "中斷; — Exit a loop.", ["真"] = "Boolean true.", ["假"] = "Boolean false.",
+        ["結構"] = "結構 名稱 { 欄位: 型別; 欄位 } — Declare a struct type; construct values with 名稱(欄位: 值) or 名稱(值, ...). Fields left out are null.",
         ["var"] = "var name = expression; — Declare a variable. Alias: 變數.",
         ["function"] = "function(parameters, ...) { ... } — Create a function and closure. Alias: 函式.",
         ["if"] = "if (condition) { ... } — Conditional expression. Alias: 如果.",
@@ -23,6 +24,7 @@ internal static class LanguageFacts
         ["return"] = "return expression; — Return a value from a function. Alias: 回傳.",
         ["for"] = "for (var i = 0; condition; i++) { ... } — For loop. Alias: 迴圈.",
         ["break"] = "break; — Exit a loop. Alias: 中斷.",
+        ["struct"] = "struct Name { field: type; field } — Declare a struct type; construct values with Name(field: value) or Name(value, ...). Fields left out are null. Alias: 結構.",
         ["true"] = "Boolean true. Alias: 真.",
         ["false"] = "Boolean false. Alias: 假."
     };

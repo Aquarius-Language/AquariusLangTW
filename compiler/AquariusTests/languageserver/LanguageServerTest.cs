@@ -142,6 +142,37 @@ public class LanguageServerTest
     }
 
     [Fact]
+    public void StructsAreDeclaredHoveredAndCompleteTheirFields()
+    {
+        using var s = Launch();
+        NoDiagnostics(s.Open("結構 節點 { 左: 節點; 右: 節點; 值: 整數 }\n變數 根: 節點 = 節點(左: 節點(值: 1), 值: 2);\n印出(根.左.值, 根.值);\n" +
+            "struct Point { x: double, y: double }\nvar p = Point(x: 1, y: 2); p.x;"));
+        Assert.Matches("Declare a struct type", HoverText(s.Feature("hover", 0, 0)));
+        Assert.Matches("Alias: 結構", HoverText(s.Feature("hover", 3, 2)));
+        foreach (var (line, character) in new[] { (0, 4), (0, 12), (1, 7) })   // the declaration, a field's and a variable's annotation
+            Assert.Equal("結構 節點 { 左: 節點; 右: 節點; 值: 整數 }", HoverText(s.Feature("hover", line, character)));
+        Assert.Equal("欄位 field 節點.值: 整數", HoverText(s.Feature("hover", 2, 7)));
+        Assert.Equal("欄位 field Point.x: double", HoverText(s.Feature("hover", 4, 29)));
+        Assert.Equal((0, 22), Start(s.Feature("definition", 2, 7)));
+        Assert.Equal((0, 3), Start(s.Feature("definition", 1, 7)));
+        // Fields complete after a dot; struct names complete as types.
+        var fields = Labels(s.Feature("completion", 2, 5));
+        Assert.Equal(["左", "右", "值"], fields);
+        foreach (var (line, character) in new[] { (1, 5), (0, 10) }) {
+            var types = Labels(s.Feature("completion", line, character));
+            Assert.Contains("節點", types); Assert.Contains("Point", types); Assert.Contains("整數", types); Assert.DoesNotContain("根", types);
+        }
+        var symbols = s.Symbols().EnumerateArray().ToArray();
+        Assert.Contains(symbols, x => x.GetProperty("name").GetString() == "節點" && x.GetProperty("kind").GetInt32() == 23);
+        Assert.Contains(symbols, x => x.GetProperty("name").GetString() == "y" && x.GetProperty("kind").GetInt32() == 8 && x.GetProperty("containerName").GetString() == "Point");
+        // Field mistakes on annotated values are diagnostics.
+        s.Change(Uri, 2, new { text = "struct P { x: int }\nvar p: P = P(x: 1);\np.y;\nvar q: Missing = 1;" });
+        var messages = s.Diagnostics(2).EnumerateArray().Select(d => d.GetProperty("message").GetString()!).ToArray();
+        Assert.Contains(messages, m => m.Contains("P has no field y"));
+        Assert.Contains(messages, m => m.Contains("Missing"));
+    }
+
+    [Fact]
     public void CoreTimeAliasesProvideCompletionAndExplainMillisecondsInHover()
     {
         using var s = Launch();

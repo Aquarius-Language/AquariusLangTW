@@ -103,7 +103,7 @@ static bool write_value(aqua_runtime *rt, aqua_value v, app_bytes *out, int dept
         write_number(out, v.number);
         return true;
     case AQUA_STRING: return write_text_value(rt, v, out);
-    case AQUA_ARRAY: case AQUA_HASH: {
+    case AQUA_ARRAY: case AQUA_HASH: case AQUA_STRUCT: { /* a struct is an object of its fields */
         if (depth >= APP_MAX_DEPTH) return app_error_set(e, APP_LIMIT_EXCEEDED, "JSON depth exceeds 64 (or contains a cycle).");
         bool array = v.type == AQUA_ARRAY;
         uint32_t count = array ? aqua_array_length(rt, v) : aqua_hash_count(rt, v);
@@ -126,7 +126,7 @@ static bool write_value(aqua_runtime *rt, aqua_value v, app_bytes *out, int dept
         return true;
     }
     default:
-        return app_error_set(e, APP_UNSUPPORTED, "JSON supports null, Boolean, finite numbers, strings, arrays and string-keyed hashes.");
+        return app_error_set(e, APP_UNSUPPORTED, "JSON supports null, Boolean, finite numbers, strings, arrays, string-keyed hashes and structs.");
     }
 }
 

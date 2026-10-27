@@ -25,6 +25,12 @@ static void import(aqua_call *call) {
 
 static void type_of(aqua_call *call) {
     aqua_value v = aqua_arg(call, 0);
+    /* A struct's type is its declared name. */
+    if (v.type == AQUA_STRUCT) {
+        aqua_runtime *rt = aqua_call_runtime(call);
+        aqua_value name = {AQUA_STRING, guest_u32(rt, guest_u32(rt, v.ref + G_Struct_Shape) + G_Shape_Name), 0};
+        aqua_return(call, name); return;
+    }
     if (v.type != AQUA_NATIVE) { aqua_return_cstring(call, aqua_type_name(v)); return; }
     handle *h = handle_get(aqua_call_runtime(call), v.ref);
     if (!h || h->kind == HANDLE_BOUND) { aqua_return_cstring(call, "function"); return; }

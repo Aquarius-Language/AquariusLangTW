@@ -13,7 +13,10 @@ public enum IrOperation : byte {
     CompoundAssign, Jump, JumpIfFalse, JumpIfBreak, Closure, Call, Return,
     Array, Hash, CheckHashKey, Index, CheckArrayWrite, WriteIndex, Member, MemberFunction, ResolveMemberFunction,
     EnterLoop, LoopCondition, NextIteration, LeaveLoop, Break, Error,
-    Duplicate, Modulo, CheckType
+    Duplicate, Modulo, CheckType,
+    // Structs: a declaration's type, a construction with named arguments, field assignment, compound field assignment
+    // and a struct annotation check.
+    StructType, CallNamed, SetMember, CompoundMember, CheckStruct
 }
 
 public readonly struct Instruction {
@@ -26,6 +29,8 @@ public readonly struct Instruction {
 /// <summary>Immutable lowered intermediate representation consumed by the WebAssembly emitter.</summary>
 public sealed class LoweredProgram {
     internal Instruction[] Code { get; }
+    /// <summary>The number of named arguments of a CallNamed instruction (its constant lists the names).</summary>
+    internal int NamedArguments(int operand) => ((string)Pool[operand]).Split('').Length;
     internal object[] Pool { get; }
     internal bool WrapReturn { get; }
     public IReadOnlyList<Instruction> Instructions { get; }

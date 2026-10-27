@@ -44,4 +44,8 @@ test('highlighting recognizes both languages without splitting Unicode identifie
       assert.deepEqual([...(word + '中文 _' + word + ' ' + word + '1 ' + word + '\u0301').matchAll(expression)], []);
     }
   }
+  // Struct declarations: the keyword and the declared type name, only where a declaration starts.
+  const struct = new RegExp(patterns.find(pattern => pattern.captures?.['2']?.name === 'entity.name.type.aquarius').match, 'gu');
+  assert.deepEqual([...'結構 節點 { 值: 整數 } struct Point{ x }'.matchAll(struct)].map(match => [match[1], match[2]]), [['結構', '節點'], ['struct', 'Point']]);
+  assert.deepEqual([...'var struct = 1; 變數 結構 = struct + 1; my結構 X {'.matchAll(struct)], []);
 });

@@ -20,6 +20,7 @@ const char *aqua_type_name(aqua_value v) {
     case AQUA_STRING: return "string"; case AQUA_BOOL: return "boolean"; case AQUA_ARRAY: return "array";
     case AQUA_HASH: return "hash"; case AQUA_FUNCTION: case AQUA_BUILTIN: return "function"; case AQUA_MODULE: return "module";
     case AQUA_ERROR: return "error"; case AQUA_NATIVE: return "native";
+    case AQUA_STRUCT: return "struct"; case AQUA_STRUCT_TYPE: return "type";
     default: return "null";
     }
 }
@@ -173,16 +174,28 @@ aqua_value aqua_hash_new(aqua_runtime *rt, uint32_t capacity) {
     aqua_value v = {AQUA_HASH, hash, 0};
     return v;
 }
-uint32_t aqua_hash_count(aqua_runtime *rt, aqua_value hash) { return hash.type == AQUA_HASH ? guest_u32(rt, hash.ref + G_Hash_Count) : 0; }
+/* The pairs of a hash (pair_count), or, for readers, also a struct's fields as name/value pairs: libraries that read
+   string-keyed hashes (JSON, storage, network) read structs the same way. */
+static uint32_t pair_count(aqua_runtime *rt, aqua_value hash) { return hash.type == AQUA_HASH ? guest_u32(rt, hash.ref + G_Hash_Count) : 0; }
+uint32_t aqua_hash_count(aqua_runtime *rt, aqua_value hash) {
+    return hash.type == AQUA_STRUCT ? guest_u32(rt, hash.ref + G_Struct_Count) : pair_count(rt, hash);
+}
 bool aqua_hash_entry(aqua_runtime *rt, aqua_value hash, uint32_t index, aqua_value *key, aqua_value *value) {
-    if (index >= aqua_hash_count(rt, hash)) return false;
+    if (hash.type == AQUA_STRUCT) {
+        if (index >= aqua_hash_count(rt, hash)) return false;
+        uint32_t shape = guest_u32(rt, hash.ref + G_Struct_Shape);
+        if (key) { aqua_value name = {AQUA_STRING, guest_u32(rt, shape + G_Shape_Fields + index * G_ShapeField_Size + G_ShapeField_Name), 0}; *key = name; }
+        if (value) *value = guest_read_value(rt, hash.ref + G_Struct_Fields + index * G_Value_Size);
+        return true;
+    }
+    if (index >= pair_count(rt, hash)) return false;
     uint32_t pair = guest_u32(rt, hash.ref + G_Hash_Pairs) + index * G_Pair_Size;
     if (key) *key = guest_read_value(rt, pair + G_Pair_Key);
     if (value) *value = guest_read_value(rt, pair + G_Pair_Value);
     return true;
 }
 static int32_t hash_find(aqua_runtime *rt, aqua_value hash, aqua_value key) {
-    uint32_t count = aqua_hash_count(rt, hash), pairs = guest_u32(rt, hash.ref + G_Hash_Pairs);
+    uint32_t count = pair_count(rt, hash), pairs = guest_u32(rt, hash.ref + G_Hash_Pairs);
     for (uint32_t i = 0; i < count; i++)
         if (values_equal(rt, guest_read_value(rt, pairs + i * G_Pair_Size + G_Pair_Key), key, true)) return (int32_t)i;
     return -1;
@@ -197,7 +210,7 @@ bool aqua_hash_set(aqua_runtime *rt, aqua_value hash, aqua_value key, aqua_value
     if (!aqua_is_number(key) && key.type != AQUA_STRING && key.type != AQUA_BOOL) return false;
     int32_t i = hash_find(rt, hash, key);
     if (i < 0) {
-        i = (int32_t)aqua_hash_count(rt, hash);
+        i = (int32_t)pair_count(rt, hash);
         guest(rt, GUEST_hash_resize, hash.ref, (uint32_t)i + 1, 0, 0);
     }
     uint32_t pair = guest_u32(rt, hash.ref + G_Hash_Pairs) + (uint32_t)i * G_Pair_Size;
@@ -219,7 +232,7 @@ static bool text_is(aqua_runtime *rt, uint32_t text, const char *utf8, size_t le
     return guest_u32(rt, text) == count && memcmp(guest_base(rt) + text + G_Text_Data, small, count * 2) == 0;
 }
 bool aqua_hash_field(aqua_runtime *rt, aqua_value hash, const char *names, aqua_value *value) {
-    uint32_t count = aqua_hash_count(rt, hash);
+    uint32_t count = pair_count(rt, hash);
     for (const char *name = names; *name;) {
         const char *end = strchr(name, '|');
         size_t length = end ? (size_t)(end - name) : strlen(name);
@@ -237,7 +250,7 @@ bool aqua_hash_field(aqua_runtime *rt, aqua_value hash, const char *names, aqua_
     return false;
 }
 bool aqua_hash_set_field(aqua_runtime *rt, aqua_value hash, const char *name, aqua_value value) {
-    uint32_t count = aqua_hash_count(rt, hash), pairs = count ? guest_u32(rt, hash.ref + G_Hash_Pairs) : 0;
+    uint32_t count = pair_count(rt, hash), pairs = count ? guest_u32(rt, hash.ref + G_Hash_Pairs) : 0;
     size_t length = strlen(name);
     for (uint32_t i = 0; i < count; i++) {
         aqua_value key = guest_read_value(rt, pairs + i * G_Pair_Size + G_Pair_Key);

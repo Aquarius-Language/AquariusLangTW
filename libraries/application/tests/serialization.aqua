@@ -38,6 +38,12 @@ var check = function(value) {
 print(data.TryParseBinary(data.Binary([1, 2], 7)).schema);
 print(check([65, 81, 68, 49, 1, 0, 0, 0, 2, 0, 0, 0, 30, 20, 30, 89, 1, 2]));
 
+# Structs serialize as objects with their fields in declaration order.
+struct Point { x: double; y: int; tag }
+struct Pair { a; b }
+print(data.Json(Point(x: 1.5d, y: 2, tag: "a")));
+print(data.Json([Pair(a: 1, b: "two"), {"p": Pair(b: [true])}]));
+
 # Depth limit: 64 containers parse and serialize, 65 fail.
 var deep = "";
 for (var i = 0; i < 64; i++) { deep = deep + "["; }

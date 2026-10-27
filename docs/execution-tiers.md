@@ -104,7 +104,10 @@ A function literal whose parameters and result are all annotated (`函式(n: 整
 (`WasmNativeFunction`) when its body only uses typed numbers and Booleans, typed arrays, arrays of any values (`陣列` /
 `array`: their literals are built natively through `rt_nativeArray`, an element read is a whole generic value that may be
 passed to an `陣列` parameter after a tag check, and a non-array leaves the call to the callee's generic body, which
-reports the annotation error), the conversions `整數()`,
+reports the annotation error), structs (`結構` / `struct`: a struct-typed value is a `Struct*` in an i32 local, fields
+are loaded and stored at fixed offsets with the field's annotation enforced, constructions call `rt_nativeStruct` and
+fill the fields in place, a null receiver fails like the generic runtime, and the entry adapter checks a struct
+argument's tag and shape), the conversions `整數()`,
 `浮點數()`, `雙精度()` and `長度()`, typed bindings of the scope that declares it, and calls to other such functions of
 that scope. The promoted generic body's frame slots become typed Wasm locals; integer, float and double operations
 follow the generic runtime exactly; loops become Wasm loops; sibling calls are direct Wasm calls passing the outer
