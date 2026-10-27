@@ -4,6 +4,17 @@ All 34 requested projects were reviewed against the locally built current Aquari
 
 The available Windows, Linux, browser, and Android test suites described below pass after the fixes. This does **not** establish full validation on every advertised OS or every physical device: macOS has no runtime pack in this checkout, Android ARM64 was cross-built rather than executed, and the hardware/service limitations below remain.
 
+## Follow-up: packaged Unicode entry names
+
+The reported failure in `Aqua_OpenCV_Showcase\dist\windows\showcase.exe` exposed a gap in the earlier review: its launcher smoke checks ran the Wasm/project rather than the final executable. The compiler writes JSON Unicode escapes in executable entry metadata, but the shared desktop launcher copied that JSON string without decoding it. Consequently it looked for a literal filename such as `\u4E3B\u7A0B\u5F0F.aqua`.
+
+The correction is confined to `runtime/platform/desktop/main.c`: decode the bounded metadata string, including UTF-16 surrogate pairs, and reject invalid/missing entry strings before running the application. The executable format, ABI, language syntax and public APIs are unchanged. Both full desktop runtime packs and the published Windows/Linux templates were updated.
+
+- Real executable regressions cover a Chinese default entry, a nested Chinese/emoji selected entry, raw UTF-8/escaped-slash metadata, and malformed metadata. The two Unicode regressions reproduce the failure with the original template. The complete executable target suite passes **21/21 on Windows and 21/21 on Linux** with the corrected launcher.
+- The exact reported EXE was rebuilt and launched from its own directory with `AQUARIUS_GRAPHICS_FRAMES=1`: **exit 0**. OpenCV's `-Smoke` now launches that exported EXE and runs the 45-feature and bilingual suites; `-Run` also launches the exported EXE.
+- All 11 identified affected Windows exports across nine projects were rebuilt and launched: OpenCV (both output locations), Dreamer, Painter, Snake, AudioExamples, MediaPipeExamples, NetworkLab (backend and frontend), OutOfThisWorldUI and Kanban. GUI checks use a bounded frame limit and isolated storage. The packaged NetworkLab backend additionally passed its HTTP health check and was stopped afterward.
+- Evidence: `.aqua/project-review/unicode-overlay-original-template.log`, `unicode-overlay-windows-fixed.log`, `unicode-overlay-linux-fixed.log`, `unicode-opencv-exact-executable.log`, `unicode-opencv-own-smoke.log`, `unicode-reexports-results.json`. Original templates/executables/scripts remain in the `backups/unicode-*` folders.
+
 ## Tested compiler and environments
 
 - Compiler: `C:\OfficialProjects\AquariusLangTW\dist\aqua\aqua.exe`, built from base revision `253e3181eb46a3229d572286ae9dd4464c908068` plus the uncommitted review changes. Executable SHA-256: `0080470A879A2C6E0906E5D92F5E702A9AD9B12E9FD127378ED43B378EDF8439`.

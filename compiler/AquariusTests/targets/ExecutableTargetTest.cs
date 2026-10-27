@@ -1,5 +1,7 @@
+using System.Buffers.Binary;
 using System.Reflection.PortableExecutable;
 using System.Security.Cryptography;
+using System.Text;
 using AquariusLang.Build;
 using AquariusLang.Build.Targets;
 using AquariusLang.Compiler;
@@ -38,6 +40,70 @@ public class ExecutableTargetTest
             ["DOTNET_ROOT"] = Path.Combine(Path.GetDirectoryName(executable)!, "no-dotnet"), ["DOTNET_MULTILEVEL_LOOKUP"] = "0",
             ["PATH"] = OperatingSystem.IsWindows() ? Environment.GetFolderPath(Environment.SpecialFolder.System) : "/usr/bin:/bin",
         });
+
+    [ExecutableTheory]
+    [InlineData("主程式.aqua", false)]
+    [InlineData("lib/工具🧪.aqua", true)]
+    public void NativeLauncherDecodesUnicodeDefaultAndSelectedEntryMetadata(string entry, bool selected)
+    {
+        using var t = new TestFolder();
+        string source = t.Write("source/" + entry, "印出(\"UNICODE_ENTRY_OK\");");
+        string other = t.Write("source/main.aqua", "不存在;");
+        string wasm = t.FilePath("app.wasm");
+        WasmApplication.Compile([other, source], wasm, t.FilePath("source"), entryPoint: selected ? "main.aqua" : entry);
+        string executable = t.FilePath("dist/app" + Extension);
+        HostTarget().Build(new WasmBuildRequest(wasm, executable, selected ? entry : null));
+        Directory.Delete(t.FilePath("source"), true); File.Delete(wasm);
+        byte[] bytes = File.ReadAllBytes(executable);
+        var run = Launch(executable);
+        Assert.True(run.ExitCode == 0, run.Output + run.Error);
+        Assert.Equal("UNICODE_ENTRY_OK\n", run.Output); Assert.Equal("", run.Error);
+
+        // Both JSON's escaped Unicode (the compiler default) and raw UTF-8 are valid overlay metadata.
+        string raw = t.FilePath("dist/raw" + Extension);
+        File.Copy(executable, raw);
+        File.WriteAllBytes(raw, WithMetadata(bytes, "{\"EntryPoint\":\"" + entry.Replace("/", "\\/") + "\"}"));
+        run = Launch(raw);
+        Assert.True(run.ExitCode == 0, run.Output + run.Error);
+        Assert.Equal("UNICODE_ENTRY_OK\n", run.Output); Assert.Equal("", run.Error);
+    }
+
+    [ExecutableFact]
+    public void NativeLauncherRejectsInvalidEntryMetadataInsteadOfRunningTheDefault()
+    {
+        using var t = new TestFolder();
+        string wasm = Compile(t, "印出(\"SHOULD_NOT_RUN\");");
+        string executable = t.FilePath("dist/app" + Extension);
+        HostTarget().Build(new WasmBuildRequest(wasm, executable));
+        byte[] bytes = File.ReadAllBytes(executable);
+        string[] invalid = [
+            "{}", "{\"EntryPoint\":1}", "{\"EntryPoint\":\"\"}", "{\"EntryPoint\":\"main.aqua",
+            "{\"EntryPoint\":\"\\q\"}", "{\"EntryPoint\":\"\\u12\"}", "{\"EntryPoint\":\"\\uZZZZ\"}",
+            "{\"EntryPoint\":\"\\uD83D\"}", "{\"EntryPoint\":\"\\uDE00\"}", "{\"EntryPoint\":\"main.aqua\\u0000other\"}",
+        ];
+        for (int i = 0; i < invalid.Length; i++) {
+            string broken = t.FilePath($"dist/broken-{i}" + Extension);
+            File.Copy(executable, broken);
+            File.WriteAllBytes(broken, WithMetadata(bytes, invalid[i]));
+            var run = Launch(broken);
+            Assert.Equal(1, run.ExitCode); Assert.Equal("", run.Output);
+            Assert.Contains("damaged", run.Error);
+        }
+    }
+
+    private static byte[] WithMetadata(byte[] executable, string json)
+    {
+        byte[] footer = executable[^ExecutableBundle.FooterSize..];
+        int oldLength = BinaryPrimitives.ReadInt32LittleEndian(footer.AsSpan(4));
+        int wasmLength = checked((int)BinaryPrimitives.ReadInt64LittleEndian(footer.AsSpan(8)));
+        int metadataStart = executable.Length - ExecutableBundle.FooterSize - oldLength;
+        byte[] metadata = Encoding.UTF8.GetBytes(json);
+        BinaryPrimitives.WriteInt32LittleEndian(footer.AsSpan(4), metadata.Length);
+        byte[] result = [.. executable.AsSpan(0, metadataStart), .. metadata, .. footer];
+        SHA256.HashData(result.AsSpan(metadataStart - wasmLength, wasmLength + metadata.Length))
+            .CopyTo(result.AsSpan(result.Length - ExecutableBundle.FooterSize + 16));
+        return result;
+    }
 
     [ExecutableFact]
     public void RelocatedExecutableRunsTheSelectedEntryWithModulesAndAssetsWithoutSourcesOrWasm()
