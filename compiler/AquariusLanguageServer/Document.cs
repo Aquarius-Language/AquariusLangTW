@@ -150,14 +150,14 @@ internal sealed class Document
             case LetStatement let:
                 var function = let.Value as FunctionLiteral;
                 string names = let.Alias == null ? let.Name?.Value ?? "" : $"{let.Name?.Value} / {let.Alias.Value}";
-                string detail = function == null ? $"變數 {names}" : $"{names}({string.Join(", ", (function.Parameters ?? []).Select(p => p.Value))})";
+                string detail = function == null ? $"變數 {names}{Annotation(let.Name?.Type)}" : $"{names}{Signature(function)}";
                 Declare(let.Name, scope, function == null ? 13 : 12, detail, function == null ? null : End(function.Body), let.Value);
                 Declare(let.Alias, scope, 12, detail, function == null ? null : End(function.Body), let.Value);
                 Walk(let.Value, scope);
                 break;
             case FunctionLiteral fn:
                 var fnScope = Child(fn.Token.Start, End(fn.Body), scope);
-                foreach (var parameter in fn.Parameters ?? []) Declare(parameter, fnScope, 13, $"參數 {parameter.Value}");
+                foreach (var parameter in fn.Parameters ?? []) Declare(parameter, fnScope, 13, $"參數 {parameter.Value}{Annotation(parameter.Type)}");
                 Walk(fn.Body, fnScope);
                 break;
             case ForLoopLiteral loop:
@@ -193,6 +193,34 @@ internal sealed class Document
                 foreach (var pair in hash.Pairs ?? []) { Walk(pair.Key, scope); Walk(pair.Value, scope); }
                 break;
         }
+    }
+
+    // Optional annotations as written (": 整數", ": double[]", ": 陣列").
+    private static string Annotation(TypeAnnotation? type) => type == null ? "" : ": " + type.String();
+    private static string Signature(FunctionLiteral function) =>
+        $"({string.Join(", ", (function.Parameters ?? []).Select(p => p.Value + Annotation(p.Type)))}){Annotation(function.ReturnType)}";
+
+    // A type name in annotation position: the token after an annotation's colon (or that colon itself), not a hash
+    // literal's. An annotation follows a declared name (變數 x:), a parameter (函式(a, b:) or a parameter list (函式(...):).
+    private bool IsTypePosition(Token token)
+    {
+        int index = tokens.FindIndex(t => t.Start == token.Start);
+        int colon = token.Type == TokenType.COLON ? index : index - 1;
+        if (colon < 1 || tokens[colon].Type != TokenType.COLON) return false;
+        var before = tokens[colon - 1];
+        if (before.Type == TokenType.RPAREN) return true;
+        if (before.Type != TokenType.IDENT || colon < 2) return false;
+        if (tokens[colon - 2].Type == TokenType.LET) return true;
+        // A parameter: the innermost open parenthesis belongs to a function literal.
+        int depth = 0;
+        for (int i = colon - 2; i >= 0; i--) {
+            if (tokens[i].Type is TokenType.RPAREN or TokenType.RBRACE or TokenType.RBRACKET) depth++;
+            else if (tokens[i].Type is TokenType.LPAREN or TokenType.LBRACE or TokenType.LBRACKET) {
+                if (depth-- > 0) continue;
+                return tokens[i].Type == TokenType.LPAREN && i > 0 && tokens[i - 1].Type == TokenType.FUNCTION;
+            }
+        }
+        return false;
     }
 
     private Scope ScopeAt(int offset) => scopes.Last(s => s.Start <= offset && (offset < s.End || s.Parent == null));
@@ -323,6 +351,10 @@ internal sealed class Document
             ? Source.Text[token.Start..offset] : "";
         if (token.Type == TokenType.DOT || (token.Type == TokenType.IDENT && IsMember(token)))
             return MemberCompletion(MemberModule(token, offset), prefix).ToArray();
+        // After a colon, only type names are valid.
+        if (token.Type == TokenType.COLON || (token.Type == TokenType.IDENT && IsTypePosition(token)))
+            return LanguageFacts.TypeNames.Where(t => t.Key.StartsWith(prefix, StringComparison.Ordinal))
+                .Select(t => (object)new { label = t.Key, kind = 25, detail = t.Value }).ToArray();
         var items = new Dictionary<string, object>(StringComparer.Ordinal);
         foreach (var entry in LanguageFacts.Keywords)
             items[entry.Key] = new { label = entry.Key, kind = 14, detail = entry.Value };
@@ -347,7 +379,9 @@ internal sealed class Document
                 : module?.Script?.Exports().LastOrDefault(d => d.Token.Literal == token.Literal)?.Detail;
             return memberDetail == null ? null : new { contents = new { kind = "plaintext", value = memberDetail }, range = Source.Range(token.Start, token.Length) };
         }
-        string? detail = Visible(offset).FirstOrDefault(d => d.Token.Literal == token.Literal)?.Detail;
+        string? detail = null;
+        if (IsTypePosition(token)) LanguageFacts.TypeNames.TryGetValue(token.Literal, out detail);
+        detail ??= Visible(offset).FirstOrDefault(d => d.Token.Literal == token.Literal)?.Detail;
         if (detail == null) LanguageFacts.Keywords.TryGetValue(token.Literal, out detail);
         if (detail == null) LanguageFacts.Builtins.TryGetValue(token.Literal, out detail);
         return detail == null ? null : new { contents = new { kind = "plaintext", value = detail }, range = Source.Range(token.Start, token.Length) };

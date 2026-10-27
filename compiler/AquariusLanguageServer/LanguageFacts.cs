@@ -27,6 +27,18 @@ internal static class LanguageFacts
         ["false"] = "Boolean false. Alias: 假."
     };
 
+    /// <summary>The type names of optional annotations (recognized only after a colon; see TypeAnnotation).</summary>
+    public static readonly IReadOnlyDictionary<string, string> TypeNames = new Dictionary<string, string>
+    {
+        ["整數"] = "型別 整數 — 32-bit integer. Alias: int.", ["int"] = "type int — 32-bit integer. Alias: 整數.",
+        ["浮點數"] = "型別 浮點數 — 32-bit float. Alias: float.", ["float"] = "type float — 32-bit float. Alias: 浮點數.",
+        ["雙精度"] = "型別 雙精度 — 64-bit double. Alias: double.", ["double"] = "type double — 64-bit double. Alias: 雙精度.",
+        ["布林"] = "型別 布林 — Boolean. Alias: bool.", ["bool"] = "type bool — Boolean. Alias: 布林.",
+        ["字串"] = "型別 字串 — string. Alias: string.", ["string"] = "type string — string. Alias: 字串.",
+        ["陣列"] = "型別 陣列 — an array whose elements may be any values; add [] after a scalar type for a typed array (整數[]). Alias: array.",
+        ["array"] = "type array — an array whose elements may be any values; add [] after a scalar type for a typed array (int[]). Alias: 陣列.",
+    };
+
     /// <summary>Descriptions of the core globals; the runtime catalog adds any global not described here.</summary>
     public static IReadOnlyDictionary<string, string> Builtins => builtins.Value;
     private static readonly Lazy<IReadOnlyDictionary<string, string>> builtins = new(CreateBuiltins);
