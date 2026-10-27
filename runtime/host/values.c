@@ -133,6 +133,9 @@ READ_NUMBERS(aqua_array_read_u8, uint8_t, v.type == AQUA_INT && v.number >= 0 &&
         for (uint32_t i = 0; i < count; i++) { \
             aqua_value v = {TAG##_TYPE, 0, (double)in[i]}; \
             if (v.type == AQUA_FLOAT) v.number = (double)(float)v.number; \
+            /* Integer values always hold an exact 32-bit integer (truncated, saturated, NaN 0) like the language's conversions. */ \
+            if (v.type == AQUA_INT) v.number = v.number != v.number ? 0 : v.number <= -2147483648.0 ? -2147483648.0 \
+                : v.number >= 2147483647.0 ? 2147483647.0 : (double)(int32_t)v.number; \
             memcpy(items + (size_t)i * G_Value_Size, &v, sizeof v); \
         } \
         return true; \

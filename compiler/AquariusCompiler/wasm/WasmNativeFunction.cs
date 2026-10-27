@@ -46,9 +46,11 @@ internal sealed class WasmNativeFunction
     internal SortedDictionary<string, int> ClosureGuards { get; } = new(StringComparer.Ordinal);
     internal readonly HashSet<string> Written = new(StringComparer.Ordinal);
     internal readonly HashSet<int> Callees = new();
-    /// <summary>Whether a call can change state its caller holds in locals: an outer binding or an array's values
-    /// (an assignment to an outer binding or an array element, here or in any callee).</summary>
-    internal bool Mutates { get; private set; } = true;
+    /// <summary>What a call can change that its caller holds in locals, here or in any callee: outer bindings (an
+    /// assignment to one) and arrays' values pointers (an element write, which may copy shared storage).</summary>
+    internal bool WritesOuter { get; private set; } = true;
+    internal bool WritesArrays { get; private set; } = true;
+    internal bool Mutates => WritesOuter || WritesArrays;
     /// <summary>A small leaf (no calls, loops or outer bindings) that changes nothing its caller holds: callers emit
     /// its body in place of the call. Its only checkpoint is its entry, which the caller tests before choosing the
     /// inlined body; a failing test takes the ordinary call, which deoptimizes exactly as before.</summary>
@@ -157,12 +159,17 @@ internal sealed class WasmNativeFunction
                 }
         }
         foreach (var native in accepted.Values) native.Pointers = pointers[native].OrderBy(n => n, StringComparer.Ordinal).ToArray();
-        foreach (var native in accepted.Values)
-            native.Mutates = native.Written.Count > 0 || native.body.Code.Any(op => op.Code == IrOperation.WriteIndex);
+        foreach (var native in accepted.Values) {
+            native.WritesOuter = native.Written.Count > 0;
+            native.WritesArrays = native.body.Code.Any(op => op.Code == IrOperation.WriteIndex);
+        }
         for (changed = true; changed;) {
             changed = false;
             foreach (var native in accepted.Values)
-                if (!native.Mutates && native.Callees.Any(callee => accepted[callee].Mutates)) native.Mutates = changed = true;
+                foreach (var callee in native.Callees.Select(c => accepted[c])) {
+                    if (callee.WritesOuter && !native.WritesOuter) native.WritesOuter = changed = true;
+                    if (callee.WritesArrays && !native.WritesArrays) native.WritesArrays = changed = true;
+                }
         }
         foreach (var native in accepted.Values)
             native.Inlinable = !native.Mutates && native.Pointers.Length == 0 && native.Callees.Count == 0
@@ -1096,7 +1103,8 @@ internal sealed class WasmNativeFunction
                     }
                     SaveOuter();
                     Op(Call); U(w, function); Set(w, budget); PopStack(target.Signature.Result, at);
-                    if (target.Mutates) { LoadOuter(); RefreshValues(stack.Take(at).ToArray()); }
+                    if (target.WritesOuter) LoadOuter();
+                    if (target.WritesArrays) RefreshValues(stack.Take(at).ToArray());
                     if (IsArray(target.Signature.Result)) Describe(StackI(at), StackCount(at));
                     Get(w, budget); I(w, int.MinValue); Op(0x46, If, 0x40);
                     // A raised error (5) unwinds every native activation with the signal kept.
