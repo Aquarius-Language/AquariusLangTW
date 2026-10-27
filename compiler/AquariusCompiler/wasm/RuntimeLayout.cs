@@ -54,7 +54,9 @@ internal static class RuntimeLayout
         ExecutionPoll = Get(nameof(ExecutionPoll)), ExecutionNumericClosure = Get(nameof(ExecutionNumericClosure)), ExecutionNumericInnermost = Get(nameof(ExecutionNumericInnermost));
     internal static readonly int VoidTag = Get(nameof(VoidTag)), IntTag = Get(nameof(IntTag)), FloatTag = Get(nameof(FloatTag)), DoubleTag = Get(nameof(DoubleTag)), BoolTag = Get(nameof(BoolTag)),
         StringTag = Get(nameof(StringTag)), ArrayTag = Get(nameof(ArrayTag)), HashTag = Get(nameof(HashTag)), ClosureTag = Get(nameof(ClosureTag)), ModuleTag = Get(nameof(ModuleTag)),
-        NativeTag = Get(nameof(NativeTag)), NullTag = Get(nameof(NullTag)), BreakTag = Get(nameof(BreakTag)), ErrorTag = Get(nameof(ErrorTag)), BuiltinTag = Get(nameof(BuiltinTag));
+        NativeTag = Get(nameof(NativeTag)), NullTag = Get(nameof(NullTag)), BreakTag = Get(nameof(BreakTag)), ErrorTag = Get(nameof(ErrorTag)), BuiltinTag = Get(nameof(BuiltinTag)),
+        StructTag = Get(nameof(StructTag)), StructTypeTag = Get(nameof(StructTypeTag));
+    internal static readonly int StructShape = Get(nameof(StructShape)), StructFields = Get(nameof(StructFields)), ShapeId = Get(nameof(ShapeId));
     internal static readonly int StatusRunning = Get(nameof(StatusRunning)), StatusYielded = Get(nameof(StatusYielded)), StatusSuspended = Get(nameof(StatusSuspended)),
         StatusFailed = Get(nameof(StatusFailed)), StatusCompleted = Get(nameof(StatusCompleted));
 }

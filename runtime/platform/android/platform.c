@@ -9,6 +9,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "../../host/host.h"
+#include "../../host/engine.h"
 #include "../posix/posix.h"
 #include "android.h"
 #include <aqua/android.h>
@@ -303,3 +304,6 @@ void aqua_android_insets(float *left, float *top, float *right, float *bottom, b
     *left = v[0] / scale; *top = v[1] / scale; *right = v[2] / scale; *bottom = v[3] / scale;
     *keyboard_visible = v[4] != 0;
 }
+
+/* Android has no runtime JIT yet (runtime/platform/desktop/jit.c): hot loops keep their generic code. */
+int32_t platform_jit(engine *e, int32_t loop) { (void)e; (void)loop; return -1; }

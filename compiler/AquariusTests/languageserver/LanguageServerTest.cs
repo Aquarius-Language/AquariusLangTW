@@ -119,6 +119,60 @@ public class LanguageServerTest
     }
 
     [Fact]
+    public void TypedProgramsShowAnnotationsCompleteTypeNamesAndReportTypeErrors()
+    {
+        using var s = Launch();
+        NoDiagnostics(s.Open("變數 次數: 整數 = 0;\n變數 樹高 = 函式(樹: 陣列, 深: 整數): 整數 { 回傳 深; };\nvar scale = function(v: double[], k: float): bool { return true; };\n變數 表 = {\"鍵\": 次數};"));
+        Assert.Matches("變數 次數: 整數", HoverText(s.Feature("hover", 0, 3)));
+        Assert.Matches(@"樹高\(樹: 陣列, 深: 整數\): 整數", HoverText(s.Feature("hover", 1, 3)));
+        Assert.Matches("參數 樹: 陣列", HoverText(s.Feature("hover", 1, 11)));
+        Assert.Matches(@"scale\(v: double\[\], k: float\): bool", HoverText(s.Feature("hover", 2, 5)));
+        Assert.Matches("型別 整數.*int", HoverText(s.Feature("hover", 0, 7)));
+        Assert.Matches("array whose elements may be any values", HoverText(s.Feature("hover", 1, 14)));
+        Assert.Matches("type double", HoverText(s.Feature("hover", 2, 24)));
+        // After an annotation's colon only type names complete; after a hash literal's colon, ordinary names do.
+        var types = Labels(s.Feature("completion", 1, 13));
+        foreach (string name in new[] { "整數", "浮點數", "雙精度", "布林", "字串", "陣列", "int", "float", "double", "bool", "string", "array" }) Assert.Contains(name, types);
+        Assert.DoesNotContain("次數", types);
+        var values = Labels(s.Feature("completion", 3, 14));
+        Assert.Contains("次數", values); Assert.DoesNotContain("雙精度", values);
+        // Type errors are diagnostics in either language.
+        s.Change(Uri, 2, new { text = "var n: int = 2.5d;\n變數 名: 整數 = \"字\";" });
+        Assert.Contains(s.Diagnostics(2).EnumerateArray(), d => d.GetProperty("message").GetString()!.Contains("Type mismatch"));
+    }
+
+    [Fact]
+    public void StructsAreDeclaredHoveredAndCompleteTheirFields()
+    {
+        using var s = Launch();
+        NoDiagnostics(s.Open("結構 節點 { 左: 節點; 右: 節點; 值: 整數 }\n變數 根: 節點 = 節點(左: 節點(值: 1), 值: 2);\n印出(根.左.值, 根.值);\n" +
+            "struct Point { x: double, y: double }\nvar p = Point(x: 1, y: 2); p.x;"));
+        Assert.Matches("Declare a struct type", HoverText(s.Feature("hover", 0, 0)));
+        Assert.Matches("Alias: 結構", HoverText(s.Feature("hover", 3, 2)));
+        foreach (var (line, character) in new[] { (0, 4), (0, 12), (1, 7) })   // the declaration, a field's and a variable's annotation
+            Assert.Equal("結構 節點 { 左: 節點; 右: 節點; 值: 整數 }", HoverText(s.Feature("hover", line, character)));
+        Assert.Equal("欄位 field 節點.值: 整數", HoverText(s.Feature("hover", 2, 7)));
+        Assert.Equal("欄位 field Point.x: double", HoverText(s.Feature("hover", 4, 29)));
+        Assert.Equal((0, 22), Start(s.Feature("definition", 2, 7)));
+        Assert.Equal((0, 3), Start(s.Feature("definition", 1, 7)));
+        // Fields complete after a dot; struct names complete as types.
+        var fields = Labels(s.Feature("completion", 2, 5));
+        Assert.Equal(["左", "右", "值"], fields);
+        foreach (var (line, character) in new[] { (1, 5), (0, 10) }) {
+            var types = Labels(s.Feature("completion", line, character));
+            Assert.Contains("節點", types); Assert.Contains("Point", types); Assert.Contains("整數", types); Assert.DoesNotContain("根", types);
+        }
+        var symbols = s.Symbols().EnumerateArray().ToArray();
+        Assert.Contains(symbols, x => x.GetProperty("name").GetString() == "節點" && x.GetProperty("kind").GetInt32() == 23);
+        Assert.Contains(symbols, x => x.GetProperty("name").GetString() == "y" && x.GetProperty("kind").GetInt32() == 8 && x.GetProperty("containerName").GetString() == "Point");
+        // Field mistakes on annotated values are diagnostics.
+        s.Change(Uri, 2, new { text = "struct P { x: int }\nvar p: P = P(x: 1);\np.y;\nvar q: Missing = 1;" });
+        var messages = s.Diagnostics(2).EnumerateArray().Select(d => d.GetProperty("message").GetString()!).ToArray();
+        Assert.Contains(messages, m => m.Contains("P has no field y"));
+        Assert.Contains(messages, m => m.Contains("Missing"));
+    }
+
+    [Fact]
     public void CoreTimeAliasesProvideCompletionAndExplainMillisecondsInHover()
     {
         using var s = Launch();

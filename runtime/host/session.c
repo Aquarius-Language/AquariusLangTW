@@ -244,6 +244,7 @@ int32_t host_service(aqua_runtime *rt, int32_t operation, int32_t context, int32
         return 0;
     }
     case 4: return thread_service(rt, subject, arguments, count, output);
+    case 5: return -1; /* a runtime JIT request (runtime/guest/runtime.c rt_jitRequest): engines with a JIT answer it themselves */
     }
     return 1;
 }

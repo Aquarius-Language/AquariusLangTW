@@ -76,7 +76,9 @@ extern "C" {
 typedef enum aqua_type {
     AQUA_VOID = 0, AQUA_INT = 1, AQUA_FLOAT = 2, AQUA_DOUBLE = 3, AQUA_BOOL = 4, AQUA_STRING = 5, AQUA_ARRAY = 6,
     AQUA_HASH = 7, AQUA_FUNCTION = 8, AQUA_MODULE = 9, AQUA_NATIVE = 10, AQUA_NULL = 11, AQUA_BREAK = 12,
-    AQUA_ERROR = 13, AQUA_BUILTIN = 14
+    AQUA_ERROR = 13, AQUA_BUILTIN = 14,
+    /* A struct value (結構 / struct) and a struct type (callable: it constructs values). */
+    AQUA_STRUCT = 15, AQUA_STRUCT_TYPE = 16
 } aqua_type;
 
 /* A language value, copied by value. Numbers and booleans live in `number`; strings, arrays, hashes, functions and
@@ -142,6 +144,7 @@ aqua_value aqua_array_from_u8(aqua_runtime *rt, const uint8_t *items, uint32_t c
 
 /* Hashes keep insertion order; keys are integers, floats, doubles, strings or booleans compared as full typed keys. */
 aqua_value aqua_hash_new(aqua_runtime *rt, uint32_t capacity);
+/* A struct (AQUA_STRUCT) reads like a string-keyed hash: its fields in declaration order, each name with its value. */
 uint32_t aqua_hash_count(aqua_runtime *rt, aqua_value hash);
 bool aqua_hash_entry(aqua_runtime *rt, aqua_value hash, uint32_t index, aqua_value *key, aqua_value *value);
 bool aqua_hash_get(aqua_runtime *rt, aqua_value hash, aqua_value key, aqua_value *value);

@@ -99,6 +99,13 @@ Default value inspection still prints booleans as `真` / `假` and null as `nul
   time, or lowers a `CheckType` (rt_checkType) where the value comes from untyped code; integers widen to float
   and double, floats to double, and narrowing needs `整數(x)`, `浮點數(x)` or `雙精度(x)`. Typed parameters are
   checked on entry, typed results at each return and at the implicit final value.
+- `結構 名稱 { 欄位: 型別; 欄位 }` / `struct Name { field: type; field }` declares a struct type (`StructStatement`;
+  `結構` and `struct` are keywords only where a declaration starts). Calling the type constructs a value, with named
+  (`名稱(欄位: 值)`, a `CallNamed`) or positional arguments; fields left out are `null`, and annotated number, Boolean,
+  string and array fields must be given. Struct names are annotations; the TypeChecker checks constructions, field
+  reads and writes of annotated values, and lowers `CheckStruct` where values come from untyped code. Field writes
+  (`SetMember`, `CompoundMember`) are checked against the field's annotation at run time. Structs are reference
+  values compared by identity; `型別()` returns the declared name. See [structs](../../docs/structs.md).
 - `++值` returns the updated number; `值++` returns the original number.
   Both require an existing numeric variable.
 - Boolean `&&` and `||` evaluate both operands. They do not short-circuit.
@@ -169,7 +176,8 @@ use `目前時間()` for elapsed durations. It is available on desktop and brows
 
 `型別(值)` / `typeOf(value)` is a core global available on every host. Both names
 return the same stable English tag: `integer`, `float`, `double`, `string`, `boolean`,
-`null`, `array`, `hash`, `function`, `module` or `error`. Use it for JSON documents and
+`null`, `array`, `hash`, `function`, `module` or `error`; a struct value gives its declared name and a struct
+type gives `type`. Use it for JSON documents and
 other dynamic data whose fields may hold different kinds of values:
 
 ```aquarius

@@ -16,7 +16,7 @@ internal sealed class Scope(int start, int end, Scope? parent)
     public List<Declaration> Declarations { get; } = [];
 }
 
-internal sealed record Declaration(Token Token, Scope Scope, int Kind, string Detail, int End, IExpression? Value);
+internal sealed record Declaration(Token Token, Scope Scope, int Kind, string Detail, int End, IExpression? Value, TypeAnnotation? Type = null, StructStatement? Struct = null);
 internal sealed record Diagnostic(TextRange range, string message, int severity = 1, string source = "aquarius");
 
 internal sealed class Document
@@ -111,6 +111,10 @@ internal sealed class Document
 
     private int End(BlockStatement? body) => body == null ? Source.Text.Length
         : blockEnds.GetValueOrDefault(body.Token.Start, Source.Text.Length);
+    // A struct declaration ends at the brace closing its fields.
+    private int End(StructStatement shape) =>
+        tokens.FirstOrDefault(t => t.Start > shape.Name.Token.Start && t.Type == TokenType.LBRACE) is { Type: TokenType.LBRACE } brace
+            ? blockEnds.GetValueOrDefault(brace.Start, Source.Text.Length) : shape.Name.Token.Start + shape.Name.Token.Length;
 
     private Scope Child(int start, int end, Scope parent)
     {
@@ -119,10 +123,10 @@ internal sealed class Document
         return scope;
     }
 
-    private void Declare(Identifier? identifier, Scope scope, int kind, string detail, int? end = null, IExpression? value = null)
+    private void Declare(Identifier? identifier, Scope scope, int kind, string detail, int? end = null, IExpression? value = null, StructStatement? shape = null)
     {
         if (identifier == null || identifier.Token.Type != TokenType.IDENT) return;
-        var declaration = new Declaration(identifier.Token, scope, kind, detail, end ?? identifier.Token.Start + identifier.Token.Length, value);
+        var declaration = new Declaration(identifier.Token, scope, kind, detail, end ?? identifier.Token.Start + identifier.Token.Length, value, identifier.Type, shape);
         declarations.Add(declaration);
         scope.Declarations.Add(declaration);
     }
@@ -150,14 +154,14 @@ internal sealed class Document
             case LetStatement let:
                 var function = let.Value as FunctionLiteral;
                 string names = let.Alias == null ? let.Name?.Value ?? "" : $"{let.Name?.Value} / {let.Alias.Value}";
-                string detail = function == null ? $"變數 {names}" : $"{names}({string.Join(", ", (function.Parameters ?? []).Select(p => p.Value))})";
+                string detail = function == null ? $"變數 {names}{Annotation(let.Name?.Type)}" : $"{names}{Signature(function)}";
                 Declare(let.Name, scope, function == null ? 13 : 12, detail, function == null ? null : End(function.Body), let.Value);
                 Declare(let.Alias, scope, 12, detail, function == null ? null : End(function.Body), let.Value);
                 Walk(let.Value, scope);
                 break;
             case FunctionLiteral fn:
                 var fnScope = Child(fn.Token.Start, End(fn.Body), scope);
-                foreach (var parameter in fn.Parameters ?? []) Declare(parameter, fnScope, 13, $"參數 {parameter.Value}");
+                foreach (var parameter in fn.Parameters ?? []) Declare(parameter, fnScope, 13, $"參數 {parameter.Value}{Annotation(parameter.Type)}");
                 Walk(fn.Body, fnScope);
                 break;
             case ForLoopLiteral loop:
@@ -166,6 +170,9 @@ internal sealed class Document
                 Walk(loop.ConditionalExpression, loopScope);
                 Walk(loop.ValueChangeStatement, loopScope);
                 Walk(loop.Body, loopScope);
+                break;
+            case StructStatement shape:
+                Declare(shape.Name, scope, StructKind, shape.String(), End(shape), shape: shape);
                 break;
             case ExpressionStatement expression: Walk(expression.Expression, scope); break;
             case ReturnStatement statement: Walk(statement.ReturnValue, scope); break;
@@ -193,6 +200,40 @@ internal sealed class Document
                 foreach (var pair in hash.Pairs ?? []) { Walk(pair.Key, scope); Walk(pair.Value, scope); }
                 break;
         }
+    }
+
+    // Optional annotations as written (": 整數", ": double[]", ": 陣列").
+    private static string Annotation(TypeAnnotation? type) => type == null ? "" : ": " + type.String();
+    private static string Signature(FunctionLiteral function) =>
+        $"({string.Join(", ", (function.Parameters ?? []).Select(p => p.Value + Annotation(p.Type)))}){Annotation(function.ReturnType)}";
+
+    // LSP symbol kinds of struct types and their fields.
+    private const int StructKind = 23, FieldKind = 8;
+
+    // A type name in annotation position: the token after an annotation's colon (or that colon itself), not a hash
+    // literal's. An annotation follows a declared name (變數 x:), a parameter (函式(a, b:), a parameter list (函式(...):)
+    // or a struct field (結構 名稱 { 欄位:).
+    private bool IsTypePosition(Token token)
+    {
+        int index = tokens.FindIndex(t => t.Start == token.Start);
+        int colon = token.Type == TokenType.COLON ? index : index - 1;
+        if (colon < 1 || tokens[colon].Type != TokenType.COLON) return false;
+        var before = tokens[colon - 1];
+        if (before.Type == TokenType.RPAREN) return true;
+        if (before.Type != TokenType.IDENT || colon < 2) return false;
+        if (tokens[colon - 2].Type == TokenType.LET) return true;
+        // A parameter: the innermost open parenthesis belongs to a function literal.
+        int depth = 0;
+        for (int i = colon - 2; i >= 0; i--) {
+            if (tokens[i].Type is TokenType.RPAREN or TokenType.RBRACE or TokenType.RBRACKET) depth++;
+            else if (tokens[i].Type is TokenType.LPAREN or TokenType.LBRACE or TokenType.LBRACKET) {
+                if (depth-- > 0) continue;
+                if (tokens[i].Type == TokenType.LBRACE)
+                    return i > 1 && tokens[i - 1].Type == TokenType.IDENT && tokens[i - 2].Literal is "結構" or "struct";
+                return tokens[i].Type == TokenType.LPAREN && i > 0 && tokens[i - 1].Type == TokenType.FUNCTION;
+            }
+        }
+        return false;
     }
 
     private Scope ScopeAt(int offset) => scopes.Last(s => s.Start <= offset && (offset < s.End || s.Parent == null));
@@ -287,6 +328,34 @@ internal sealed class Document
         return null;
     }
 
+    // The struct type of a value, when its declaration shows it: an annotation naming a struct, a construction of one,
+    // or a field annotated with one.
+    private StructStatement? StructOf(IExpression? expression, Scope scope, int offset, int depth = 0)
+    {
+        if (depth > 32) return null;
+        string? name = null;
+        if (expression is Identifier identifier && Lookup(identifier.Value, scope, offset) is { } declaration) {
+            name = declaration.Type?.StructName;
+            if (name == null && declaration.Value is CallExpression { Function: Identifier constructor }) name = constructor.Value;
+            if (name == null && declaration.Value is Identifier or InfixExpression) return StructOf(declaration.Value, declaration.Scope, declaration.Token.Start, depth + 1);
+        } else if (expression is CallExpression { Function: Identifier constructor }) name = constructor.Value;
+        else if (expression is InfixExpression { Operator: ".", Right: Identifier field } member)
+            name = StructOf(member.Left, scope, offset, depth + 1)?.Fields.FirstOrDefault(f => f.Value == field.Value)?.Type?.StructName;
+        return name == null ? null : declarations.LastOrDefault(d => d.Struct != null && d.Token.Literal == name)?.Struct;
+    }
+
+    private StructStatement? MemberStruct(Token token, int offset)
+    {
+        int index = tokens.FindIndex(t => t.Start == token.Start);
+        int dot = token.Type == TokenType.DOT ? index : index - 1;
+        if (dot < 1 || tokens[dot].Type != TokenType.DOT) return null;
+        if (memberReceivers.TryGetValue(tokens[dot].Start, out var member)) return StructOf(member.Receiver, member.Scope, offset);
+        var previous = tokens[dot - 1];
+        return previous.Type == TokenType.IDENT ? StructOf(new Identifier(previous, previous.Literal), ScopeAt(offset), offset) : null;
+    }
+
+    private static string FieldDetail(StructStatement shape, Identifier field) => $"欄位 field {shape.Name.Value}.{field.Value}{Annotation(field.Type)}";
+
     private IEnumerable<Declaration> Exports() => declarations.Where(d => d.Scope.Parent == null)
         .GroupBy(d => d.Token.Literal).Select(g => g.Last());
 
@@ -321,8 +390,18 @@ internal sealed class Document
         var token = tokens.LastOrDefault(t => t.Start < offset && offset <= t.Start + t.Length);
         string prefix = token.Type == TokenType.IDENT || LanguageFacts.Keywords.ContainsKey(token.Literal ?? "")
             ? Source.Text[token.Start..offset] : "";
-        if (token.Type == TokenType.DOT || (token.Type == TokenType.IDENT && IsMember(token)))
+        if (token.Type == TokenType.DOT || (token.Type == TokenType.IDENT && IsMember(token))) {
+            if (MemberStruct(token, offset) is { } shape)
+                return shape.Fields.Where(f => f.Value.StartsWith(prefix, StringComparison.Ordinal))
+                    .Select(f => (object)new { label = f.Value, kind = 5, detail = FieldDetail(shape, f) }).ToArray();
             return MemberCompletion(MemberModule(token, offset), prefix).ToArray();
+        }
+        // After an annotation's colon, only type names are valid: the built-in ones and the file's struct types.
+        if (token.Type == TokenType.COLON || (token.Type == TokenType.IDENT && IsTypePosition(token)))
+            return LanguageFacts.TypeNames.Select(t => (Label: t.Key, Kind: 25, Detail: t.Value))
+                .Concat(declarations.Where(d => d.Struct != null).Select(d => (Label: d.Token.Literal, Kind: 22, Detail: d.Detail)))
+                .Where(t => t.Label.StartsWith(prefix, StringComparison.Ordinal))
+                .Select(t => (object)new { label = t.Label, kind = t.Kind, detail = t.Detail }).ToArray();
         var items = new Dictionary<string, object>(StringComparer.Ordinal);
         foreach (var entry in LanguageFacts.Keywords)
             items[entry.Key] = new { label = entry.Key, kind = 14, detail = entry.Value };
@@ -331,7 +410,7 @@ internal sealed class Document
         foreach (var entry in LanguageFacts.Builtins)
             items[entry.Key] = new { label = entry.Key, kind = entry.Key is "目前工作目錄" or "currWorkingDir" ? 6 : 3, detail = entry.Value };
         foreach (var declaration in Visible(offset))
-            items[declaration.Token.Literal] = new { label = declaration.Token.Literal, kind = declaration.Kind == 12 ? 3 : 6, detail = declaration.Detail };
+            items[declaration.Token.Literal] = new { label = declaration.Token.Literal, kind = declaration.Kind switch { 12 => 3, StructKind => 22, _ => 6 }, detail = declaration.Detail };
         return items.Where(item => item.Key.StartsWith(prefix, StringComparison.Ordinal)).Select(item => item.Value).ToArray();
     }
 
@@ -342,12 +421,18 @@ internal sealed class Document
         if (token.Type == TokenType.STRING || token.Type == TokenType.ILLEGAL) return null;
         if (IsMember(token))
         {
+            if (MemberStruct(token, offset) is { } shape && shape.Fields.FirstOrDefault(f => f.Value == token.Literal) is { } field)
+                return new { contents = new { kind = "plaintext", value = FieldDetail(shape, field) }, range = Source.Range(token.Start, token.Length) };
             var module = MemberModule(token, offset);
             string? memberDetail = module?.Module != null ? module.Module.Find(token.Literal)?.Detail
                 : module?.Script?.Exports().LastOrDefault(d => d.Token.Literal == token.Literal)?.Detail;
             return memberDetail == null ? null : new { contents = new { kind = "plaintext", value = memberDetail }, range = Source.Range(token.Start, token.Length) };
         }
-        string? detail = Visible(offset).FirstOrDefault(d => d.Token.Literal == token.Literal)?.Detail;
+        string? detail = null;
+        if (IsTypePosition(token)) LanguageFacts.TypeNames.TryGetValue(token.Literal, out detail);
+        detail ??= Visible(offset).FirstOrDefault(d => d.Token.Literal == token.Literal)?.Detail;
+        // Struct types are known in the whole file: annotations may name one declared further down.
+        detail ??= declarations.LastOrDefault(d => d.Struct != null && d.Token.Literal == token.Literal)?.Detail;
         if (detail == null) LanguageFacts.Keywords.TryGetValue(token.Literal, out detail);
         if (detail == null) LanguageFacts.Builtins.TryGetValue(token.Literal, out detail);
         return detail == null ? null : new { contents = new { kind = "plaintext", value = detail }, range = Source.Range(token.Start, token.Length) };
@@ -359,18 +444,26 @@ internal sealed class Document
         if (At(offset) is not Token token || token.Type != TokenType.IDENT) return null;
         if (IsMember(token))
         {
+            if (MemberStruct(token, offset) is { } shape && shape.Fields.FirstOrDefault(f => f.Value == token.Literal) is { } field)
+                return new { uri = Uri, range = Source.Range(field.Token.Start, field.Token.Length) };
             var imported = MemberModule(token, offset)?.Script;
             var member = imported?.Exports().LastOrDefault(d => d.Token.Literal == token.Literal);
             return member == null ? null : new { uri = imported!.Uri, range = imported.Source.Range(member.Token.Start, member.Token.Length) };
         }
-        var declaration = Visible(offset).FirstOrDefault(d => d.Token.Literal == token.Literal);
+        var declaration = Visible(offset).FirstOrDefault(d => d.Token.Literal == token.Literal)
+            ?? declarations.LastOrDefault(d => d.Struct != null && d.Token.Literal == token.Literal);
         return declaration == null ? null : new { uri = Uri, range = Source.Range(declaration.Token.Start, declaration.Token.Length) };
     }
 
-    public object Symbols() => declarations.Select(d => new
+    public object Symbols() => declarations.Select(d => (object)new
     {
         name = d.Token.Literal, kind = d.Kind,
         location = new { uri = Uri, range = Source.Range(d.Token.Start, d.End - d.Token.Start) },
         containerName = d.Scope.Parent == null ? "" : "local"
-    }).ToArray();
+    }).Concat(declarations.Where(d => d.Struct != null).SelectMany(d => d.Struct!.Fields.Select(f => (object)new
+    {
+        name = f.Value, kind = FieldKind,
+        location = new { uri = Uri, range = Source.Range(f.Token.Start, f.Token.Length) },
+        containerName = d.Token.Literal
+    }))).ToArray();
 }

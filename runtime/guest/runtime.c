@@ -4,10 +4,10 @@
 
 typedef uint32_t u32;
 typedef struct { u32 tag, ref; double number; } Value;
-enum { VOID, INT, FLOAT, DOUBLE, BOOL, STRING, ARRAY, HASH, CLOSURE, MODULE, NATIVE, NULL_VALUE, BREAK_VALUE, ERROR, BUILTIN };
+enum { VOID, INT, FLOAT, DOUBLE, BOOL, STRING, ARRAY, HASH, CLOSURE, MODULE, NATIVE, NULL_VALUE, BREAK_VALUE, ERROR, BUILTIN, STRUCT, STRUCT_TYPE };
 /* FOREIGN blocks are never collected: memory reserved for the host (aqua_reserve) and pages another module of the same
    memory grew (web side modules' libc), which the heap steps over. */
-enum { FREE, RAW, TEXT, VALUES, ENV, BINDINGS, CLOSURES, ARRAYS, HASHES, FRAMES, LOOPS, EXECUTIONS, PINS, FOREIGN };
+enum { FREE, RAW, TEXT, VALUES, ENV, BINDINGS, CLOSURES, ARRAYS, HASHES, FRAMES, LOOPS, EXECUTIONS, PINS, FOREIGN, STRUCTS, SHAPES };
 /* Blocks tile the heap contiguously from heap_start to heap_end; walk them by address. */
 typedef struct { u32 size, reserved, kind, marked; } Block;
 typedef struct { u32 length; uint16_t data[]; } Text;
@@ -17,6 +17,12 @@ typedef struct { u32 references,capacity,used,padding; Value values[]; } ArraySt
 /* element: 0, or the one value tag a typed array (整數[] / int[] ...) holds; set when an annotation check accepts it. */
 typedef struct Array { u32 count, capacity; Value *values; struct Array *dirty_next; u32 dirty, exposed; ArrayStorage *storage; u32 element; } Array;
 typedef struct { Value key, value; } Pair;
+/* A struct type (結構 / struct), made when its declaration runs: its program-wide id (the annotation code is
+   32 | id << 6), name and fields, each with its annotation code (0: any value) and type name (for messages). */
+typedef struct { Text *name; u32 code; Text *type; u32 pad; } ShapeField;
+typedef struct { u32 id, count; Text *name; u32 pad; ShapeField fields[]; } Shape;
+/* A struct value: its type and one value per field, in one block. */
+typedef struct { Shape *shape; u32 count, pad0, pad1; Value fields[]; } Struct;
 typedef struct Hash { u32 count,capacity; Pair *pairs; struct Hash *dirty_next; u32 dirty,exposed; } Hash;
 typedef struct { u32 table, arity, capacity, wrap_return; Text **parameters; Value *constants; u32 numeric_table; Text *recursive_name; u32 locals, flags; } Function;
 /* Function flags. PROMOTED_SCOPE: parameters and function-level locals live in frame slots 0..locals-1;
@@ -171,7 +177,7 @@ static Text *ascii(const char *s) {
 }
 static Text *concat(Text *a,Text *b) { Text*t=pointer(aqua_text(a->length+b->length));memcpy(t->data,a->data,a->length*2);memcpy(t->data+a->length,b->data,b->length*2);return t; }
 static int text_equal(Text *a,Text*b) { if(a==b)return 1;if(!a||!b||a->length!=b->length)return 0;for(u32 i=0;i<a->length;i++)if(a->data[i]!=b->data[i])return 0;return 1; }
-static const char *type_name(u32 tag) { static const char *names[]={"NULL","INTEGER","FLOAT","DOUBLE","BOOLEAN","STRING","ARRAY","HASH","FUNCTION","MODULE","NATIVE","NULL","BREAK_OBJ","ERROR"};return tag<=ERROR?names[tag]:"UNKNOWN"; }
+static const char *type_name(u32 tag) { static const char *names[]={"NULL","INTEGER","FLOAT","DOUBLE","BOOLEAN","STRING","ARRAY","HASH","FUNCTION","MODULE","NATIVE","NULL","BREAK_OBJ","ERROR","BUILTIN","STRUCT","STRUCT_TYPE"};return tag<=STRUCT_TYPE?names[tag]:"UNKNOWN"; }
 static void fail(Frame*f,Text*t) { f->execution->result=value(ERROR,address(t),0);f->execution->status=3; }
 static void failure(Frame*f,const char*s) { fail(f,ascii(s)); }
 static void named_failure(Frame*f,const char*s,Text*t) { fail(f,concat(ascii(s),t)); }
@@ -303,6 +309,7 @@ static int element_fits(Frame*f,Array*a,Value v) {
 #include "arrays.h"
 #include "hashes.h"
 #include "texts.h"
+int rt_nativeStruct(int shape);
 #include "threads.h"
 static Frame *frame(Execution*e,Frame*parent,Program*p,u32 id,Scope*s,u32 context) {
     if(id>=p->count)__builtin_trap();Function*fn=p->functions+id;
@@ -384,7 +391,7 @@ u32 aqua_invoke(u32 closure,u32 arguments,u32 count) {
    only those two calls. */
 static int worker;
 static int host_service(int operation, int context, int subject, int name, int arguments, int count, int output) {
-    if(!worker||(operation==4&&(subject==106||subject==107)))return host_import(operation,context,subject,name,arguments,count,output);
+    if(!worker||operation==5||(operation==4&&(subject==106||subject==107)))return host_import(operation,context,subject,name,arguments,count,output);
     Value*out=pointer((u32)output);
     if(operation==0){
         static const uint16_t *const builtins[][2]={{u"len",u"長度"},{u"last",u"最後一個"},{u"rest",u"其餘"},{u"push",u"加入"},{u"floodFill",u"區域填色"}};
@@ -498,6 +505,7 @@ static Value flood_fill(Frame*f,Value*args) {
         }
     }}release(stack);if(a->exposed&&!a->dirty){a->dirty=1;a->dirty_next=pending.dirty_arrays;pending.dirty_arrays=a;}return number(changed,INT);
 }
+static Value struct_new(Frame*f,Shape*s,Value*args,u32 n,Text*names);
 int rt_call(Frame*f,int n) {
     if(n<0||(u32)n>=f->sp){failure(f,"Invalid compiled call.");return 1;}u32 base=f->sp-n-1;Value callee=f->values[base];Value*args=f->values+base+1;
     if(callee.tag==BUILTIN&&callee.ref>=THREAD_FIRST_ID&&callee.ref<THREAD_FIRST_ID+THREAD_COUNT){
@@ -518,6 +526,7 @@ int rt_call(Frame*f,int n) {
             else if(callee.ref==3){if(!x->count)out=value(NULL_VALUE,0,0);else{Array*y=array(x->count-1);memcpy(y->values,x->values+1,y->count*sizeof(Value));out=value(ARRAY,address(y),0);}}
             else{Array*y=append_array(x,args[1]);out=value(ARRAY,address(y),0);}}
         f->sp=base;push(f,out);}
+    else if(callee.tag==STRUCT_TYPE){Value out=struct_new(f,pointer(callee.ref),args,(u32)n,0);f->sp=base;if(!f->execution->status)push(f,out);}
     else if(callee.tag==CLOSURE){Closure*c=pointer(callee.ref);Function*fn=c->program->functions+c->function;if(fn->arity!=(u32)n){Text*t=concat(ascii("Function expects "),decimal(fn->arity));t=concat(t,ascii(" arguments, got "));t=concat(t,decimal(n));fail(f,concat(t,ascii(".")));return 1;}
         // Closed scalar functions have no heap/capability/captured-write effects.
         // A failed fast attempt can therefore restart on the resumable path.
@@ -549,6 +558,9 @@ int rt_numericFrame(Execution*e,int pc,int depth) {
     Frame*f=frame(e,0,c->program,c->function,c->scope,c->context);f->binding_cache=closure_cache(c,fn);
     f->pc=(u32)pc;f->sp=fn->locals+(u32)depth;if(!e->numeric_innermost)e->numeric_innermost=f;return (int)address(f);
 }
+/* A hot loop asks the runtime JIT (desktop hosts) for native code: the host answers the table index of the next variant
+   to try, or -1 when none remains or it has no JIT. */
+int rt_jitRequest(Frame*f,int loop) { int index=host_service(5,f->context,loop,0,0,0,0);return index>0?index:-1; }
 /* Deoptimization of a native (fully typed) function: like rt_numericFrame, for the given closure, since native
    functions call each other directly. The caller writes the frame's variables and operands. */
 int rt_nativeFrame(Execution*e,int closure,int pc,int depth) {
@@ -560,11 +572,105 @@ int rt_nativeFrame(Execution*e,int closure,int pc,int depth) {
    returns status 5 through every native activation. */
 int rt_nativeFailure(Execution*e,int code) {
     static const char *const messages[]={"Integer division by zero / 整數不能除以零。","Integer remainder by zero / 整數不能對零取餘數。",
-        "Array index is out of bounds / 陣列索引超出範圍。","Array assignment index is out of bounds."};
+        "Array index is out of bounds / 陣列索引超出範圍。","Array assignment index is out of bounds.",
+        "Cannot access member of NULL","Cannot assign a member of NULL"};
     e->result=value(ERROR,address(ascii(messages[code])),0);e->status=3;return 5;
 }
 /* An array literal built by native code (an array of any values): it writes every element before anything can collect. */
 int rt_nativeArray(int n){return (int)address(array((u32)n));}
+/* ---- Structs (結構 / struct) ---- */
+/* Whether v fits annotation code (widening numbers in place): 0 any value; a scalar tag; 16 | element a typed array
+   (locking an untyped one whose elements all fit); 16 any array; 32 | id << 6 a struct of that type or null. */
+static int fits(Value*v,u32 code) {
+    if(!code)return 1;
+    if(code&32u)return v->tag==NULL_VALUE||(v->tag==STRUCT&&((Struct*)pointer(v->ref))->shape->id==code>>6);
+    u32 want=code&15u;
+    if(code&16u){if(v->tag!=ARRAY)return 0;Array*a=pointer(v->ref);if(!want||a->element==want)return 1;
+        u32 i=0;if(!a->element)while(i<a->count&&a->values[i].tag==want)i++;if(!a->element&&i==a->count){a->element=want;return 1;}return 0;}
+    if(v->tag==want)return 1;
+    if(numeric(*v)&&want>=FLOAT&&want<=DOUBLE&&v->tag<want){*v=number(v->number,want);return 1;}
+    return 0;
+}
+/* The name of a value's type in messages: a struct's own name, else the tag's. */
+static Text *value_type(Value v) { return v.tag==STRUCT?((Struct*)pointer(v.ref))->shape->name:ascii(type_name(v.tag)); }
+static Text *code_name(u32 code,Text*type) {
+    static const char *const names[]={"","int","float","double","bool","string"};
+    if(code&32u)return type;if(code==16u)return ascii("array");
+    Text*t=ascii(names[code&15u]);return code&16u?concat(t,ascii("[]")):t;
+}
+static void mismatch(Frame*f,Text*subject,Text*expected,Value v) {
+    Text*t=concat(concat(ascii("型別不符 / Type mismatch: "),subject),ascii(" expects "));
+    fail(f,concat(concat(concat(t,expected),ascii(", got ")),value_type(v)));
+}
+/* Pieces of a compiler descriptor string: fields separated by U+0001, parts of a field by U+0002. */
+static Text *piece(Text*d,u32*at,uint16_t stop) {
+    u32 start=*at,end=start;while(end<d->length&&d->data[end]!=1&&d->data[end]!=stop)end++;
+    Text*t=pointer(aqua_text(end-start));memcpy(t->data,d->data+start,(end-start)*2);*at=end<d->length?end+1:end;return t;
+}
+static u32 decimal_value(Text*t) { u32 n=0;for(u32 i=0;i<t->length;i++)n=n*10+(u32)(t->data[i]-'0');return n; }
+static void unknown_field(Frame*f,Shape*s,Text*field) { fail(f,concat(concat(concat(ascii("Unknown field of "),s->name),ascii(": ")),field)); }
+static int field_index(Shape*s,Text*name) { for(u32 i=0;i<s->count;i++)if(text_equal(s->fields[i].name,name))return (int)i;return -1; }
+static int field_fits(Frame*f,Shape*s,u32 i,Value*v) {
+    if(fits(v,s->fields[i].code))return 1;
+    mismatch(f,concat(concat(s->name,ascii(".")),s->fields[i].name),code_name(s->fields[i].code,s->fields[i].type),*v);return 0;
+}
+/* A struct declaration: descriptor "id\1name\1field\2code\2type\1..." (an untyped field has code 0). */
+int rt_structType(Frame*f,int n) {
+    Text*d=name(f,(u32)n);u32 at=0,count=0;for(u32 i=0;i<d->length;i++)if(d->data[i]==1)count++;count--;
+    Shape*s=allocate(sizeof(Shape)+count*sizeof(ShapeField),SHAPES);s->id=decimal_value(piece(d,&at,2));s->name=piece(d,&at,2);s->count=count;
+    for(u32 i=0;i<count;i++){s->fields[i].name=piece(d,&at,2);s->fields[i].code=decimal_value(piece(d,&at,2));s->fields[i].type=piece(d,&at,2);}
+    push(f,value(STRUCT_TYPE,address(s),0));return 0;
+}
+/* A new struct of type s from n arguments: field[i] gets args[i], or args by name when names (a descriptor of field names)
+   is given. Fields without an argument are null, which only untyped and struct-typed fields may hold. */
+static Value struct_new(Frame*f,Shape*s,Value*args,u32 n,Text*names) {
+    if(!names&&n>s->count){fail(f,concat(concat(ascii("Too many fields for "),s->name),ascii(".")));return empty;}
+    Struct*x=allocate(sizeof(Struct)+s->count*sizeof(Value),STRUCTS);x->shape=s;x->count=s->count;
+    for(u32 i=0;i<s->count;i++)x->fields[i]=value(NULL_VALUE,0,0);
+    u32 at=0;unsigned char given[256]={0};
+    for(u32 i=0;i<n;i++){int k=(int)i;
+        if(names){Text*field=piece(names,&at,2);k=field_index(s,field);
+            if(k<0){unknown_field(f,s,field);return empty;}
+            if(k<256&&given[k]++){fail(f,concat(concat(concat(ascii("Field given twice for "),s->name),ascii(": ")),field));return empty;}}
+        Value v=args[i];if(!field_fits(f,s,(u32)k,&v))return empty;x->fields[k]=v;}
+    for(u32 i=0;i<s->count;i++)if(x->fields[i].tag==NULL_VALUE&&!fits(&x->fields[i],s->fields[i].code)){Value v=x->fields[i];field_fits(f,s,i,&v);return empty;}
+    return value(STRUCT,address(x),0);
+}
+/* A construction with named arguments: 節點(左: a, 右: b); n names the constant listing the field names in order. */
+int rt_callNamed(Frame*f,int n) {
+    Text*names=name(f,(u32)n);u32 count=1;for(u32 i=0;i<names->length;i++)if(names->data[i]==1)count++;
+    if(count>=f->sp){failure(f,"Invalid compiled call.");return 0;}
+    u32 base=f->sp-count-1;Value callee=f->values[base];
+    if(callee.tag!=STRUCT_TYPE){fail(f,concat(ascii("Named arguments need a struct type, got "),value_type(callee)));return 0;}
+    Value out=struct_new(f,pointer(callee.ref),f->values+base+1,count,names);f->sp=base;if(!f->execution->status)push(f,out);return 0;
+}
+/* obj.field = value (the value stays on the stack, like an assignment). */
+int rt_setMember(Frame*f,int n) {
+    Value v=pop(f),m=pop(f);Text*t=name(f,(u32)n);
+    if(m.tag!=STRUCT){fail(f,concat(ascii("Cannot assign a member of "),value_type(m)));return 0;}
+    Struct*x=pointer(m.ref);int k=field_index(x->shape,t);
+    if(k<0){unknown_field(f,x->shape,t);return 0;}
+    if(!field_fits(f,x->shape,(u32)k,&v))return 0;x->fields[k]=v;push(f,v);return 0;
+}
+/* obj.field op= value: the field keeps its type like a compound assignment to a variable. */
+int rt_compoundMember(Frame*f,int n) {
+    Value c=constant(f,(u32)n),r=pop(f),m=pop(f);Text*t=pointer(c.ref);
+    if(m.tag!=STRUCT){fail(f,concat(ascii("Cannot assign a member of "),value_type(m)));return 0;}
+    Struct*x=pointer(m.ref);int k=field_index(x->shape,t);
+    if(k<0){unknown_field(f,x->shape,t);return 0;}
+    Value v=binary(f,(int)c.number,x->fields[k],r,1);if(f->execution->status||!field_fits(f,x->shape,(u32)k,&v))return 0;
+    x->fields[k]=v;push(f,empty);return 0;
+}
+/* An annotation of a struct type on the top operand: descriptor "id\1subject\1type name". */
+int rt_checkStruct(Frame*f,int n) {
+    if(!f->sp)return 0;Text*d=name(f,(u32)n);u32 at=0;u32 id=decimal_value(piece(d,&at,2));Text*subject=piece(d,&at,2),*type=piece(d,&at,2);
+    if(!fits(f->values+f->sp-1,32u|id<<6))mismatch(f,subject,type,f->values[f->sp-1]);return 0;
+}
+/* Native code builds a struct of a known type: every field is written before anything can collect. */
+int rt_nativeStruct(int shape) {
+    Shape*s=pointer((u32)shape);Struct*x=allocate(sizeof(Struct)+s->count*sizeof(Value),STRUCTS);x->shape=s;x->count=s->count;
+    for(u32 i=0;i<s->count;i++)x->fields[i]=value(NULL_VALUE,0,0);return (int)address(x);
+}
 int rt_array(Frame*f,int n){Array*a=array(n);for(int i=n-1;i>=0;i--)a->values[i]=pop(f);push(f,value(ARRAY,address(a),0));return 0;}
 /* An annotation check on the top operand: n = (subject constant << 5) | type code (element tag, +16 for arrays).
    Integers widen to float or double and floats to double; any other mismatch is a language error. */
@@ -587,7 +693,9 @@ int rt_writeIndex(Frame*f,int n){Value v=pop(f);rt_checkArrayWrite(f,0);Value i=
     if(a.tag==HASH){Hash*h=pointer(a.ref);u32 j=0;while(j<h->count&&!equal(i,h->pairs[j].key,1))j++;if(j==h->count)aqua_hash_resize(a.ref,h->count+1);h->pairs[j]=(Pair){i,v};if(h->exposed&&!h->dirty){h->dirty=1;h->dirty_next=pending.dirty_hashes;pending.dirty_hashes=h;}}
     else{Array*x=pointer(a.ref);if(!element_fits(f,x,v)){push(f,v);return 0;}writable_array(x,x->count);x->values[(u32)i.number]=v;if(x->exposed&&!x->dirty){x->dirty=1;x->dirty_next=pending.dirty_arrays;pending.dirty_arrays=x;}}
 }push(f,v);return 0;}
-int rt_member(Frame*f,int n){Value m=pop(f),out=empty;Text*t=name(f,n);if(m.tag==MODULE){Binding*b=find(pointer(m.ref),t);if(!b)named_failure(f,"Module member not found: ",t);else out=b->value;}else if(m.tag==NATIVE){MemberEntry*c=pending.host_era?member_entry(m.ref,address(t)):0;if(c&&c->era==pending.host_era&&c->native==m.ref&&c->name==address(t))out=c->value;else{int found=host_service(2,f->context,m.ref,address(t),0,0,address(&out));if(found!=0&&found!=2)named_failure(f,"Module member not found: ",t);else if(found==0&&c&&pending.host_era&&member_cacheable(out.tag)){c->native=m.ref;c->name=address(t);c->era=pending.host_era;c->value=out;}}}else named_failure(f,"Cannot access member of ",ascii(type_name(m.tag)));push(f,out);return 0;}
+int rt_member(Frame*f,int n){Value m=pop(f),out=empty;Text*t=name(f,n);
+    if(m.tag==STRUCT){Struct*x=pointer(m.ref);int k=field_index(x->shape,t);if(k<0)unknown_field(f,x->shape,t);else out=x->fields[k];push(f,out);return 0;}
+    if(m.tag==MODULE){Binding*b=find(pointer(m.ref),t);if(!b)named_failure(f,"Module member not found: ",t);else out=b->value;}else if(m.tag==NATIVE){MemberEntry*c=pending.host_era?member_entry(m.ref,address(t)):0;if(c&&c->era==pending.host_era&&c->native==m.ref&&c->name==address(t))out=c->value;else{int found=host_service(2,f->context,m.ref,address(t),0,0,address(&out));if(found!=0&&found!=2)named_failure(f,"Module member not found: ",t);else if(found==0&&c&&pending.host_era&&member_cacheable(out.tag)){c->native=m.ref;c->name=address(t);c->era=pending.host_era;c->value=out;}}}else named_failure(f,"Cannot access member of ",ascii(type_name(m.tag)));push(f,out);return 0;}
 int rt_resolveMemberFunction(Frame*f,int n){Value m=pop(f);if(m.tag==NATIVE){Value out=empty;if(host_service(3,f->context,m.ref,0,0,0,address(&out))){failure(f,"Cannot access computed member of native value.");return 0;}m=out;}if(m.tag!=MODULE){failure(f,"Computed member requires a module.");return 0;}Value c=constant(f,n);f->execution->current=frame(f->execution,f,f->program,(u32)c.number,pointer(m.ref),f->context);return 0;}
 int rt_enterLoop(Frame*f,int n){invalidate_scopes();Loop*l=allocate(sizeof(Loop),LOOPS);l->previous=f->loops;l->outer=f->scope;l->base=f->sp;l->binding=n<0?0:name(f,n);f->loops=l;f->scope=scope(f->scope);return 0;}
 int rt_loopCondition(Frame*f,int n){Value v=pop(f);if(v.tag!=BOOL){failure(f,"Expected bool from for loop conditionals.");return 0;}return v.number!=0;}
@@ -596,7 +704,7 @@ int rt_break(Frame*f,int n){if(f->loops)f->sp=f->loops->base;return 0;}
 int rt_leaveLoop(Frame*f,int n){Loop*l=f->loops;if(!l){failure(f,"Invalid compiled loop.");return 0;}invalidate_scopes();f->sp=l->base;dispose_scope(f->scope);f->scope=l->outer;f->loops=l->previous;release(l);push(f,empty);return 0;}
 int rt_error(Frame*f,int n){fail(f,name(f,n));return 0;}
 static void mark_ref(void*p){u32 addr=address(p);if(!p||addr<heap_start||addr>=heap_end)return;Block*b=(Block*)p-1;if(b->kind==FREE||b->marked)return;b->marked=mark_pending|1;mark_pending=addr;}
-static void mark_value(Value v){if(v.tag==NATIVE){if(v.ref<65536&&!native_live[v.ref]){native_live[v.ref]=1;marked_native_ids[marked_native_count++]=v.ref;}}else if(v.tag>=STRING&&v.tag<=MODULE||v.tag==ERROR)mark_ref(pointer(v.ref));}
+static void mark_value(Value v){if(v.tag==NATIVE){if(v.ref<65536&&!native_live[v.ref]){native_live[v.ref]=1;marked_native_ids[marked_native_count++]=v.ref;}}else if(v.tag>=STRING&&v.tag<=MODULE||v.tag==ERROR||v.tag==STRUCT||v.tag==STRUCT_TYPE)mark_ref(pointer(v.ref));}
 u32 aqua_collect(void){memset(member_cache,0,sizeof member_cache);
     bytes_since_collection=0;heap_growth=0;gc_armed=0;for(Execution*e=executions;e;e=e->next)e->poll=0;
     // Marks are clear here: allocation clears them and the sweep below resets every survivor.
@@ -618,6 +726,8 @@ u32 aqua_collect(void){memset(member_cache,0,sizeof member_cache);
         case LOOPS:{Loop*l=p;mark_ref(l->previous);mark_ref(l->outer);break;}
         case EXECUTIONS:{Execution*e=p;mark_ref(e->current);mark_value(e->result);break;}
         case PINS:mark_value(((Pin*)p)->value);break;
+        case STRUCTS:{Struct*x=p;mark_ref(x->shape);for(u32 i=0;i<x->count;i++)mark_value(x->fields[i]);break;}
+        case SHAPES:{Shape*x=p;mark_ref(x->name);for(u32 i=0;i<x->count;i++){mark_ref(x->fields[i].name);mark_ref(x->fields[i].type);}break;}
     }}u32 reclaimed=0,live=0;
     // One pass sweeps, clears survivor marks and rebuilds the segregated free lists, so tiny scopes
     // cannot consume reusable frames.

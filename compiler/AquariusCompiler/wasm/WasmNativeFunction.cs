@@ -28,7 +28,10 @@ namespace AquariusLang.Wasm;
 internal sealed class WasmNativeFunction
 {
     private const int Unknown = -1, VoidType = 0, IntType = 1, FloatType = 2, DoubleType = 3, BoolType = 4, NullType = 11;
-    private const int CallableBase = 1000, BuiltinBase = 2000, MixedType = 999;
+    // Struct type codes (32 | id << 6, id < 2^23) stay below the compile-time-only operand codes.
+    private const int CallableBase = 1 << 30, BuiltinBase = CallableBase + (1 << 20), MixedType = 999;
+    /// <summary>The marker of an outer binding holding a struct type (constructed natively): its Callee is the type's code.</summary>
+    private const int StructTypeMarker = -2;
     private const int ConvertFirst = 46;
 
     internal int Body { get; }
@@ -70,10 +73,14 @@ internal sealed class WasmNativeFunction
     internal bool IsRegion { get; }
     internal int Start { get; }
     internal int Stop { get; }
+    /// <summary>The types a region assumes for untyped bindings instead of their guesses (a JIT stencil's variant).</summary>
+    private readonly IReadOnlyDictionary<string, int>? assumed;
+    private int Assumed(string name, NativeSignature.OuterName outer) => assumed != null && assumed.TryGetValue(name, out int type) ? type : outer.Guess;
 
-    private WasmNativeFunction(int bodyIndex, NativeSignature signature, LoweredProgram body, WasmScopePlan plan, int start = 0, int end = -1)
+    private WasmNativeFunction(int bodyIndex, NativeSignature signature, LoweredProgram body, WasmScopePlan plan, int start = 0, int end = -1,
+        IReadOnlyDictionary<string, int>? assumed = null)
     {
-        Body = bodyIndex; Signature = signature; this.body = body; this.plan = plan;
+        Body = bodyIndex; Signature = signature; this.body = body; this.plan = plan; this.assumed = assumed;
         IsRegion = end >= 0; Start = start; Stop = IsRegion ? end : body.Code.Length;
         slotTypes = Enumerable.Repeat(Unknown, plan.Locals).ToArray();
         for (int p = 0; p < signature.Parameters.Length; p++) slotTypes[p] = signature.Parameters[p];
@@ -89,6 +96,16 @@ internal sealed class WasmNativeFunction
                 var declared = plan.Scopes.Where(scope => scope.Slots.ContainsKey(name)).Select(scope => scope.Slots[name])
                     .Where(slot => plan.SlotDecl[start]![slot] == WasmScopePlan.Yes).ToArray();
                 if (declared.Length == 1 && slotTypes[declared[0]] == Unknown) slotTypes[declared[0]] = outer.Type;
+            }
+        // Untyped slots declared before the loop (parameters and locals of the function) are speculated to hold their
+        // guessed scalar types (TypeChecker): the entry checks every slot's tag, and a wrong guess leaves the loop generic.
+        if (IsRegion)
+            foreach (var (name, outer) in signature.Outer) {
+                int guess = Assumed(name, outer);
+                if (outer.Type != 0 || guess is not (IntType or FloatType or DoubleType or BoolType)) continue;
+                var declared = plan.Scopes.Where(scope => scope.Slots.ContainsKey(name)).Select(scope => scope.Slots[name])
+                    .Where(slot => plan.SlotDecl[start]![slot] == WasmScopePlan.Yes).ToArray();
+                if (declared.Length == 1 && slotTypes[declared[0]] == Unknown) slotTypes[declared[0]] = guess;
             }
     }
 
@@ -111,10 +128,51 @@ internal sealed class WasmNativeFunction
         return regions;
     }
 
+    /// <summary>A JIT stencil: one loop of an untyped body compiled natively under assumed types for its untyped bindings.
+    /// The desktop runtime JIT installs the first variant of a hot loop whose entry check accepts the values it sees.</summary>
+    internal sealed record Stencil(int Loop, WasmNativeFunction Region, IReadOnlyDictionary<string, int> Types);
+
+    /// <summary>Stencils for the loops of untyped bodies that the regions do not cover: every assignment of integer or
+    /// double to the loop's untyped scalar bindings (up to three) other than the guessed one a region already runs.
+    /// Loops are numbered in order; a loop's variants come most likely first (its guesses, then integers).</summary>
+    internal static List<Stencil> SelectStencils(IReadOnlyList<LoweredProgram> bodies, IReadOnlyList<WasmScopePlan> plans,
+        IReadOnlySet<int> natives, IReadOnlyList<WasmNativeFunction> regions)
+    {
+        var stencils = new List<Stencil>();
+        int loop = 0;
+        for (int f = 0; f < bodies.Count; f++) {
+            if (natives.Contains(f) || !plans[f].Scopes.Skip(1).All(scope => scope.Promoted)) continue;
+            var covered = regions.Where(r => r.Body == f).Select(r => (r.Start, r.Stop)).ToList();
+            foreach (var (enter, _, leave, region) in bodies[f].Loops.OrderBy(l => l.Enter)) {
+                if (region == null || plans[f].Depth[enter] != 0 || covered.Any(c => c.Start <= enter && enter <= c.Stop && !(c.Start == enter))) continue;
+                var names = region.Outer.Where(o => o.Value.Type == 0 && o.Value.Function == null && o.Value.Struct == null).Select(o => o.Key).ToArray();
+                if (names.Length is 0 or > 3) continue;
+                var accepted = regions.FirstOrDefault(r => r.Body == f && r.Start == enter);
+                var guessed = names.ToDictionary(n => n, n => region.Outer[n].Guess, StringComparer.Ordinal);
+                var variants = new List<Dictionary<string, int>>();
+                for (int bits = 0; bits < 1 << names.Length; bits++)
+                    variants.Add(names.Select((n, i) => (n, (bits >> i & 1) == 0 ? IntType : DoubleType)).ToDictionary(p => p.n, p => p.Item2, StringComparer.Ordinal));
+                // The guessed assignment first, unless a region already runs it.
+                variants = variants.OrderBy(v => v.All(p => guessed[p.Key] == p.Value) ? 0 : 1).ToList();
+                var found = new List<Stencil>();
+                foreach (var types in variants) {
+                    if (accepted != null && types.All(p => guessed[p.Key] == p.Value)) continue;
+                    var candidate = new WasmNativeFunction(f, region, bodies[f], plans[f], enter, leave, types);
+                    if (!candidate.Analyze(_ => -1)) continue;
+                    candidate.Pointers = candidate.OwnPointers.Keys.ToArray();
+                    found.Add(new Stencil(loop, candidate, types));
+                }
+                if (found.Count == 0) continue;
+                stencils.AddRange(found); loop++;
+            }
+        }
+        return stencils;
+    }
+
     private static bool Numeric(int type) => type is IntType or FloatType or DoubleType;
     private static bool Wide(int type) => type is FloatType or DoubleType;
     /// <summary>Types a native local holds: numbers, Booleans, typed arrays and arrays of any values (an Array* in an i32).</summary>
-    private static bool Value(int type) => type is IntType or FloatType or DoubleType or BoolType || IsRef(type);
+    private static bool Value(int type) => type is IntType or FloatType or DoubleType or BoolType || IsRef(type) || IsStructType(type);
     private static bool IsArray(int type) => (type & 16) != 0 && (type & 15) is >= IntType and <= BoolType;
     /// <summary>An array of any values (陣列 / array): code 16, element type 0.</summary>
     private const int AnyArrayType = 16;
@@ -124,6 +182,14 @@ internal sealed class WasmNativeFunction
     private const int AnyValueType = 48;
     /// <summary>Types held as an Array* (with count and values companions).</summary>
     private static bool IsRef(int type) => IsArray(type) || type == AnyArrayType;
+    /// <summary>A struct type (結構 / struct): a Struct* in an i32, 0 for null (struct types are nullable).</summary>
+    private static bool IsStructType(int type) => type >= 32 && type < CallableBase && (type & 63) == 32;
+    /// <summary>The native type of a value read from a field annotated with code: an untyped field gives a whole value.</summary>
+    private static int FieldValueType(int code) => code == 0 ? AnyValueType : code == AnyArrayType || IsArray(code) || IsStructType(code)
+        || code is IntType or FloatType or DoubleType or BoolType ? code : Unknown;
+    /// <summary>Whether a native value of type value may be stored in a field annotated with code (statically).</summary>
+    private static bool FieldAccepts(int code, int value) => code == 0 ? Value(value) || value == AnyValueType
+        : IsStructType(code) ? value == code : code == AnyArrayType ? IsRef(value) : Widens(value, code);
     private const int LengthBuiltin = 1;
     private static bool Widens(int from, int to) => from == to || from is IntType or FloatType && to is FloatType or DoubleType && from < to
         || to == AnyArrayType && IsArray(from);
@@ -217,15 +283,58 @@ internal sealed class WasmNativeFunction
                 int index = callNames.IndexOf(name); if (index < 0) { index = callNames.Count; callNames.Add(name); }
                 return CallableBase + index;
             }
-            if (!Value(outer.Type)) return Unknown;
-            OwnPointers[name] = (outer.Type, -1);
-            return outer.Type;
+            if (outer.Struct != null && !outer.Assigned) {
+                OwnPointers[name] = (StructTypeMarker, TypeChecker.StructFlag | outer.Struct.Id << 6);
+                int index = callNames.IndexOf(name); if (index < 0) { index = callNames.Count; callNames.Add(name); }
+                return CallableBase + index;
+            }
+            // A region speculates that an untyped binding holds its guessed type (TypeChecker): its entry checks the tag and
+            // leaves the loop to the generic code when the guess is wrong, so speculation never changes a result.
+            int type = outer.Type == 0 && IsRegion ? Assumed(name, outer) : outer.Type;
+            if (!Value(type) || outer.Type == 0 && IsArray(type)) return Unknown;
+            OwnPointers[name] = (type, -1);
+            return type;
         }
         int builtin = BuiltinOf(name);
         if (builtin < 0) return Unknown;
         Guards[name] = builtin;
         return BuiltinBase + builtin;
     }
+
+    // ---- structs --------------------------------------------------------------------------------------------------
+
+    /// <summary>The declaration of a struct type code.</summary>
+    private AquariusLang.ast.StructStatement? Shape(int code) => IsStructType(code) && Signature.Structs.TryGetValue(code, out var shape) ? shape : null;
+    /// <summary>A field of a value of struct type code: its index and annotation code (0 when untyped), or null.</summary>
+    private (int Index, int Code)? StructField(int code, string name) {
+        if (Shape(code) is not { } shape) return null;
+        int index = Array.FindIndex(shape.Fields, f => f.Value == name);
+        return index < 0 ? null : (index, shape.Fields[index].Type?.Code ?? 0);
+    }
+    /// <summary>Whether a compile-time callee is a struct type binding, and its code.</summary>
+    private bool StructCallee(int callee, out int code) {
+        code = 0;
+        if (callee < CallableBase || callee >= BuiltinBase) return false;
+        if (!OwnPointers.TryGetValue(callNames[callee - CallableBase], out var own) || own.Tag != StructTypeMarker) return false;
+        code = own.Callee; return true;
+    }
+    /// <summary>The fields each argument of a construction sets (by name, or positionally), or null when the native code
+    /// cannot build it: an unknown or missing field, or an argument the field does not statically accept.</summary>
+    private int[]? ConstructionFields(int code, int[] arguments, string[]? names) {
+        if (Shape(code) is not { } shape || names == null && arguments.Length > shape.Fields.Length) return null;
+        var fields = new int[arguments.Length];
+        for (int i = 0; i < arguments.Length; i++) {
+            int index = names == null ? i : Array.FindIndex(shape.Fields, f => f.Value == names[i]);
+            if (index < 0 || !FieldAccepts(shape.Fields[index].Type?.Code ?? 0, arguments[i])) return null;
+            fields[i] = index;
+        }
+        // Fields left out are null: only untyped and struct-typed fields may be.
+        for (int f = 0; f < shape.Fields.Length; f++)
+            if (Array.IndexOf(fields, f) < 0 && shape.Fields[f].Type is { } type && !IsStructType(type.Code)) return null;
+        return fields;
+    }
+    private int? Construction(int callee, int[] arguments, string[]? names) =>
+        StructCallee(callee, out int code) && ConstructionFields(code, arguments, names) != null ? code : null;
 
     private bool Analyze(Func<AquariusLang.ast.FunctionLiteral, int> nativeBody)
     {
@@ -357,7 +466,8 @@ internal sealed class WasmNativeFunction
                     if (!Numeric(Top()) || !Numeric(Top(2))) return Reject(pc);
                     Pop(2); stack.Add(BoolType); break;
                 case IrOperation.Equal: case IrOperation.NotEqual:
-                    if (!(Numeric(Top()) && Numeric(Top(2)) || Top() == BoolType && Top(2) == BoolType)) return Reject(pc);
+                    // Structs compare by identity, like the generic runtime.
+                    if (!(Numeric(Top()) && Numeric(Top(2)) || Top() == BoolType && Top(2) == BoolType || IsStructType(Top()) && IsStructType(Top(2)))) return Reject(pc);
                     Pop(2); stack.Add(BoolType); break;
                 case IrOperation.And: case IrOperation.Or:
                     if (Top() != BoolType || Top(2) != BoolType) return Reject(pc);
@@ -368,6 +478,31 @@ internal sealed class WasmNativeFunction
                     int want = operand & 31;
                     if (want == AnyArrayType ? !IsRef(Top()) : IsArray(want) ? Top() != want : !Widens(Top(), want)) return Reject(pc);
                     stack[^1] = want; break;
+                }
+                case IrOperation.Member: {
+                    if (StructField(Top(), NameOf(operand)) is not { } field) return Reject(pc);
+                    int type = FieldValueType(field.Code);
+                    if (type == Unknown) return Reject(pc);
+                    stack[^1] = type; break;
+                }
+                case IrOperation.SetMember: {
+                    if (stack.Count < 2 || StructField(Top(2), NameOf(operand)) is not { } field || !FieldAccepts(field.Code, Top())) return Reject(pc);
+                    // The stored value is the result, widened to a numeric field's type.
+                    int value = Numeric(field.Code) ? field.Code : Top(); Pop(2); stack.Add(value); break;
+                }
+                case IrOperation.CompoundMember: {
+                    if (stack.Count < 2 || StructField(Top(2), ((Assignment)body.Pool[operand]).Name) is not { } field || !Numeric(field.Code) || !Numeric(Top())) return Reject(pc);
+                    Pop(2); stack.Add(VoidType); break;
+                }
+                case IrOperation.CheckStruct:
+                    if (Top() != (TypeChecker.StructFlag | int.Parse(((string)body.Pool[operand]).Split('\u0001')[0]) << 6)) return Reject(pc);
+                    break;
+                case IrOperation.CallNamed: {
+                    var names = ((string)body.Pool[operand]).Split('\u0001');
+                    if (stack.Count < names.Length + 1 || stack.Contains(MixedType)) return Reject(pc);
+                    int callee = stack[stack.Count - names.Length - 1];
+                    if (Construction(callee, stack.Skip(stack.Count - names.Length).ToArray(), names) is not int made) return Reject(pc);
+                    Pop(names.Length + 1); stack.Add(made); break;
                 }
                 case IrOperation.Index:
                     if (Top(2) == AnyArrayType && Top() == IntType) { Pop(2); stack.Add(AnyValueType); break; }
@@ -412,7 +547,9 @@ internal sealed class WasmNativeFunction
                     } else if (callee >= BuiltinBase) {
                         if (count != 1 || !Numeric(arguments[0])) return Reject(pc);
                         result = callee - BuiltinBase - ConvertFirst + IntType;
-                    } else if (callee >= CallableBase && !IsRegion) {
+                    } else if (Construction(callee, arguments, null) is int made) {
+                        result = made;
+                    } else if (callee >= CallableBase && !IsRegion && !StructCallee(callee, out _)) {
                         var target = Signature.Outer[callNames[callee - CallableBase]].Function!;
                         var parameters = target.Parameters ?? Array.Empty<AquariusLang.ast.Identifier>();
                         if (parameters.Length != count) return Reject(pc);
@@ -510,11 +647,18 @@ internal sealed class WasmNativeFunction
             Get(w, scope); I(w, text(name)); w.Write(Call); U(w, runtime["aqua_scope_get"]); Set(w, Pointer(k));
             Unless(() => Get(w, Pointer(k)));
             var expected = natives.Values.First(n => n.OwnPointers.ContainsKey(name)).OwnPointers[name];
+            if (expected.Tag == StructTypeMarker || IsStructType(expected.Tag)) {
+                // A struct type binding (or a struct-typed binding) must hold that type (or null).
+                int pointer = Pointer(k);
+                Unless(() => StructCheck(w, () => { Get(w, pointer); Memory(w, I32Load, 2, ValueTag); }, () => { Get(w, pointer); Memory(w, I32Load, 2, ValueRef); },
+                    expected.Tag == StructTypeMarker ? expected.Callee : expected.Tag, expected.Tag == StructTypeMarker));
+                continue;
+            }
             Unless(() => { Get(w, Pointer(k)); Memory(w, I32Load, 2, ValueTag); I(w, IsRef(expected.Tag) ? ArrayTag : expected.Tag); w.Write((byte)0x46); });
             // A typed array binding must hold an array locked to that element type.
             if (IsArray(expected.Tag))
                 Unless(() => { Get(w, Pointer(k)); Memory(w, I32Load, 2, ValueRef); Memory(w, I32Load, 2, ArrayElement); I(w, expected.Tag & 15); w.Write((byte)0x46); });
-            if (expected.Callee >= 0) {
+            if (expected.Callee >= 0 && expected.Tag == ClosureTag) {
                 // The callee's binding must still hold the closure of that body from this program.
                 Get(w, Pointer(k)); Memory(w, I32Load, 2, ValueRef); Set(w, scratch);
                 Unless(() => {
@@ -550,6 +694,7 @@ internal sealed class WasmNativeFunction
                 Unless(() => {
                     Get(w, 0); Memory(w, I32Load, 2, offset + ValueTag); Set(w, scratch);
                     if (type == AnyArrayType) { Get(w, scratch); I(w, ArrayTag); w.Write((byte)0x46); }
+                    else if (IsStructType(type)) StructCheck(w, () => Get(w, scratch), () => { Get(w, 0); Memory(w, I32Load, 2, offset + ValueRef); }, type, false);
                     else if (IsArray(type)) {
                         // Only an array an annotation check already locked to this element type.
                         Get(w, scratch); I(w, ArrayTag); w.Write((byte)0x46);
@@ -568,7 +713,7 @@ internal sealed class WasmNativeFunction
             for (int k = 0; k < Pointers.Length; k++) Get(w, Pointer(k));
             for (int p = 0; p < Signature.Parameters.Length; p++) {
                 int type = Signature.Parameters[p];
-                if (IsRef(type)) { Get(w, 0); Memory(w, I32Load, 2, argumentBase + p * ValueSize + ValueRef); continue; }
+                if (IsRef(type) || IsStructType(type)) { Get(w, 0); Memory(w, I32Load, 2, argumentBase + p * ValueSize + ValueRef); continue; }
                 Get(w, 0); Memory(w, F64Load, 3, argumentBase + p * ValueSize + ValueNumber);
                 if (type is IntType or BoolType) ExactInteger(w);
                 else if (type == FloatType) w.Write(new byte[] { 0xb6, 0xbb });
@@ -593,15 +738,28 @@ internal sealed class WasmNativeFunction
         Get(w, status); I(w, 5); w.Write(new byte[] { 0x46, 0x04, 0x40 }); I(w, 5); w.Write(new byte[] { 0x0f, 0x0b });
         Get(w, 1); Get(w, status); Memory(w, I32Store, 2, ValueRef); I(w, 4); w.Write(new byte[] { 0x0f, 0x0b });
         Get(w, 2); Get(w, scratch); I(w, 0); Get(w, scratch); I(w, 0); w.Write(new byte[] { 0x4a, 0x1b }); Memory(w, I32Store, 2, ExecutionBudget);
-        Get(w, 1); I(w, IsRef(Signature.Result) ? ArrayTag : Signature.Result); Memory(w, I32Store, 2, ValueTag);
-        Get(w, 1); if (IsRef(Signature.Result)) Get(w, resultI); else I(w, 0); Memory(w, I32Store, 2, ValueRef);
+        Get(w, 1);
+        if (IsStructType(Signature.Result)) { I(w, StructTag); I(w, NullTag); Get(w, resultI); w.Write((byte)0x1b); }
+        else I(w, IsRef(Signature.Result) ? ArrayTag : Signature.Result);
+        Memory(w, I32Store, 2, ValueTag);
+        Get(w, 1); if (IsRef(Signature.Result) || IsStructType(Signature.Result)) Get(w, resultI); else I(w, 0); Memory(w, I32Store, 2, ValueRef);
         Get(w, 1);
         if (Signature.Result == IntType) { Get(w, resultI); w.Write((byte)0xb7); }
         else if (Signature.Result == BoolType) { Get(w, resultI); w.Write((byte)0xb8); }
-        else if (IsRef(Signature.Result)) F(w, 0);
+        else if (IsRef(Signature.Result) || IsStructType(Signature.Result)) F(w, 0);
         else Get(w, resultF);
         Memory(w, F64Store, 3, ValueNumber);
         I(w, 1); w.Write((byte)0x0b);
+    }
+
+    /// <summary>Pushes whether a value (its tag and reference) is a struct of the type with code (or null), or, for a struct
+    /// type binding, that struct type.</summary>
+    private static void StructCheck(BinaryWriter w, Action tag, Action reference, int code, bool type) {
+        tag(); I(w, type ? StructTypeTag : StructTag); w.Write(new byte[] { 0x46, 0x04, 0x7f });
+        reference(); if (!type) Memory(w, I32Load, 2, StructShape); Memory(w, I32Load, 2, ShapeId); I(w, code >> 6); w.Write((byte)0x46);
+        w.Write((byte)0x05);
+        if (type) I(w, 0); else { tag(); I(w, NullTag); w.Write((byte)0x46); }
+        w.Write((byte)0x0b);
     }
 
     internal void EmitImplementation(BinaryWriter w, IReadOnlyDictionary<int, (int Function, WasmNativeFunction Native)> natives,
@@ -639,6 +797,7 @@ internal sealed class WasmNativeFunction
         var inlined = new List<WasmNativeFunction>();
         foreach (var (at, operands) in states)
             if (at < n && code[at].Code == IrOperation.Call && operands[operands.Length - code[at].Operand - 1] is int callee and >= CallableBase and < BuiltinBase
+                && !StructCallee(callee, out _)
                 && natives[OwnPointers.TryGetValue(callNames[callee - CallableBase], out var target) ? target.Callee : Body].Native is { Inlinable: true } inline
                 && inline != this && !inlined.Contains(inline))
                 inlined.Add(inline);
@@ -689,7 +848,7 @@ internal sealed class WasmNativeFunction
         // A generic Value at base + offset as a typed local value: an array's reference, or the converted payload.
         void LoadPayload(Action pushBase, int offset, int type) {
             pushBase();
-            if (IsRef(type)) { Memory(w, I32Load, 2, offset + ValueRef); return; }
+            if (IsRef(type) || IsStructType(type)) { Memory(w, I32Load, 2, offset + ValueRef); return; }
             Memory(w, F64Load, 3, offset + ValueNumber); if (!Wide(type)) ExactInteger(w);
         }
 
@@ -721,7 +880,11 @@ internal sealed class WasmNativeFunction
             foreach (string name in Written) {
                 int c = CacheOf(name), type = CachedType(name);
                 Get(w, PointerOf(name)); Local(type, CacheI(c), CacheF(c));
-                if (IsRef(type)) Memory(w, I32Store, 2, ValueRef); else { AsPayload(type); Memory(w, F64Store, 3, ValueNumber); }
+                if (IsStructType(type)) {
+                    Memory(w, I32Store, 2, ValueRef);
+                    Get(w, PointerOf(name)); I(w, StructTag); I(w, NullTag); Local(type, CacheI(c), CacheF(c)); Op(0x1b); Memory(w, I32Store, 2, ValueTag);
+                }
+                else if (IsRef(type)) Memory(w, I32Store, 2, ValueRef); else { AsPayload(type); Memory(w, F64Store, 3, ValueNumber); }
             }
         }
 
@@ -766,6 +929,13 @@ internal sealed class WasmNativeFunction
         }
         // Deoptimization: a generic frame resuming at block of pc with the given operands, declared slots written.
         void StoreValue(int offset, int type, Action payload) {
+            if (IsStructType(type)) {
+                payload(); Set(w, tempI);
+                Get(w, frame); I(w, StructTag); I(w, NullTag); Get(w, tempI); Op(0x1b); Memory(w, I32Store, 2, offset + ValueTag);
+                Get(w, frame); Get(w, tempI); Memory(w, I32Store, 2, offset + ValueRef);
+                Get(w, frame); F(w, 0); Memory(w, F64Store, 3, offset + ValueNumber);
+                return;
+            }
             if (IsRef(type)) {
                 Get(w, frame); I(w, ArrayTag); Memory(w, I32Store, 2, offset + ValueTag);
                 Get(w, frame); payload(); Memory(w, I32Store, 2, offset + ValueRef);
@@ -870,6 +1040,11 @@ internal sealed class WasmNativeFunction
             for (int k = 0; k < Pointers.Length; k++) {
                 int pointer = pointerBase + k, tag = OwnPointers[Pointers[k]].Tag;
                 Lookup(Pointers[k], pointer);
+                if (tag == StructTypeMarker || IsStructType(tag)) {
+                    int structCode = tag == StructTypeMarker ? OwnPointers[Pointers[k]].Callee : tag;
+                    Unless(() => StructCheck(w, () => { Get(w, pointer); Memory(w, I32Load, 2, ValueTag); }, () => { Get(w, pointer); Memory(w, I32Load, 2, ValueRef); }, structCode, tag == StructTypeMarker));
+                    continue;
+                }
                 Unless(() => { Get(w, pointer); Memory(w, I32Load, 2, ValueTag); I(w, IsRef(tag) ? ArrayTag : tag); Op(0x46); });
                 if (IsArray(tag)) Unless(() => { Get(w, pointer); Memory(w, I32Load, 2, ValueRef); Memory(w, I32Load, 2, ArrayElement); I(w, tag & 15); Op(0x46); });
             }
@@ -885,7 +1060,8 @@ internal sealed class WasmNativeFunction
                 Get(w, tempI); I(w, -1); Op(0x47); Set(w, Flag(s));
                 Unless(() => {
                     Get(w, Flag(s)); Op(0x45);
-                    Get(w, tempI); I(w, IsRef(type) ? ArrayTag : type); Op(0x46);
+                    if (IsStructType(type)) StructCheck(w, () => Get(w, tempI), () => { Get(w, frame); Memory(w, I32Load, 2, offset + ValueRef); }, type, false);
+                    else { Get(w, tempI); I(w, IsRef(type) ? ArrayTag : type); Op(0x46); }
                     if (IsArray(type)) { Get(w, frame); Memory(w, I32Load, 2, offset + ValueRef); Memory(w, I32Load, 2, ArrayElement); I(w, type & 15); Op(0x46, 0x71); }
                     Op(0x72);
                 });
@@ -1044,7 +1220,7 @@ internal sealed class WasmNativeFunction
                 case IrOperation.Less: case IrOperation.Greater: case IrOperation.LessEqual: case IrOperation.GreaterEqual:
                 case IrOperation.Equal: case IrOperation.NotEqual: {
                     int left = TopType(2), right = TopType();
-                    if (left is IntType or BoolType && right is IntType or BoolType) {
+                    if (left is IntType or BoolType && right is IntType or BoolType || IsStructType(left) && IsStructType(right)) {
                         PushStack(left, below); PushStack(right, top);
                         Op(op.Code switch { IrOperation.Less => (byte)0x48, IrOperation.Greater => (byte)0x4a, IrOperation.LessEqual => (byte)0x4c,
                             IrOperation.GreaterEqual => (byte)0x4e, IrOperation.Equal => (byte)0x46, _ => (byte)0x47 });
@@ -1062,6 +1238,54 @@ internal sealed class WasmNativeFunction
                     else { Get(w, StackF(top)); Op(0x9a); Set(w, StackF(top)); }
                     break;
                 case IrOperation.Not: Get(w, StackI(top)); Op(0x45); Set(w, StackI(top)); break;
+                case IrOperation.Member: {
+                    var field = cur.StructField(TopType(), cur.NameOf(operand))!.Value; int type = FieldValueType(field.Code);
+                    NullCheck(top, 4); FieldAddress(StackI(top), field.Index);
+                    if (type == AnyValueType) {
+                        Get(w, tempI); Memory(w, I32Load, 2, ValueTag); Set(w, StackCount(top));
+                        Get(w, tempI); Memory(w, F64Load, 3, ValueNumber); Set(w, StackF(top));
+                        Get(w, tempI); Memory(w, I32Load, 2, ValueRef); Set(w, StackI(top));
+                    } else if (IsRef(type) || IsStructType(type)) {
+                        Get(w, tempI); Memory(w, I32Load, 2, ValueRef); Set(w, StackI(top));
+                        if (IsRef(type)) Describe(StackI(top), StackCount(top));
+                    } else { Get(w, tempI); Memory(w, F64Load, 3, ValueNumber); if (!Wide(type)) ExactInteger(w); PopStack(type, top); }
+                    break;
+                }
+                case IrOperation.SetMember: {
+                    var field = cur.StructField(TopType(2), cur.NameOf(operand))!.Value; int value = TopType();
+                    NullCheck(below, 5); FieldAddress(StackI(below), field.Index);
+                    StoreField(field.Code, value, top);
+                    // The result is the stored value (a numeric field's widened one).
+                    if (Numeric(field.Code)) { Get(w, tempI); Memory(w, F64Load, 3, ValueNumber); if (!Wide(field.Code)) ExactInteger(w); PopStack(field.Code, below); }
+                    else if (value == AnyValueType) { Get(w, StackCount(top)); Set(w, StackCount(below)); Get(w, StackI(top)); Set(w, StackI(below)); Get(w, StackF(top)); Set(w, StackF(below)); }
+                    else { PushStack(value, top); PopStack(value, below); CopyCompanions(value, StackCount(top), StackCount(below)); }
+                    break;
+                }
+                case IrOperation.CompoundMember: {
+                    var assignment = (Assignment)cur.body.Pool[operand];
+                    var field = cur.StructField(TopType(2), assignment.Name)!.Value; int left = field.Code, right = TopType();
+                    NullCheck(below, 5); FieldAddress(StackI(below), field.Index);
+                    Get(w, tempI); Set(w, resultI);
+                    void LoadField() { Get(w, resultI); Memory(w, F64Load, 3, ValueNumber); if (!Wide(left)) ExactInteger(w); }
+                    void StoreField_(Action number) { Get(w, resultI); number(); Memory(w, F64Store, 3, ValueNumber); }
+                    var operation = assignment.Operation;
+                    if (left == IntType && right == IntType) {
+                        IntCheck(operation, () => PushStack(IntType, top));
+                        StoreField_(() => { IntOperation(operation, LoadField, () => PushStack(IntType, top)); Op(0xb7); });
+                    } else {
+                        if (left == IntType && operation == IrOperation.Modulo) { AsDouble(right, top); F(w, 0); Op(0x61, If, 0x40); Fail(1); Op(End); }
+                        LoadField(); if (!Wide(left)) Op(0xb7); Set(w, tempF);
+                        AsDouble(right, top); Set(w, tempG);
+                        FloatOperation(operation, tempF, tempG); Set(w, tempF);
+                        StoreField_(() => { Get(w, tempF); if (left == IntType) { Op(0xfc, 0x02); Op(0xb7); } else if (left == FloatType) RoundFloat(); });
+                    }
+                    break;
+                }
+                case IrOperation.CheckStruct: break; // The type is proven: the operand already has it.
+                case IrOperation.CallNamed: {
+                    var names = ((string)cur.body.Pool[operand]).Split('\u0001');
+                    Construct(stack, depth - names.Length - 1, names); break;
+                }
                 case IrOperation.Index when TopType(2) == AnyArrayType: {
                     // An array of any values reads like the generic code: an element, or null outside the array.
                     Get(w, StackI(top)); Get(w, StackCount(below)); Op(0x49, If, 0x40);
@@ -1142,6 +1366,7 @@ internal sealed class WasmNativeFunction
                         } else { AsDouble(argument, top); if (result == FloatType) RoundFloat(); Set(w, StackF(at)); }
                         break;
                     }
+                    if (StructCallee(callee, out _)) { Construct(stack, at, null); break; }
                     string name = callNames[callee - CallableBase];
                     var (function, target) = natives[OwnPointers.TryGetValue(name, out var own) ? own.Callee : Body];
                     // An element of an array of any values passed to an 陣列 parameter must be an array.
@@ -1276,6 +1501,40 @@ internal sealed class WasmNativeFunction
             }
             Get(w, frame); I(w, native ? 1 : 0); Memory(w, I32Store, 2, FrameNativeSite);
             Get(w, frame); Op(0x24); U(w, signal);
+        }
+        // ---- structs: field access through the Struct* in a local; a null one is the generic runtime's error ----
+        void NullCheck(int k, int message) { Get(w, StackI(k)); Op(0x45, If, 0x40); Fail(message); Op(End); }
+        void FieldAddress(int structLocal, int index) { Get(w, structLocal); I(w, StructFields + index * ValueSize); Op(0x6a); Set(w, tempI); }
+        // Writes operand k (of native type value) into the field at tempI, annotated with code (0: any value).
+        void StoreField(int code, int value, int k) {
+            if (value == AnyValueType) {
+                Get(w, tempI); Get(w, StackCount(k)); Memory(w, I32Store, 2, ValueTag);
+                Get(w, tempI); Get(w, StackI(k)); Memory(w, I32Store, 2, ValueRef);
+                Get(w, tempI); Get(w, StackF(k)); Memory(w, F64Store, 3, ValueNumber);
+                return;
+            }
+            int stored = Numeric(code) ? code : value;
+            Get(w, tempI);
+            if (IsStructType(value)) { I(w, StructTag); I(w, NullTag); Get(w, StackI(k)); Op(0x1b); }
+            else I(w, IsRef(value) ? ArrayTag : stored);
+            Memory(w, I32Store, 2, ValueTag);
+            Get(w, tempI); if (IsRef(value) || IsStructType(value)) Get(w, StackI(k)); else I(w, 0); Memory(w, I32Store, 2, ValueRef);
+            Get(w, tempI);
+            if (IsRef(value) || IsStructType(value)) F(w, 0);
+            else if (stored != value) { AsDouble(value, k); if (stored == FloatType) RoundFloat(); }
+            else { PushStack(value, k); AsPayload(value); }
+            Memory(w, F64Store, 3, ValueNumber);
+        }
+        // A struct of a known type built natively from the operands above position at (by name, or positionally); the
+        // type comes from its binding, and fields left out stay null.
+        void Construct(int[] stack, int at, string[]? names) {
+            StructCallee(stack[at], out int code);
+            int[] arguments = stack.Skip(at + 1).ToArray(), fields = ConstructionFields(code, arguments, names)!;
+            var shape = Shape(code)!;
+            Get(w, PointerOf(callNames[stack[at] - CallableBase])); Memory(w, I32Load, 2, ValueRef);
+            Op(Call); U(w, runtime["rt_nativeStruct"]); Set(w, resultI);
+            for (int i = 0; i < arguments.Length; i++) { FieldAddress(resultI, fields[i]); StoreField(shape.Fields[fields[i]].Type?.Code ?? 0, arguments[i], at + 1 + i); }
+            Get(w, resultI); Set(w, StackI(at));
         }
         void ClearScope(int scope, int keep) { foreach (int slot in cur.plan.Scopes[scope].SlotList) if (slot != keep) { I(w, 0); Set(w, Flag(slot)); } }
         // Integer division and remainder by zero are language errors.

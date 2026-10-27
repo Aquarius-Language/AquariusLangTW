@@ -87,6 +87,29 @@ static void format_into(aqua_runtime *rt, text_builder *b, aqua_value v, int dep
         return;
     }
     case AQUA_MODULE: puts_(b, "module"); return;
+    case AQUA_STRUCT: case AQUA_STRUCT_TYPE: {
+        /* 節點{左: null, 值: 3} for a value, 結構 節點 for its type: names come from the type in guest memory. */
+        uint32_t shape = v.type == AQUA_STRUCT ? guest_u32(rt, v.ref + G_Struct_Shape) : v.ref;
+        size_t length;
+        char *name = guest_text_utf8(rt, guest_u32(rt, shape + G_Shape_Name), &length);
+        if (v.type == AQUA_STRUCT_TYPE) puts_(b, "結構 ");
+        put(b, name, length);
+        free(name);
+        if (v.type == AQUA_STRUCT_TYPE) return;
+        if (depth > 64) { puts_(b, "{...}"); return; }
+        uint32_t count = guest_u32(rt, v.ref + G_Struct_Count);
+        puts_(b, "{");
+        for (uint32_t i = 0; i < count; i++) {
+            if (i) puts_(b, ", ");
+            char *field = guest_text_utf8(rt, guest_u32(rt, shape + G_Shape_Fields + i * G_ShapeField_Size + G_ShapeField_Name), &length);
+            put(b, field, length);
+            free(field);
+            puts_(b, ": ");
+            format_into(rt, b, guest_read_value(rt, v.ref + G_Struct_Fields + i * G_Value_Size), depth + 1);
+        }
+        puts_(b, "}");
+        return;
+    }
     case AQUA_BUILTIN: puts_(b, "builtin function"); return;
     case AQUA_FUNCTION: {
         /* 函式(a, b) {\n...\n}: parameter names come from the function's definition in program memory. */

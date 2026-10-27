@@ -244,6 +244,10 @@ namespace AquariusLang.parser {
                     return parseReturnStatement();
                 case TokenType.BREAK:
                     return parseBreakStatement();
+                // 結構 / struct is a keyword only where a declaration starts (two names in a row are no expression),
+                // so programs using these words as names keep working.
+                case TokenType.IDENT when currToken.Literal is "結構" or "struct" && peekTokenIs(TokenType.IDENT):
+                    return parseStructStatement();
                 default:
                     return parseExpressionStatement();
             }
@@ -289,6 +293,31 @@ namespace AquariusLang.parser {
                 nextToken();
             }
 
+            return statement;
+        }
+
+        /// <summary><c>結構 名稱 { 欄位: 型別; 欄位 }</c>: fields separated by semicolons or commas, annotations optional.</summary>
+        private StructStatement parseStructStatement() {
+            var statement = new StructStatement(currToken);
+            nextToken();
+            statement.Name = new Identifier(currToken, currToken.Literal);
+            if (!expectPeek(TokenType.LBRACE)) return null;
+            var fields = new List<Identifier>();
+            while (!peekTokenIs(TokenType.RBRACE)) {
+                if (!expectPeek(TokenType.IDENT)) return null;
+                var field = new Identifier(currToken, currToken.Literal);
+                if (fields.Exists(f => f.Value == field.Value)) addError($"欄位 {field.Value} 重複 / Duplicate field {field.Value}.", currToken);
+                if (peekTokenIs(TokenType.COLON)) {
+                    field.Type = parseTypeAnnotation();
+                    if (field.Type == null) return null;
+                }
+                fields.Add(field);
+                if (peekTokenIs(TokenType.SEMICOLON) || peekTokenIs(TokenType.COMMA)) nextToken();
+                else if (!peekTokenIs(TokenType.RBRACE)) { expectPeek(TokenType.RBRACE); return null; }
+            }
+            nextToken();
+            statement.Fields = fields.ToArray();
+            if (peekTokenIs(TokenType.SEMICOLON)) nextToken();
             return statement;
         }
 
@@ -733,8 +762,12 @@ namespace AquariusLang.parser {
                 return new TypeAnnotation(name, 0, true);
             }
             if (!TypeAnnotation.TryParseName(name.Literal, out ScalarType element)) {
-                addError($"未知的型別 {name.Literal}（可用：整數、浮點數、雙精度、布林、字串、陣列）/ Unknown type {name.Literal} (use int, float, double, bool, string or array).", name);
-                return null;
+                // Any other name is a struct type, resolved by the TypeChecker (an unknown one is reported there).
+                if (peekTokenIs(TokenType.LBRACKET)) {
+                    addError($"結構陣列請用 陣列 標註 / Annotate an array of {name.Literal} values as array (陣列).", name);
+                    return null;
+                }
+                return new TypeAnnotation(name, 0, false) { StructName = name.Literal };
             }
             bool array = false;
             if (peekTokenIs(TokenType.LBRACKET)) {
@@ -751,9 +784,27 @@ namespace AquariusLang.parser {
 
         private IExpression parseCallExpression(IExpression function) {
             CallExpression callExpression = new CallExpression(currToken, function);
-            callExpression.Arguments = parseExpressionList(TokenType.RPAREN);
+            // Arguments, all positional or all named (名稱: 值, a struct construction).
+            var arguments = new List<IExpression>(); var names = new List<string>();
+            if (peekTokenIs(TokenType.RPAREN)) { nextToken(); callExpression.Arguments = arguments.ToArray(); return callExpression; }
+            do {
+                nextToken();
+                var argument = parseExpression((int)Precedence.OperatorPrecedence.LOWEST);
+                if (argument is Identifier name && peekTokenIs(TokenType.COLON)) {
+                    if (arguments.Count > names.Count) { addError("具名與位置引數不能混用 / Named and positional arguments cannot be mixed.", name.Token); return null; }
+                    if (names.Contains(name.Value)) addError($"引數 {name.Value} 重複 / Duplicate argument {name.Value}.", name.Token);
+                    nextToken(); nextToken();
+                    names.Add(name.Value);
+                    argument = parseExpression((int)Precedence.OperatorPrecedence.LOWEST);
+                } else if (names.Count > 0) { addError("具名與位置引數不能混用 / Named and positional arguments cannot be mixed.", currToken); return null; }
+                arguments.Add(argument);
+            } while (peekTokenIs(TokenType.COMMA) && advance());
+            if (!expectPeek(TokenType.RPAREN)) return null;
+            callExpression.Arguments = arguments.ToArray();
+            if (names.Count > 0) callExpression.ArgumentNames = names.ToArray();
             return callExpression;
         }
+        private bool advance() { nextToken(); return true; }
 
         private IExpression parseArrayLiteral() {
             ArrayLiteral array = new ArrayLiteral(currToken);

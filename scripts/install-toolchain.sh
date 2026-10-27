@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Linux/macOS twin of install-toolchain.ps1 for hosts without PowerShell: installs the pinned toolchain described in
 # scripts/toolchain.json (read with node, which the repository already requires) into the gitignored .native-build:
-# the official LLVM release, the wasi-sdk WASI sysroot and compiler-rt, a JDK for Android targets, and the prebuilt
+# the official LLVM release, the wasi-sdk WASI sysroot and compiler-rt, CMake and Ninja, a JDK for Android targets, and the prebuilt
 # Wasmtime C API for each requested target. Every archive's SHA-256 is verified. Prints clang's path.
 #   scripts/install-toolchain.sh [linux-x64,android-arm64-v8a,android-x86_64,web]   (default: this host's target)
 set -euo pipefail
@@ -24,7 +24,11 @@ install_archive() { # url sha256 destination: an archive with one top-level fold
     [ -f "$archive" ] || curl -fL --retry 4 -o "$archive" "$url"
     if [ "$(sha "$archive")" != "$expected" ]; then rm -f "$archive"; echo "Checksum mismatch for $url" >&2; exit 1; fi
     staging=$(mktemp -d "$toolchains/.unpack-XXXXXX")
-    case "$archive" in *.zip) unzip -q "$archive" -d "$staging" ;; *) tar -xf "$archive" -C "$staging" ;; esac
+    # .zip archives (Ninja's): unzip, or the pinned CMake, which is installed first, where unzip is missing.
+    case "$archive" in
+        *.zip) if command -v unzip >/dev/null 2>&1; then unzip -q "$archive" -d "$staging"; else (cd "$staging" && "$cmake" -E tar xf "$archive"); fi ;;
+        *) tar -xf "$archive" -C "$staging" ;;
+    esac
     mkdir -p "$(dirname "$destination")"
     if [ "$(ls -A "$staging" | wc -l)" = 1 ] && [ -d "$staging/$(ls -A "$staging")" ]; then mv "$staging"/* "$destination"; rmdir "$staging"
     else mv "$staging" "$destination"; fi
@@ -39,6 +43,11 @@ resource=$("$llvm/bin/clang" --target=wasm32-wasip1 -print-resource-dir)
 for target in "$toolchains/$(pin compilerRt.directory)"/*/; do
     [ -d "$resource/lib/$(basename "$target")" ] || cp -R "$target" "$resource/lib/$(basename "$target")"
 done
+cmake="$toolchains/$(pin cmake.directory)/$(pin "cmake.$platform.bin")/cmake"
+for tool in cmake ninja; do
+    install_archive "$(pin $tool.base)$(pin "$tool.$platform.file")" "$(pin "$tool.$platform.sha256")" "$toolchains/$(pin $tool.directory)"
+done
+chmod +x "$toolchains/$(pin ninja.directory)/ninja"   # .zip archives may carry no permissions
 for target in ${targets//,/ }; do
     case "$target" in
         web) continue ;;

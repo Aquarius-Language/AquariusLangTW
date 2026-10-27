@@ -91,7 +91,7 @@ if(AQUA_TARGET STREQUAL "windows-x64" OR AQUA_TARGET STREQUAL "linux-x64")
         set(platform_libraries pthread dl m)
     endif()
     add_executable(aquarius ${host_sources} host/engine_wasmtime.c host/sha256.c host/threads.c ${platform_sources}
-        platform/desktop/main.c)
+        platform/desktop/main.c platform/desktop/jit.c)
     target_include_directories(aquarius PRIVATE sdk/include "${CMAKE_CURRENT_BINARY_DIR}/generated" "${wasmtime_sdk}/include")
     target_compile_definitions(aquarius PRIVATE AQUA_HAS_DEFAULT_LIBRARIES WASM_API_EXTERN= WASI_API_EXTERN=)
     target_link_libraries(aquarius PRIVATE aqua_window "${wasmtime_sdk}/lib/libwasmtime.a" ${platform_libraries})

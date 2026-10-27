@@ -24,6 +24,23 @@
     "url": "https://github.com/mstorsjo/llvm-mingw/releases/download/20261020/llvm-mingw-20261020-ucrt-x86_64.zip",
     "sha256": "fd5462b7f5d93b2ff981fcd3f9c7e427e47f3203c64ea91c27bcc444eebd74cd"
   },
+  "cmake": {
+    "comment": "CMake builds every runtime pack and library; scripts use this pinned release rather than whatever cmake is first on PATH. 3.31 is the last 3.x line: pinned third-party projects still declare cmake_minimum_required versions CMake 4 rejects.",
+    "version": "3.31.12",
+    "directory": "cmake-3.31.12-{platform}",
+    "base": "https://github.com/Kitware/CMake/releases/download/v3.31.12/",
+    "windows-x64": { "file": "cmake-3.31.12-windows-x86_64.zip", "sha256": "0c4baa40f28b3f8225eb3fdf6946c987b4fe901403b4eaf2fbbd9378100aaa0c", "bin": "bin" },
+    "linux-x64": { "file": "cmake-3.31.12-linux-x86_64.tar.gz", "sha256": "0dc2e9a6860f06bf10bd8fadc03e35d9eeb4df46e33763a7e480e987758f385c", "bin": "bin" },
+    "macos-arm64": { "file": "cmake-3.31.12-macos-universal.tar.gz", "sha256": "799af7fd545db9bf1b9cfe72f8095880e727a2d4e0df0e3dffc3bc7b95c2d3b0", "bin": "CMake.app/Contents/bin" }
+  },
+  "ninja": {
+    "version": "1.13.2",
+    "directory": "ninja-1.13.2-{platform}",
+    "base": "https://github.com/ninja-build/ninja/releases/download/v1.13.2/",
+    "windows-x64": { "file": "ninja-win.zip", "sha256": "07fc8261b42b20e71d1720b39068c2e14ffcee6396b76fb7a795fb460b78dc65" },
+    "linux-x64": { "file": "ninja-linux.zip", "sha256": "5749cbc4e668273514150a80e387a957f933c6ed3f5f11e03fb30955e2bbead6" },
+    "macos-arm64": { "file": "ninja-mac.zip", "sha256": "c99048673aa765960a99cf10c6ddb9f1fad506099ff0a0e137ad8960a88f321b" }
+  },
   "androidNdk": { "version": "28.2.13676358", "api": 29 },
   "androidSdk": {
     "comment": "Android SDK pieces the Android runtime pack and APK packaging use (installed with the SDK's sdkmanager): the platform's android.jar, and d8, aapt2, zipalign and apksigner from build-tools.",

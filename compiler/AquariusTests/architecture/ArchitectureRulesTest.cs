@@ -245,6 +245,13 @@ public class ArchitectureRulesTest
             .Where(f => encoder.IsMatch(Read(f))).ToList();
         Assert.True(offenders.Count == 0, "Rule 'One Wasm encoder': LEB128 and instruction immediates are encoded only by " +
             "compiler/AquariusCompiler/wasm/WasmEncoding.cs. Remove the private encoder from: " + string.Join(", ", offenders));
+        // At run time, only the desktop JIT builds Wasm modules (rule 11), and only desktop builds compile it.
+        const string jit = "runtime/platform/desktop/jit.c";
+        var builders = FilesWith(".c", ".h", ".cpp", ".rs").Where(f => !f.Contains("/third_party/", StringComparison.Ordinal) && Read(f).Contains("\"\\0asm", StringComparison.Ordinal)).ToList();
+        Assert.True(builders.SequenceEqual([jit]), "Rule 'One Wasm encoder': at run time only " + jit + " builds Wasm modules. Found: " + string.Join(", ", builders));
+        string cmake = Read("runtime/CMakeLists.txt");
+        Assert.True(Regex.Matches(cmake, Regex.Escape(Path.GetFileName(Path.GetDirectoryName(jit))!) + "/jit\\.c").Count == 1,
+            "Rule 'Target-specific speed is optional and layered': runtime/CMakeLists.txt compiles the runtime JIT into the desktop runtime only.");
     }
 
     // ---- 11. Target-specific speed is optional and layered ----------------------------------------------------------

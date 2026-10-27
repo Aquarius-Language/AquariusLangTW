@@ -57,30 +57,36 @@ C# 只作為編譯器，執行時不需要 .NET。
 
 ## 正式版編譯器：一鍵建置與打包
 
-`build-release.bat` 產生 **Windows x64** 編譯器套件，請在 Windows x64 上準備：
+`build-release.ps1` 產生本機平台的編譯器套件與 VS Code 擴充功能（含語言伺服器）。目前在 **Windows x64** 上驗證；腳本以
+PowerShell 7 的跨平台寫法撰寫，日後可在 Linux／macOS 以 `pwsh` 執行。請準備：
 
 | 工具 | 用途 |
 | --- | --- |
-| Windows PowerShell 5.1 或 PowerShell 7 | 執行腳本。 |
-| .NET 8 SDK | 建置、測試與發佈編譯器。 |
-| CMake 3.20 以上與 Ninja | 建置執行環境。 |
-| 鎖定版本的工具鏈 | `scripts/install-toolchain.ps1 -Targets windows-x64,android-arm64-v8a,android-x86_64` 安裝 LLVM Clang、llvm-mingw sysroot、WASI sysroot、Wasmtime 與 JDK（不使用 MSVC）。 |
+| PowerShell 7（或 Windows PowerShell 5.1） | 執行腳本。 |
+| .NET 8 SDK | 建置、測試與發佈編譯器與語言伺服器。 |
+| Node.js 20 以上與 npm | 打包 VS Code 擴充功能；以 Chromium 執行網頁測試（在 `scripts/` 執行 `npm install`）。 |
 | Android SDK（`ANDROID_HOME`）與 NDK 28.2 | 僅建置 Android 執行環境時需要。 |
-| Node.js | 以 Chromium 執行網頁測試（在 `scripts/` 執行 `npm install`）。 |
+
+鎖定版本的工具鏈（LLVM Clang、llvm-mingw sysroot、WASI sysroot、CMake、Ninja、Wasmtime 與 JDK，不使用 MSVC）由腳本
+自動檢查：`.native-build` 缺少的部分會依 `scripts/toolchain.json` 下載並驗證 SHA-256，無法下載時會說明原因後停止。
+也可事先執行 `scripts/install-toolchain.ps1 -Targets windows-x64,android-arm64-v8a,android-x86_64`。
 
 ```powershell
-.\build-release.bat
-.\build-release.bat -Help
-.\build-release.bat -Targets windows-x64,web         # 只建置部分執行環境；加入 linux-x64 會在 WSL 建置
-.\build-release.bat -SkipRuntime                     # 沿用 .native-build/install 中的執行環境
+.\build-release.ps1
+.\build-release.ps1 -Help
+.\build-release.ps1 -Targets windows-x64,web         # 只建置部分執行環境；在 Windows 加入 linux-x64 會在 WSL 建置
+.\build-release.ps1 -SkipRuntime                     # 沿用 .native-build/install 中的執行環境
 ```
 
 腳本依序建置執行環境（`scripts/build-runtime.ps1`）、建置並測試編譯器、發佈 `dist/aqua/`（`scripts/publish-cli.ps1`），
-在沒有安裝 .NET 的條件下驗證 `aqua.exe`（說明、編譯與執行、網站與獨立執行檔輸出），最後打包：
+在沒有安裝 .NET 的條件下驗證 `aqua.exe`（說明、編譯與執行、網站與獨立執行檔輸出），再以 `editors/vscode` 的腳本發佈
+語言伺服器並打包 VS Code 擴充功能（確認擴充功能內含伺服器，且伺服器能回應 LSP 初始化），最後打包：
 
 ```text
-dist/releases/AquariusCompiler-win-x64-<建置識別>.zip
+dist/releases/AquariusCompiler-win-x64-<建置識別>.zip（Linux／macOS 為 .tar.gz）
 dist/releases/AquariusCompiler-win-x64-<建置識別>.zip.sha256
+dist/releases/aquariuslang-tw-<版本>-<建置識別>.vsix
+dist/releases/aquariuslang-tw-<版本>-<建置識別>.vsix.sha256
 ```
 
 可用 `Get-FileHash "套件.zip" -Algorithm SHA256` 比對校驗值。任一步驟失敗會回傳非零結束碼。
@@ -204,8 +210,10 @@ var flags: bool[] = Array.Make(10, true);
 | `字串` | `string` | 字串 |
 | `整數[]` 等 | `int[]`、`float[]`、`double[]`、`bool[]` | 元素型別固定的陣列 |
 | `陣列` | `array` | 元素可為任何值的陣列（例如巢狀陣列） |
+| 結構名稱 | struct name | 以 `結構`／`struct` 宣告的[結構](docs/structs.md) |
 
-型別名稱只在 `:` 之後有意義，不是保留字。型別不符時，能在編譯時判斷的直接回報錯誤，其餘在執行時檢查；
+`結構 節點 { 左: 節點; 右: 節點; 值: 整數 }` 宣告結構型別，`節點(左: 甲, 值: 3)` 或 `節點(甲, 乙, 3)` 建立值（省略的欄位為
+`null`），`樹.值` 讀寫欄位。型別名稱只在 `:` 之後有意義，不是保留字。型別不符時，能在編譯時判斷的直接回報錯誤，其餘在執行時檢查；
 整數可自動轉成浮點數與倍精度，反方向需用 `整數(x)`／`int(x)`（向零截斷，超出範圍時取最接近的整數值）、
 `浮點數(x)`／`float(x)`、`雙精度(x)`／`double(x)` 明確轉換。
 

@@ -54,6 +54,12 @@ internal static class WasmStackAnalysis
                 case IrOperation.Index:
                     required = 2; change = -1; break;
                 case IrOperation.CheckArrayWrite: required = 2; break;
+                case IrOperation.StructType: change = 1; break;
+                case IrOperation.CheckStruct: required = 1; break;
+                case IrOperation.SetMember: case IrOperation.CompoundMember: required = 2; change = -1; break;
+                case IrOperation.CallNamed: {
+                    int count = program.NamedArguments(instruction.Operand); required = count + 1; change = -count; break;
+                }
                 case IrOperation.WriteIndex: required = 3; change = -2; break;
                 case IrOperation.Call: required = instruction.Operand + 1; change = -instruction.Operand; break;
                 case IrOperation.Array: required = instruction.Operand; change = 1 - required; break;
