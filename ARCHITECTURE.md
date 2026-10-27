@@ -145,6 +145,7 @@ runtime packs into `.native-build/install/<target>`, where the compiler of a che
 | Each library a valid, self-contained folder whose manifest matches what it registers | `EveryLibraryHasAValidManifest`, `LibrariesReachNothingOutsideTheirFolder`, `NativeModulesInManifestsAreTheOnesTheRuntimeRegisters` |
 | No code generators; no MSVC | `NoCodeGenerators`, `WindowsBuildsNeverUseMsvc` |
 | One layout table, one Wasm encoder, the ABI the runtime reads | `GuestRuntimeChecksTheSharedLayoutTable`, `EmittersUseNamedRuntimeOffsets`, `OneWasmEncoder`, `TheCompilerEmitsTheAbiTheRuntimeReads` |
+| One portable artifact for every target; target-specific tuning only in engine and platform layers | `EveryTargetRunsOnePortableArtifact` |
 | Reviewed codegen changes; the embedded guest runtime rebuilds from source | `CompiledOutputMatchesGoldens`, `TheEmbeddedGuestRuntimeRebuildsFromSource` |
 | Repository hygiene | `NoCommittedIdeOrUserFiles`, `AquariusSourcesLiveInExamplesLibrariesAndTests`, `DocsUseRepositoryRelativeLinks` |
 

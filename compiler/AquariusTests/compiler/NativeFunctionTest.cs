@@ -36,12 +36,41 @@ public class NativeFunctionTest
         "var m: int = 40; var element = function(i: int, j: int): double { var s = i + j; return 1.0d / (s * (s + 1) / 2 + i + 1); }; var multiply = function(src: double[], dst: double[], transpose: bool): int { for (var i: int = 0; i < m; i++) { var total: double = 0.0d; for (var j: int = 0; j < m; j++) { var c: double = 0.0d; if (transpose) { c = element(j, i); } else { c = element(i, j); } total += c * src[j]; } dst[i] = total; } return 0; }; var u: double[] = Array.Make(m, 1.0d); var t: double[] = Array.Make(m, 0.0d); var w: double[] = Array.Make(m, 0.0d); for (var k = 0; k < 10; k++) { multiply(u, t, false); multiply(t, w, true); multiply(w, t, false); multiply(t, u, true); } u[0] + u[39];",
         "var mat = function(a: int[], b: int[], n: int): int { var sum: int = 0; for (var i: int = 0; i < n; i++) { for (var j: int = 0; j < n; j++) { var total: int = 0; for (var k: int = 0; k < n; k++) { total += a[i * n + k] * b[k * n + j]; } sum += total; } } return sum; }; var a: int[] = Array.Make(3600, 3); var b: int[] = Array.Make(3600, 5); a[7] = 11; mat(a, b, 60);",
         "var mandel = function(n: int): int { var sum: int = 0; for (var y: int = 0; y < n; y++) { var ci = 2.0d * y / n - 1.0d; for (var x: int = 0; x < n; x++) { var cr = 3.0d * x / n - 2.0d; var zr = 0.0d; var zi = 0.0d; var c: int = 0; for (var g: int = 0; c < 60 && zr * zr + zi * zi <= 4.0d; c++) { var nr = zr * zr - zi * zi + cr; zi = 2.0d * zr * zi + ci; zr = nr; } sum += c; } } return sum; }; mandel(40);",
+        // Inlined leaves: widened arguments, a raised error, the callee's entry checkpoint failing on fuel (a long loop)
+        // and on the depth bound (recursion), and an inlined Boolean and array-reading callee.
+        "var half = function(x: double, k: int): double { return x / 2.0d + k; }; var run = function(n: int): double { var t: double = 0.0d; for (var i: int = 0; i < n; i++) { t += half(i, 1); } return t; }; run(2000000);",
+        "var div = function(a: int, b: int): int { return a / b; }; var run = function(n: int): int { var t: int = 0; for (var i: int = 5; i > n; i -= 1) { t += div(100, i); } return t; }; run(-3);",
+        "var inc = function(k: int): int { return k + 1; }; var down = function(d: int): int { if (d == 0) { return 0; } return inc(down(d - 1)); }; down(20000);",
+        "var even = function(k: int): bool { return k % 2 == 0; }; var at = function(a: int[], i: int): int { return a[i]; }; var count = function(a: int[]): int { var c: int = 0; for (var i: int = 0; i < len(a); i++) { if (even(at(a, i))) { c += at(a, i); } } return c; }; count([3, 4, 5, 6, 8]);",
+        // Array companions: copy-on-write of shared storage inside a loop and inside a callee, seen through aliases.
+        "var touch = function(a: int[], b: int[], n: int): int { var s: int = 0; for (var i: int = 0; i < n; i++) { a[0] = a[0] + i; s += a[0] + b[0] + len(b); } return s; }; var a: int[] = [1, 2, 3]; var b: int[] = push(a, 4); [touch(a, b, 5), a, b];",
+        "var poke = function(a: int[]): int { a[1] = a[1] + 10; return 0; }; var loop = function(a: int[]): int { var s: int = 0; for (var i: int = 0; i < 4; i++) { poke(a); s += a[1]; } return s; }; var a: int[] = [1, 2, 3]; var b: int[] = push(a, 9); [loop(a), a, b];",
     ];
 
     [RuntimeFact]
     public void NativeFunctionsMatchTheGenericEmitter()
     {
         EmitterTiers.AssertSame(Programs);
+    }
+
+    /// <summary>The desktop host runs longer run slices than the portable quantum (runtime/platform/desktop/main.c);
+    /// results must not depend on it, including where native code deoptimizes at a slice's end.</summary>
+    [RuntimeFact]
+    public void TheDesktopQuantumGivesThePortableResults()
+    {
+        string[] programs = [
+            "var spin = function(n: int): int { var c: int = 0; for (var i: int = 0; i < n; i++) { c += i % 7; c = c * 3 % 1000003; } return c; }; print(spin(3000000));",
+            "var depth = function(k: int): int { if (k == 0) { return 0; } return 1 + depth(k - 1); }; print(depth(30000));",
+            "var half = function(x: double, k: int): double { return x / 2.0d + k; }; var run = function(n: int): double { var t: double = 0.0d; for (var i: int = 0; i < n; i++) { t += half(i, 1); } return t; }; print(run(3000000));",
+            "var t = 0; for (var i = 0; i < 2000000; i++) { t += i % 3; } print(t);",
+        ];
+        foreach (string program in programs) {
+            string desktop = WasmTestHost.Run(program).Succeeded().Output;
+            string portable = WasmTestHost.Run(program, new Dictionary<string, string> { ["AQUARIUS_FUEL_QUANTUM"] = "65536" }).Succeeded().Output;
+            string tiny = WasmTestHost.Run(program, new Dictionary<string, string> { ["AQUARIUS_FUEL_QUANTUM"] = "17" }).Succeeded().Output;
+            Assert.Equal(portable, desktop);
+            Assert.Equal(portable, tiny);
+        }
     }
 
     [RuntimeFact]
@@ -99,11 +128,14 @@ public class NativeFunctionTest
             "var g = function(a: int, b: int): int { var t: int = 0; for (var i: int = 0; i < 10; i++) { t += a / (b - i); } return t; }; g(100, 5);",
             "var f = function(n: int): int { return n * 2; }; var h = function(v) { v; }; f(h(2.5d));",
             "var limit: int = 3; var f = function(): int { return limit; }; limit = 9; f();",
+            // An inlined callee raises its error from the caller's activation.
+            "var at = function(a: int[], i: int): int { return a[i]; }; var read = function(a: int[]): int { return at(a, 9); }; read([1, 2]);",
         ]);
         Assert.Contains("Integer division by zero", results[0].Message);
         Assert.Contains("Integer remainder by zero", results[1].Message);
         Assert.Contains("Integer division by zero", results[2].Message);
         Assert.Contains("n expects int, got DOUBLE", results[3].Message);
         Assert.Equal(9, results[4].Integer);
+        Assert.Contains("Array index is out of bounds", results[5].Message);
     }
 }

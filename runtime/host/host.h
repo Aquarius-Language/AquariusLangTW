@@ -218,6 +218,9 @@ typedef struct runtime_options {
     const char *entry;              /* module path, or NULL for the package entry */
     const char *const *launch; uint32_t launch_count;
     const char *materialize;        /* directory for asset files, NULL to skip (web) */
+    /* Fuel per run slice of an execution (how often it yields to the loop); 0 for the portable default. A platform may
+       choose a larger one: results never depend on it, only how often other work interleaves. */
+    uint32_t quantum;
 } runtime_options;
 aqua_runtime *runtime_create(uint8_t *module, size_t length, const runtime_options *options, char **error);
 /* Starts the entry script. */

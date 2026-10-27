@@ -247,6 +247,27 @@ public class ArchitectureRulesTest
             "compiler/AquariusCompiler/wasm/WasmEncoding.cs. Remove the private encoder from: " + string.Join(", ", offenders));
     }
 
+    // ---- 11. Target-specific speed is optional and layered ----------------------------------------------------------
+
+    [Fact]
+    public void EveryTargetRunsOnePortableArtifact()
+    {
+        // The compiler's Wasm emitters and the guest runtime produce one artifact for every target: no OS or target branches.
+        var target = new Regex(@"\bAQUA_OS_\w+|\b_WIN32\b|__ANDROID__|__linux__|__APPLE__|__EMSCRIPTEN__|""(?:windows|linux|android|macos|ios|web)(?:-[\w-]+)?""");
+        var offenders = RepositoryFiles().Where(f => f.StartsWith("compiler/AquariusCompiler/wasm/", StringComparison.Ordinal) && f.EndsWith(".cs", StringComparison.Ordinal)
+                || f.StartsWith("runtime/guest/", StringComparison.Ordinal) && (f.EndsWith(".c", StringComparison.Ordinal) || f.EndsWith(".h", StringComparison.Ordinal)))
+            .Where(f => target.IsMatch(Read(f))).ToList();
+        Assert.True(offenders.Count == 0, "Rule 'Target-specific speed is optional and layered': the compiler's Wasm emission and the guest runtime " +
+            "emit one portable artifact; put a target's optimization in runtime/host/engine_*.c or runtime/platform/<os>/. Offenders: " + string.Join(", ", offenders));
+        // Engine tuning (Wasmtime configuration) belongs to the engine layer only.
+        var engine = RepositoryFiles().Where(f => (f.StartsWith("runtime/", StringComparison.Ordinal) || f.StartsWith("libraries/", StringComparison.Ordinal))
+                && Regex.IsMatch(f, @"\.(c|h|cpp|hpp|rs)$") && !f.Contains("/third_party/", StringComparison.Ordinal)
+                && !Regex.IsMatch(f, @"^runtime/(host/engine_\w+\.c|platform/)"))
+            .Where(f => Read(f).Contains("wasmtime_config_", StringComparison.Ordinal)).ToList();
+        Assert.True(engine.Count == 0, "Rule 'Target-specific speed is optional and layered': engine settings live in runtime/host/engine_*.c. Offenders: " +
+            string.Join(", ", engine));
+    }
+
     [Fact]
     public void TheCompilerEmitsTheAbiTheRuntimeReads()
     {
