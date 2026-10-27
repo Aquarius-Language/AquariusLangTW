@@ -60,7 +60,9 @@ npm run package
 `npm run package` publishes the server into `server/`, bundles the client into
 `dist/extension.js`, and creates `aquariuslang-tw-0.1.0.vsix` in this directory.
 It does not publish anything to the Marketplace. The generated DLLs and VSIX are
-ignored by Git; rebuild them after changing server code.
+ignored by Git; rebuild them after changing server code. `build-release.ps1` at the
+repository root runs these steps for every release and copies the VSIX, with its
+SHA-256, into `dist/releases/`.
 
 For extension development, open `editors/vscode` as a VS Code folder, run `npm ci`,
 and press **F5**. The provided launch task builds the client and server and opens

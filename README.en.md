@@ -72,31 +72,40 @@ default libraries' manifests and Aquarius sources, `sdk/` the library SDK and `e
 
 ## Build and package a release
 
-`build-release.bat` produces the **Windows x64** compiler package. Prepare on Windows x64:
+`build-release.ps1` produces this host's compiler package and the VS Code extension with its language server. It is
+verified on **Windows x64**; it is written with PowerShell 7's cross-platform idioms so it can later run on Linux and
+macOS with `pwsh`. Prepare:
 
 | Tool | Purpose |
 | --- | --- |
-| Windows PowerShell 5.1 or PowerShell 7 | Runs the scripts. |
-| .NET 8 SDK | Builds, tests and publishes the compiler. |
-| CMake 3.20+ and Ninja | Build the runtime packs. |
-| The pinned toolchain | `scripts/install-toolchain.ps1 -Targets windows-x64,android-arm64-v8a,android-x86_64` installs LLVM Clang, the llvm-mingw sysroot, the WASI sysroot, Wasmtime and a JDK (never MSVC). |
+| PowerShell 7 (or Windows PowerShell 5.1) | Runs the scripts. |
+| .NET 8 SDK | Builds, tests and publishes the compiler and the language server. |
+| Node.js 20+ and npm | Packages the VS Code extension; web tests in Chromium (`npm install` in `scripts/`). |
 | Android SDK (`ANDROID_HOME`) with NDK 28.2 | Only for the Android packs. |
-| Node.js | Web tests in Chromium (`npm install` in `scripts/`). |
+
+The script checks the pinned toolchain (LLVM Clang, the llvm-mingw sysroot, the WASI sysroot, CMake, Ninja, Wasmtime
+and a JDK; never MSVC): whatever `.native-build` lacks is downloaded per `scripts/toolchain.json` and SHA-256-verified,
+and the script stops with a clear error when it cannot be. `scripts/install-toolchain.ps1 -Targets
+windows-x64,android-arm64-v8a,android-x86_64` installs it ahead of time.
 
 ```powershell
-.\build-release.bat
-.\build-release.bat -Help
-.\build-release.bat -Targets windows-x64,web         # fewer runtime packs; add linux-x64 to build it in WSL
-.\build-release.bat -SkipRuntime                     # reuse the packs in .native-build/install
+.\build-release.ps1
+.\build-release.ps1 -Help
+.\build-release.ps1 -Targets windows-x64,web         # fewer runtime packs; on Windows, add linux-x64 to build it in WSL
+.\build-release.ps1 -SkipRuntime                     # reuse the packs in .native-build/install
 ```
 
 The script builds the runtime packs (`scripts/build-runtime.ps1`), builds and tests the compiler, publishes `dist/aqua/`
 (`scripts/publish-cli.ps1`), checks the published `aqua.exe` without an installed .NET (help, compile and run, a
-website and a standalone executable) and archives it:
+website and a standalone executable), publishes the language server and packages the VS Code extension with
+`editors/vscode`'s scripts (checking that the extension bundles the server and that the server answers an LSP
+initialize request), and archives them:
 
 ```text
-dist/releases/AquariusCompiler-win-x64-<build-id>.zip
+dist/releases/AquariusCompiler-win-x64-<build-id>.zip       (.tar.gz on Linux and macOS)
 dist/releases/AquariusCompiler-win-x64-<build-id>.zip.sha256
+dist/releases/aquariuslang-tw-<version>-<build-id>.vsix
+dist/releases/aquariuslang-tw-<version>-<build-id>.vsix.sha256
 ```
 
 Verify with `Get-FileHash "package.zip" -Algorithm SHA256`. Failures return a nonzero exit code. For Linux see the

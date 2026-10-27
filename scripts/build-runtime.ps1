@@ -4,9 +4,11 @@
 #   scripts/build-runtime.ps1 -Targets windows-x64,web,android-x86_64,android-arm64-v8a,linux-x64
 #   scripts/build-runtime.ps1 -Targets windows-x64 -Libraries graphics,application   # a subset of the default libraries
 #   scripts/build-runtime.ps1 -Targets windows-x64 -OnnxCuda                          # .native-build/install/windows-x64-cuda
-# Install the pinned toolchain first (scripts/install-toolchain.ps1 -Targets <targets>). Android needs ANDROID_HOME with
-# the pinned NDK, platform and build-tools; linux-x64 builds in WSL (Ubuntu-22.04 with the Linux LLVM release in
-# $HOME/aquarius-toolchains, see install-toolchain.sh). CMake and Ninja come from PATH unless -CMake/-Ninja name them.
+# It first runs scripts/install-toolchain.ps1 for the targets, which downloads (SHA-256 checked) any pinned toolchain
+# piece or SDK missing from .native-build, so a partial .native-build never breaks a build. Android needs ANDROID_HOME
+# with the pinned NDK, platform and build-tools; linux-x64 builds in WSL on Windows (Ubuntu-22.04 with the Linux LLVM
+# release in $HOME/aquarius-toolchains, see install-toolchain.sh). CMake and Ninja are the pinned ones unless
+# -CMake/-Ninja name others.
 # Library downloads verify TLS: -CaBundle (default: Git for Windows' ca-bundle.crt when present) gives CMake builds
 # without a CA store one. Prebuilt third-party DLLs some libraries install (ONNX Runtime) need the Visual C++ 2015-2022
 # runtime: windows-x64 packs that contain DLLs get its redistributable DLLs from -VCRuntimeDirectory or the installed
@@ -31,16 +33,13 @@ $Libraries = @($Libraries | ForEach-Object { $_ -split ',' } | Where-Object { $_
 foreach ($target in $Targets) {
     if ($AquaTargets -notcontains $target) { throw "Unknown target $target; use $($AquaTargets -join ', ')." }
 }
-function Find-Tool([string]$Given, [string]$Name) {
-    if ($Given) { return $Given }
-    $command = Get-Command $Name -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
-    if (-not $command) { throw "$Name was not found on PATH; pass -$((Get-Culture).TextInfo.ToTitleCase($Name)) <path>." }
-    return $command.Source
-}
 function Invoke-Checked([string]$Program, [string[]]$Arguments) {
     & $Program @Arguments
     if ($LASTEXITCODE -ne 0) { throw "Command failed (exit $LASTEXITCODE): $Program $($Arguments -join ' ')" }
 }
+& (Join-Path $PSScriptRoot 'install-toolchain.ps1') -Targets $Targets | Out-Null
+$cmakePath = if ($CMake) { $CMake } else { $AquaToolchain.CMake }
+$ninjaPath = if ($Ninja) { $Ninja } else { $AquaToolchain.Ninja }
 $repository = $AquaToolchain.Repository
 $runtime = Join-Path $repository 'runtime'
 $libraryList = $Libraries -join ';'
@@ -98,8 +97,6 @@ cmake --install "`$build" --prefix '$wslPack'
         Invoke-Checked 'wsl.exe' @('-d', $Distribution, 'bash', $wslScript)
         continue
     }
-    $cmakePath = Find-Tool $CMake 'cmake'
-    $ninjaPath = Find-Tool $Ninja 'ninja'
     if ($target -like 'android-*' -and -not $env:ANDROID_HOME -and -not $env:ANDROID_NDK_HOME) { throw 'Android runtime packs need ANDROID_HOME (with the pinned NDK).' }
     $build = Join-Path $AquaToolchain.Native "build/$target$flavour"
     $arguments = @('-S', $runtime, '-B', $build, '-G', 'Ninja', "-DCMAKE_MAKE_PROGRAM=$ninjaPath",

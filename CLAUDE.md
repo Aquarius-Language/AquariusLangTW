@@ -85,11 +85,12 @@ scripts/             toolchain pins and installers, runtime/library builds, web-
 ## Building and testing
 
 ```powershell
-scripts/install-toolchain.ps1 -Targets windows-x64,android-x86_64     # pinned LLVM, MinGW sysroot, SDKs, JDK
+scripts/install-toolchain.ps1 -Targets windows-x64,android-x86_64     # pinned LLVM, MinGW sysroot, CMake, Ninja, SDKs, JDK
 scripts/build-runtime.ps1 -Targets windows-x64,web,android-x86_64     # runtime packs into .native-build/install/<target>
 dotnet build AquariusLang.sln; dotnet test compiler/AquariusTests
 node scripts/web-run.mjs <runtime pack> app.wasm --libraries <name>    # web tests in Chromium (npm install in scripts/)
 scripts/android-run.ps1 app.wasm -Runtime <android pack> -Run          # Android tests on a device or emulator
+./build-release.ps1                                                    # the release: packs, tests, dist/aqua, VSIX
 ```
 
 Every library's `tests/` must pass on every target it supports before a change is done. Windows builds use Clang +
