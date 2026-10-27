@@ -231,6 +231,7 @@ var flags: bool[] = Array.Make(10, true);
 | `bool` | `布林` | true / false |
 | `string` | `字串` | text |
 | `int[]`, `float[]`, `double[]`, `bool[]` | `整數[]` etc. | array with a fixed element type |
+| `array` | `陣列` | array whose elements may be any values (nested arrays, for example) |
 
 Type names only mean something after `:`; they are not reserved words. A mismatch
 the compiler can see is a compile error, anything else is checked at run time.

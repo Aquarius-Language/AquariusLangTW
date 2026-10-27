@@ -73,6 +73,7 @@ public sealed class TypeChecker {
 
     public static string Name(int code) {
         if (code == Void) return "無值 / no value";
+        if (code == ArrayFlag) return "陣列 array";
         string suffix = (code & ArrayFlag) != 0 ? "[]" : "";
         return (code & 15) switch {
             Int => $"整數{suffix} int{suffix}", Float => $"浮點數{suffix} float{suffix}", Double => $"雙精度{suffix} double{suffix}",
@@ -154,10 +155,12 @@ public sealed class TypeChecker {
     /// <paramref name="target"/> is required. Integers widen to float and double, floats to double.</summary>
     private void Require(int target, int value, INode site, string subject, Token token) {
         if (value == target) return;
-        if (value == Dynamic || Widens(value, target)) { Checks[site] = new TypeCheck(target, subject); return; }
+        // An array of any values may hold a typed array: that is checked when the program runs.
+        if (value == Dynamic || Widens(value, target) || value == ArrayFlag && (target & ArrayFlag) != 0) { Checks[site] = new TypeCheck(target, subject); return; }
         Error($"型別不符：{subject} 需要 {Name(target)}，卻是 {Name(value)} / Type mismatch: {subject} expects {Name(target)}, got {Name(value)}.", token);
     }
-    private static bool Widens(int from, int to) => from is Int or Float && to is Float or Double && from < to;
+    // Integers widen to float and double, floats to double, and every typed array is an array (陣列 / array).
+    private static bool Widens(int from, int to) => from is Int or Float && to is Float or Double && from < to || to == ArrayFlag && (from & ArrayFlag) != 0;
     private static bool Numeric(int type) => type is Int or Float or Double;
 
     // ---- expressions -------------------------------------------------------------------------------
@@ -272,7 +275,8 @@ public sealed class TypeChecker {
         var parameters = function.Parameters ?? System.Array.Empty<Identifier>();
         if (parameters.Length == arguments.Length)
             for (int i = 0; i < arguments.Length; i++)
-                if (parameters[i].Type is { } type && arguments[i] != Dynamic && arguments[i] != type.Code && !Widens(arguments[i], type.Code))
+                if (parameters[i].Type is { } type && arguments[i] != Dynamic && arguments[i] != type.Code && !Widens(arguments[i], type.Code)
+                    && !(arguments[i] == ArrayFlag && (type.Code & ArrayFlag) != 0))
                     Error($"型別不符：參數 {parameters[i].Value} 需要 {Name(type.Code)}，卻是 {Name(arguments[i])} / Type mismatch: parameter {parameters[i].Value} expects {Name(type.Code)}, got {Name(arguments[i])}.", name.Token);
         return Code(function.ReturnType);
     }
@@ -280,8 +284,8 @@ public sealed class TypeChecker {
     private void Function(FunctionLiteral function) {
         var outer = scope; scope = new Scope(outer);
         var parameterTypes = (function.Parameters ?? System.Array.Empty<Identifier>()).Select(p => Code(p.Type)).ToArray();
-        // Numbers, Booleans and typed arrays; string parameters or results keep the function generic.
-        static bool NativeType(int t) => (t & 15) is Int or Float or Double or Bool;
+        // Numbers, Booleans, typed arrays and arrays of any values; string parameters or results keep the function generic.
+        static bool NativeType(int t) => (t & 15) is Int or Float or Double or Bool || t == ArrayFlag;
         NativeSignature? native = function.ReturnType != null && parameterTypes.All(NativeType) && NativeType(Code(function.ReturnType))
             ? new NativeSignature(parameterTypes, Code(function.ReturnType), outer) : null;
         var uses = new Dictionary<string, (Declaration, Scope)>(System.StringComparer.Ordinal);

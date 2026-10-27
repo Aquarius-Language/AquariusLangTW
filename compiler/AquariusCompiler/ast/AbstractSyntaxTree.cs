@@ -1081,8 +1081,9 @@ public class HashLiteral : IExpression {
 /// <summary>Element types of optional annotations. The values are the runtime value tags (layout.def).</summary>
 public enum ScalarType { Int = 1, Float = 2, Double = 3, Bool = 4, String = 5 }
 
-/// <summary>An optional type annotation, <c>name: type</c>: a scalar or an array of scalars (<c>整數[]</c> / <c>int[]</c>).
-/// Type names are recognized only in annotation position and are not reserved words.</summary>
+/// <summary>An optional type annotation, <c>name: type</c>: a scalar, an array of scalars (<c>整數[]</c> / <c>int[]</c>) or
+/// an array of any values (<c>陣列</c> / <c>array</c>, element 0). Type names are recognized only in annotation position
+/// and are not reserved words.</summary>
 public sealed class TypeAnnotation {
     private static readonly Dictionary<string, ScalarType> Names = new(System.StringComparer.Ordinal) {
         { "整數", ScalarType.Int }, { "int", ScalarType.Int },
@@ -1092,6 +1093,8 @@ public sealed class TypeAnnotation {
         { "字串", ScalarType.String }, { "string", ScalarType.String },
     };
     public static bool TryParseName(string name, out ScalarType type) => Names.TryGetValue(name, out type);
+    /// <summary>The type of an array whose elements may be any values: <c>陣列</c> / <c>array</c>.</summary>
+    public static bool IsArrayName(string name) => name is "陣列" or "array";
 
     public Token Token { get; }
     public ScalarType Element { get; }
@@ -1100,7 +1103,7 @@ public sealed class TypeAnnotation {
 
     /// <summary>Compact code shared with the Wasm emitter and runtime checks: the element tag, plus 16 for arrays.</summary>
     public int Code => (int)Element | (IsArray ? 16 : 0);
-    public string String() => Token.Literal + (IsArray ? "[]" : "");
+    public string String() => Token.Literal + (IsArray && Element != 0 ? "[]" : "");
 }
 
 }

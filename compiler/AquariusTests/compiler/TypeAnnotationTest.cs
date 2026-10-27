@@ -24,6 +24,8 @@ public class TypeAnnotationTest
     [InlineData("var a: double[] = [1.0d];", "a: double[]")]
     [InlineData("var f = function(a: int, b: 雙精度): 布林 { 真; };", "function(a: int, b: 雙精度): 布林")]
     [InlineData("迴圈 (變數 i: 整數 = 0; i < 3; i++) { }", "i: 整數")]
+    [InlineData("變數 樹: 陣列 = [0, 0];", "樹: 陣列")]
+    [InlineData("var f = function(tree: array, d: int): array { tree; };", "function(tree: array, d: int): array")]
     public void AnnotationsParseInBothSyntaxes(string source, string printed)
     {
         Assert.Contains(printed, Parse(source).String());
@@ -33,6 +35,16 @@ public class TypeAnnotationTest
     public void TypeNamesAreNotReservedWords()
     {
         Assert.Empty(TypeChecker.Check(Parse("var int = 3; var 整數 = 4; var double = int + 整數;")).Errors);
+        // 陣列 / array is also the Array module's name; only after a colon is it a type.
+        Assert.Empty(TypeChecker.Check(Parse("var a: 陣列 = 陣列.建立(2, 0); var array = 1;")).Errors);
+    }
+
+    [Fact]
+    public void AnArrayTypeTakesNoBrackets()
+    {
+        var parser = Parser.NewInstance(Lexer.NewInstance("var a: array[] = [];"));
+        parser.ParseAST();
+        Assert.NotEmpty(parser.Errors);
     }
 
     [Theory]
@@ -48,6 +60,9 @@ public class TypeAnnotationTest
     [InlineData("var f = function(n: int): int { n; }; f(2.5d);")]
     [InlineData("var a: int[] = 1;")]
     [InlineData("var x: 整數 = 整數(1) + 0.5d;")]
+    [InlineData("var a: array = 1;")]
+    [InlineData("var a: 陣列 = 1.5d;")]
+    [InlineData("var f = function(t: array): int { return 0; }; f(真);")]
     public void DefiniteMismatchesAreCompileErrors(string source)
     {
         var errors = TypeChecker.Check(Parse(source)).Errors;
@@ -62,6 +77,9 @@ public class TypeAnnotationTest
     [InlineData("var s: string = \"a\"; s += \"b\";")]
     [InlineData("var f = function(a: double): double { a; }; f(1);")]
     [InlineData("var g = function(v) { v; }; var x: int = g(1);")]
+    [InlineData("var a: int[] = [1, 2]; var b: array = a;")]
+    [InlineData("var a: array = [1, 2]; var b: int[] = a;")]
+    [InlineData("var f = function(t: array): int { return len(t); }; var a: double[] = [1.0d]; f(a);")]
     public void WideningAndUntypedValuesCompile(string source)
     {
         Assert.Empty(TypeChecker.Check(Parse(source)).Errors);
@@ -80,6 +98,10 @@ public class TypeAnnotationTest
             "var f = function(n: int): int { n; }; var g = function(v) { v; }; f(g(1.5d));",
             "var f = function(n: int): int { if (n > 0) { return n; } }; f(-1);",
             "var g = function(v) { v; }; var a: int[] = g([1, 2.5d]); a;",
+            "var g = function(v) { v; }; var a: array = g([1, \"x\", [2]]); a;",
+            "var g = function(v) { v; }; var a: 陣列 = g(5); a;",
+            "var a: int[] = [1, 2]; var b: array = a; b[1] = 2.5d;",
+            "var a: array = [1, 2]; var b: int[] = a; b;",
         ]);
         Assert.Equal(new TestValue("string", "double"), results[0]);
         Assert.Equal(new TestValue("string", "float"), results[1]);
@@ -90,6 +112,10 @@ public class TypeAnnotationTest
         Assert.Contains("n expects int, got DOUBLE", results[6].Message);
         Assert.Contains("expects int, got NULL", results[7].Message);
         Assert.Contains("a expects int[], got ARRAY", results[8].Message);
+        Assert.Equal(new TestValue("array", "[1, x, [2]]"), results[9]);
+        Assert.Contains("a expects array, got INTEGER", results[10].Message);
+        Assert.Contains("the array holds int, got DOUBLE", results[11].Message);
+        Assert.Equal(new TestValue("array", "[1, 2]"), results[12]);
     }
 
     [RuntimeFact]

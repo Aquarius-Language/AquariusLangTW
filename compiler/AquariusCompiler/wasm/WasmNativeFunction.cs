@@ -85,7 +85,7 @@ internal sealed class WasmNativeFunction
         // region's entry checks the array's element lock like any other slot type.
         if (IsRegion)
             foreach (var (name, outer) in signature.Outer) {
-                if (!IsArray(outer.Type) || !outer.Sibling) continue;
+                if (!IsRef(outer.Type) || !outer.Sibling) continue;
                 var declared = plan.Scopes.Where(scope => scope.Slots.ContainsKey(name)).Select(scope => scope.Slots[name])
                     .Where(slot => plan.SlotDecl[start]![slot] == WasmScopePlan.Yes).ToArray();
                 if (declared.Length == 1 && slotTypes[declared[0]] == Unknown) slotTypes[declared[0]] = outer.Type;
@@ -113,11 +113,20 @@ internal sealed class WasmNativeFunction
 
     private static bool Numeric(int type) => type is IntType or FloatType or DoubleType;
     private static bool Wide(int type) => type is FloatType or DoubleType;
-    /// <summary>Types a native local holds: numbers, Booleans and typed arrays (an Array* in an i32).</summary>
-    private static bool Value(int type) => type is IntType or FloatType or DoubleType or BoolType || IsArray(type);
+    /// <summary>Types a native local holds: numbers, Booleans, typed arrays and arrays of any values (an Array* in an i32).</summary>
+    private static bool Value(int type) => type is IntType or FloatType or DoubleType or BoolType || IsRef(type);
     private static bool IsArray(int type) => (type & 16) != 0 && (type & 15) is >= IntType and <= BoolType;
+    /// <summary>An array of any values (陣列 / array): code 16, element type 0.</summary>
+    private const int AnyArrayType = 16;
+    /// <summary>One element read from an array of any values: a whole generic value, its tag in the operand's count
+    /// companion, its reference in the i32 local and its number in the f64 local. It lives only on the operand stack
+    /// (an argument of an 陣列 parameter, checked at the call, or an element of an array literal).</summary>
+    private const int AnyValueType = 48;
+    /// <summary>Types held as an Array* (with count and values companions).</summary>
+    private static bool IsRef(int type) => IsArray(type) || type == AnyArrayType;
     private const int LengthBuiltin = 1;
-    private static bool Widens(int from, int to) => from == to || from is IntType or FloatType && to is FloatType or DoubleType && from < to;
+    private static bool Widens(int from, int to) => from == to || from is IntType or FloatType && to is FloatType or DoubleType && from < to
+        || to == AnyArrayType && IsArray(from);
     private static int BuiltinOf(string name) => name switch {
         "int" or "整數" => ConvertFirst, "float" or "浮點數" => ConvertFirst + 1, "double" or "雙精度" => ConvertFirst + 2,
         "len" or "長度" => LengthBuiltin, _ => -1 };
@@ -357,10 +366,11 @@ internal sealed class WasmNativeFunction
                 case IrOperation.Not: if (Top() != BoolType) return Reject(pc); break;
                 case IrOperation.CheckType: {
                     int want = operand & 31;
-                    if (IsArray(want) ? Top() != want : !Widens(Top(), want)) return Reject(pc);
+                    if (want == AnyArrayType ? !IsRef(Top()) : IsArray(want) ? Top() != want : !Widens(Top(), want)) return Reject(pc);
                     stack[^1] = want; break;
                 }
                 case IrOperation.Index:
+                    if (Top(2) == AnyArrayType && Top() == IntType) { Pop(2); stack.Add(AnyValueType); break; }
                     if (!IsArray(Top(2)) || Top() != IntType) return Reject(pc);
                     { int element = Top(2) & 15; Pop(2); stack.Add(element); }
                     break;
@@ -377,6 +387,10 @@ internal sealed class WasmNativeFunction
                 case IrOperation.JumpIfFalse: case IrOperation.LoopCondition:
                     if (Top() != BoolType) return Reject(pc);
                     Pop(1); work.Enqueue((operand, stack.ToArray())); break;
+                case IrOperation.Array:
+                    // An array literal of native values is built natively (an array of any values, like the generic one).
+                    if (stack.Count < operand || stack.Skip(stack.Count - operand).Any(t => !Value(t) && t != AnyValueType)) return Reject(pc);
+                    Pop(operand); stack.Add(AnyArrayType); break;
                 case IrOperation.JumpIfBreak: break; // Typed values are never a break value.
                 case IrOperation.Break: {
                     int base_ = plan.LoopBase[pc];
@@ -393,7 +407,7 @@ internal sealed class WasmNativeFunction
                     var arguments = stack.Skip(stack.Count - count).ToArray();
                     int result;
                     if (callee == BuiltinBase + LengthBuiltin) {
-                        if (count != 1 || !IsArray(arguments[0])) return Reject(pc);
+                        if (count != 1 || !IsRef(arguments[0])) return Reject(pc);
                         result = IntType;
                     } else if (callee >= BuiltinBase) {
                         if (count != 1 || !Numeric(arguments[0])) return Reject(pc);
@@ -402,7 +416,9 @@ internal sealed class WasmNativeFunction
                         var target = Signature.Outer[callNames[callee - CallableBase]].Function!;
                         var parameters = target.Parameters ?? Array.Empty<AquariusLang.ast.Identifier>();
                         if (parameters.Length != count) return Reject(pc);
-                        for (int i = 0; i < count; i++) if (!Widens(arguments[i], parameters[i].Type!.Code)) return Reject(pc);
+                        // An element of an array of any values passes to an 陣列 parameter after a tag check at the call.
+                        for (int i = 0; i < count; i++)
+                            if (!Widens(arguments[i], parameters[i].Type!.Code) && !(arguments[i] == AnyValueType && parameters[i].Type!.Code == AnyArrayType)) return Reject(pc);
                         result = target.ReturnType!.Code;
                     } else return Reject(pc);
                     Pop(count + 1); stack.Add(result); break;
@@ -494,7 +510,7 @@ internal sealed class WasmNativeFunction
             Get(w, scope); I(w, text(name)); w.Write(Call); U(w, runtime["aqua_scope_get"]); Set(w, Pointer(k));
             Unless(() => Get(w, Pointer(k)));
             var expected = natives.Values.First(n => n.OwnPointers.ContainsKey(name)).OwnPointers[name];
-            Unless(() => { Get(w, Pointer(k)); Memory(w, I32Load, 2, ValueTag); I(w, IsArray(expected.Tag) ? ArrayTag : expected.Tag); w.Write((byte)0x46); });
+            Unless(() => { Get(w, Pointer(k)); Memory(w, I32Load, 2, ValueTag); I(w, IsRef(expected.Tag) ? ArrayTag : expected.Tag); w.Write((byte)0x46); });
             // A typed array binding must hold an array locked to that element type.
             if (IsArray(expected.Tag))
                 Unless(() => { Get(w, Pointer(k)); Memory(w, I32Load, 2, ValueRef); Memory(w, I32Load, 2, ArrayElement); I(w, expected.Tag & 15); w.Write((byte)0x46); });
@@ -533,7 +549,8 @@ internal sealed class WasmNativeFunction
                 int type = Signature.Parameters[p], offset = p * ValueSize;
                 Unless(() => {
                     Get(w, 0); Memory(w, I32Load, 2, offset + ValueTag); Set(w, scratch);
-                    if (IsArray(type)) {
+                    if (type == AnyArrayType) { Get(w, scratch); I(w, ArrayTag); w.Write((byte)0x46); }
+                    else if (IsArray(type)) {
                         // Only an array an annotation check already locked to this element type.
                         Get(w, scratch); I(w, ArrayTag); w.Write((byte)0x46);
                         Get(w, scratch); I(w, ArrayTag); w.Write((byte)0x46); w.Write(new byte[] { 0x04, 0x7f });
@@ -551,7 +568,7 @@ internal sealed class WasmNativeFunction
             for (int k = 0; k < Pointers.Length; k++) Get(w, Pointer(k));
             for (int p = 0; p < Signature.Parameters.Length; p++) {
                 int type = Signature.Parameters[p];
-                if (IsArray(type)) { Get(w, 0); Memory(w, I32Load, 2, argumentBase + p * ValueSize + ValueRef); continue; }
+                if (IsRef(type)) { Get(w, 0); Memory(w, I32Load, 2, argumentBase + p * ValueSize + ValueRef); continue; }
                 Get(w, 0); Memory(w, F64Load, 3, argumentBase + p * ValueSize + ValueNumber);
                 if (type is IntType or BoolType) ExactInteger(w);
                 else if (type == FloatType) w.Write(new byte[] { 0xb6, 0xbb });
@@ -576,12 +593,12 @@ internal sealed class WasmNativeFunction
         Get(w, status); I(w, 5); w.Write(new byte[] { 0x46, 0x04, 0x40 }); I(w, 5); w.Write(new byte[] { 0x0f, 0x0b });
         Get(w, 1); Get(w, status); Memory(w, I32Store, 2, ValueRef); I(w, 4); w.Write(new byte[] { 0x0f, 0x0b });
         Get(w, 2); Get(w, scratch); I(w, 0); Get(w, scratch); I(w, 0); w.Write(new byte[] { 0x4a, 0x1b }); Memory(w, I32Store, 2, ExecutionBudget);
-        Get(w, 1); I(w, IsArray(Signature.Result) ? ArrayTag : Signature.Result); Memory(w, I32Store, 2, ValueTag);
-        Get(w, 1); if (IsArray(Signature.Result)) Get(w, resultI); else I(w, 0); Memory(w, I32Store, 2, ValueRef);
+        Get(w, 1); I(w, IsRef(Signature.Result) ? ArrayTag : Signature.Result); Memory(w, I32Store, 2, ValueTag);
+        Get(w, 1); if (IsRef(Signature.Result)) Get(w, resultI); else I(w, 0); Memory(w, I32Store, 2, ValueRef);
         Get(w, 1);
         if (Signature.Result == IntType) { Get(w, resultI); w.Write((byte)0xb7); }
         else if (Signature.Result == BoolType) { Get(w, resultI); w.Write((byte)0xb8); }
-        else if (IsArray(Signature.Result)) F(w, 0);
+        else if (IsRef(Signature.Result)) F(w, 0);
         else Get(w, resultF);
         Memory(w, F64Store, 3, ValueNumber);
         I(w, 1); w.Write((byte)0x0b);
@@ -672,7 +689,7 @@ internal sealed class WasmNativeFunction
         // A generic Value at base + offset as a typed local value: an array's reference, or the converted payload.
         void LoadPayload(Action pushBase, int offset, int type) {
             pushBase();
-            if (IsArray(type)) { Memory(w, I32Load, 2, offset + ValueRef); return; }
+            if (IsRef(type)) { Memory(w, I32Load, 2, offset + ValueRef); return; }
             Memory(w, F64Load, 3, offset + ValueNumber); if (!Wide(type)) ExactInteger(w);
         }
 
@@ -686,25 +703,25 @@ internal sealed class WasmNativeFunction
             Get(w, local); Memory(w, I32Load, 2, ArrayCount); Set(w, count);
             Get(w, local); Memory(w, I32Load, 2, ArrayValues); Set(w, count + 1);
         }
-        void CopyCompanions(int type, int from, int to) { if (!IsArray(type)) return; Get(w, from); Set(w, to); Get(w, from + 1); Set(w, to + 1); }
+        void CopyCompanions(int type, int from, int to) { if (!IsRef(type)) return; Get(w, from); Set(w, to); Get(w, from + 1); Set(w, to + 1); }
         // After a copy-on-write or a call, every array local's values pointer is read again (its count is unchanged).
         // Undeclared slots hold 0, never a stale reference.
         void RefreshValues(int[] stack) {
             void Refresh(int local, int count) { Get(w, local); Memory(w, I32Load, 2, ArrayValues); Set(w, count + 1); }
-            for (int s = 0; s < slots; s++) if (IsArray(slotTypes[s])) Refresh(SlotI(s), SlotCount(s));
-            for (int k = 0; k < stack.Length; k++) if (IsArray(stack[k])) Refresh(StackI(k), StackCount(k));
-            for (int c = 0; c < cached.Length; c++) if (IsArray(CachedType(cached[c]))) Refresh(CacheI(c), CacheCount(c));
+            for (int s = 0; s < slots; s++) if (IsRef(slotTypes[s])) Refresh(SlotI(s), SlotCount(s));
+            for (int k = 0; k < stack.Length; k++) if (IsRef(stack[k])) Refresh(StackI(k), StackCount(k));
+            for (int c = 0; c < cached.Length; c++) if (IsRef(CachedType(cached[c]))) Refresh(CacheI(c), CacheCount(c));
         }
         void ReadOuter(string name, int type) { int c = CacheOf(name); Local(type, CacheI(c), CacheF(c)); }
         void WriteOuterFrom(string name, int type, Action value) { int c = CacheOf(name); value(); SetLocal(type, CacheI(c), CacheF(c)); }
         void LoadOuter() { for (int c = 0; c < cached.Length; c++) { int type = CachedType(cached[c]);
             LoadPayload(() => Get(w, PointerOf(cached[c])), 0, type); SetLocal(type, CacheI(c), CacheF(c));
-            if (IsArray(type)) Describe(CacheI(c), CacheCount(c)); } }
+            if (IsRef(type)) Describe(CacheI(c), CacheCount(c)); } }
         void SaveOuter() {
             foreach (string name in Written) {
                 int c = CacheOf(name), type = CachedType(name);
                 Get(w, PointerOf(name)); Local(type, CacheI(c), CacheF(c));
-                if (IsArray(type)) Memory(w, I32Store, 2, ValueRef); else { AsPayload(type); Memory(w, F64Store, 3, ValueNumber); }
+                if (IsRef(type)) Memory(w, I32Store, 2, ValueRef); else { AsPayload(type); Memory(w, F64Store, 3, ValueNumber); }
             }
         }
 
@@ -717,7 +734,7 @@ internal sealed class WasmNativeFunction
             for (int s = 0; s < slots; s++) {
                 int type = slotTypes[s];
                 if (type == Unknown || declared[s] == WasmScopePlan.No && !undeclare) continue;
-                void Declared() => StoreValue(FrameValues + ValueSize * s, type, () => { Local(type, SlotI(s), SlotF(s)); if (!IsArray(type)) AsPayload(type); });
+                void Declared() => StoreValue(FrameValues + ValueSize * s, type, () => { Local(type, SlotI(s), SlotF(s)); if (!IsRef(type)) AsPayload(type); });
                 void Undeclared() { Get(w, frame); I(w, -1); Memory(w, I32Store, 2, FrameValues + ValueSize * s + ValueTag); }
                 if (declared[s] == WasmScopePlan.Yes) { Declared(); continue; }
                 if (declared[s] == WasmScopePlan.No) { Undeclared(); continue; }
@@ -732,16 +749,24 @@ internal sealed class WasmNativeFunction
         // Errors and deoptimizations leave the body through one handler after it, so loops contain no runtime calls
         // (which would make every value live across them spill).
         var sites = new List<(int Kind, int Block, int[] Operands, int Message)>();
-        const int ErrorSite = 0, CheckpointSite = 1, CallSite = 2, InlineSite = 3;
+        // InlineSite: an inlined callee's entry checkpoint; CheckSite: an argument of an 陣列 parameter that is not an array
+        // (the callee's generic body raises the annotation error at its entry).
+        const int ErrorSite = 0, CheckpointSite = 1, CallSite = 2, InlineSite = 3, CheckSite = 4;
         void ToHandler(int kind, int block, int[] operands, int message) {
             sites.Add((kind, block, operands, message)); I(w, sites.Count - 1); Set(w, site);
             Op(Br); U(w, Label(c => c.End == int.MaxValue) + 1); // Every site sits in one if.
         }
         void Fail(int message) => ToHandler(ErrorSite, 0, Array.Empty<int>(), message);
 
+        // An element of an array of any values (operand k) as the generic value it is.
+        void StoreAny(int offset, int k) {
+            Get(w, frame); Get(w, StackCount(k)); Memory(w, I32Store, 2, offset + ValueTag);
+            Get(w, frame); Get(w, StackI(k)); Memory(w, I32Store, 2, offset + ValueRef);
+            Get(w, frame); Get(w, StackF(k)); Memory(w, F64Store, 3, offset + ValueNumber);
+        }
         // Deoptimization: a generic frame resuming at block of pc with the given operands, declared slots written.
         void StoreValue(int offset, int type, Action payload) {
-            if (IsArray(type)) {
+            if (IsRef(type)) {
                 Get(w, frame); I(w, ArrayTag); Memory(w, I32Store, 2, offset + ValueTag);
                 Get(w, frame); payload(); Memory(w, I32Store, 2, offset + ValueRef);
                 Get(w, frame); F(w, 0); Memory(w, F64Store, 3, offset + ValueNumber);
@@ -771,7 +796,8 @@ internal sealed class WasmNativeFunction
                         int pointer = PointerOf(name);
                         for (int o = 0; o <= 8; o += 8) { Get(w, frame); Get(w, pointer); Memory(w, I64Load, 3, o); Memory(w, I64Store, 3, offset + o); }
                     }
-                } else if (Value(type)) StoreValue(offset, type, () => { PushStack(type, k); if (!IsArray(type)) AsPayload(type); });
+                } else if (type == AnyValueType) StoreAny(offset, k);
+                else if (Value(type)) StoreValue(offset, type, () => { PushStack(type, k); if (!IsRef(type)) AsPayload(type); });
                 else StoreValue(offset, type, () => F(w, 0));
             }
         }
@@ -844,7 +870,7 @@ internal sealed class WasmNativeFunction
             for (int k = 0; k < Pointers.Length; k++) {
                 int pointer = pointerBase + k, tag = OwnPointers[Pointers[k]].Tag;
                 Lookup(Pointers[k], pointer);
-                Unless(() => { Get(w, pointer); Memory(w, I32Load, 2, ValueTag); I(w, IsArray(tag) ? ArrayTag : tag); Op(0x46); });
+                Unless(() => { Get(w, pointer); Memory(w, I32Load, 2, ValueTag); I(w, IsRef(tag) ? ArrayTag : tag); Op(0x46); });
                 if (IsArray(tag)) Unless(() => { Get(w, pointer); Memory(w, I32Load, 2, ValueRef); Memory(w, I32Load, 2, ArrayElement); I(w, tag & 15); Op(0x46); });
             }
             foreach (var (name, id) in Guards) {
@@ -859,14 +885,14 @@ internal sealed class WasmNativeFunction
                 Get(w, tempI); I(w, -1); Op(0x47); Set(w, Flag(s));
                 Unless(() => {
                     Get(w, Flag(s)); Op(0x45);
-                    Get(w, tempI); I(w, IsArray(type) ? ArrayTag : type); Op(0x46);
+                    Get(w, tempI); I(w, IsRef(type) ? ArrayTag : type); Op(0x46);
                     if (IsArray(type)) { Get(w, frame); Memory(w, I32Load, 2, offset + ValueRef); Memory(w, I32Load, 2, ArrayElement); I(w, type & 15); Op(0x46, 0x71); }
                     Op(0x72);
                 });
                 LoadPayload(() => Get(w, frame), offset, type);
-                if (IsArray(type)) { I(w, 0); Get(w, Flag(s)); Op(0x1b); }
+                if (IsRef(type)) { I(w, 0); Get(w, Flag(s)); Op(0x1b); }
                 SetLocal(type, SlotI(s), SlotF(s));
-                if (IsArray(type)) Describe(SlotI(s), SlotCount(s));
+                if (IsRef(type)) Describe(SlotI(s), SlotCount(s));
             }
             Get(w, siteParameter); Set(w, resumeAt);
         } else if (resume) {
@@ -877,19 +903,26 @@ internal sealed class WasmNativeFunction
                 if (type == Unknown) { I(w, 0); Set(w, Flag(s)); continue; }
                 Get(w, frameParameter); Memory(w, I32Load, 2, FrameValues + ValueSize * s + ValueTag); I(w, -1); Op(0x47); Set(w, Flag(s));
                 LoadPayload(() => Get(w, frameParameter), FrameValues + ValueSize * s, type);
-                if (IsArray(type)) { I(w, 0); Get(w, Flag(s)); Op(0x1b); }
+                if (IsRef(type)) { I(w, 0); Get(w, Flag(s)); Op(0x1b); }
                 SetLocal(type, SlotI(s), SlotF(s));
-                if (IsArray(type)) Describe(SlotI(s), SlotCount(s));
+                if (IsRef(type)) Describe(SlotI(s), SlotCount(s));
             }
             foreach (int target in targets) {
                 var operands = states[target];
-                if (!operands.Any(Value)) continue;
+                if (!operands.Any(t => Value(t) || t == AnyValueType)) continue;
                 Get(w, siteParameter); I(w, SiteOf(target)); Op(0x46, If, 0x40);
                 for (int k = 0; k < operands.Length; k++) {
+                    if (operands[k] == AnyValueType) {
+                        int offset = FrameValues + ValueSize * (plan.Locals + k);
+                        Get(w, frameParameter); Memory(w, I32Load, 2, offset + ValueTag); Set(w, StackCount(k));
+                        Get(w, frameParameter); Memory(w, I32Load, 2, offset + ValueRef); Set(w, StackI(k));
+                        Get(w, frameParameter); Memory(w, F64Load, 3, offset + ValueNumber); Set(w, StackF(k));
+                        continue;
+                    }
                     if (!Value(operands[k])) continue;
                     LoadPayload(() => Get(w, frameParameter), FrameValues + ValueSize * (plan.Locals + k), operands[k]);
                     PopStack(operands[k], k);
-                    if (IsArray(operands[k])) Describe(StackI(k), StackCount(k));
+                    if (IsRef(operands[k])) Describe(StackI(k), StackCount(k));
                 }
                 Op(End);
             }
@@ -898,7 +931,7 @@ internal sealed class WasmNativeFunction
             for (int s = 0; s < slots; s++) { I(w, s < Signature.Parameters.Length ? 1 : 0); Set(w, Flag(s)); }
             for (int p = 0; p < Signature.Parameters.Length; p++) {
                 Get(w, argumentBase + p); SetLocal(slotTypes[p], SlotI(p), SlotF(p));
-                if (IsArray(slotTypes[p])) Describe(SlotI(p), SlotCount(p));
+                if (IsRef(slotTypes[p])) Describe(SlotI(p), SlotCount(p));
             }
         }
         Op(Block, 0x40);
@@ -1029,6 +1062,33 @@ internal sealed class WasmNativeFunction
                     else { Get(w, StackF(top)); Op(0x9a); Set(w, StackF(top)); }
                     break;
                 case IrOperation.Not: Get(w, StackI(top)); Op(0x45); Set(w, StackI(top)); break;
+                case IrOperation.Index when TopType(2) == AnyArrayType: {
+                    // An array of any values reads like the generic code: an element, or null outside the array.
+                    Get(w, StackI(top)); Get(w, StackCount(below)); Op(0x49, If, 0x40);
+                    Get(w, StackCount(below) + 1); Get(w, StackI(top)); I(w, 4); Op(0x74, 0x6a); Set(w, tempI);
+                    Get(w, tempI); Memory(w, I32Load, 2, ValueTag); Set(w, StackCount(below));
+                    Get(w, tempI); Memory(w, F64Load, 3, ValueNumber); Set(w, StackF(below));
+                    Get(w, tempI); Memory(w, I32Load, 2, ValueRef); Set(w, StackI(below));
+                    Op(Else); I(w, NullTag); Set(w, StackCount(below)); I(w, 0); Set(w, StackI(below)); F(w, 0); Set(w, StackF(below));
+                    Op(End); break;
+                }
+                case IrOperation.Array: {
+                    // rt_nativeArray allocates; every element is written before anything can collect (native code
+                    // never runs a collection, and a deoptimization materializes the array's reference first).
+                    int at = depth - operand;
+                    I(w, operand); Op(Call); U(w, runtime["rt_nativeArray"]); Set(w, tempI);
+                    Get(w, tempI); Memory(w, I32Load, 2, ArrayValues); Set(w, tempJ);
+                    for (int k = 0; k < operand; k++) {
+                        int type = stack[at + k], offset = ValueSize * k;
+                        Get(w, tempJ); if (type == AnyValueType) Get(w, StackCount(at + k)); else I(w, IsRef(type) ? ArrayTag : type); Memory(w, I32Store, 2, offset + ValueTag);
+                        Get(w, tempJ); if (type == AnyValueType || IsRef(type)) Get(w, StackI(at + k)); else I(w, 0); Memory(w, I32Store, 2, offset + ValueRef);
+                        Get(w, tempJ);
+                        if (type == AnyValueType) Get(w, StackF(at + k)); else if (IsRef(type)) F(w, 0); else { PushStack(type, at + k); AsPayload(type); }
+                        Memory(w, F64Store, 3, offset + ValueNumber);
+                    }
+                    Get(w, tempI); Set(w, StackI(at)); Describe(StackI(at), StackCount(at));
+                    break;
+                }
                 case IrOperation.Index: {
                     // Typed reads are checked: an index outside the array is an error, not null.
                     Get(w, StackI(top)); Get(w, StackCount(below)); Op(0x49, 0x45, If, 0x40); Fail(2); Op(End);
@@ -1084,7 +1144,13 @@ internal sealed class WasmNativeFunction
                     }
                     string name = callNames[callee - CallableBase];
                     var (function, target) = natives[OwnPointers.TryGetValue(name, out var own) ? own.Callee : Body];
-                    if (inlined.Contains(target)) {
+                    // An element of an array of any values passed to an 陣列 parameter must be an array.
+                    for (int a = 0; a < count; a++)
+                        if (stack[at + 1 + a] == AnyValueType) {
+                            Get(w, StackCount(at + 1 + a)); I(w, ArrayTag); Op(0x47, If, 0x40);
+                            ToHandler(CheckSite, BlockOf(pc + 1), stack.Take(at).ToArray(), pc); Op(End);
+                        }
+                    if (inlined.Contains(target) && !stack.Skip(at + 1).Contains(AnyValueType)) {
                         // The callee's entry checkpoint: where it would deoptimize, the handler builds both generic
                         // frames instead (so the loop around an inlined call holds no call that clobbers registers).
                         Get(w, depthParameter); I(w, 1); Op(0x6a); I(w, target.DepthLimit); Op(0x4f);
@@ -1098,14 +1164,15 @@ internal sealed class WasmNativeFunction
                     foreach (string pointer in target.Pointers) Get(w, PointerOf(pointer));
                     for (int a = 0; a < count; a++) {
                         int from = stack[at + 1 + a], to = target.Signature.Parameters[a];
-                        if (from == to) PushStack(from, at + 1 + a);
+                        if (from == AnyValueType || IsRef(from)) Get(w, StackI(at + 1 + a));
+                        else if (from == to) PushStack(from, at + 1 + a);
                         else { AsDouble(from, at + 1 + a); if (to == FloatType) RoundFloat(); }
                     }
                     SaveOuter();
                     Op(Call); U(w, function); Set(w, budget); PopStack(target.Signature.Result, at);
                     if (target.WritesOuter) LoadOuter();
                     if (target.WritesArrays) RefreshValues(stack.Take(at).ToArray());
-                    if (IsArray(target.Signature.Result)) Describe(StackI(at), StackCount(at));
+                    if (IsRef(target.Signature.Result)) Describe(StackI(at), StackCount(at));
                     Get(w, budget); I(w, int.MinValue); Op(0x46, If, 0x40);
                     // A raised error (5) unwinds every native activation with the signal kept.
                     Op(0x23); U(w, signal); I(w, 5); Op(0x46, If, 0x40); Zero(); I(w, int.MinValue); Op(Return); Op(End);
@@ -1177,34 +1244,37 @@ internal sealed class WasmNativeFunction
             if (region) { RegionExit(block, message); continue; } // A loop head: the generic body continues there and yields.
             // A checkpoint consumed nothing yet; after a call the callee already stored the budget.
             if (kind == CheckpointSite) { SaveBudget(); SaveOuter(); }
-            if (kind == InlineSite) { SaveBudget(); SaveOuter(); InlineEntryFrame(message); message++; }
+            if (kind is InlineSite or CheckSite) { SaveBudget(); SaveOuter(); EntryFrame(message, kind == InlineSite); message++; }
             Materialize(block, message, operands);
             // A checkpoint's frame resumes natively at the same site when the scheduler runs it again.
             Get(w, frame); I(w, SiteOf(message)); Memory(w, I32Store, 2, FrameNativeSite);
-            if (kind is CallSite or InlineSite) { Op(0x23); U(w, signal); Get(w, frame); Memory(w, I32Store, 2, FrameParent); }
+            if (kind is CallSite or InlineSite or CheckSite) { Op(0x23); U(w, signal); Get(w, frame); Memory(w, I32Store, 2, FrameParent); }
             Raise(() => Get(w, frame));
         }
         Zero(); if (!region) I(w, int.MinValue);
         Op(End);
 
-        // The generic frame an inlined callee deoptimizing at its entry would have left (in the signal, like a
-        // callee's deoptimization): its arguments in its parameter slots, resuming natively at its entry.
-        void InlineEntryFrame(int pc) {
+        // The generic frame of a callee at its entry (in the signal, like a callee's deoptimization): its arguments in
+        // its parameter slots, resuming natively at its entry (an inlined callee's checkpoint) or running its generic
+        // body (an argument its native code cannot take).
+        void EntryFrame(int pc, bool native) {
             var stack = states[pc]; int count = code[pc].Operand, at = stack.Length - count - 1;
             string name = callNames[stack[at] - CallableBase];
-            var callee = natives[OwnPointers[name].Callee].Native;
-            Execution(); Get(w, PointerOf(name)); Memory(w, I32Load, 2, ValueRef); I(w, 0); I(w, 0);
+            bool own = !OwnPointers.ContainsKey(name);
+            var callee = natives[own ? Body : OwnPointers[name].Callee].Native;
+            Execution(); if (own) Get(w, selfParameter); else { Get(w, PointerOf(name)); Memory(w, I32Load, 2, ValueRef); } I(w, 0); I(w, 0);
             Op(Call); U(w, runtime["rt_nativeFrame"]); Set(w, frame);
             for (int a = 0; a < count; a++) {
                 int from = stack[at + 1 + a], to = callee.Signature.Parameters[a];
+                if (from == AnyValueType) { StoreAny(FrameValues + ValueSize * a, at + 1 + a); continue; }
                 StoreValue(FrameValues + ValueSize * a, to, () => {
                     PushStack(from, at + 1 + a);
-                    if (IsArray(to)) return;
+                    if (IsRef(to)) return;
                     if (from != to) { if (!Wide(from)) Op(0xb7); if (to == FloatType) RoundFloat(); }
                     else AsPayload(to);
                 });
             }
-            Get(w, frame); I(w, 1); Memory(w, I32Store, 2, FrameNativeSite);
+            Get(w, frame); I(w, native ? 1 : 0); Memory(w, I32Store, 2, FrameNativeSite);
             Get(w, frame); Op(0x24); U(w, signal);
         }
         void ClearScope(int scope, int keep) { foreach (int slot in cur.plan.Scopes[scope].SlotList) if (slot != keep) { I(w, 0); Set(w, Flag(slot)); } }

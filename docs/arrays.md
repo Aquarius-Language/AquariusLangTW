@@ -110,3 +110,12 @@ functions read and write typed arrays natively (see [execution tiers](execution-
 
 標註 `整數[]`、`浮點數[]`、`雙精度[]`、`布林[]` 會檢查每個元素的型別，之後該陣列（含所有別名）只能寫入相同型別；
 型別陣列越界讀寫會回報錯誤，不再回傳 `null`。
+
+`陣列` / `array` (no brackets) annotates an array whose elements may be any values, such as a tree of nested arrays:
+`變數 樹: 陣列 = [[0, 0], [0, 0]];`. It checks only that the value is an array and fixes nothing; every typed array is
+one, and an `陣列` value given to a typed-array annotation is checked when the program runs. It reads like an untyped
+array (`null` outside its range). Fully typed functions with `陣列` parameters or results run natively: they build array
+literals natively and pass elements on to `陣列` parameters after checking that each is an array.
+
+`陣列`（不加中括號）標註元素可為任何值的陣列（例如巢狀陣列組成的樹），只檢查值是陣列；越界讀取回傳 `null`。
+參數與回傳值都有標註的函式即使使用 `陣列` 也能以原生層執行。

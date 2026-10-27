@@ -559,18 +559,20 @@ int rt_nativeFailure(Execution*e,int code) {
         "Array index is out of bounds / 陣列索引超出範圍。","Array assignment index is out of bounds."};
     e->result=value(ERROR,address(ascii(messages[code])),0);e->status=3;return 5;
 }
+/* An array literal built by native code (an array of any values): it writes every element before anything can collect. */
+int rt_nativeArray(int n){return (int)address(array((u32)n));}
 int rt_array(Frame*f,int n){Array*a=array(n);for(int i=n-1;i>=0;i--)a->values[i]=pop(f);push(f,value(ARRAY,address(a),0));return 0;}
 /* An annotation check on the top operand: n = (subject constant << 5) | type code (element tag, +16 for arrays).
    Integers widen to float or double and floats to double; any other mismatch is a language error. */
 int rt_checkType(Frame*f,int n){
     static const char *const names[]={"","int","float","double","bool","string"};
     if(!f->sp)return 0;Value*v=f->values+f->sp-1;u32 code=(u32)n&31u,want=code&15u;
-    if(code&16u){if(v->tag==ARRAY){Array*a=pointer(v->ref);if(a->element==want)return 0;
+    if(code&16u){if(v->tag==ARRAY){Array*a=pointer(v->ref);if(!want||a->element==want)return 0; /* 陣列 / array: any array */
         u32 i=0;if(!a->element)while(i<a->count&&a->values[i].tag==want)i++;if(!a->element&&i==a->count){a->element=want;return 0;}}}
     else if(v->tag==want)return 0;
     else if(numeric(*v)&&want>=FLOAT&&want<=DOUBLE&&v->tag<want){*v=number(v->number,want);return 0;}
     Text*t=concat(ascii("型別不符 / Type mismatch: "),pointer(constant(f,(u32)n>>5).ref));
-    t=concat(t,ascii(" expects "));t=concat(t,ascii(names[want]));if(code&16u)t=concat(t,ascii("[]"));
+    t=concat(t,ascii(" expects "));t=concat(t,ascii(code==16u?"array":names[want]));if(code&16u&&want)t=concat(t,ascii("[]"));
     t=concat(t,ascii(", got "));fail(f,concat(t,ascii(type_name(v->tag))));return 0;
 }
 int rt_checkHashKey(Frame*f,int n){Value v=peek(f,1);if(!numeric(v)&&v.tag!=STRING&&v.tag!=BOOL)named_failure(f,"Unusable as hash key: ",ascii(type_name(v.tag)));return 0;}

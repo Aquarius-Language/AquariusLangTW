@@ -717,15 +717,23 @@ namespace AquariusLang.parser {
         }
 
         /// <summary>
-        /// Optional type annotation after a declared name, a parameter or a parameter list: <c>: 整數</c>, <c>: double[]</c>.
+        /// Optional type annotation after a declared name, a parameter or a parameter list: <c>: 整數</c>, <c>: double[]</c>,
+        /// <c>: 陣列</c> (an array of any values).
         /// Called with the colon as the peek token; leaves the last token of the type current.
         /// </summary>
         private TypeAnnotation parseTypeAnnotation() {
             nextToken();
             if (!expectPeek(TokenType.IDENT)) return null;
             Token name = currToken;
+            if (TypeAnnotation.IsArrayName(name.Literal)) {
+                if (peekTokenIs(TokenType.LBRACKET)) {
+                    addError("陣列 已是陣列型別，元素可為任何值 / array is already an array type whose elements may be any values.", name);
+                    return null;
+                }
+                return new TypeAnnotation(name, 0, true);
+            }
             if (!TypeAnnotation.TryParseName(name.Literal, out ScalarType element)) {
-                addError($"未知的型別 {name.Literal}（可用：整數、浮點數、雙精度、布林、字串）/ Unknown type {name.Literal} (use int, float, double, bool or string).", name);
+                addError($"未知的型別 {name.Literal}（可用：整數、浮點數、雙精度、布林、字串、陣列）/ Unknown type {name.Literal} (use int, float, double, bool, string or array).", name);
                 return null;
             }
             bool array = false;

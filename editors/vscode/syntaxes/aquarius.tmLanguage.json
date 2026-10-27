@@ -6,7 +6,7 @@
     { "name": "comment.line.number-sign.aquarius", "match": "#.*$" },
     { "name": "string.quoted.double.aquarius", "begin": "\"", "end": "\"" },
     { "name": "keyword.control.aquarius", "match": "(?<![\\p{L}\\p{N}\\p{M}_])(否則如果|變數|函式|如果|否則|回傳|迴圈|中斷|var|function|if|elif|else|return|for|break)(?![\\p{L}\\p{N}\\p{M}_])" },
-    { "match": "(:)\\s*(整數|浮點數|雙精度|布林|字串|int|float|double|bool|string)(\\[\\])?(?![\\p{L}\\p{N}\\p{M}_])", "captures": { "2": { "name": "storage.type.aquarius" } } },
+    { "match": "(:)\\s*(整數|浮點數|雙精度|布林|字串|陣列|int|float|double|bool|string|array)(\\[\\])?(?![\\p{L}\\p{N}\\p{M}_])", "captures": { "2": { "name": "storage.type.aquarius" } } },
     { "name": "constant.language.boolean.aquarius", "match": "(?<![\\p{L}\\p{N}\\p{M}_])(真|假|true|false)(?![\\p{L}\\p{N}\\p{M}_])" },
     { "name": "support.function.aquarius", "match": "(?<![\\p{L}\\p{N}\\p{M}_])(長度|最後一個|其餘|加入|印出|匯入|是Windows|是Linux|是MacOS|執行檔案|len|last|rest|push|print|import|isOSWindows|isOSLinux|isOSMacOS|execFile)(?![\\p{L}\\p{N}\\p{M}_])" },
     { "name": "support.variable.aquarius", "match": "(?<![\\p{L}\\p{N}\\p{M}_])(目前工作目錄|currWorkingDir)(?![\\p{L}\\p{N}\\p{M}_])" },

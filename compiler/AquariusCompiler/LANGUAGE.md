@@ -91,7 +91,10 @@ Default value inspection still prints booleans as `真` / `假` and null as `nul
   assignment into an integer variable) truncates toward zero and saturates at the integer range; NaN gives 0.
   Float results are rounded to 32 bits after each operation.
 - Optional annotations (`name: type` on declarations, parameters and after a parameter list) fix a binding's type:
-  `整數`/`int`, `浮點數`/`float`, `雙精度`/`double`, `布林`/`bool`, `字串`/`string` and arrays such as `整數[]`.
+  `整數`/`int`, `浮點數`/`float`, `雙精度`/`double`, `布林`/`bool`, `字串`/`string`, arrays such as `整數[]`, and
+  `陣列`/`array`, an array whose elements may be any values (arrays of arrays, mixed elements; every typed array is
+  one, and an `陣列` value passed to `整數[]` is checked when the program runs). Reading an `陣列` outside its range gives
+  `null` like an untyped array; a typed array's out-of-range read is an error.
   Type names are recognized only after `:`. `TypeChecker` proves each write, rejects a definite mismatch at compile
   time, or lowers a `CheckType` (rt_checkType) where the value comes from untyped code; integers widen to float
   and double, floats to double, and narrowing needs `整數(x)`, `浮點數(x)` or `雙精度(x)`. Typed parameters are

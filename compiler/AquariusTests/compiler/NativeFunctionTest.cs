@@ -42,6 +42,13 @@ public class NativeFunctionTest
         "var div = function(a: int, b: int): int { return a / b; }; var run = function(n: int): int { var t: int = 0; for (var i: int = 5; i > n; i -= 1) { t += div(100, i); } return t; }; run(-3);",
         "var inc = function(k: int): int { return k + 1; }; var down = function(d: int): int { if (d == 0) { return 0; } return inc(down(d - 1)); }; down(20000);",
         "var even = function(k: int): bool { return k % 2 == 0; }; var at = function(a: int[], i: int): int { return a[i]; }; var count = function(a: int[]): int { var c: int = 0; for (var i: int = 0; i < len(a); i++) { if (even(at(a, i))) { c += at(a, i); } } return c; }; count([3, 4, 5, 6, 8]);",
+        // Arrays of any values (陣列 / array): native literals of mixed elements, reads of any element (null outside the
+        // array), elements passed on to array parameters, typed arrays passed as arrays, and deep recursion.
+        "var build = function(d: int): array { if (d == 0) { return [0, 0]; } return [build(d - 1), build(d - 1)]; }; var check = function(t: array, d: int): int { if (d == 0) { return 1; } return 1 + check(t[0], d - 1) + check(t[1], d - 1); }; check(build(12), 12);",
+        "var mixed = function(k: int): array { return [k, k * 1.5d, k > 2, [k]]; }; var count = function(a: array): int { return len(a); }; [mixed(3), count(mixed(1)), count([1, 2, 3])];",
+        "var first = function(t: array): int { return len(t); }; var nested = function(t: array): int { return first(t[0]) + first(t[1]); }; nested([[1, 2], [3]]);",
+        "var down = function(d: int): array { if (d == 0) { return []; } return [down(d - 1)]; }; var depth = function(t: array, d: int): int { if (len(t) == 0) { return d; } return depth(t[0], d + 1); }; depth(down(20000), 0);",
+        "var pick = function(t: array, i: int): array { return [t[i]]; }; [pick([1, [2]], 1), pick([1], 5)];",
         // Array companions: copy-on-write of shared storage inside a loop and inside a callee, seen through aliases.
         "var touch = function(a: int[], b: int[], n: int): int { var s: int = 0; for (var i: int = 0; i < n; i++) { a[0] = a[0] + i; s += a[0] + b[0] + len(b); } return s; }; var a: int[] = [1, 2, 3]; var b: int[] = push(a, 4); [touch(a, b, 5), a, b];",
         "var poke = function(a: int[]): int { a[1] = a[1] + 10; return 0; }; var loop = function(a: int[]): int { var s: int = 0; for (var i: int = 0; i < 4; i++) { poke(a); s += a[1]; } return s; }; var a: int[] = [1, 2, 3]; var b: int[] = push(a, 9); [loop(a), a, b];",
@@ -82,14 +89,14 @@ public class NativeFunctionTest
         try { foreach (string program in Programs) new WasmCompiler().Compile(program); }
         finally { WasmCompiler.TierDiagnostics = previous; }
         Assert.DoesNotContain(reasons, r => r.Contains("native: rejected"));
-        int typedFunctions = Programs.Sum(p => System.Text.RegularExpressions.Regex.Matches(p, @"\):\s*(int|double|float|bool)\s*\{").Count);
+        int typedFunctions = Programs.Sum(p => System.Text.RegularExpressions.Regex.Matches(p, @"\):\s*(int|double|float|bool|array)\s*\{").Count);
         Assert.Equal(typedFunctions, reasons.Count(r => r.EndsWith("native: accepted")));
     }
 
     [RuntimeFact]
     public void TypedResultsEqualUntypedResults()
     {
-        string[] untyped = Programs.Select(p => System.Text.RegularExpressions.Regex.Replace(p, @":\s*(int|double|float|bool)\b(\[\])?", "")).ToArray();
+        string[] untyped = Programs.Select(p => System.Text.RegularExpressions.Regex.Replace(p, @":\s*(int|double|float|bool|array)\b(\[\])?", "")).ToArray();
         // Untyped integer division of a double by an int literal stays a double, so the programs mean the same.
         var typed = WasmTestHost.EvalMany(Programs);
         var plain = WasmTestHost.EvalMany(untyped);
@@ -128,6 +135,9 @@ public class NativeFunctionTest
             "var g = function(a: int, b: int): int { var t: int = 0; for (var i: int = 0; i < 10; i++) { t += a / (b - i); } return t; }; g(100, 5);",
             "var f = function(n: int): int { return n * 2; }; var h = function(v) { v; }; f(h(2.5d));",
             "var limit: int = 3; var f = function(): int { return limit; }; limit = 9; f();",
+            // An element passed to an array parameter must be an array: the callee's annotation check reports it.
+            "var first = function(t: array): int { return len(t); }; var at = function(t: array, i: int): int { return first(t[i]); }; at([1, 2], 0);",
+            "var first = function(t: array): int { return len(t); }; var at = function(t: array, i: int): int { return first(t[i]); }; at([[1]], 3);",
             // An inlined callee raises its error from the caller's activation.
             "var at = function(a: int[], i: int): int { return a[i]; }; var read = function(a: int[]): int { return at(a, 9); }; read([1, 2]);",
         ]);
@@ -136,6 +146,8 @@ public class NativeFunctionTest
         Assert.Contains("Integer division by zero", results[2].Message);
         Assert.Contains("n expects int, got DOUBLE", results[3].Message);
         Assert.Equal(9, results[4].Integer);
-        Assert.Contains("Array index is out of bounds", results[5].Message);
+        Assert.Contains("t expects array, got INTEGER", results[5].Message);
+        Assert.Contains("t expects array, got NULL", results[6].Message);
+        Assert.Contains("Array index is out of bounds", results[7].Message);
     }
 }

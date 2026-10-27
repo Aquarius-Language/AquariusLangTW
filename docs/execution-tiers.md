@@ -101,7 +101,10 @@ fast entry for functions that keep failing.
 ## Native tier for fully typed functions
 
 A function literal whose parameters and result are all annotated (`函式(n: 整數): 整數 { ... }`) gets the native tier
-(`WasmNativeFunction`) when its body only uses typed numbers and Booleans, typed arrays, the conversions `整數()`,
+(`WasmNativeFunction`) when its body only uses typed numbers and Booleans, typed arrays, arrays of any values (`陣列` /
+`array`: their literals are built natively through `rt_nativeArray`, an element read is a whole generic value that may be
+passed to an `陣列` parameter after a tag check, and a non-array leaves the call to the callee's generic body, which
+reports the annotation error), the conversions `整數()`,
 `浮點數()`, `雙精度()` and `長度()`, typed bindings of the scope that declares it, and calls to other such functions of
 that scope. The promoted generic body's frame slots become typed Wasm locals; integer, float and double operations
 follow the generic runtime exactly; loops become Wasm loops; sibling calls are direct Wasm calls passing the outer
