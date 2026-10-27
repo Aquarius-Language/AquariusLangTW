@@ -30,6 +30,9 @@ calls, with guarded fallback for types, effects, fuel and recursion depth. Lexic
 ancestor slots avoid name lookup while intervening scopes remain uncaptured. These
 optimizations preserve the language behavior below; see
 [portable numeric compilation](../../docs/portable-numeric-architecture.md).
+Fully typed functions and loops over typed bindings compile to native Wasm (typed locals, direct calls, unboxed
+typed array access) with the same results, errors and yield points; see
+[execution tiers](../../docs/execution-tiers.md#native-tier-for-fully-typed-functions).
 
 ## Bilingual syntax
 
