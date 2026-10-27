@@ -17,12 +17,12 @@ The correction is confined to `runtime/platform/desktop/main.c`: decode the boun
 
 ## Tested compiler and environments
 
-- Compiler: `C:\OfficialProjects\AquariusLangTW\dist\aqua\aqua.exe`, built from base revision `253e3181eb46a3229d572286ae9dd4464c908068` plus the uncommitted review changes. Executable SHA-256: `0080470A879A2C6E0906E5D92F5E702A9AD9B12E9FD127378ED43B378EDF8439`.
+- Compiler: the repository's `dist/aqua/aqua.exe`, built from base revision `253e3181eb46a3229d572286ae9dd4464c908068` plus the uncommitted review changes. Executable SHA-256: `0080470A879A2C6E0906E5D92F5E702A9AD9B12E9FD127378ED43B378EDF8439`.
 - The existing PATH release location now resolves through a task-created junction to `dist/aqua`; `aqua --help` and real project builds use the current executable. No registry PATH change was made.
 - Native toolchains: pinned LLVM Clang 23.1.3, MinGW on Windows, Linux Clang/libc++, pinned Android NDK, and WASI. No authored library was converted to MSVC or a JavaScript implementation.
 - Runtime packs rebuilt: Windows x64, Linux x64, web, Android x86_64, Android arm64-v8a.
 - Execution: Windows x64, Ubuntu 22.04 through WSL, installed Chromium/Chrome with WebGPU/WebGL, and the isolated API 37 x86_64 `AquariusReview` emulator. Filament's browser renderer was Intel Iris Xe through ANGLE/D3D11.
-- APK export used the installed pinned JDK via `JAVA_HOME=C:\OfficialProjects\AquariusLangTW\.native-build\toolchains\jdk-21.0.12.1+1-windows-x64`. Bottle tests used isolated caches; changed local dependencies were explicitly updated offline. Global Bottle snapshots were not edited.
+- APK export used the installed pinned JDK via `JAVA_HOME` set to the repository's `.native-build/toolchains/jdk-21.0.12.1+1-windows-x64`. Bottle tests used isolated caches; changed local dependencies were explicitly updated offline. Global Bottle snapshots were not edited.
 
 ## Project results
 
@@ -85,7 +85,7 @@ Regression results for the published build:
 
 ## Evidence, preservation and remaining limits
 
-Raw logs, isolated project copies/caches and SHA-verified original-file backups are retained under `C:\OfficialProjects\AquariusLangTW\.aqua\project-review\`. This directory is ignored by Git; preserve it when retaining the audit evidence. Selected final logs:
+Raw logs, isolated project copies/caches and SHA-verified original-file backups are retained under the repository's `.aqua/project-review/`. This directory is ignored by Git; preserve it when retaining the audit evidence. Selected final logs:
 
 - `compiler-tests-published-final.log`, `linux-sdk-exceptions-final2.log`, `default-library-tests-final.log`, `webgl-final-test.log`, `publish-final.log`.
 - `filament-published-browser-final.log`, `filament-final-linux-tests4.log`, `filament-root-smoke-web-root-final.log` and the `filament-published-captures` directory.
