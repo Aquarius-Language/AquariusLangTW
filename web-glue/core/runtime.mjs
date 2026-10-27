@@ -68,6 +68,9 @@ export async function startApplication(options) {
     const app = await WebAssembly.instantiate(program, { aquarius_v2: { service: (a, b, c, d, e, f, g) => service(a, b, c, d, e, f, g) } });
     context.memory = app.exports.memory;
     const glue = glueImports(context);
+    // The guest runtime's heap must exist before anything reserves memory from it: the linker reserves the host's stack
+    // and libc's arena as it is constructed, which an uninitialized heap would later allocate over.
+    app.exports.aqua_initialize(heapStartOf(program, programBytes));
     const linker = new Linker({
         memory: app.exports.memory,
         reserve: (bytes, align) => {
@@ -78,8 +81,6 @@ export async function startApplication(options) {
         fetchModule: async (name) => WebAssembly.compile(await fetchBytes(new URL(name.endsWith('.so') || name.endsWith('.wasm') ? name : name + '.wasm', base))),
     });
     context.linker = linker;
-    // The guest runtime's heap must exist before modules reserve memory from it.
-    app.exports.aqua_initialize(heapStartOf(program, programBytes));
     const host = (await linker.load('aquarius.wasm')).exports;
     service = host.aqua_web_service;
     const [modulePointer] = context.allocate(programBytes);
