@@ -154,7 +154,17 @@ u32 aqua_collection_due(void) { return (u32)collection_due(); }
 u32 aqua_collection_generation(void) { return collection_generation; }
 u32 aqua_value(void) { return address(allocate(sizeof(Value),RAW)); }
 u32 aqua_text(u32 length) { Text *t=allocate(sizeof(Text)+length*2,TEXT);t->length=length;return address(t); }
-static Text *ascii(const char *s) { u32 n=0;while(s[n])n++;Text*t=pointer(aqua_text(n));for(u32 i=0;i<n;i++)t->data[i]=(unsigned char)s[i];return t; }
+/* Runtime messages are UTF-8 C strings (some are bilingual); texts are UTF-16. */
+static Text *ascii(const char *s) {
+    const unsigned char*u=(const unsigned char*)s;u32 n=0;
+    for(u32 i=0;u[i];i++)if((u[i]&0xC0)!=0x80)n+=u[i]>=0xF0?2:1;
+    Text*t=pointer(aqua_text(n));u32 o=0;
+    for(u32 i=0;u[i];){u32 c=u[i++];
+        if(c>=0xF0){c=(c&7)<<18|(u[i]&63)<<12|(u[i+1]&63)<<6|(u[i+2]&63);i+=3;c-=0x10000;t->data[o++]=(uint16_t)(0xD800|c>>10);t->data[o++]=(uint16_t)(0xDC00|(c&1023));continue;}
+        if(c>=0xE0){c=(c&15)<<12|(u[i]&63)<<6|(u[i+1]&63);i+=2;}else if(c>=0xC0){c=(c&31)<<6|(u[i]&63);i++;}
+        t->data[o++]=(uint16_t)c;}
+    return t;
+}
 static Text *concat(Text *a,Text *b) { Text*t=pointer(aqua_text(a->length+b->length));memcpy(t->data,a->data,a->length*2);memcpy(t->data+a->length,b->data,b->length*2);return t; }
 static int text_equal(Text *a,Text*b) { if(a==b)return 1;if(!a||!b||a->length!=b->length)return 0;for(u32 i=0;i<a->length;i++)if(a->data[i]!=b->data[i])return 0;return 1; }
 static const char *type_name(u32 tag) { static const char *names[]={"NULL","INTEGER","FLOAT","DOUBLE","BOOLEAN","STRING","ARRAY","HASH","FUNCTION","MODULE","NATIVE","NULL","BREAK_OBJ","ERROR"};return tag<=ERROR?names[tag]:"UNKNOWN"; }
@@ -191,17 +201,33 @@ static Value pop(Frame*f) { if(!f->sp){failure(f,"Invalid compiled operand stack
 static void push(Frame*f,Value v) { if(v.tag==ERROR){f->execution->result=v;f->execution->status=3;return;}if(f->sp>=f->capacity){failure(f,"Compiled operand stack capacity exceeded.");return;}f->values[f->sp++]=v; }
 static Value peek(Frame*f,u32 depth) { return f->sp>=depth?f->values[f->sp-depth]:empty; }
 static int numeric(Value v) { return v.tag>=INT&&v.tag<=DOUBLE; }
-static Value number(double n,u32 tag) { if(tag==INT)n=n>=-2147483648.0&&n<2147483648.0?(double)(int32_t)n:-2147483648.0;else if(tag==FLOAT)n=(double)(float)n;return value(tag,0,n); }
+/* Integer rules, identical on every target: integer + - * and negation wrap around (two's complement, like i32.add);
+   integer / and % by zero are errors; converting a float or double to an integer truncates toward zero and saturates
+   to the integer range, NaN giving 0 (i32.trunc_sat_f64_s). */
+static double saturate_int(double n) { return n!=n?0:n<=-2147483648.0?-2147483648.0:n>=2147483647.0?2147483647.0:(double)(int32_t)n; }
+static Value number(double n,u32 tag) { if(tag==INT)n=saturate_int(n);else if(tag==FLOAT)n=(double)(float)n;return value(tag,0,n); }
+static Value integer(int64_t n) { return value(INT,0,(double)(int32_t)(uint32_t)(uint64_t)n); }
+static Value successor(Value v) { return v.tag==INT?integer((int64_t)v.number+1):number(v.number+1,v.tag); }
+/* Builtin ids of the conversions 整數(x)/int(x), 浮點數(x)/float(x), 雙精度(x)/double(x), in tag order. */
+#define CONVERT_FIRST_ID 46u
 static int equal(Value a,Value b,int typed) { if(numeric(a)&&numeric(b))return (!typed||a.tag==b.tag)&&(a.number==b.number||(typed&&a.number!=a.number&&b.number!=b.number));if(a.tag!=b.tag)return 0;if(a.tag==STRING)return text_equal(pointer(a.ref),pointer(b.ref));if(a.tag==BOOL)return a.number==b.number;return a.ref==b.ref; }
 static Value binary(Frame*f,int op,Value a,Value b,int compound) {
     static const char *symbols[]={"+","-","*","/","<",">","<=",">=","==","!=","&&","||","%"};
+    if(a.tag==INT&&b.tag==INT&&(op<=3||op==12)){
+        int32_t x=(int32_t)a.number,y=(int32_t)b.number;
+        if(op==0)return integer((int64_t)x+y);
+        if(op==1)return integer((int64_t)x-y);
+        if(op==2)return integer((int64_t)x*y);
+        if(!y){failure(f,op==3?"Integer division by zero / 整數不能除以零。":"Integer remainder by zero / 整數不能對零取餘數。");return empty;}
+        if(y==-1)return integer(op==3?-(int64_t)x:0);
+        return integer(op==3?x/y:x%y);
+    }
     if(numeric(a)&&numeric(b)){
         u32 tag=compound?a.tag:a.tag>b.tag?a.tag:b.tag;double x=a.number,y=b.number;
         switch(op){case 0:return number(x+y,tag);case 1:return number(x-y,tag);case 2:return number(x*y,tag);case 3:return number(x/y,tag);case 4:return value(BOOL,0,x<y);case 5:return value(BOOL,0,x>y);case 6:return value(BOOL,0,x<=y);case 7:return value(BOOL,0,x>=y);case 8:return value(BOOL,0,x==y);case 9:return value(BOOL,0,x!=y);
         case 12:
             // Remainder truncates toward zero like division; integer remainder by zero is an error.
-            if(tag==INT){if(y==0){failure(f,"Integer remainder by zero / 整數不能對零取餘數。");return empty;}
-                if(a.tag==INT&&b.tag==INT)return number(y==-1?0:(double)((int32_t)x%(int32_t)y),INT);}
+            if(tag==INT&&y==0){failure(f,"Integer remainder by zero / 整數不能對零取餘數。");return empty;}
             return number(x-__builtin_trunc(x/y)*y,tag);}
     }
     if(op==8||op==9)return value(BOOL,0,equal(a,b,0)^(op==9));
@@ -320,7 +346,7 @@ u32 aqua_invoke(u32 closure,u32 arguments,u32 count) {
     if(count!=fn->arity){failure(e->current,"Incorrect callback argument count.");return address(e);}
     for(u32 i=0;i<count;i++)declare(e->current->scope,fn->parameters[i],a[i]);return address(e);
 }
-/* A Thread worker runs without the main program's host: it reaches the five builtins every host defines, Thread.Sleep
+/* A Thread worker runs without the main program's host: it reaches the builtins every host defines, Thread.Sleep
    and Thread.IsCancellationRequested; anything else is a language error. Every host's worker therefore implements
    only those two calls. */
 static int worker;
@@ -330,6 +356,8 @@ static int host_service(int operation, int context, int subject, int name, int a
     if(operation==0){
         static const uint16_t *const builtins[][2]={{u"len",u"長度"},{u"last",u"最後一個"},{u"rest",u"其餘"},{u"push",u"加入"},{u"floodFill",u"區域填色"}};
         for(u32 i=0;i<5;i++)if(text_is(pointer((u32)name),builtins[i][0])||text_is(pointer((u32)name),builtins[i][1])){*out=value(BUILTIN,i+1,0);return 0;}
+        static const uint16_t *const conversions[][2]={{u"int",u"整數"},{u"float",u"浮點數"},{u"double",u"雙精度"}};
+        for(u32 i=0;i<3;i++)if(text_is(pointer((u32)name),conversions[i][0])||text_is(pointer((u32)name),conversions[i][1])){*out=value(BUILTIN,CONVERT_FIRST_ID+i,0);return 0;}
         return 1; /* Identifier not found */
     }
     *out=value(ERROR,address(ascii("Worker cannot access host handles or start/wait for other threads.")),0);
@@ -400,11 +428,11 @@ int rt_assign(Frame*f,int n) { Value v=pop(f);pop(f);Binding*b=cached_binding(f,
 int rt_compoundAssign(Frame*f,int n) { Value c=constant(f,n),r=pop(f);pop(f);Binding*b=cached_binding(f,n);if(!b)named_failure(f,"Identifier not found: ",pointer(c.ref));else b->value=binary(f,(int)c.number,b->value,r,1);push(f,empty);return 0; }
 #define BINARY(NAME,OP) int rt_##NAME(Frame*f,int n){Value r=pop(f),l=pop(f);push(f,binary(f,OP,l,r,0));return 0;}
 BINARY(add,0) BINARY(subtract,1) BINARY(multiply,2) BINARY(divide,3) BINARY(less,4) BINARY(greater,5) BINARY(lessEqual,6) BINARY(greaterEqual,7) BINARY(equal,8) BINARY(notEqual,9) BINARY(and,10) BINARY(or,11) BINARY(modulo,12)
-int rt_negate(Frame*f,int n) { Value v=pop(f);if(numeric(v))push(f,number(-v.number,v.tag));else named_failure(f,"Unknown operator: -",ascii(type_name(v.tag)));return 0; }
+int rt_negate(Frame*f,int n) { Value v=pop(f);if(numeric(v))push(f,v.tag==INT?integer(-(int64_t)v.number):number(-v.number,v.tag));else named_failure(f,"Unknown operator: -",ascii(type_name(v.tag)));return 0; }
 int rt_not(Frame*f,int n) { Value v=pop(f);push(f,value(BOOL,0,v.tag==BOOL?!v.number:v.tag==NULL_VALUE));return 0; }
-static int increment(Frame*f,int n,int prefix) { Binding*b=cached_binding(f,n);if(!b){named_failure(f,"Identifier not found: ",name(f,n));return 0;}Value old=b->value;if(!numeric(old)){failure(f,"Increment requires a number.");return 0;}b->value=number(old.number+1,old.tag);push(f,prefix?b->value:old);return 0; }
+static int increment(Frame*f,int n,int prefix) { Binding*b=cached_binding(f,n);if(!b){named_failure(f,"Identifier not found: ",name(f,n));return 0;}Value old=b->value;if(!numeric(old)){failure(f,"Increment requires a number.");return 0;}b->value=successor(old);push(f,prefix?b->value:old);return 0; }
 /* Promoted locals are frame slots rather than named bindings; these helpers receive the slot address. */
-int rt_incrementAt(Frame*f,int prefix,Value*b) { Value old=*b;if(!numeric(old)){failure(f,"Increment requires a number.");return 0;}*b=number(old.number+1,old.tag);push(f,prefix?*b:old);return 0; }
+int rt_incrementAt(Frame*f,int prefix,Value*b) { Value old=*b;if(!numeric(old)){failure(f,"Increment requires a number.");return 0;}*b=successor(old);push(f,prefix?*b:old);return 0; }
 int rt_compoundAt(Frame*f,int n,Value*b) { Value c=constant(f,n),r=pop(f);pop(f);*b=binary(f,(int)c.number,*b,r,1);push(f,empty);return 0; }
 int rt_incrementPrefix(Frame*f,int n){return increment(f,n,1);}int rt_incrementPostfix(Frame*f,int n){return increment(f,n,0);}
 int rt_truth(Frame*f,int n) { Value v=pop(f);return v.tag==BOOL?v.number!=0:v.tag!=NULL_VALUE; }
@@ -441,6 +469,11 @@ int rt_call(Frame*f,int n) {
         if(pending==1){f->pending_base=base;f->pending_count=n+1;f->execution->status=2;}else push(f,out);
     }
     else if(callee.tag==BUILTIN&&callee.ref>=ARRAY_FIRST_ID&&callee.ref<TEXT_FIRST_ID+TEXT_COUNT){Value out=callee.ref<HASH_FIRST_ID?array_call(f,callee.ref,args,n):callee.ref<TEXT_FIRST_ID?hash_call(f,callee.ref,args,n):text_call(f,callee.ref,args,n);f->sp=base;push(f,out);}
+    else if(callee.tag==BUILTIN&&callee.ref>=CONVERT_FIRST_ID&&callee.ref<CONVERT_FIRST_ID+3){Value out=empty;
+        if(n!=1)failure(f,"Incorrect builtin argument count.");
+        else if(!numeric(args[0]))named_failure(f,"Conversion requires a number / 轉換需要數字: ",ascii(type_name(args[0].tag)));
+        else out=number(args[0].number,INT+callee.ref-CONVERT_FIRST_ID);
+        f->sp=base;push(f,out);}
     else if(callee.tag==BUILTIN){Value out=empty;if(callee.ref<1||callee.ref>5||n!=(callee.ref==5?6:callee.ref==4?2:1)){failure(f,"Incorrect builtin argument count.");return 1;}Value a=args[0];
         if(callee.ref==5)out=flood_fill(f,args);
         else if(callee.ref==1){if(a.tag==STRING)out=number(((Text*)pointer(a.ref))->length,INT);else if(a.tag==ARRAY)out=number(((Array*)pointer(a.ref))->count,INT);else if(a.tag==HASH)out=number(((Hash*)pointer(a.ref))->count,INT);else failure(f,"Length requires string, array or hash.");}
@@ -478,6 +511,18 @@ int rt_numericFrame(Execution*e,int pc,int depth) {
     f->pc=(u32)pc;f->sp=fn->locals+(u32)depth;if(!e->numeric_innermost)e->numeric_innermost=f;return (int)address(f);
 }
 int rt_array(Frame*f,int n){Array*a=array(n);for(int i=n-1;i>=0;i--)a->values[i]=pop(f);push(f,value(ARRAY,address(a),0));return 0;}
+/* An annotation check on the top operand: n = (subject constant << 5) | type code (element tag, +16 for arrays).
+   Integers widen to float or double and floats to double; any other mismatch is a language error. */
+int rt_checkType(Frame*f,int n){
+    static const char *const names[]={"","int","float","double","bool","string"};
+    if(!f->sp)return 0;Value*v=f->values+f->sp-1;u32 code=(u32)n&31u,want=code&15u;
+    if(code&16u){if(v->tag==ARRAY){Array*a=pointer(v->ref);u32 i=0;while(i<a->count&&a->values[i].tag==want)i++;if(i==a->count)return 0;}}
+    else if(v->tag==want)return 0;
+    else if(numeric(*v)&&want>=FLOAT&&want<=DOUBLE&&v->tag<want){*v=number(v->number,want);return 0;}
+    Text*t=concat(ascii("型別不符 / Type mismatch: "),pointer(constant(f,(u32)n>>5).ref));
+    t=concat(t,ascii(" expects "));t=concat(t,ascii(names[want]));if(code&16u)t=concat(t,ascii("[]"));
+    t=concat(t,ascii(", got "));fail(f,concat(t,ascii(type_name(v->tag))));return 0;
+}
 int rt_checkHashKey(Frame*f,int n){Value v=peek(f,1);if(!numeric(v)&&v.tag!=STRING&&v.tag!=BOOL)named_failure(f,"Unusable as hash key: ",ascii(type_name(v.tag)));return 0;}
 int rt_hash(Frame*f,int n){Hash*h=pointer(aqua_hash(n));u32 count=0,base=f->sp-n*2;for(int i=0;i<n;i++){Value k=f->values[base+i*2],v=f->values[base+i*2+1];u32 j=0;while(j<count&&!equal(h->pairs[j].key,k,1))j++;h->pairs[j]=(Pair){k,v};if(j==count)count++;}h->count=count;f->sp=base;push(f,value(HASH,address(h),0));return 0;}
 int rt_index(Frame*f,int n){Value i=pop(f),v=pop(f),out=value(NULL_VALUE,0,0);if(v.tag==ARRAY&&i.tag==INT){Array*a=pointer(v.ref);if(i.number>=0&&i.number<a->count)out=a->values[(u32)i.number];}else if(v.tag==STRING&&i.tag==INT){Text*t=pointer(v.ref);if(i.number>=0&&i.number<t->length){Text*c=pointer(aqua_text(1));c->data[0]=t->data[(u32)i.number];out=value(STRING,address(c),0);}}else if(v.tag==HASH){if(!numeric(i)&&i.tag!=BOOL&&i.tag!=STRING){named_failure(f,"Unusable as hash key: ",ascii(type_name(i.tag)));return 0;}Hash*h=pointer(v.ref);for(u32 j=0;j<h->count;j++)if(equal(i,h->pairs[j].key,1)){out=h->pairs[j].value;break;}}else {named_failure(f,"Index operator not supported: ",ascii(type_name(v.tag)));return 0;}push(f,out);return 0;}

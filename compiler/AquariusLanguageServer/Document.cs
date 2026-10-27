@@ -1,4 +1,5 @@
 using AquariusLang.ast;
+using AquariusLang.Compiler;
 using AquariusLang.lexer;
 using AquariusLang.parser;
 using AquariusLang.token;
@@ -66,6 +67,8 @@ internal sealed class Document
         {
             var ast = parser.ParseAST();
             foreach (var error in parser.Diagnostics) AddError(error.Message, error.Token);
+            // Annotation mismatches the compiler would reject.
+            if (parser.Diagnostics.Count == 0) foreach (var error in TypeChecker.Check(ast).Errors) AddError(error.Message, error.Token);
             Walk(ast, root);
         }
         catch (Exception error) when (error is ArgumentException or InvalidOperationException or NullReferenceException or FormatException or OverflowException)

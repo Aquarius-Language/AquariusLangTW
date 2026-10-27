@@ -258,7 +258,10 @@ namespace AquariusLang.parser {
 
             statement.Name = new Identifier(currToken, currToken.Literal);
 
-            if (peekTokenIs(TokenType.COMMA)) {
+            if (peekTokenIs(TokenType.COLON)) {
+                statement.Name.Type = parseTypeAnnotation();
+                if (statement.Name.Type == null) return null;
+            } else if (peekTokenIs(TokenType.COMMA)) {
                 nextToken();
                 if (!expectPeek(TokenType.IDENT)) return null;
                 statement.Alias = new Identifier(currToken, currToken.Literal);
@@ -662,6 +665,12 @@ namespace AquariusLang.parser {
             }
 
             functionLiteral.Parameters = parseFunctionParameters();
+            if (functionLiteral.Parameters == null) return null;
+
+            if (peekTokenIs(TokenType.COLON)) {
+                functionLiteral.ReturnType = parseTypeAnnotation();
+                if (functionLiteral.ReturnType == null) return null;
+            }
 
             if (!expectPeek(TokenType.LBRACE)) {
                 return null;
@@ -686,6 +695,7 @@ namespace AquariusLang.parser {
             }
             Identifier identifier = new Identifier(currToken, currToken.Literal);
             identifiers.Add(identifier);
+            if (peekTokenIs(TokenType.COLON) && (identifier.Type = parseTypeAnnotation()) == null) return null;
 
             while (peekTokenIs(TokenType.COMMA)) {
                 nextToken();
@@ -696,6 +706,7 @@ namespace AquariusLang.parser {
                 }
                 identifier = new Identifier(currToken, currToken.Literal);
                 identifiers.Add(identifier);
+                if (peekTokenIs(TokenType.COLON) && (identifier.Type = parseTypeAnnotation()) == null) return null;
             }
 
             if (!expectPeek(TokenType.RPAREN)) {
@@ -703,6 +714,31 @@ namespace AquariusLang.parser {
             }
 
             return identifiers.ToArray();
+        }
+
+        /// <summary>
+        /// Optional type annotation after a declared name, a parameter or a parameter list: <c>: 整數</c>, <c>: double[]</c>.
+        /// Called with the colon as the peek token; leaves the last token of the type current.
+        /// </summary>
+        private TypeAnnotation parseTypeAnnotation() {
+            nextToken();
+            if (!expectPeek(TokenType.IDENT)) return null;
+            Token name = currToken;
+            if (!TypeAnnotation.TryParseName(name.Literal, out ScalarType element)) {
+                addError($"未知的型別 {name.Literal}（可用：整數、浮點數、雙精度、布林、字串）/ Unknown type {name.Literal} (use int, float, double, bool or string).", name);
+                return null;
+            }
+            bool array = false;
+            if (peekTokenIs(TokenType.LBRACKET)) {
+                nextToken();
+                if (!expectPeek(TokenType.RBRACKET)) return null;
+                if (element == ScalarType.String) {
+                    addError("字串陣列不能標註型別 / String arrays cannot be typed.", name);
+                    return null;
+                }
+                array = true;
+            }
+            return new TypeAnnotation(name, element, array);
         }
 
         private IExpression parseCallExpression(IExpression function) {

@@ -102,6 +102,7 @@ internal sealed class WasmIntegerFunction
                     stack.Add(locals[v]); break;
                 }
                 case IrOperation.Duplicate: stack.Add(Top()); break;
+                case IrOperation.CheckType: if (Top() != (n & 31)) return null; break;
                 case IrOperation.Pop: stack.RemoveAt(stack.Count - 1); break;
                 case IrOperation.Negate: if (!Numeric(Top())) return null; break;
                 case IrOperation.Not: if (Top() == CallableType) return null; stack[^1] = BoolType; break;
@@ -166,11 +167,8 @@ internal sealed class WasmIntegerFunction
         }
         // Pushes a typed value as f64 (numeric conversion for mixed arithmetic).
         void AsDouble(int type, int i, int f) { if (Wide(type)) Get(w, f); else { Get(w, i); w.Write((byte)0xb7); } }
-        void InRange(int f) { Get(w, f); F(w, -2147483648d); w.Write((byte)0x66); Get(w, f); F(w, 2147483648d); w.Write(new byte[] { 0x63, 0x71 }); }
-        void CheckedWide(int to) {
-            Set(w, wide);
-            Get(w, wide); w.Write((byte)0xa7); I(w, int.MinValue); Get(w, wide); Get(w, wide); w.Write(new byte[] { 0xa7, 0xac, 0x51, 0x1b }); Set(w, to);
-        }
+        // Integer + - * and negation wrap around: the i64 result's low 32 bits.
+        void CheckedWide(int to) { w.Write((byte)0xa7); Set(w, to); }
         // Stores a typed value as a generic Value at frame+offset.
         void StoreValue(int frameLocal, int offset, int type, int i, int f) {
             Get(w, frameLocal); I(w, type); Memory(w, 0x36, 2, offset + ValueTag);
@@ -262,7 +260,7 @@ internal sealed class WasmIntegerFunction
                     break;
                 }
                 case IrOperation.Duplicate: Copy(TopType(), SlotI(depth), SlotF(depth), SlotI(top), SlotF(top)); break;
-                case IrOperation.Pop: case IrOperation.JumpIfBreak: break;
+                case IrOperation.Pop: case IrOperation.JumpIfBreak: case IrOperation.CheckType: break;
                 case IrOperation.Negate:
                     if (TopType() == IntType) { L(w, 0); Get(w, SlotI(top)); w.Write(new byte[] { 0xac, 0x7d }); CheckedWide(SlotI(top)); }
                     else { Get(w, SlotF(top)); w.Write((byte)0x9a); Set(w, SlotF(top)); }
@@ -342,15 +340,16 @@ internal sealed class WasmIntegerFunction
         }
         // number(value, type) of an f64 local into a variable of that type.
         void Narrow(int type, int f, int toI, int toF) {
-            if (type == IntType) { Get(w, f); w.Write(new byte[] { 0xfc, 0x02 }); I(w, int.MinValue); InRange(f); w.Write((byte)0x1b); Set(w, toI); }
+            if (type == IntType) { Get(w, f); w.Write(new byte[] { 0xfc, 0x02 }); Set(w, toI); } // Truncate and saturate; NaN gives 0.
             else if (type == FloatType) { Get(w, f); w.Write(new byte[] { 0xb6, 0xbb }); Set(w, toF); }
             else { Get(w, f); Set(w, toF); }
         }
         void EmitInt(IrOperation op, int left, int right, int to) {
             if (op == IrOperation.Divide) {
-                Get(w, right); w.Write((byte)0x45);
+                // Division by zero is a language error: leave it to the generic body. Minimum integer / -1 wraps.
+                Get(w, right); w.Write(new byte[] { 0x45, 0x04, 0x40 }); Fail(0); w.Write((byte)0x0b);
                 Get(w, left); I(w, int.MinValue); w.Write((byte)0x46);
-                Get(w, right); I(w, -1); w.Write(new byte[] { 0x46, 0x71, 0x72, 0x04, 0x7f });
+                Get(w, right); I(w, -1); w.Write(new byte[] { 0x46, 0x71, 0x04, 0x7f });
                 I(w, int.MinValue); w.Write((byte)0x05);
                 Get(w, left); Get(w, right); w.Write(new byte[] { 0x6d, 0x0b }); Set(w, to); return;
             }

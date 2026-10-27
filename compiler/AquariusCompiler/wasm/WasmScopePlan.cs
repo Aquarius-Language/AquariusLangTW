@@ -252,6 +252,10 @@ internal sealed class WasmScopePlan
                 case IrOperation.CheckHashKey: case IrOperation.CheckArrayWrite:
                     if (tags.Count < (op.Code == IrOperation.CheckArrayWrite ? 2 : 1)) throw new CompilationException($"Operand stack underflow at instruction {pc}.");
                     break;
+                case IrOperation.CheckType:
+                    // A passed annotation check proves the value's tag (arrays: the array tag).
+                    if (tags.Count < 1) throw new CompilationException($"Operand stack underflow at instruction {pc}.");
+                    tags[^1] = (operand & 16) != 0 ? Array : operand & 15; break;
                 case IrOperation.Member: case IrOperation.MemberFunction:
                     if (tags.Count < 1) throw new CompilationException($"Operand stack underflow at instruction {pc}."); tags[^1] = Unknown; break;
                 case IrOperation.Index: Pop(2); tags.Add(Unknown); break;

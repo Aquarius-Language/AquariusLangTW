@@ -13,7 +13,7 @@ public enum IrOperation : byte {
     CompoundAssign, Jump, JumpIfFalse, JumpIfBreak, Closure, Call, Return,
     Array, Hash, CheckHashKey, Index, CheckArrayWrite, WriteIndex, Member, MemberFunction, ResolveMemberFunction,
     EnterLoop, LoopCondition, NextIteration, LeaveLoop, Break, Error,
-    Duplicate, Modulo
+    Duplicate, Modulo, CheckType
 }
 
 public readonly struct Instruction {
@@ -63,10 +63,10 @@ internal sealed class FunctionCode {
     internal Identifier[] Parameters { get; }
     internal BlockStatement? Body { get; }
     internal LoweredProgram BodyCode { get; }
-    internal FunctionCode(FunctionLiteral function) {
+    internal FunctionCode(FunctionLiteral function, IReadOnlyDictionary<INode, TypeCheck>? checks = null) {
         Parameters = function.Parameters;
         Body = function.Body;
-        BodyCode = new LoweringCompiler().Compile(function.Body);
+        BodyCode = new LoweringCompiler(checks).CompileFunction(function);
     }
 }
 

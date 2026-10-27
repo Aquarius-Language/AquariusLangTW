@@ -82,6 +82,17 @@ Default value inspection still prints booleans as `真` / `假` and null as `nul
 - `%` and `%=` compute remainders with the precedence of `*` and `/`. Integer
   remainders truncate toward zero like integer division; floating operands use
   floating remainders. Integer remainder by zero is a runtime error.
+- Integers are 32-bit and identical on every target: `+`, `-`, `*`, negation and `++` wrap around (two's
+  complement); integer `/` truncates toward zero and dividing by zero is a runtime error; the minimum integer
+  divided by -1 wraps to itself. Converting a float or double to an integer (`整數(x)` / `int(x)`, or a compound
+  assignment into an integer variable) truncates toward zero and saturates at the integer range; NaN gives 0.
+  Float results are rounded to 32 bits after each operation.
+- Optional annotations (`name: type` on declarations, parameters and after a parameter list) fix a binding's type:
+  `整數`/`int`, `浮點數`/`float`, `雙精度`/`double`, `布林`/`bool`, `字串`/`string` and arrays such as `整數[]`.
+  Type names are recognized only after `:`. `TypeChecker` proves each write, rejects a definite mismatch at compile
+  time, or lowers a `CheckType` (rt_checkType) where the value comes from untyped code; integers widen to float
+  and double, floats to double, and narrowing needs `整數(x)`, `浮點數(x)` or `雙精度(x)`. Typed parameters are
+  checked on entry, typed results at each return and at the implicit final value.
 - `++值` returns the updated number; `值++` returns the original number.
   Both require an existing numeric variable.
 - Boolean `&&` and `||` evaluate both operands. They do not short-circuit.

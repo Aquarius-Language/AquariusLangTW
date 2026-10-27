@@ -44,7 +44,7 @@ internal static class WasmStackAnalysis
                 case IrOperation.Pop: case IrOperation.JumpIfFalse: case IrOperation.LoopCondition:
                     required = 1; change = -1; break;
                 case IrOperation.Declare: case IrOperation.Negate: case IrOperation.Not:
-                case IrOperation.CheckHashKey: case IrOperation.Member: case IrOperation.MemberFunction:
+                case IrOperation.CheckHashKey: case IrOperation.CheckType: case IrOperation.Member: case IrOperation.MemberFunction:
                 case IrOperation.ResolveMemberFunction: case IrOperation.JumpIfBreak:
                     required = 1; break;
                 case IrOperation.Assign: case IrOperation.CompoundAssign:

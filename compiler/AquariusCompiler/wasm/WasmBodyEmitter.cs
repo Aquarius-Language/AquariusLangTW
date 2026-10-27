@@ -22,8 +22,6 @@ namespace AquariusLang.Wasm;
 internal sealed class WasmBodyEmitter
 {
     private const int Unknown = WasmScopePlan.Unknown;
-    private const double IntMin = -2147483648d, IntLimit = 2147483648d;
-
     private enum Loc : byte { Mem, Reg, Both }
 
     private readonly BinaryWriter w;
@@ -169,6 +167,15 @@ internal sealed class WasmBodyEmitter
     {
         for (int o = 0; o <= 8; o += 8) { Get(toBase); Get(fromBase); LoadI64(fromOffset + o); StoreI64(toOffset + o); }
     }
+    /// <summary>An annotation check: free when the operand's tag is already proven; otherwise rt_checkType, which can
+    /// convert the value in place (an integer to float or double), so the operand is reloaded with the proven tag.</summary>
+    private void CheckType(int n, int d)
+    {
+        int p = d - 1, want = (n & 16) != 0 ? ArrayTag : n & 15;
+        if ((n & 16) == 0 && Tags(pc)[p] == want) return;
+        Helper("checkType", n, d, 1);
+        LoadValue(p, F, StackOffset(p), want); loc[p] = Loc.Both;
+    }
     private void Ensure(int p, int tag)
     {
         if (loc[p] != Loc.Mem) return;
@@ -213,23 +220,34 @@ internal sealed class WasmBodyEmitter
     }
 
     // ---- numbers -------------------------------------------------------------------------------
-    private void InRange(int number)
-    {
-        Get(number); F64(IntMin); Op(0x66); Get(number); F64(IntLimit); Op(0x63, 0x71);
-    }
+    /// <summary>Converts the f64 on the stack to an integer, as f64: wrapping (an exact integral result of + - or negation)
+    /// or truncating and saturating (a float or double stored as an integer; NaN gives 0).</summary>
+    private void IntegerValue(bool wrap) { if (wrap) Op(0xfc, 0x06, 0xa7); else ToInt(); ToDouble(); }
     /// <summary>number(n, tag) for a known tag on an f64 local.</summary>
-    private void NormalizeKnown(int number, int tag)
+    private void NormalizeKnown(int number, int tag, bool wrap = false)
     {
-        if (tag == IntTag) { Get(number); ToInt(); ToDouble(); F64(IntMin); InRange(number); Op(0x1b); Set(number); }
+        if (tag == IntTag) { Get(number); IntegerValue(wrap); Set(number); }
         else if (tag == FloatTag) { Get(number); Op(0xb6, 0xbb); Set(number); }
     }
-    /// <summary>Pushes number(n, INTEGER) of an f64 local as i32.</summary>
-    private void IntegerOf(int number) { Get(number); ToInt(); I32(int.MinValue); InRange(number); Op(0x1b); }
-    private void NormalizeDynamic(int tag, int number)
+    /// <summary>Pushes number(n, INTEGER) of an f64 local as i32 (truncating and saturating).</summary>
+    private void IntegerOf(int number) { Get(number); ToInt(); }
+    private void NormalizeDynamic(int tag, int number, bool wrap = false)
     {
         Get(tag); I32(IntTag); Op(0x46); If();
-        Get(number); ToInt(); ToDouble(); F64(IntMin); InRange(number); Op(0x1b); Set(number);
+        Get(number); IntegerValue(wrap); Set(number);
         Else(); Get(tag); I32(FloatTag); Op(0x46); If(); Get(number); Op(0xb6, 0xbb); Set(number); End();
+        End();
+    }
+    /// <summary>Arithmetic on f64 locals l and r whose tags are known only at run time, into <paramref name="to"/>: when
+    /// the result tag and the right operand are both integers, exact i64 arithmetic wrapped to 32 bits (division by zero
+    /// must already be excluded); otherwise the f64 operation normalized to the result tag.</summary>
+    private void DynamicArithmetic(IrOperation op, int l, int r, int resultTag, Action rightIsInt, int to)
+    {
+        Get(resultTag); I32(IntTag); Op(0x46); rightIsInt(); Op(0x71); If();
+        Get(l); Op(0xfc, 0x06); Get(r); Op(0xfc, 0x06);
+        Op(op switch { IrOperation.Add => (byte)0x7c, IrOperation.Subtract => (byte)0x7d, IrOperation.Multiply => (byte)0x7e, _ => (byte)0x7f });
+        Op(0xa7); ToDouble(); Set(to);
+        Else(); Get(l); Get(r); Op(Arithmetic(op)); Set(to); NormalizeDynamic(resultTag, to);
         End();
     }
     private void NumericTagTest(int tagLocal) { Get(tagLocal); I32(IntTag); Op(0x4f); Get(tagLocal); I32(DoubleTag); Op(0x4d, 0x71); }
@@ -244,20 +262,18 @@ internal sealed class WasmBodyEmitter
         IrOperation.Equal => 0x46, IrOperation.NotEqual => 0x47, _ => throw new InvalidOperationException("Invalid comparison.") };
     private static string HelperName(IrOperation op) => char.ToLowerInvariant(op.ToString()[0]) + op.ToString()[1..];
 
-    /// <summary>Integer add, subtract and multiply of two i32 values on the Wasm stack: the exact i64
-    /// result, or the minimum integer when it is out of range.</summary>
+    /// <summary>Integer add, subtract and multiply of two i32 values on the Wasm stack, wrapping around.</summary>
     private void IntArithmetic(IrOperation op, Action left, Action right)
     {
-        left(); Op(0xac); right(); Op(0xac);
-        Op(op switch { IrOperation.Add => (byte)0x7c, IrOperation.Subtract => (byte)0x7d, IrOperation.Multiply => (byte)0x7e,
+        left(); right();
+        Op(op switch { IrOperation.Add => (byte)0x6a, IrOperation.Subtract => (byte)0x6b, IrOperation.Multiply => (byte)0x6c,
             _ => throw new InvalidOperationException("Invalid integer operation.") });
-        Set(wide);
-        Get(wide); Op(0xa7); I32(int.MinValue); Get(wide); Get(wide); Op(0xa7, 0xac, 0x51); Op(0x1b);
     }
-    /// <summary>Truncating integer division; a zero divisor or minimum integer divided by -1 is out of range.</summary>
+    /// <summary>Truncating integer division for a non-zero divisor (zero is the helper's run-time error); the minimum
+    /// integer divided by -1 wraps to itself.</summary>
     private void IntDivide(int left, int right)
     {
-        Get(right); Op(0x45); Get(left); I32(int.MinValue); Op(0x46); Get(right); I32(-1); Op(0x46, 0x71, 0x72);
+        Get(left); I32(int.MinValue); Op(0x46); Get(right); I32(-1); Op(0x46, 0x71);
         If(0x7f); I32(int.MinValue); Else(); Get(left); Get(right); Op(0x6d); End();
     }
     /// <summary>Integer remainder for a non-zero divisor (zero is the helper's run-time error).</summary>
@@ -627,6 +643,7 @@ internal sealed class WasmBodyEmitter
             case IrOperation.Array: Helper("array", n, d, n); return false;
             case IrOperation.Hash: Helper("hash", n, d, n * 2); return false;
             case IrOperation.CheckHashKey: Helper("checkHashKey", n, d, 0); return false;
+            case IrOperation.CheckType: CheckType(n, d); return false;
             case IrOperation.Member: case IrOperation.MemberFunction: Helper("member", n, d, 1); return false;
             case IrOperation.EnterLoop: {
                 int child = plan.ScopeAt[pc + 1];
@@ -726,9 +743,12 @@ internal sealed class WasmBodyEmitter
         }
         if (IsNumeric(ta) && IsNumeric(tb)) {
             int tag = Math.Max(ta, tb);
-            if (op == IrOperation.Modulo && tag == IntTag) {
+            if (op is IrOperation.Modulo or IrOperation.Divide && tag == IntTag) {
                 Get(I(b)); Op(0x45, 0x45);
-                Branch(() => { IntRemainder(I(a), I(b)); Set(I(a)); loc[a] = Loc.Reg; return false; }, () => { Slow(); return false; }, b);
+                Branch(() => {
+                    if (op == IrOperation.Modulo) IntRemainder(I(a), I(b)); else IntDivide(I(a), I(b));
+                    Set(I(a)); loc[a] = Loc.Reg; return false;
+                }, () => { Slow(); return false; }, b);
                 return;
             }
             KnownNumeric(op, a, b, ta, tb, comparison); return;
@@ -736,6 +756,11 @@ internal sealed class WasmBodyEmitter
         if (op == IrOperation.Modulo || ta != Unknown && !IsNumeric(ta) || tb != Unknown && !IsNumeric(tb)) { Slow(); loc[b] = Loc.Mem; return; }
         if (ta == Unknown) NumericTagTest(T(a)); else I32(1);
         if (tb == Unknown) { NumericTagTest(T(b)); Op(0x71); }
+        void IsInt(int p, int tag) { if (tag == Unknown) { Get(T(p)); I32(IntTag); Op(0x46); } else I32(tag == IntTag ? 1 : 0); }
+        if (op == IrOperation.Divide) {
+            // Integer division by zero is the helper's error.
+            IsInt(a, ta); IsInt(b, tb); Op(0x71); Number(b, tb); F64(0); Op(0x61, 0x71, 0x45, 0x71);
+        }
         Branch(() => {
             if (comparison) {
                 Number(a, ta); Number(b, tb); Op(Comparison(op)); Op(0xb8); Set(N(a)); loc[a] = Loc.Reg; return false;
@@ -744,7 +769,8 @@ internal sealed class WasmBodyEmitter
             if (ta == Unknown && tb == Unknown) { Get(T(a)); Get(T(b)); Get(T(a)); Get(T(b)); Op(0x4b); Op(0x1b); Set(G); }
             else if (ta == Unknown) { Get(T(a)); I32(tb); Get(T(a)); I32(tb); Op(0x4b); Op(0x1b); Set(G); }
             else { I32(ta); Get(T(b)); I32(ta); Get(T(b)); Op(0x4b); Op(0x1b); Set(G); }
-            Number(a, ta); Number(b, tb); Op(Arithmetic(op)); Set(N(a)); Get(G); Set(T(a)); NormalizeDynamic(T(a), N(a));
+            Number(a, ta); Set(x); Number(b, tb); Set(y); Get(G); Set(T(a));
+            DynamicArithmetic(op, x, y, T(a), () => IsInt(b, tb), N(a));
             loc[a] = Loc.Reg; return false;
         }, () => { Slow(); return false; }, b);
     }
@@ -761,8 +787,7 @@ internal sealed class WasmBodyEmitter
             loc[a] = Loc.Reg; loc[b] = Loc.Mem; return;
         }
         if (integers) {
-            if (op == IrOperation.Divide) IntDivide(I(a), I(b));
-            else IntArithmetic(op, () => Get(I(a)), () => Get(I(b)));
+            IntArithmetic(op, () => Get(I(a)), () => Get(I(b)));
             Set(I(a));
         } else {
             Number(a, ta); Set(x); Number(b, tb); Set(y);
@@ -783,7 +808,7 @@ internal sealed class WasmBodyEmitter
         void Slow() { Helper("negate", 0, d, 1); LoadValue(p, F, StackOffset(p), Unknown); loc[p] = Loc.Both; }
         if (tag != Unknown) { Slow(); return; }
         NumericTagTest(T(p));
-        Branch(() => { Get(N(p)); Op(0x9a); Set(N(p)); NormalizeDynamic(T(p), N(p)); loc[p] = Loc.Reg; return false; }, () => { Slow(); return false; });
+        Branch(() => { Get(N(p)); Op(0x9a); Set(N(p)); NormalizeDynamic(T(p), N(p), true); loc[p] = Loc.Reg; return false; }, () => { Slow(); return false; });
     }
 
     /// <summary>Re-reads the target after the right operand like rt_compoundAssign and preserves the
@@ -794,12 +819,15 @@ internal sealed class WasmBodyEmitter
         int rhs = d - 1, rt = Tags(pc)[rhs]; var operation = assignment.Operation;
         int slot = DefiniteSlot(access); int st = slot >= 0 ? plan.SlotTags[pc]![slot] : Unknown;
         Ensure(rhs, rt);
-        if (slot >= 0 && IsNumeric(st) && IsNumeric(rt) && !(operation == IrOperation.Modulo && st == IntTag)) {
+        if (slot >= 0 && IsNumeric(st) && IsNumeric(rt) && !(operation == IrOperation.Modulo && st == IntTag)
+            && !(operation == IrOperation.Divide && st == IntTag && rt == IntTag)) {
             bool cached = slotRegisters.TryGetValue(slot, out int register);
-            if (cached && st == IntTag && rt == IntTag) {
-                if (operation == IrOperation.Divide) IntDivide(register, I(rhs));
-                else IntArithmetic(operation, () => Get(register), () => Get(I(rhs)));
-                Set(register);
+            if (st == IntTag && rt == IntTag) {
+                if (cached) { IntArithmetic(operation, () => Get(register), () => Get(I(rhs))); Set(register); }
+                else {
+                    Get(F); IntArithmetic(operation, () => { Get(F); LoadF64(SlotOffset(slot) + ValueNumber); ToInt(); }, () => Get(I(rhs)));
+                    ToDouble(); StoreF64(SlotOffset(slot) + ValueNumber);
+                }
             } else {
                 if (cached) { Get(register); if (st == IntTag) ToDouble(); } else { Get(F); LoadF64(SlotOffset(slot) + ValueNumber); }
                 Set(x); Number(rhs, rt); Set(y);
@@ -810,12 +838,35 @@ internal sealed class WasmBodyEmitter
             }
             PushKnown(d - 2, VoidTag); loc[rhs] = Loc.Mem; return;
         }
-        if (slot < 0 && operation != IrOperation.Modulo && (rt == Unknown || IsNumeric(rt)) && Shadowed(constant, out var shadow)) {
+        if (slot < 0 && (rt == Unknown || IsNumeric(rt)) && Shadowed(constant, out var shadow)) {
             ShadowAcquire(constant, shadow, access.Dynamic);
             Get(shadow.Valid); if (rt == Unknown) { NumericTagTest(T(rhs)); Op(0x71); }
+            // The shadow holds an integer: a zero divisor of / (integer) or % (any number) is the helper's error.
+            if (operation == IrOperation.Divide) {
+                if (rt == Unknown) { Get(T(rhs)); I32(IntTag); Op(0x46); } else I32(rt == IntTag ? 1 : 0);
+                Number(rhs, rt); F64(0); Op(0x61, 0x71, 0x45, 0x71);
+            }
+            if (operation == IrOperation.Modulo) { Number(rhs, rt); F64(0); Op(0x62, 0x71); }
             Branch(() => {
-                if (rt == IntTag && operation != IrOperation.Divide) { IntArithmetic(operation, () => Get(shadow.Value), () => Get(I(rhs))); Set(shadow.Value); }
-                else { Get(shadow.Value); ToDouble(); Number(rhs, rt); Op(Arithmetic(operation)); Set(x); IntegerOf(x); Set(shadow.Value); }
+                // An integer right operand wraps; a float or double one is computed in f64 and truncated back.
+                void Wide() {
+                    Get(shadow.Value); ToDouble(); Set(x); Number(rhs, rt); Set(y);
+                    if (operation == IrOperation.Modulo) FloatRemainder(x, y); else { Get(x); Get(y); Op(Arithmetic(operation)); }
+                    Set(x); IntegerOf(x); Set(shadow.Value);
+                }
+                if (rt == IntTag) {
+                    if (operation == IrOperation.Divide) IntDivide(shadow.Value, I(rhs));
+                    else if (operation == IrOperation.Modulo) IntRemainder(shadow.Value, I(rhs));
+                    else IntArithmetic(operation, () => Get(shadow.Value), () => Get(I(rhs)));
+                    Set(shadow.Value);
+                } else if (rt == Unknown) {
+                    Get(T(rhs)); I32(IntTag); Op(0x46); If();
+                    Get(shadow.Value); Op(0xac); Get(N(rhs)); Op(0xfc, 0x06);
+                    Op(operation switch { IrOperation.Add => (byte)0x7c, IrOperation.Subtract => (byte)0x7d, IrOperation.Multiply => (byte)0x7e,
+                        IrOperation.Divide => (byte)0x7f, _ => (byte)0x81 });
+                    Op(0xa7); Set(shadow.Value);
+                    Else(); Wide(); End();
+                } else Wide();
                 return false;
             }, () => { CompoundMemory(constant, d, access, rhs, rt, operation, slot); return false; }, d - 2);
             PushKnown(d - 2, VoidTag); loc[rhs] = Loc.Mem; return;
@@ -830,8 +881,14 @@ internal sealed class WasmBodyEmitter
         if (operation == IrOperation.Modulo || rt != Unknown && !IsNumeric(rt)) { Slow(); if (slot >= 0) Reload(slot); return; }
         Get(A); LoadI32(ValueTag); Set(B);
         NumericTagTest(B); if (rt == Unknown) { NumericTagTest(T(rhs)); Op(0x71); }
+        void RightIsInt() { if (rt == Unknown) { Get(T(rhs)); I32(IntTag); Op(0x46); } else I32(rt == IntTag ? 1 : 0); }
+        if (operation == IrOperation.Divide) {
+            // Integer division by zero is the helper's error.
+            Get(B); I32(IntTag); Op(0x46); RightIsInt(); Op(0x71); Number(rhs, rt); F64(0); Op(0x61, 0x71, 0x45, 0x71);
+        }
         Branch(() => {
-            Get(A); LoadF64(ValueNumber); Number(rhs, rt); Op(Arithmetic(operation)); Set(x); NormalizeDynamic(B, x);
+            Get(A); LoadF64(ValueNumber); Set(x); Number(rhs, rt); Set(y);
+            DynamicArithmetic(operation, x, y, B, RightIsInt, x);
             Get(A); Get(x); StoreF64(ValueNumber); return false;
         }, () => { Slow(); return false; }, d - 2);
         if (slot >= 0) Reload(slot);
@@ -851,7 +908,7 @@ internal sealed class WasmBodyEmitter
                 loc[d] = Loc.Reg; return;
             }
             if (cached) Get(register); else { Get(F); LoadF64(SlotOffset(slot) + ValueNumber); } Set(x);
-            Get(x); F64(1); Op(0xa0); Set(y); NormalizeKnown(y, st);
+            Get(x); F64(1); Op(0xa0); Set(y); NormalizeKnown(y, st, true);
             if (cached) { Get(y); Set(register); } else { Get(F); Get(y); StoreF64(SlotOffset(slot) + ValueNumber); }
             Get(prefix ? y : x);
             if (st == IntTag) { ToInt(); Set(I(d)); } else Set(N(d));
@@ -861,7 +918,7 @@ internal sealed class WasmBodyEmitter
             if (slot >= 0) { Get(F); I32(SlotOffset(slot)); Op(0x6a); Set(A); WriteBack(slot); } else TargetAddress(access, constant);
             Get(A); LoadI32(ValueTag); Set(T(d)); NumericTagTest(T(d));
             Branch(() => {
-                Get(A); LoadF64(ValueNumber); Set(x); Get(x); F64(1); Op(0xa0); Set(y); NormalizeDynamic(T(d), y);
+                Get(A); LoadF64(ValueNumber); Set(x); Get(x); F64(1); Op(0xa0); Set(y); NormalizeDynamic(T(d), y, true);
                 Get(A); Get(y); StoreF64(ValueNumber); Get(prefix ? y : x); Set(N(d)); loc[d] = Loc.Reg; return false;
             }, () => { Helper("incrementAt", prefix ? 1 : 0, d, 0, true, A); LoadValue(d, F, StackOffset(d), Unknown); loc[d] = Loc.Both; return false; });
             if (slot >= 0) Reload(slot);

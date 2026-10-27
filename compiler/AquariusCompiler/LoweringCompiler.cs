@@ -19,6 +19,11 @@ public sealed class LoweringCompiler {
     private readonly List<object> constants = new();
     private readonly Dictionary<string, int> names = new();
     private readonly Stack<List<int>> breaks = new();
+    // Runtime annotation checks found by the TypeChecker for the whole program, shared by nested function bodies.
+    private IReadOnlyDictionary<INode, TypeCheck>? checks;
+
+    public LoweringCompiler() { }
+    internal LoweringCompiler(IReadOnlyDictionary<INode, TypeCheck>? checks) { this.checks = checks; }
 
     public LoweredProgram Compile(string source) {
         var lexer = Lexer.NewInstance(source);
@@ -32,8 +37,36 @@ public sealed class LoweringCompiler {
     public LoweredProgram Compile(INode node) {
         if (node == null) throw new ArgumentNullException(nameof(node));
         code.Clear(); constants.Clear(); names.Clear(); breaks.Clear();
+        if (node is AbstractSyntaxTree tree && checks == null) {
+            var types = TypeChecker.Check(tree);
+            if (types.Errors.Count > 0) throw new CompilationException(string.Join("\n", types.Errors.Select(e => e.Message)));
+            checks = types.Checks;
+        }
         Node(node);
         return new LoweredProgram(code.ToArray(), constants.ToArray(), !(node is AbstractSyntaxTree));
+    }
+
+    /// <summary>A function body: typed parameters are checked on entry and the implicit result like a return.</summary>
+    internal LoweredProgram CompileFunction(FunctionLiteral function) {
+        code.Clear(); constants.Clear(); names.Clear(); breaks.Clear();
+        foreach (var parameter in function.Parameters ?? Array.Empty<Identifier>()) {
+            if (parameter.Type == null) continue;
+            // Assign consumes the target's loaded value below the new value, like `p = p`.
+            Emit(IrOperation.Load, Name(parameter.Value));
+            Emit(IrOperation.Load, Name(parameter.Value));
+            Emit(IrOperation.CheckType, TypeOperand(new TypeCheck(parameter.Type.Code, parameter.Value)));
+            Emit(IrOperation.Assign, Name(parameter.Value));
+            Emit(IrOperation.Pop);
+        }
+        Node(function.Body);
+        Check(function);
+        return new LoweredProgram(code.ToArray(), constants.ToArray(), true);
+    }
+
+    // The subject shares the name constant: emitters identify a binding by its first name constant.
+    private int TypeOperand(TypeCheck check) => Name(check.Subject) << 5 | check.Code;
+    private void Check(INode site) {
+        if (checks != null && checks.TryGetValue(site, out var check)) Emit(IrOperation.CheckType, TypeOperand(check));
     }
 
     private int Emit(IrOperation op, int operand = 0) { code.Add(new Instruction(op, operand)); return code.Count - 1; }
@@ -68,6 +101,7 @@ public sealed class LoweringCompiler {
                 if (declaration.Alias != null && (!(declaration.Value is FunctionLiteral) || declaration.Alias.Value == declaration.Name.Value))
                     throw new CompilationException("Two distinct names require a function literal.");
                 Node(declaration.Value);
+                Check(declaration);
                 if (declaration.Alias != null) Emit(IrOperation.Duplicate);
                 Emit(IrOperation.Declare, Name(declaration.Name.Value));
                 if (declaration.Alias != null) {
@@ -75,7 +109,7 @@ public sealed class LoweringCompiler {
                     Emit(IrOperation.Declare, Name(declaration.Alias.Value));
                 }
                 break;
-            case ReturnStatement returned: Node(returned.ReturnValue); Emit(IrOperation.Return); break;
+            case ReturnStatement returned: Node(returned.ReturnValue); Check(returned); Emit(IrOperation.Return); break;
             case BreakStatement _:
                 if (breaks.Count > 0) breaks.Peek().Add(Emit(IrOperation.Break));
                 else Value(RepeatedPrimitives.BREAK);
@@ -100,7 +134,7 @@ public sealed class LoweringCompiler {
             case InfixExpression infix: Infix(infix); break;
             case IfExpression conditional: Conditional(conditional); break;
             case ForLoopLiteral loop: Loop(loop); break;
-            case FunctionLiteral function: Emit(IrOperation.Closure, Constant(new FunctionCode(function))); break;
+            case FunctionLiteral function: Emit(IrOperation.Closure, Constant(new FunctionCode(function, checks))); break;
             case CallExpression call:
                 Node(call.Function); Arguments(call.Arguments); Emit(IrOperation.Call, call.Arguments.Length); break;
             case ArrayLiteral array: Arguments(array.Elements); Emit(IrOperation.Array, array.Elements.Length); break;
@@ -130,7 +164,7 @@ public sealed class LoweringCompiler {
             if (right is Identifier member) Emit(IrOperation.Member, Name(member.Value));
             else if (right is CallExpression call) {
                 if (call.Function is Identifier function) Emit(IrOperation.MemberFunction, Name(function.Value));
-                else Emit(IrOperation.ResolveMemberFunction, Constant(new LoweringCompiler().Compile(call.Function)));
+                else Emit(IrOperation.ResolveMemberFunction, Constant(new LoweringCompiler(checks).Compile(call.Function)));
                 Arguments(call.Arguments); Emit(IrOperation.Call, call.Arguments.Length);
             } else throw new CompilationException("Unsupported module member expression.");
             while (indices.Count > 0) { Node(indices.Pop()); Emit(IrOperation.Index); }
@@ -141,7 +175,7 @@ public sealed class LoweringCompiler {
             if (!(expression.Left is Identifier variable)) {
                 Error($"Left operand for {op} operator not identifier. Got={expression.Left.GetType()}"); return;
             }
-            if (op == "=") Emit(IrOperation.Assign, Name(variable.Value));
+            if (op == "=") { Check(expression); Emit(IrOperation.Assign, Name(variable.Value)); }
             else Emit(IrOperation.CompoundAssign, Constant(new Assignment(variable.Value, BinaryCode(op.Substring(0, 1)))));
             return;
         }

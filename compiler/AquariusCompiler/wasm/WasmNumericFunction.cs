@@ -68,6 +68,7 @@ internal sealed class WasmNumericFunction
                 case IrOperation.Equal: case IrOperation.NotEqual: case IrOperation.And: case IrOperation.Or:
                 case IrOperation.Negate: case IrOperation.Not:
                     break;
+                case IrOperation.CheckType: if ((op.Operand & 31) is < 1 or > 4) return null; break;
                 default: return null; // No heap objects, loops, capabilities, captured writes or suspension.
             }
         }
@@ -91,7 +92,7 @@ internal sealed class WasmNumericFunction
                 case IrOperation.Load: stack.Add(!names.Contains((string)body.Pool[op.Operand], StringComparer.Ordinal)); break;
                 case IrOperation.Duplicate: if (stack.Count == 0) return null; stack.Add(stack[^1]); break;
                 case IrOperation.Pop: if (!Take(1)) return null; break;
-                case IrOperation.Declare: case IrOperation.Negate: case IrOperation.Not:
+                case IrOperation.Declare: case IrOperation.Negate: case IrOperation.Not: case IrOperation.CheckType:
                     if (stack.Count == 0 || stack[^1]) return null; break;
                 case IrOperation.Assign: case IrOperation.CompoundAssign:
                 case IrOperation.Add: case IrOperation.Subtract: case IrOperation.Multiply: case IrOperation.Divide:
@@ -191,10 +192,11 @@ internal sealed class WasmNumericFunction
         void GuardBool(int tag) { Get(w, tag); I(w, 4); w.Write(new byte[] { 0x47, 0x04, 0x40 }); Fail(0); w.Write((byte)0x0b); }
         void Pair(int toTag, int toNumber, int fromTag, int fromNumber) { Get(w, fromTag); Set(w, toTag); Get(w, fromNumber); Set(w, toNumber); }
         void Empty(int slot, int tag = 0) { I(w, tag); Set(w, SlotTag(slot)); F(w, 0); Set(w, SlotNumber(slot)); }
-        void Normalize(int tag, int number) {
+        // number(n, tag): integers wrap (exact integral payloads: + - and negation) or truncate and saturate (a float or
+        // double converted to an integer); floats round to 32 bits.
+        void Normalize(int tag, int number, bool wrap = false) {
             Get(w, tag); I(w, 1); w.Write(new byte[] { 0x46, 0x04, 0x40 });
-            Get(w, number); F(w, -2147483648d); w.Write((byte)0x66); Get(w, number); F(w, 2147483648d); w.Write(new byte[] { 0x63, 0x71, 0x04, 0x7c });
-            Get(w, number); w.Write(new byte[] { 0xaa, 0xb7, 0x05 }); F(w, -2147483648d); w.Write((byte)0x0b); Set(w, number);
+            Get(w, number); w.Write(wrap ? new byte[] { 0xfc, 0x06, 0xa7, 0xb7 } : new byte[] { 0xfc, 0x02, 0xb7 }); Set(w, number);
             w.Write((byte)0x05); Get(w, tag); I(w, 2); w.Write(new byte[] { 0x46, 0x04, 0x40 });
             Get(w, number); w.Write(new byte[] { 0xb6, 0xbb }); Set(w, number); w.Write(new byte[] { 0x0b, 0x0b });
         }
@@ -219,15 +221,24 @@ internal sealed class WasmNumericFunction
                 Get(w, leftTag); Get(w, rightTag); w.Write(new byte[] { 0x4b, 0x04, 0x7f }); Get(w, leftTag);
                 w.Write((byte)0x05); Get(w, rightTag); w.Write((byte)0x0b); Set(w, leftTag);
             }
-            Get(w, leftNumber); Get(w, rightNumber);
-            w.Write(op switch {
-                IrOperation.Add => (byte)0xa0, IrOperation.Subtract => (byte)0xa1,
-                IrOperation.Multiply => (byte)0xa2, IrOperation.Divide => (byte)0xa3,
-                IrOperation.Less => (byte)0x63, IrOperation.Greater => (byte)0x64,
-                IrOperation.LessEqual => (byte)0x65, IrOperation.GreaterEqual => (byte)0x66,
-                _ => throw new InvalidOperationException("Invalid scalar operation.") });
-            if (comparison) w.Write((byte)0xb7); Set(w, leftNumber);
-            if (comparison) { I(w, 4); Set(w, leftTag); } else Normalize(leftTag, leftNumber);
+            if (comparison) {
+                Get(w, leftNumber); Get(w, rightNumber);
+                w.Write(op switch {
+                    IrOperation.Less => (byte)0x63, IrOperation.Greater => (byte)0x64,
+                    IrOperation.LessEqual => (byte)0x65, IrOperation.GreaterEqual => (byte)0x66,
+                    _ => throw new InvalidOperationException("Invalid scalar comparison.") });
+                w.Write((byte)0xb7); Set(w, leftNumber); I(w, 4); Set(w, leftTag); return;
+            }
+            // Two integers: exact i64 arithmetic wrapped to 32 bits; division by zero is left to the generic body's error.
+            Get(w, leftTag); I(w, 1); w.Write((byte)0x46); Get(w, rightTag); I(w, 1); w.Write(new byte[] { 0x46, 0x71, 0x04, 0x40 });
+            if (op == IrOperation.Divide) { Get(w, rightNumber); F(w, 0); w.Write(new byte[] { 0x61, 0x04, 0x40 }); Fail(0); w.Write((byte)0x0b); }
+            Get(w, leftNumber); w.Write(new byte[] { 0xfc, 0x06 }); Get(w, rightNumber); w.Write(new byte[] { 0xfc, 0x06 });
+            w.Write(op switch { IrOperation.Add => (byte)0x7c, IrOperation.Subtract => (byte)0x7d, IrOperation.Multiply => (byte)0x7e, _ => (byte)0x7f });
+            w.Write(new byte[] { 0xa7, 0xb7 }); Set(w, leftNumber);
+            w.Write((byte)0x05);
+            Get(w, leftNumber); Get(w, rightNumber); w.Write(WasmIntegerFunction.Arithmetic(op)); Set(w, leftNumber);
+            Normalize(leftTag, leftNumber);
+            w.Write((byte)0x0b);
         }
         void Fuel() {
             Get(w, 0); Memory(w, 0x28, 2, ExecutionBudget); w.Write(new byte[] { 0x45, 0x04, 0x40 }); Fail(2); w.Write((byte)0x0b);
@@ -278,12 +289,23 @@ internal sealed class WasmNumericFunction
                 case IrOperation.IncrementPrefix: case IrOperation.IncrementPostfix:
                     variable = variables[(string)Body.Pool[n]]; GuardNumeric(VarTag(variable));
                     if (op.Code == IrOperation.IncrementPostfix) Pair(SlotTag(depth), SlotNumber(depth), VarTag(variable), VarNumber(variable));
-                    Get(w, VarNumber(variable)); F(w, 1); w.Write((byte)0xa0); Set(w, VarNumber(variable)); Normalize(VarTag(variable), VarNumber(variable));
+                    Get(w, VarNumber(variable)); F(w, 1); w.Write((byte)0xa0); Set(w, VarNumber(variable)); Normalize(VarTag(variable), VarNumber(variable), true);
                     if (op.Code == IrOperation.IncrementPrefix) Pair(SlotTag(depth), SlotNumber(depth), VarTag(variable), VarNumber(variable));
                     break;
                 case IrOperation.Duplicate: Pair(SlotTag(depth), SlotNumber(depth), t, x); break;
                 case IrOperation.Pop: case IrOperation.JumpIfBreak: break;
-                case IrOperation.Negate: GuardNumeric(t); Get(w, x); w.Write((byte)0x9a); Set(w, x); Normalize(t, x); break;
+                case IrOperation.Negate: GuardNumeric(t); Get(w, x); w.Write((byte)0x9a); Set(w, x); Normalize(t, x, true); break;
+                case IrOperation.CheckType: {
+                    // An annotation check: the proven tag passes, integers widen to float/double and floats to double;
+                    // anything else fails speculation and the generic body reports the error.
+                    int want = n & 15;
+                    Get(w, t); I(w, want); w.Write(new byte[] { 0x46, 0x45, 0x04, 0x40 });
+                    if (want is 2 or 3) {
+                        Get(w, t); I(w, 1); w.Write((byte)0x4e); Get(w, t); I(w, want); w.Write(new byte[] { 0x48, 0x71, 0x45, 0x04, 0x40 }); Fail(0); w.Write((byte)0x0b);
+                        I(w, want); Set(w, t); Normalize(t, x);
+                    } else Fail(0);
+                    w.Write((byte)0x0b); break;
+                }
                 case IrOperation.Not: GuardBool(t); Get(w, x); F(w, 0); w.Write(new byte[] { 0x61, 0xb7 }); Set(w, x); break;
                 case IrOperation.Add: case IrOperation.Subtract: case IrOperation.Multiply: case IrOperation.Divide:
                 case IrOperation.Less: case IrOperation.Greater: case IrOperation.LessEqual: case IrOperation.GreaterEqual:

@@ -16,12 +16,12 @@ operations retain generic execution.
 An additional control-flow/type proof specializes functions whose integer arguments
 produce integer returns on every terminating path. Their values use untagged `i32`
 locals and direct `i32` recursive calls. Addition, subtraction and multiplication
-use a checked `i64` intermediate; division guards zero and minimum-integer divided
-by minus one. Out-of-range results preserve Aquarius's minimum-integer conversion
-rather than wrapping. Adapter guards validate both argument tags and payloads.
+wrap around like the generic runtime; division by zero leaves the speculation so the
+generic body reports the error, and the minimum integer divided by minus one wraps.
+Adapter guards validate both argument tags and payloads.
 Uncertain local types or initialization retain the general scalar representation.
 
-Numeric rules remain unchanged, including integer overflow conversion, truncating
+Numeric rules remain unchanged, including integer wrap-around, truncating
 division, float rounding, left-type-preserving compound assignment, eager Boolean
 operations, equality, errors and parameter shadowing. General scalar registers carry
 a tag and numeric payload, while proven integer registers omit both repeated type

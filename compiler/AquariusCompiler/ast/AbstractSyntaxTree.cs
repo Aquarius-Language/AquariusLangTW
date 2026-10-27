@@ -69,7 +69,7 @@ public class LetStatement : IStatement {
             .Append('(')
             .Append(TokenLiteral())
             .Append(' ')
-            .Append(name.String())
+            .Append(name.Declared())
             .Append(Alias == null ? "" : ", " + Alias.String())
             .Append(" = ");
         
@@ -296,6 +296,11 @@ public class Identifier : IExpression {
         get => value;
         set => this.value = value;
     }
+
+    /// <summary>The optional annotation of a declared name or parameter (<c>name: type</c>).</summary>
+    public TypeAnnotation? Type { get; set; }
+
+    internal string Declared() => Type == null ? value : value + ": " + Type.String();
 }
 
 public class IncrementExpression : IExpression {
@@ -771,13 +776,13 @@ public class FunctionLiteral : IExpression {
 
         List<string> _params = new List<string>(); 
         foreach (var parameter in parameters) {
-            _params.Add(parameter.String());
+            _params.Add(parameter.Declared());
         }
-        
+
         builder.Append(TokenLiteral()).
             Append('(')
             .Append(string.Join(", ", _params))
-            .Append(") ")
+            .Append(ReturnType == null ? ") " : "): " + ReturnType.String() + " ")
             .Append(body.String());
         
         return builder.ToString();
@@ -800,6 +805,9 @@ public class FunctionLiteral : IExpression {
         get => body;
         set => body = value;
     }
+
+    /// <summary>The optional return type after the parameter list (<c>函式(n: 整數): 整數</c>).</summary>
+    public TypeAnnotation? ReturnType { get; set; }
 }
 
 public class CallExpression : IExpression {
@@ -1068,6 +1076,31 @@ public class HashLiteral : IExpression {
         get => pairs;
         set => pairs = value;
     }
+}
+
+/// <summary>Element types of optional annotations. The values are the runtime value tags (layout.def).</summary>
+public enum ScalarType { Int = 1, Float = 2, Double = 3, Bool = 4, String = 5 }
+
+/// <summary>An optional type annotation, <c>name: type</c>: a scalar or an array of scalars (<c>整數[]</c> / <c>int[]</c>).
+/// Type names are recognized only in annotation position and are not reserved words.</summary>
+public sealed class TypeAnnotation {
+    private static readonly Dictionary<string, ScalarType> Names = new(System.StringComparer.Ordinal) {
+        { "整數", ScalarType.Int }, { "int", ScalarType.Int },
+        { "浮點數", ScalarType.Float }, { "float", ScalarType.Float },
+        { "雙精度", ScalarType.Double }, { "double", ScalarType.Double },
+        { "布林", ScalarType.Bool }, { "bool", ScalarType.Bool },
+        { "字串", ScalarType.String }, { "string", ScalarType.String },
+    };
+    public static bool TryParseName(string name, out ScalarType type) => Names.TryGetValue(name, out type);
+
+    public Token Token { get; }
+    public ScalarType Element { get; }
+    public bool IsArray { get; }
+    public TypeAnnotation(Token token, ScalarType element, bool isArray) { Token = token; Element = element; IsArray = isArray; }
+
+    /// <summary>Compact code shared with the Wasm emitter and runtime checks: the element tag, plus 16 for arrays.</summary>
+    public int Code => (int)Element | (IsArray ? 16 : 0);
+    public string String() => Token.Literal + (IsArray ? "[]" : "");
 }
 
 }

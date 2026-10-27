@@ -204,7 +204,39 @@ or combining marks. The language supports local/global variables, arrays, hashes
 closures, recursion and modules. Numeric values include integers, floats (`f`)
 and doubles (`d`). Operators include `+ - * / %` and `+= -= *= /= %=`.
 Prefix `++value` returns the updated number; postfix `value++` returns the old
-number. Both preserve the variable's numeric type.
+number. Both preserve the variable's numeric type. Integers are 32-bit: `+ - *`
+wrap around on overflow (like C# and Java), and integer `/` and `%` by zero are
+runtime errors. Results are identical on every platform.
+
+### Optional types
+
+Variables, parameters and return values can carry `: type` after the name, in
+either syntax. Untyped code keeps working unchanged:
+
+```aquarius
+var count: int = 0;
+var fib = function(n: int): int {
+    if (n < 2) { return n; }
+    return fib(n - 1) + fib(n - 2);
+};
+變數 比例 = 函式(a: 整數, b: 整數): 雙精度 { 回傳 雙精度(a) / b; };
+var flags: bool[] = Array.Make(10, true);
+```
+
+| English | 繁體中文 | Type |
+| --- | --- | --- |
+| `int` | `整數` | 32-bit integer |
+| `float` | `浮點數` | 32-bit float |
+| `double` | `雙精度` | 64-bit float |
+| `bool` | `布林` | true / false |
+| `string` | `字串` | text |
+| `int[]`, `float[]`, `double[]`, `bool[]` | `整數[]` etc. | array with a fixed element type |
+
+Type names only mean something after `:`; they are not reserved words. A mismatch
+the compiler can see is a compile error, anything else is checked at run time.
+Integers widen to float and double automatically; the other direction needs
+`int(x)` / `整數(x)` (truncates toward zero, saturating at the integer range),
+`float(x)` / `浮點數(x)` or `double(x)` / `雙精度(x)`.
 
 Builtins such as `print` / `印出`, `len` / `長度` and `import` / `匯入` have
 bilingual names. The portable [Array](docs/arrays.md), [Hash and String](docs/hash-and-string.md)

@@ -127,4 +127,7 @@ void core_library(aqua_library *library) {
     /* Portable builtins: the guest runtime executes these ids itself (runtime/guest/runtime.c rt_call). */
     static const char *const portable[] = {"len|長度", "last|最後一個", "rest|其餘", "push|加入", "floodFill|區域填色"};
     for (uint32_t i = 0; i < 5; i++) { aqua_value token = {AQUA_BUILTIN, i + 1, 0}; class_define_value(globals, portable[i], token); }
+    /* Numeric conversions, guest ids 46..48 (CONVERT_FIRST_ID). */
+    static const char *const conversions[] = {"int|整數", "float|浮點數", "double|雙精度"};
+    for (uint32_t i = 0; i < 3; i++) { aqua_value token = {AQUA_BUILTIN, 46 + i, 0}; class_define_value(globals, conversions[i], token); }
 }

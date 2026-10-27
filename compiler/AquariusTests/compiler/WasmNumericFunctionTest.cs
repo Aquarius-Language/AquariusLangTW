@@ -98,6 +98,8 @@ public class WasmNumericFunctionTest
             "==" or "!=" => Pairs(all, all),
             "&&" or "||" => Pairs(boolean, boolean),
             "+" => Pairs(numeric, numeric).Append((10, 10)),
+            // Integer division by zero is an error (checked below).
+            "/" => Pairs(numeric, numeric).Where(p => !(p.Item1 <= 3 && p.Item2 == 2)),
             _ => Pairs(numeric, numeric),
         }).Select(p => (Operator: o, Left: p.Item1, Right: p.Item2))).ToList();
         var results = EmitterTiers.AssertSameCases(OperatorPrelude(operators, OperatorValues, cases), "fs[ops[k]](values[lefts[k]],values[rights[k]])",
@@ -107,7 +109,7 @@ public class WasmNumericFunctionTest
         Assert.Equal(new TestValue("double", "NaN"), results[cases.IndexOf((0, 6, 0))]);
         // Mismatched operands fall back to the generic operator and fail the same way. An error stops a program, so each
         // runs on its own.
-        (int Operator, int Left, int Right)[] mismatched = [(0, 0, 8), (1, 10, 10), (2, 8, 9), (4, 10, 3), (10, 2, 8), (11, 10, 9)];
+        (int Operator, int Left, int Right)[] mismatched = [(0, 0, 8), (1, 10, 10), (2, 8, 9), (4, 10, 3), (10, 2, 8), (11, 10, 9), (3, 1, 2), (3, 2, 2)];
         var errors = EmitterTiers.AssertSame(mismatched.Select(c => $"變數 values=[{string.Join(",", OperatorValues)}];" +
             $"變數 f=函式(a,b){{a{operators[c.Operator]}b;}};f(values[{c.Left}],values[{c.Right}]);").ToArray());
         Assert.All(errors, error => Assert.True(error.IsError, error.ToString()));
@@ -124,16 +126,20 @@ public class WasmNumericFunctionTest
         "變數 rights=[" + string.Join(",", cases.Select(c => c.Right)) + "];";
 
     [RuntimeFact]
-    public void IntegerRepresentationPreservesBoundaryArithmeticWithoutWrapping()
+    public void IntegerRepresentationWrapsBoundaryArithmetic()
     {
         int[] values = [int.MinValue, int.MinValue + 1, -65537, -1, 0, 1, 65537, int.MaxValue - 1, int.MaxValue];
         string[] operators = ["+", "-", "*", "/"];
         var literals = values.Select(v => v == int.MinValue ? "0-2147483647-1" : v.ToString(System.Globalization.CultureInfo.InvariantCulture)).ToArray();
+        // Division by zero is an error, not a value; every other case wraps like C#'s unchecked int arithmetic.
         var cases = (from o in Enumerable.Range(0, operators.Length) from l in Enumerable.Range(0, values.Length)
-                     from r in Enumerable.Range(0, values.Length) select (o, l, r)).ToList();
+                     from r in Enumerable.Range(0, values.Length) where !(operators[o] == "/" && values[r] == 0) select (o, l, r)).ToList();
         var results = EmitterTiers.AssertSameCases(OperatorPrelude(operators, literals, cases), "fs[ops[k]](values[lefts[k]],values[rights[k]])",
             cases.Count, i => $"{values[cases[i].l]} {operators[cases[i].o]} {values[cases[i].r]}");
-        Assert.All(results, value => Assert.Equal("integer", value.Type));
+        static int Expected(string op, int a, int b) => unchecked(op switch {
+            "+" => a + b, "-" => a - b, "*" => a * b, _ => b == -1 ? -a : a / b });
+        for (int i = 0; i < cases.Count; i++)
+            Assert.Equal(new TestValue("integer", Expected(operators[cases[i].o], values[cases[i].l], values[cases[i].r]).ToString(System.Globalization.CultureInfo.InvariantCulture)), results[i]);
     }
 
     [RuntimeFact]
