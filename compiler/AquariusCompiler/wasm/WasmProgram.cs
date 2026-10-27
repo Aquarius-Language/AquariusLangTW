@@ -28,7 +28,7 @@ public sealed record WasmFunctionInfo(string[] Parameters, int StackCapacity, bo
 internal sealed record WasmConstant(string Type, double Number = 0, string? Text = null, bool Boolean = false,
     int Function = -1, string[]? Parameters = null, string? Operation = null);
 internal sealed record WasmFunction(bool WrapReturn, WasmConstant[] Pool, string[]? Parameters = null, int StackCapacity = 0, bool CacheBindings = false,
-    int NumericTable = 0, string? NumericRecursiveName = null, int Locals = 0, bool PromotedScope = false);
+    int NumericTable = 0, string? NumericRecursiveName = null, int Locals = 0, bool PromotedScope = false, bool Native = false);
 
 /// <summary>A standard WebAssembly module with bounded, versioned application metadata in custom sections.</summary>
 public sealed class WasmProgram
@@ -144,7 +144,7 @@ public sealed class WasmProgram
             for (int p = 0; p < parameterCount; p++) parameters[p] = Text(Int(names + p * 4));
             int recursive = Int(definition + 28);
             result[f] = new WasmFunctionInfo(parameters, Int(definition + 8), (flags & 1) != 0, flags > 1,
-                Int(definition + 24), recursive != 0 ? Text(recursive) : null, Int(definition + 32), Int(definition + 36) != 0);
+                Int(definition + 24), recursive != 0 ? Text(recursive) : null, Int(definition + 32), (Int(definition + 36) & 1) != 0);
         }
         return result;
     }

@@ -114,7 +114,7 @@ internal sealed class WasmRuntimeImage
                 }
                 if (functionLayout >= 40) {
                     Int(definition + 32, function.Locals);
-                    Int(definition + 36, function.PromotedScope ? 1 : 0);
+                    Int(definition + 36, (function.PromotedScope ? 1 : 0) | (function.Native ? 2 : 0));
                 }
                 for (int p = 0; p < parameters.Length; p++) Int(names + p * 4, Text(parameters[p]));
                 for (int c = 0; c < function.Pool.Length; c++)

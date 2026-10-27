@@ -10,6 +10,18 @@ namespace AquariusLang.Compiler;
 /// (<see cref="TypeAnnotation.Code"/>) and the subject named in the error.</summary>
 internal sealed record TypeCheck(int Code, string Subject);
 
+/// <summary>A fully typed function literal (every parameter and the result annotated with a scalar or array type): a
+/// candidate for the native tier. <see cref="Outer"/> holds the names its body resolves outside itself, with the
+/// declaration they resolve to; names it does not resolve (core globals such as 整數 or 長度) are absent.</summary>
+internal sealed class NativeSignature {
+    internal sealed record OuterName(int Type, FunctionLiteral? Function, bool Assigned, bool Sibling);
+    internal readonly int[] Parameters;
+    internal readonly int Result;
+    internal readonly object DefiningScope;
+    internal readonly Dictionary<string, OuterName> Outer = new(System.StringComparer.Ordinal);
+    internal NativeSignature(int[] parameters, int result, object definingScope) { Parameters = parameters; Result = result; DefiningScope = definingScope; }
+}
+
 /// <summary>
 /// Checks optional type annotations before lowering. Every write to a typed binding is visible in the source (only plain
 /// names can be assigned and modules cannot assign each other's bindings), so each one is either proven at compile
@@ -34,6 +46,10 @@ public sealed class TypeChecker {
     }
 
     internal readonly Dictionary<INode, TypeCheck> Checks = new(ReferenceEqualityComparer.Instance);
+    internal readonly Dictionary<FunctionLiteral, NativeSignature> Natives = new(ReferenceEqualityComparer.Instance);
+    // Each function being checked: its own scope and, for a fully typed one, the outer names its body uses.
+    private readonly Stack<(Scope Own, NativeSignature? Native, Dictionary<string, (Declaration, Scope)> Uses)> functions = new();
+    private readonly List<(NativeSignature Native, Dictionary<string, (Declaration, Scope)> Uses)> pending = new();
     private readonly List<ParseError> errors = new();
     private readonly Stack<TypeAnnotation?> returns = new();
     private Scope scope = new(null);
@@ -45,6 +61,11 @@ public sealed class TypeChecker {
         var checker = new TypeChecker();
         checker.Declare(tree.Statements);
         foreach (var statement in tree.Statements) checker.Statement(statement);
+        // Assignments anywhere in the program are known only now.
+        foreach (var (native, uses) in checker.pending)
+            foreach (var (name, (declaration, owner)) in uses)
+                native.Outer[name] = new NativeSignature.OuterName(Code(declaration.Type), declaration.Count == 1 ? declaration.Function : null,
+                    declaration.Assigned || declaration.Count != 1, owner == native.DefiningScope);
         return checker;
     }
 
@@ -96,7 +117,14 @@ public sealed class TypeChecker {
     }
 
     private Declaration? Resolve(string name) {
-        for (var s = scope; s != null; s = s.Outer) if (s.Names.TryGetValue(name, out var declaration)) return declaration;
+        bool inside = true;
+        for (var s = scope; s != null; s = s.Outer) {
+            if (s.Names.TryGetValue(name, out var declaration)) {
+                if (!inside && functions.Count > 0) functions.Peek().Uses.TryAdd(name, (declaration, s));
+                return declaration;
+            }
+            if (functions.Count > 0 && s == functions.Peek().Own) inside = false;
+        }
         return null;
     }
     private static int Code(TypeAnnotation? type) => type?.Code ?? Dynamic;
@@ -245,6 +273,12 @@ public sealed class TypeChecker {
 
     private void Function(FunctionLiteral function) {
         var outer = scope; scope = new Scope(outer);
+        var parameterTypes = (function.Parameters ?? System.Array.Empty<Identifier>()).Select(p => Code(p.Type)).ToArray();
+        NativeSignature? native = function.ReturnType != null && parameterTypes.All(t => t is Int or Float or Double or Bool)
+            && Code(function.ReturnType) is Int or Float or Double or Bool ? new NativeSignature(parameterTypes, Code(function.ReturnType), outer) : null;
+        var uses = new Dictionary<string, (Declaration, Scope)>(System.StringComparer.Ordinal);
+        functions.Push((scope, native, uses));
+        if (native != null) { Natives[function] = native; pending.Add((native, uses)); }
         foreach (var parameter in function.Parameters ?? System.Array.Empty<Identifier>()) Add(parameter, null);
         var statements = function.Body?.Statements ?? System.Array.Empty<IStatement>();
         Declare(statements);
@@ -257,6 +291,7 @@ public sealed class TypeChecker {
         if (function.ReturnType is { } result && (statements.Length == 0 || statements[^1] is LetStatement or BreakStatement))
             Error($"函式必須回傳 {Name(result.Code)} / The function must return {Name(result.Code)}.", result.Token);
         returns.Pop();
+        functions.Pop();
         scope = outer;
     }
 }

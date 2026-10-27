@@ -19,11 +19,11 @@ public sealed class LoweringCompiler {
     private readonly List<object> constants = new();
     private readonly Dictionary<string, int> names = new();
     private readonly Stack<List<int>> breaks = new();
-    // Runtime annotation checks found by the TypeChecker for the whole program, shared by nested function bodies.
-    private IReadOnlyDictionary<INode, TypeCheck>? checks;
+    // The TypeChecker result for the whole program (runtime checks, native candidates), shared by nested function bodies.
+    private TypeChecker? types;
 
     public LoweringCompiler() { }
-    internal LoweringCompiler(IReadOnlyDictionary<INode, TypeCheck>? checks) { this.checks = checks; }
+    internal LoweringCompiler(TypeChecker? types) { this.types = types; }
 
     public LoweredProgram Compile(string source) {
         var lexer = Lexer.NewInstance(source);
@@ -37,10 +37,10 @@ public sealed class LoweringCompiler {
     public LoweredProgram Compile(INode node) {
         if (node == null) throw new ArgumentNullException(nameof(node));
         code.Clear(); constants.Clear(); names.Clear(); breaks.Clear();
-        if (node is AbstractSyntaxTree tree && checks == null) {
-            var types = TypeChecker.Check(tree);
-            if (types.Errors.Count > 0) throw new CompilationException(string.Join("\n", types.Errors.Select(e => e.Message)));
-            checks = types.Checks;
+        if (node is AbstractSyntaxTree tree && types == null) {
+            var checker = TypeChecker.Check(tree);
+            if (checker.Errors.Count > 0) throw new CompilationException(string.Join("\n", checker.Errors.Select(e => e.Message)));
+            types = checker;
         }
         Node(node);
         return new LoweredProgram(code.ToArray(), constants.ToArray(), !(node is AbstractSyntaxTree));
@@ -66,7 +66,7 @@ public sealed class LoweringCompiler {
     // The subject shares the name constant: emitters identify a binding by its first name constant.
     private int TypeOperand(TypeCheck check) => Name(check.Subject) << 5 | check.Code;
     private void Check(INode site) {
-        if (checks != null && checks.TryGetValue(site, out var check)) Emit(IrOperation.CheckType, TypeOperand(check));
+        if (types != null && types.Checks.TryGetValue(site, out var check)) Emit(IrOperation.CheckType, TypeOperand(check));
     }
 
     private int Emit(IrOperation op, int operand = 0) { code.Add(new Instruction(op, operand)); return code.Count - 1; }
@@ -134,7 +134,7 @@ public sealed class LoweringCompiler {
             case InfixExpression infix: Infix(infix); break;
             case IfExpression conditional: Conditional(conditional); break;
             case ForLoopLiteral loop: Loop(loop); break;
-            case FunctionLiteral function: Emit(IrOperation.Closure, Constant(new FunctionCode(function, checks))); break;
+            case FunctionLiteral function: Emit(IrOperation.Closure, Constant(new FunctionCode(function, types))); break;
             case CallExpression call:
                 Node(call.Function); Arguments(call.Arguments); Emit(IrOperation.Call, call.Arguments.Length); break;
             case ArrayLiteral array: Arguments(array.Elements); Emit(IrOperation.Array, array.Elements.Length); break;
@@ -164,7 +164,7 @@ public sealed class LoweringCompiler {
             if (right is Identifier member) Emit(IrOperation.Member, Name(member.Value));
             else if (right is CallExpression call) {
                 if (call.Function is Identifier function) Emit(IrOperation.MemberFunction, Name(function.Value));
-                else Emit(IrOperation.ResolveMemberFunction, Constant(new LoweringCompiler(checks).Compile(call.Function)));
+                else Emit(IrOperation.ResolveMemberFunction, Constant(new LoweringCompiler(types).Compile(call.Function)));
                 Arguments(call.Arguments); Emit(IrOperation.Call, call.Arguments.Length);
             } else throw new CompilationException("Unsupported module member expression.");
             while (indices.Count > 0) { Node(indices.Pop()); Emit(IrOperation.Index); }

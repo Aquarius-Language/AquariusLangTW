@@ -21,7 +21,7 @@ typedef struct { u32 table, arity, capacity, wrap_return; Text **parameters; Val
 /* Function flags. PROMOTED_SCOPE: parameters and function-level locals live in frame slots 0..locals-1;
    the frame's scope is the closure scope itself. Only closure-free bodies are promoted, so no other
    frame, closure or host can observe the replaced lexical scope. */
-enum { PROMOTED_SCOPE=1 };
+enum { PROMOTED_SCOPE=1, NATIVE_TIER=2 }; /* NATIVE_TIER: numeric_table is a native adapter, numeric_table+1 its resume adapter. */
 /* Runtime-only speculation statistics in the upper bits of Function.flags (instance memory). */
 #define NUMERIC_HITS(fn) (((fn)->flags>>16)&0xff)
 #define NUMERIC_MISSES(fn) ((fn)->flags>>24)
@@ -29,15 +29,18 @@ enum { PROMOTED_SCOPE=1 };
 #define HEAP_LIMIT (2048u*1024*1024) /* the guest heap's ceiling: the compiler declares a 2 GiB memory maximum */
 typedef struct { u32 count; Function *functions; } Program;
 /* cache: binding cache shared by promoted-scope calls of this closure (their frame scope is the closure scope). */
-typedef struct { Program *program; u32 function; Scope *scope; u32 context; u32 *cache, cache_era; } Closure;
+typedef struct Closure { Program *program; u32 function; Scope *scope; u32 context; u32 *cache, cache_era; } Closure;
 typedef struct Loop { struct Loop *previous; Scope *outer; u32 base; Text *binding; } Loop;
 typedef struct Execution Execution;
 typedef struct Frame {
     struct Frame *parent; Execution *execution; Program *program; Function *function;
-    Scope *scope; Loop *loops; u32 pc, sp, returned, context, capacity, pending_base, pending_count; u32 *binding_cache; Value values[];
+    Scope *scope; Loop *loops; u32 pc, sp, returned, context, capacity, pending_base, pending_count; u32 *binding_cache;
+    /* native_site: where a deoptimized native (fully typed) function resumes natively when the scheduler runs this
+       frame again (1 = entry, 2+ = a loop head); native_closure: its closure. */
+    u32 native_site; struct Closure *native_closure; Value values[];
 } Frame;
 struct Execution { Execution *next; Frame *current; Value result; u32 budget, status; Function *numeric_depth_disabled; u32 poll; Closure *numeric_closure; Frame *numeric_innermost; };
-_Static_assert(offsetof(Frame, values)==56, "Compiler frame ABI mismatch");
+_Static_assert(offsetof(Frame, values)==64, "Compiler frame ABI mismatch");
 _Static_assert(offsetof(Execution, status)==28 && offsetof(Execution, budget)==24 && offsetof(Execution, poll)==36 && offsetof(Execution, numeric_closure)==40, "Compiler execution ABI mismatch");
 _Static_assert(sizeof(Function)==40, "Function layout mismatch");
 _Static_assert(sizeof(Value)==16 && sizeof(Binding)==24 && offsetof(Binding,value)==8, "Host value/binding ABI mismatch");
@@ -322,12 +325,30 @@ static void complete_frame(Execution*e,Frame*f) {
    and the scheduler resumes the innermost frame; nothing is speculated or replayed. */
 #define NATIVE_CALL_DEPTH 128
 static u32 native_depth;
+/* Resumes a deoptimized native function natively when the scheduler runs its marked frame again: at its entry or at
+   the loop head where its budget ran out. The resume adapter returns 1 with the result, 4 after deoptimizing again
+   (a new frame chain replaces this one), 5 after raising an error, 0 while the budget is exhausted or a collection
+   is pending (the generic body runs and yields at its checkpoint) and 6 when a binding changed (generic from now on).
+   Returns 1 when the frame was handled. */
+static int native_resume(Execution*e,Frame*f) {
+    Function*fn=f->function;
+    if(!(fn->flags&NATIVE_TIER)){f->native_site=0;return 0;}
+    Value out=empty;e->numeric_closure=f->native_closure;e->numeric_innermost=0;
+    int status=((int(*)(Frame*,Value*,Execution*))(uintptr_t)(fn->numeric_table+1))(f,&out,e);
+    if(status==0)return 0;
+    if(status==6){f->native_site=0;return 0;}
+    if(status==5)return 1;
+    Frame*parent=f->parent;release_frame(f);
+    if(status==4){Frame*outer=pointer(out.ref);outer->parent=parent;e->current=e->numeric_innermost;return 1;}
+    e->current=parent;if(!parent){e->result=out;e->status=4;}else push(parent,out);return 1;
+}
 static int run_callee(Frame*f) {
     // Deoptimized specializations can push a chain of frames, so run until control returns to f.
     Execution*e=f->execution;
     while(e->current!=f){
         Frame*callee=e->current;
         if(e->status||native_depth>=NATIVE_CALL_DEPTH)return 1;
+        if(callee->native_site&&native_resume(e,callee)){if(e->status)return 1;continue;}
         native_depth++;int next=((int(*)(Frame*))(uintptr_t)callee->function->table)(callee);native_depth--;
         if(e->status==3)return 1;
         if(next>=0){callee->pc=(u32)next;return 1;}
@@ -387,7 +408,9 @@ u32 aqua_unpin(u32 v) {
 }
 u32 aqua_run(u32 ptr,u32 budget) {
     Execution*e=pointer(ptr);if(e->status==2||e->status==3)return e->status;e->budget=budget;e->status=0;
-    while(e->current){Frame*f=e->current;int next=((int(*)(Frame*))(uintptr_t)f->function->table)(f);
+    while(e->current){Frame*f=e->current;
+        if(f->native_site&&native_resume(e,f)){if(e->status)return e->status;continue;}
+        int next=((int(*)(Frame*))(uintptr_t)f->function->table)(f);
         if(e->status==3)return 3;
         if(next<0){Value result=f->sp>f->function->locals?pop(f):empty;Frame*parent=f->parent;if(!(f->function->flags&PROMOTED_SCOPE))dispose_scope(f->scope);release_frame(f);e->current=parent;if(!parent){e->result=result;e->status=4;return 4;}push(parent,result);}
         else f->pc=(u32)next;
@@ -491,7 +514,9 @@ int rt_call(Frame*f,int n) {
                 int status=((int(*)(Value*,Value*,Execution*))(uintptr_t)fn->numeric_table)(args,&out,f->execution);
                 if(status==1||status==4){if(NUMERIC_HITS(fn)<255)fn->flags+=1u<<16;}else if(status==0&&NUMERIC_MISSES(fn)<255)fn->flags+=1u<<24;
                 if(status==1){numeric_fast_calls++;f->sp=base;push(f,out);return f->execution->status!=0;}
-                if(status==4){numeric_fast_calls++;numeric_deopts++;Frame*outer=pointer(out.ref);outer->parent=f;f->sp=base;f->execution->current=f->execution->numeric_innermost;return run_callee(f);}numeric_fallback_calls++;if(status==3){numeric_depth_fallbacks++;f->execution->numeric_depth_disabled=fn;}
+                if(status==4){numeric_fast_calls++;numeric_deopts++;Frame*outer=pointer(out.ref);outer->parent=f;f->sp=base;f->execution->current=f->execution->numeric_innermost;return run_callee(f);}
+                if(status==5){numeric_fast_calls++;f->sp=base;return 1;} /* A native function raised a language error (rt_nativeFailure). */
+                numeric_fallback_calls++;if(status==3){numeric_depth_fallbacks++;f->execution->numeric_depth_disabled=fn;}
                 // Discarded speculation must not cause an observable yield before
                 // the generic body reconstructs its actual execution state.
                 f->execution->budget=saved_budget;
@@ -509,6 +534,20 @@ int rt_numericFrame(Execution*e,int pc,int depth) {
     Closure*c=e->numeric_closure;Function*fn=c->program->functions+c->function;
     Frame*f=frame(e,0,c->program,c->function,c->scope,c->context);f->binding_cache=closure_cache(c,fn);
     f->pc=(u32)pc;f->sp=fn->locals+(u32)depth;if(!e->numeric_innermost)e->numeric_innermost=f;return (int)address(f);
+}
+/* Deoptimization of a native (fully typed) function: like rt_numericFrame, for the given closure, since native
+   functions call each other directly. The caller writes the frame's variables and operands. */
+int rt_nativeFrame(Execution*e,int closure,int pc,int depth) {
+    Closure*c=pointer((u32)closure);Function*fn=c->program->functions+c->function;
+    Frame*f=frame(e,0,c->program,c->function,c->scope,c->context);f->binding_cache=closure_cache(c,fn);f->native_closure=c;
+    f->pc=(u32)pc;f->sp=fn->locals+(u32)depth;if(!e->numeric_innermost)e->numeric_innermost=f;return (int)address(f);
+}
+/* A language error raised inside a native function, with the generic runtime's message; the native code then
+   returns status 5 through every native activation. */
+int rt_nativeFailure(Execution*e,int code) {
+    static const char *const messages[]={"Integer division by zero / 整數不能除以零。","Integer remainder by zero / 整數不能對零取餘數。",
+        "Array index is out of bounds / 陣列索引超出範圍。"};
+    e->result=value(ERROR,address(ascii(messages[code])),0);e->status=3;return 5;
 }
 int rt_array(Frame*f,int n){Array*a=array(n);for(int i=n-1;i>=0;i--)a->values[i]=pop(f);push(f,value(ARRAY,address(a),0));return 0;}
 /* An annotation check on the top operand: n = (subject constant << 5) | type code (element tag, +16 for arrays).

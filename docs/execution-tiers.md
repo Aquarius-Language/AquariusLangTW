@@ -98,6 +98,27 @@ generic promoted frames (`rt_numericFrame`, status 4) and the scheduler continue
 from exactly that point. Speculation misses are counted per function and disable
 fast entry for functions that keep failing.
 
+## Native tier for fully typed functions
+
+A function literal whose parameters and result are all annotated (`函式(n: 整數): 整數 { ... }`) gets the native tier
+(`WasmNativeFunction`) when its body only uses typed numbers and Booleans, typed arrays, the conversions `整數()`,
+`浮點數()`, `雙精度()` and `長度()`, typed bindings of the scope that declares it, and calls to other such functions of
+that scope. The promoted generic body's frame slots become typed Wasm locals; integer, float and double operations
+follow the generic runtime exactly; loops become Wasm loops; sibling calls are direct Wasm calls passing the outer
+bindings' addresses. Untyped locals are typed by the dataflow when every assignment agrees.
+
+The entry adapter (the function's `numeric_table` slot, flag `NATIVE_TIER`) checks every outer binding (its tag, a
+callee's closure identity, unshadowed core conversions) and the argument types before any effect, and otherwise
+returns to the generic body. Fuel is consumed at the entry and at loop heads with the generic checkpoint weights, the
+budget kept in a local between calls. When the budget runs out, a collection is pending or the native recursion depth
+bound is reached, the native activations deoptimize through one out-of-line handler into generic frames (`rt_nativeFrame`)
+at the same block; the scheduler then yields as usual. A checkpoint's frame is marked with its native site: when the
+scheduler runs it again with budget left, `native_resume` calls the resume adapter (the next table slot), which
+re-checks the bindings and continues natively at the entry or at that loop head, entering the loop through skip blocks.
+A native error (integer division by zero, an out-of-bounds typed array index) is raised with `rt_nativeFailure`. Native
+functions return only their result; a signal global carries 5 after an error or the outermost frame after a
+deoptimization. `AQUARIUS_WASM_TIER_DIAGNOSTICS=1` reports typed functions the native tier rejects.
+
 ## Garbage collector
 
 Blocks tile the heap contiguously. The sweep is a single pass by address that clears marks,

@@ -63,10 +63,15 @@ internal sealed class FunctionCode {
     internal Identifier[] Parameters { get; }
     internal BlockStatement? Body { get; }
     internal LoweredProgram BodyCode { get; }
-    internal FunctionCode(FunctionLiteral function, IReadOnlyDictionary<INode, TypeCheck>? checks = null) {
+    /// <summary>The literal and, when it is fully typed, its native-tier signature.</summary>
+    internal FunctionLiteral Literal { get; }
+    internal NativeSignature? Native { get; }
+    internal FunctionCode(FunctionLiteral function, TypeChecker? types = null) {
+        Literal = function;
+        Native = types != null && types.Natives.TryGetValue(function, out var native) ? native : null;
         Parameters = function.Parameters;
         Body = function.Body;
-        BodyCode = new LoweringCompiler(checks).CompileFunction(function);
+        BodyCode = new LoweringCompiler(types).CompileFunction(function);
     }
 }
 

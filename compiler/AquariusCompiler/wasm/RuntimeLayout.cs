@@ -44,7 +44,8 @@ internal static class RuntimeLayout
     internal static readonly int FrameParent = Get(nameof(FrameParent)), FrameExecution = Get(nameof(FrameExecution)), FrameProgram = Get(nameof(FrameProgram)), FrameFunction = Get(nameof(FrameFunction)),
         FrameScope = Get(nameof(FrameScope)), FrameLoops = Get(nameof(FrameLoops)), FramePc = Get(nameof(FramePc)), FrameSp = Get(nameof(FrameSp)), FrameReturned = Get(nameof(FrameReturned)),
         FrameContext = Get(nameof(FrameContext)), FrameCapacity = Get(nameof(FrameCapacity)), FramePendingBase = Get(nameof(FramePendingBase)), FramePendingCount = Get(nameof(FramePendingCount)),
-        FrameBindingCache = Get(nameof(FrameBindingCache)), FrameValues = Get(nameof(FrameValues));
+        FrameBindingCache = Get(nameof(FrameBindingCache)), FrameNativeSite = Get(nameof(FrameNativeSite)), FrameNativeClosure = Get(nameof(FrameNativeClosure)),
+        FrameValues = Get(nameof(FrameValues));
     internal static readonly int PendingDirtyArrays = Get(nameof(PendingDirtyArrays)), PendingDirtyHashes = Get(nameof(PendingDirtyHashes)), PendingReleasedArrays = Get(nameof(PendingReleasedArrays)),
         PendingReleasedHashes = Get(nameof(PendingReleasedHashes)), PendingHostEra = Get(nameof(PendingHostEra)), PendingSize = Get(nameof(PendingSize));
     internal static readonly int ExecutionNext = Get(nameof(ExecutionNext)), ExecutionCurrent = Get(nameof(ExecutionCurrent)), ExecutionResult = Get(nameof(ExecutionResult)),
