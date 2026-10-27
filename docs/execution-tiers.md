@@ -121,9 +121,10 @@ deoptimization. `AQUARIUS_WASM_TIER_DIAGNOSTICS=1` reports typed functions the n
 
 ## Native regions in untyped code
 
-A loop of an untyped body (a top-level script, or an untyped function whose loop scopes are promoted) whose code only
-uses typed bindings of the enclosing scope (`變數 總和: 整數 = 0;` before the loop), its own loop variables, typed arrays
-and the core conversions becomes a native region (`WasmNativeFunction.SelectRegions`): the same native code, entered at
+A loop of an untyped body (a top-level script, an untyped function whose loop scopes are promoted, or a typed function
+the native tier rejects, for example because it calls `陣列.建立`) whose code only uses typed bindings of any enclosing
+scope (`變數 總和: 整數 = 0;` before the loop), its own loop variables, typed arrays (including typed array locals declared
+before the loop) and the core conversions becomes a native region (`WasmNativeFunction.SelectRegions`): the same native code, entered at
 its loop heads instead of a function entry. At every loop-head block of the region, the generic body writes its
 registers back and calls the region with the frame; the region resolves its outer bindings from the frame's scope, checks
 their types and the types of the frame slots it uses, runs from that loop head, and returns the generic block to continue

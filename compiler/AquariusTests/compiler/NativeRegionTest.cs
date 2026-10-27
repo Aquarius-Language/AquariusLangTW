@@ -19,6 +19,9 @@ public class NativeRegionTest
         "var x: int = 7; for (var i: int = 0; i < 50; i++) { x = x * 1103515245 + 12345; } x;",
         // The loop variable carries out of an untyped function's own scope too.
         "var f = function(n) { var acc: int = 0; for (var i: int = 0; i < n; i++) { acc += i * i; } return acc; }; f(1000);",
+        // A typed function the native tier rejects (it calls a library function) keeps its loops as regions: they use
+        // its typed array locals and a typed binding two scopes out.
+        "var n: int = 40; var run = function(): int { var a: int[] = Array.Make(n * n, 0); for (var i: int = 0; i < n * n; i++) { a[i] = i % 9; } var s: int = 0; for (var i: int = 0; i < n * n; i++) { s += a[i] * a[(i * 7) % (n * n)]; } return s; }; run() + run();",
     ];
 
     [RuntimeFact]
@@ -53,11 +56,13 @@ public class NativeRegionTest
         var results = EmitterTiers.AssertSame([
             "var d: int = 5; var s: int = 0; for (var i: int = 0; i < 10; i++) { s += 100 / (d - i); } s;",
             "var a: int[] = [1, 2, 3]; var s: int = 0; for (var i: int = 0; i < 5; i++) { s += a[i]; } s;",
+            "var g = function(): int { var a: int[] = Array.Make(3, 1); var s: int = 0; for (var i: int = 0; i < 5; i++) { s += a[i]; } return s; }; g();",
             // A region rereads its bindings at every entry: code between loops may change them.
             "var n: int = 3; var s: int = 0; for (var r = 0; r < 2; r++) { for (var i: int = 0; i < n; i++) { s += i; } n = 10; } s;",
         ]);
         Assert.Contains("Integer division by zero", results[0].Message);
         Assert.Contains("Array index is out of bounds", results[1].Message);
-        Assert.Equal(48, results[2].Integer);
+        Assert.Contains("Array index is out of bounds", results[2].Message);
+        Assert.Equal(48, results[3].Integer);
     }
 }

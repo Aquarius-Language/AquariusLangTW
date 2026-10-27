@@ -89,7 +89,10 @@ public sealed class WasmCompiler
         // Their functions follow the bodies, so their indices are known before the bodies are emitted.
         var codes = new FunctionCode?[bodies.Count];
         foreach (var body in bodies) foreach (var item in body.Constants) if (item is FunctionCode code) codes[ids[code.BodyCode]] = code;
-        var regions = optimize ? WasmNativeFunction.SelectRegions(bodies, codes, plans, (f, reason) => Diagnose(f, "native region", "rejected: " + reason))
+        // A typed function the native tier rejects (for example one that calls a library function) keeps its loops as
+        // region candidates.
+        var nativeCandidates = optimize ? WasmNativeFunction.Select(bodies, codes, plans).Select(n => n.Body).ToHashSet() : new HashSet<int>();
+        var regions = optimize ? WasmNativeFunction.SelectRegions(bodies, plans, nativeCandidates, (f, reason) => Diagnose(f, "native region", "rejected: " + reason))
             : new List<WasmNativeFunction>();
         int regionFunctions = runtime.FunctionCount + bodies.Count;
         var regionPlans = plans.ToArray();

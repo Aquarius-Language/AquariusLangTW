@@ -70,16 +70,25 @@ internal sealed class WasmNativeFunction
         if (IsRegion && plan.SlotTags[start] is { } proven)
             for (int s = 0; s < proven.Length; s++)
                 if (plan.SlotDecl[start]![s] == WasmScopePlan.Yes && proven[s] is IntType or FloatType or DoubleType or BoolType) slotTypes[s] = proven[s];
+        // A typed array declared before the loop (in a function body, where it is a slot) has its annotated type; the
+        // region's entry checks the array's element lock like any other slot type.
+        if (IsRegion)
+            foreach (var (name, outer) in signature.Outer) {
+                if (!IsArray(outer.Type) || !outer.Sibling) continue;
+                var declared = plan.Scopes.Where(scope => scope.Slots.ContainsKey(name)).Select(scope => scope.Slots[name])
+                    .Where(slot => plan.SlotDecl[start]![slot] == WasmScopePlan.Yes).ToArray();
+                if (declared.Length == 1 && slotTypes[declared[0]] == Unknown) slotTypes[declared[0]] = outer.Type;
+            }
     }
 
     /// <summary>The outermost loops of untyped bodies that the native tier accepts as regions.</summary>
-    internal static List<WasmNativeFunction> SelectRegions(IReadOnlyList<LoweredProgram> bodies, IReadOnlyList<FunctionCode?> codes,
-        IReadOnlyList<WasmScopePlan> plans, Action<int, string>? rejected = null)
+    internal static List<WasmNativeFunction> SelectRegions(IReadOnlyList<LoweredProgram> bodies, IReadOnlyList<WasmScopePlan> plans,
+        IReadOnlySet<int> natives, Action<int, string>? rejected = null)
     {
         var regions = new List<WasmNativeFunction>();
         for (int f = 0; f < bodies.Count; f++) {
-            // Fully typed functions run their loops natively already.
-            if (codes[f]?.Native != null || !plans[f].Scopes.Skip(1).All(scope => scope.Promoted)) continue;
+            // Functions the native tier accepts run their loops natively already.
+            if (natives.Contains(f) || !plans[f].Scopes.Skip(1).All(scope => scope.Promoted)) continue;
             int covered = -1;
             foreach (var (enter, head, leave, region) in bodies[f].Loops.OrderBy(l => l.Enter)) {
                 if (enter < covered || region == null || plans[f].Depth[enter] != 0) continue;
@@ -162,7 +171,9 @@ internal sealed class WasmNativeFunction
     private int Outer(string name, Func<AquariusLang.ast.FunctionLiteral, int> nativeBody)
     {
         if (Signature.Outer.TryGetValue(name, out var outer)) {
-            if (!outer.Sibling) return Unknown;
+            // A region resolves its outer bindings by name from the frame's scope chain (guarded by tag), so any depth works;
+            // a native function receives pointers from its caller, so only bindings of its defining scope do.
+            if (!outer.Sibling && !IsRegion) return Unknown;
             if (outer.Function != null && !outer.Assigned) {
                 int callee = nativeBody(outer.Function);
                 if (callee < 0) return Unknown;
