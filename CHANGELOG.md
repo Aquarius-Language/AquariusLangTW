@@ -3,6 +3,28 @@
 One version covers the language, the compiler, the CLI, the language server and the VS Code extension; see
 [versioning](docs/versioning.md).
 
+## 0.1.6
+
+Programs keep their meaning and output.
+
+Runtime:
+
+- Guest member reads on library classes (`p.frameCount`, `p.mouseX`) look the name up in a hash built once per class,
+  instead of converting it and scanning every alias (about 7 times faster).
+
+Processing library:
+
+- Faster drawing: consecutive draws with the same state merge into one GPU draw, transforms run on the CPU, ellipses
+  and arcs pick their segment count from their on-screen size, and `set()`, `loadPixels()`, `updatePixels()` and
+  `BLUR` avoid needless readbacks and copies.
+- More of Processing's API: the remaining blend modes, `blend()` / `blendColor()`, `DILATE` / `ERODE`, `copy()`,
+  `background(image)`, `textureWrap()`, `frustum()`, `beginCamera()` / `endCamera()`, `hint()`, `applyMatrix()`,
+  `rotate(angle, axis)`, primitive and group `PShape`s, `shapeMode()`, OBJ models in `loadShape()`, more `PVector`
+  methods, date and time, the `nf*` / `hex` / `binary` / `str` / `trim` / `split` / `join` helpers, cursors,
+  `windowTitle()`, `pixelDensity()`, `focused` and the key constants.
+- `curvePoint()` / `curveTangent()` follow `curveTightness()`; `bezierDetail()` and `curveDetail()` no longer change
+  ellipses.
+
 ## 0.1.5
 
 Programs keep their meaning and output; they run faster.
