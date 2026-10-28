@@ -24,7 +24,7 @@ enum {
 #define GUEST_EXPORTS(X) \
     X(initialize, 1) X(execute, 4) X(invoke, 3) X(run, 2) X(result, 1) X(status, 1) X(resume, 2) \
     X(release_execution, 1) X(pin, 1) X(unpin, 1) X(value, 0) X(text, 1) X(allocate, 1) X(reserve, 1) \
-    X(array, 1) X(array_values, 1) X(array_resize, 2) X(hash, 1) X(hash_resize, 2) X(scope, 1) X(scope_set, 3) \
+    X(array, 1) X(array_values, 1) X(array_arguments, 1) X(array_resize, 2) X(hash, 1) X(hash_resize, 2) X(scope, 1) X(scope_set, 3) \
     X(scope_get, 2) X(collect, 0) X(collection_due, 0) X(collection_generation, 0) X(native_live, 1) X(pending, 0) \
     X(thread_module, 0) X(portable_module, 1) X(thread_snapshot_size, 0) X(thread_reserve, 1) X(thread_enter, 3) \
     X(thread_encode, 1) X(thread_decode, 1) X(thread_free_packet, 1)
@@ -46,6 +46,7 @@ typedef struct app_module { char *path; uint32_t function; } app_module;
 typedef struct app_import { char *name; uint32_t module; } app_import;   /* import("Models") -> a bundled library module */
 typedef struct application {
     uint8_t *bytes; size_t length;      /* the module, owned */
+    uint32_t value_abi;                 /* 2, or 3: typed number and Boolean arrays are packed (values.c) */
     uint32_t program_address, heap_start, function_count;
     app_module *modules; uint32_t module_count, entry;
     char **platforms; uint32_t platform_count;

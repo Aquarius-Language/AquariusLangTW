@@ -154,12 +154,12 @@ bool application_parse(application *app, uint8_t *bytes, size_t length, char **e
     r.position += 4;
     uint8_t abi = read_byte(&r);
     if (abi != 3 && abi != 4) return fail(error, "Missing or incompatible Aquarius WebAssembly ABI.");
-    uint32_t value_abi = read_unsigned(&r);
+    uint32_t value_abi = app->value_abi = read_unsigned(&r);
     app->program_address = read_unsigned(&r);
     app->heap_start = read_unsigned(&r);
     uint32_t function_layout = read_unsigned(&r);
     app->function_count = read_unsigned(&r);
-    if (r.failed || value_abi != 2 || app->program_address != PROGRAM_ADDRESS || app->heap_start < app->program_address + 8 ||
+    if (r.failed || (value_abi != 2 && value_abi != 3) || app->program_address != PROGRAM_ADDRESS || app->heap_start < app->program_address + 8 ||
         app->heap_start > MAX_APPLICATION_BYTES || function_layout != 40)
         return fail(error, "Invalid Aquarius value ABI or memory layout.");
     if (app->function_count == 0 || app->function_count > 100000) return fail(error, "Invalid application module count.");

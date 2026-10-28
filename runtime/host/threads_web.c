@@ -66,7 +66,7 @@ int32_t thread_service(aqua_runtime *rt, int32_t operation, int32_t arguments, i
     if (operation == 100) {
         aqua_value closure = guest_read_value(rt, (uint32_t)arguments), list = count == 2 ? guest_read_value(rt, (uint32_t)arguments + 16) : aqua_void();
         uint32_t items = 0, n = 0;
-        if (list.type == AQUA_ARRAY) { items = guest(rt, GUEST_array_values, list.ref, 0, 0, 0); n = aqua_array_length(rt, list); }
+        if (list.type == AQUA_ARRAY) { items = guest(rt, GUEST_array_arguments, list.ref, 0, 0, 0); n = aqua_array_length(rt, list); } /* whole Values */
         uint32_t size = guest(rt, GUEST_thread_snapshot_size, 0, 0, 0, 0);
         int32_t id = web_thread_start(guest_base(rt), size, closure.ref, items, n);
         if (id <= 0) return answer(rt, output, host_error(rt, "Thread: Close threads before starting more (limit: 64)."));

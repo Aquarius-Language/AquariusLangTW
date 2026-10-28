@@ -72,9 +72,9 @@ static Value hash_call(Frame*f,u32 id,Value*args,u32 n) {
     if(id==20||id==21||id==29){
         Array*a=array(h->count);
         for(u32 i=0;i<h->count;i++){
-            if(id==20)a->values[i]=h->pairs[i].key;
-            else if(id==21)a->values[i]=h->pairs[i].value;
-            else{Array*p=array(2);p->values[0]=h->pairs[i].key;p->values[1]=h->pairs[i].value;a->values[i]=value(ARRAY,address(p),0);}
+            if(id==20)array_put(a,i,h->pairs[i].key);
+            else if(id==21)array_put(a,i,h->pairs[i].value);
+            else{Array*p=array(2);array_put(p,0,h->pairs[i].key);array_put(p,1,h->pairs[i].value);array_put(a,i,value(ARRAY,address(p),0));}
         }
         return value(ARRAY,address(a),0);
     }

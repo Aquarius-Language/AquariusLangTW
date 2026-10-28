@@ -124,7 +124,7 @@ static void format_value(TextBuilder*b,Value v,u32 depth) {
     case NULL_VALUE: tb_ascii(b,"null");return;
     case ARRAY: {
         Array*a=pointer(v.ref);tb_unit(b,'[');
-        for(u32 i=0;i<a->count;i++){if(i)tb_ascii(b,", ");format_value(b,a->values[i],depth+1);}
+        for(u32 i=0;i<a->count;i++){if(i)tb_ascii(b,", ");format_value(b,array_get(a,i),depth+1);}
         tb_unit(b,']');return;
     }
     case HASH: {
@@ -167,7 +167,7 @@ static Value text_call(Frame*f,u32 id,Value*args,u32 n) {
     if(id==37){
         if(args[0].tag!=ARRAY||args[1].tag!=STRING){failure(f,"String.Join requires an array and a separator string.");return empty;}
         Array*a=pointer(args[0].ref);Text*sep=pointer(args[1].ref);TextBuilder b={0};
-        for(u32 i=0;i<a->count;i++){if(i)tb_text(&b,sep);format_value(&b,a->values[i],1);}
+        for(u32 i=0;i<a->count;i++){if(i)tb_text(&b,sep);format_value(&b,array_get(a,i),1);}
         return text_value(tb_finish(&b));
     }
     if(id==44){
@@ -198,10 +198,10 @@ static Value text_call(Frame*f,u32 id,Value*args,u32 n) {
         if(count>ARRAY_LIMIT){failure(f,"String.Split result exceeds the Wasm array limit.");return empty;}
         Array*a=array(count);u32 index=0,start=0;
         if(!s->length){
-            for(u32 i=0;i<t->length;i++){u32 width=1;if(t->data[i]>=0xD800&&t->data[i]<=0xDBFF&&i+1<t->length&&t->data[i+1]>=0xDC00&&t->data[i+1]<=0xDFFF)width=2;a->values[index++]=text_value(text_slice(t,i,i+width));i+=width-1;}
+            for(u32 i=0;i<t->length;i++){u32 width=1;if(t->data[i]>=0xD800&&t->data[i]<=0xDBFF&&i+1<t->length&&t->data[i+1]>=0xDC00&&t->data[i+1]<=0xDFFF)width=2;array_put(a,index++,text_value(text_slice(t,i,i+width)));i+=width-1;}
         } else {
-            for(int at=text_find(t,s,0);at>=0;at=text_find(t,s,start)){a->values[index++]=text_value(text_slice(t,start,(u32)at));start=(u32)at+s->length;}
-            a->values[index++]=text_value(text_slice(t,start,t->length));
+            for(int at=text_find(t,s,0);at>=0;at=text_find(t,s,start)){array_put(a,index++,text_value(text_slice(t,start,(u32)at)));start=(u32)at+s->length;}
+            array_put(a,index++,text_value(text_slice(t,start,t->length)));
         }
         return value(ARRAY,address(a),0);
     }

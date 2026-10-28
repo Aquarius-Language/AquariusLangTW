@@ -123,8 +123,12 @@ argument's tag and shape), the conversions `整數()`,
 `浮點數()`, `雙精度()` and `長度()`, `陣列.追加` / `Array.Append` on a typed (or, in a region or clone, loose) array with an
 element of its type (widened like the generic element check; `rt_nativeArrayAppend` appends, and every array local's
 count and values are read again afterwards, also after a call to a function that appends; the entry checks that no
-binding shadows the `陣列` / `Array` module), typed bindings of the scope that declares it, and calls to other such
-functions of that scope. The promoted generic body's frame slots become typed Wasm locals; integer, float and double operations
+binding shadows the `陣列` / `Array` module), `陣列.建立` / `Array.Make` straight into a typed array annotation of its
+value's type (`rt_nativeArrayMake` builds the array packed and locked, as the annotation's check would leave it), typed
+bindings of the scope that declares it, and calls to other such functions of that scope. Typed number and Boolean arrays
+are packed (int32, float, double or one byte per element; see [arrays](arrays.md)): native code reads and writes their
+elements at those widths, loose (untyped) arrays as whole Values, and an `陣列` element read checks the array's element
+type first. Speculation on untyped arrays (regions, clones, rt_arrayKind) never accepts a typed array. The promoted generic body's frame slots become typed Wasm locals; integer, float and double operations
 follow the generic runtime exactly; loops become Wasm loops; sibling calls are direct Wasm calls passing the outer
 bindings' addresses. Untyped locals are typed by the dataflow when every assignment agrees.
 

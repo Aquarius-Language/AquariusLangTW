@@ -44,6 +44,12 @@ struct Pair { a; b }
 print(data.Json(Point(x: 1.5d, y: 2, tag: "a")));
 print(data.Json([Pair(a: 1, b: "two"), {"p": Pair(b: [true])}]));
 
+# Typed arrays (packed by the runtime) serialize, parse and read as bytes like any arrays.
+var ints: int[] = [1, -2, 3]; var reals: double[] = [0.5d, -1.25d]; var flags: bool[] = [true, false]; var header: int[] = [65, 81, 68, 57];
+print(data.Json([ints, reals, flags]));
+print(data.ParseBinary(data.Binary({"i": ints, "r": reals, "b": flags}, 1)).value);
+print(data.TryParseBinary(header).error);
+
 # Depth limit: 64 containers parse and serialize, 65 fail.
 var deep = "";
 for (var i = 0; i < 64; i++) { deep = deep + "["; }

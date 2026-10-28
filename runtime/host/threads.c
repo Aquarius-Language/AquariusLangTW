@@ -135,7 +135,8 @@ int32_t thread_service(aqua_runtime *rt, int32_t operation, int32_t arguments, i
         worker *w = calloc(1, sizeof *w);
         w->parent = rt->engine;
         w->closure = closure.ref;
-        if (list.type == AQUA_ARRAY) { w->arguments = guest(rt, GUEST_array_values, list.ref, 0, 0, 0); w->count = aqua_array_length(rt, list); }
+        /* The arguments as whole Values (a packed typed array is copied; applications from before packed arrays lack the export). */
+        if (list.type == AQUA_ARRAY) { w->arguments = guest(rt, engine_has(rt->engine, GUEST_array_arguments) ? GUEST_array_arguments : GUEST_array_values, list.ref, 0, 0, 0); w->count = aqua_array_length(rt, list); }
         w->snapshot_length = guest(rt, GUEST_thread_snapshot_size, 0, 0, 0, 0);
         w->snapshot = malloc(w->snapshot_length);
         memcpy(w->snapshot, guest_base(rt), w->snapshot_length);

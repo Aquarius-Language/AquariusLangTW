@@ -73,11 +73,10 @@ public class NativeArrayAppendTest
             finally { WasmCompiler.TierDiagnostics = previous; }
             return reasons;
         }
-        // Functions that append to arrays they receive are native; loops next to 陣列.建立 / Array.Make run as regions.
-        Assert.DoesNotContain(Reasons(3, 8), r => r.Contains("native: rejected"));
-        var loops = Reasons(0, 1, 2, 5, 9);
-        Assert.DoesNotContain(loops, r => r.Contains("native region: rejected") && !r.Contains("function 0:"));
-        Assert.Contains(loops, r => r.Contains("native region: accepted"));
+        // Typed functions that append run natively, also with 陣列.建立 / Array.Make straight into a typed annotation, and so
+        // does the untyped function of program 1 (as a clone).
+        Assert.DoesNotContain(Reasons(0, 2, 3, 5, 8, 9), r => r.Contains("native: rejected") && !r.Contains("function 0:"));
+        Assert.Contains(Reasons(1), r => r.Contains("native: accepted"));
     }
 
     [RuntimeFact]

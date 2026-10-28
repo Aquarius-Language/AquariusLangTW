@@ -242,9 +242,10 @@ internal sealed class WasmNativeFunction
     private static bool FieldAccepts(int code, int value) => code == 0 ? Value(value) || value == AnyValueType
         : IsStructType(code) ? value == code : code == AnyArrayType ? IsRef(value) : Widens(value, code);
     private const int LengthBuiltin = 1;
-    /// <summary>陣列.追加 / Array.Append: the runtime's builtin id, so a deoptimized operand holds that very builtin. The
-    /// portable 陣列 / Array module itself is a compile-time-only operand (ArrayModule) that only its member call consumes.</summary>
-    private const int AppendBuiltin = 10, ArrayModule = 1000;
+    /// <summary>陣列.建立 / Array.Make and 陣列.追加 / Array.Append: the runtime's builtin ids, so a deoptimized operand holds
+    /// that very builtin. The portable 陣列 / Array module itself is a compile-time-only operand (ArrayModule) that only its
+    /// member call consumes.</summary>
+    private const int MakeBuiltin = 6, AppendBuiltin = 10, ArrayModule = 1000;
     private const int ArrayLimit = 33554431; // ARRAY_LIMIT in runtime/guest/arrays.h
     private static bool Widens(int from, int to) => from == to || from is IntType or FloatType && to is FloatType or DoubleType && from < to
         || to == AnyArrayType && IsArray(from);
@@ -510,8 +511,11 @@ internal sealed class WasmNativeFunction
                     stack.Add(type); break;
                 }
                 case IrOperation.MemberFunction:
-                    if (Top() != BuiltinBase + ArrayModule || NameOf(operand) is not ("追加" or "Append")) return Reject(pc);
-                    stack[^1] = BuiltinBase + AppendBuiltin; break;
+                    if (Top() != BuiltinBase + ArrayModule) return Reject(pc);
+                    if (NameOf(operand) is "追加" or "Append") stack[^1] = BuiltinBase + AppendBuiltin;
+                    else if (NameOf(operand) is "建立" or "Make") stack[^1] = BuiltinBase + MakeBuiltin;
+                    else return Reject(pc);
+                    break;
                 case IrOperation.Declare:
                     if (!Store(plan.DeclareSlot[pc], Top())) return Reject(pc);
                     stack[^1] = VoidType; break;
@@ -638,6 +642,15 @@ internal sealed class WasmNativeFunction
                     if (callee == BuiltinBase + LengthBuiltin) {
                         if (count != 1 || !IsRef(arguments[0]) && arguments[0] != StringType) return Reject(pc);
                         result = IntType;
+                    } else if (callee == BuiltinBase + MakeBuiltin) {
+                        // Only straight into a typed array annotation of its value's type (`變數 a: 整數[] = 陣列.建立(n, 0)`):
+                        // the native array is made locked to that type, as the annotation's check would leave it. Any other
+                        // use, and a value of another type (the annotation's error), stays generic.
+                        if (count is not (2 or 3) || arguments[0] != IntType || count == 3 && arguments[2] != IntType
+                            || arguments[1] is not (IntType or FloatType or DoubleType or BoolType)) return Reject(pc);
+                        if (pc + 1 >= n || code[pc + 1].Code != IrOperation.CheckType || (code[pc + 1].Operand & 31) != (16 | arguments[1])) return Reject(pc);
+                        Allocates = true;
+                        result = 16 | arguments[1];
                     } else if (callee == BuiltinBase + AppendBuiltin) {
                         // An element the typed array takes (widened like the generic element check) or, for a loose array, of
                         // exactly its speculated type (anything else would make its elements mixed); the result is the array.
@@ -656,9 +669,10 @@ internal sealed class WasmNativeFunction
                         var target = signatureOf?.Invoke(Signature.Outer[callNames[callee - CallableBase]].Function!);
                         if (target == null || target.Parameters.Length != count) return Reject(pc);
                         // An element of an array of any values passes to an 陣列 parameter after a tag check at the call. A
-                        // clone takes exactly its parameters' types (any array of that element), as its entry would.
+                        // clone takes exactly its parameters' types, as its entry would: an untyped (loose) array of that element,
+                        // never a typed one, whose elements are packed.
                         for (int i = 0; i < count; i++)
-                            if (target.Clone ? !(arguments[i] == target.Parameters[i] || IsArray(arguments[i]) && IsArray(target.Parameters[i]) && (arguments[i] & 15) == (target.Parameters[i] & 15)
+                            if (target.Clone ? IsArray(target.Parameters[i]) && IsArray(arguments[i]) && !IsLoose(arguments[i]) || !(arguments[i] == target.Parameters[i] || IsArray(arguments[i]) && IsArray(target.Parameters[i]) && (arguments[i] & 15) == (target.Parameters[i] & 15)
                                     || target.Parameters[i] == AnyArrayType && (IsRef(arguments[i]) || arguments[i] == AnyValueType)
                                     || target.Parameters[i] == StringType && arguments[i] == AnyValueType)
                                 : !Widens(arguments[i], target.Parameters[i]) && !(arguments[i] == AnyValueType && target.Parameters[i] is AnyArrayType or StringType)) return Reject(pc);
@@ -981,6 +995,37 @@ internal sealed class WasmNativeFunction
         void Describe(int local, int count) {
             Get(w, local); Memory(w, I32Load, 2, ArrayCount); Set(w, count);
             Get(w, local); Memory(w, I32Load, 2, ArrayValues); Set(w, count + 1);
+        }
+        // A typed array's elements are packed (runtime/guest/runtime.c, array_get): int32, float, double or one byte each.
+        // A loose (untyped) array holds whole Values. ElementAt pushes an element's address from the values local and an
+        // i32 index local; LoadElement and StoreElement read and write the element of array type there as a native value.
+        void ElementAt(int values, int index, int arrayType) {
+            Get(w, values); Get(w, index);
+            int element = arrayType & 15, shift = IsLoose(arrayType) ? 4 : element is IntType or FloatType ? 2 : element == DoubleType ? 3 : 0;
+            if (shift > 0) { I(w, shift); Op(0x74); }
+            Op(0x6a);
+        }
+        void LoadElement(int arrayType) {
+            int element = arrayType & 15;
+            if (IsLoose(arrayType)) { Memory(w, F64Load, 3, ValueNumber); if (!Wide(element)) ExactInteger(w); return; }
+            switch (element) {
+                case IntType: Memory(w, I32Load, 2, 0); break;
+                case FloatType: Memory(w, F32Load, 2, 0); Op(0xbb); break;
+                case DoubleType: Memory(w, F64Load, 3, 0); break;
+                default: Memory(w, I32Load8U, 0, 0); break;
+            }
+        }
+        // value pushes the element type's native value (an i32 for integers and Booleans, an f64 for floats and doubles).
+        void StoreElement(int arrayType, Action value) {
+            int element = arrayType & 15;
+            value();
+            if (IsLoose(arrayType)) { AsPayload(element); Memory(w, F64Store, 3, ValueNumber); return; }
+            switch (element) {
+                case IntType: Memory(w, I32Store, 2, 0); break;
+                case FloatType: Op(0xb6); Memory(w, F32Store, 2, 0); break;
+                case DoubleType: Memory(w, F64Store, 3, 0); break;
+                default: Memory(w, I32Store8, 0, 0); break;
+            }
         }
         void CopyCompanions(int type, int from, int to) { if (!IsRef(type)) return; Get(w, from); Set(w, to); Get(w, from + 1); Set(w, to + 1); }
         // After a copy-on-write or a call, every array local's values pointer is read again (its count is unchanged).
@@ -1452,11 +1497,23 @@ internal sealed class WasmNativeFunction
                 }
                 case IrOperation.Index when TopType(2) == AnyArrayType: {
                     // An array of any values reads like the generic code: an element, or null outside the array.
+                    // A typed array (an 陣列 accepts one) is packed: its element type is the tag, the payload is read by type.
                     Get(w, StackI(top)); Get(w, StackCount(below)); Op(0x49, If, 0x40);
+                    Get(w, StackI(below)); Memory(w, I32Load, 2, ArrayElement); Set(w, tempJ);
+                    Get(w, tempJ); I(w, IntType); Op(0x6b); I(w, BoolType - IntType + 1); Op(0x49, If, 0x40);
+                    foreach (int element in new[] { IntType, FloatType, DoubleType, BoolType }) {
+                        Get(w, tempJ); I(w, element); Op(0x46, If, 0x40);
+                        ElementAt(StackCount(below) + 1, StackI(top), element | 16); LoadElement(element | 16);
+                        if (!Wide(element)) Op(element == BoolType ? (byte)0xb8 : (byte)0xb7);
+                        Set(w, StackF(below)); Op(End);
+                    }
+                    Get(w, tempJ); Set(w, StackCount(below)); I(w, 0); Set(w, StackI(below));
+                    Op(Else);
                     Get(w, StackCount(below) + 1); Get(w, StackI(top)); I(w, 4); Op(0x74, 0x6a); Set(w, tempI);
                     Get(w, tempI); Memory(w, I32Load, 2, ValueTag); Set(w, StackCount(below));
                     Get(w, tempI); Memory(w, F64Load, 3, ValueNumber); Set(w, StackF(below));
                     Get(w, tempI); Memory(w, I32Load, 2, ValueRef); Set(w, StackI(below));
+                    Op(End);
                     Op(Else); I(w, NullTag); Set(w, StackCount(below)); I(w, 0); Set(w, StackI(below)); F(w, 0); Set(w, StackF(below));
                     Op(End); break;
                 }
@@ -1484,8 +1541,7 @@ internal sealed class WasmNativeFunction
                     if (IsLoose(TopType(2))) ToHandler(IndexSite, BlockOf(pc), stack, pc); else Fail(2);
                     Op(End);
                     int element = TopType(2) & 15;
-                    Get(w, StackCount(below) + 1); Get(w, StackI(top)); I(w, 4); Op(0x74, 0x6a);
-                    Memory(w, F64Load, 3, ValueNumber); if (!Wide(element)) ExactInteger(w);
+                    ElementAt(StackCount(below) + 1, StackI(top), TopType(2)); LoadElement(TopType(2));
                     PopStack(element, below); break;
                 }
                 case IrOperation.CheckArrayWrite:
@@ -1499,8 +1555,7 @@ internal sealed class WasmNativeFunction
                     Get(w, StackI(array)); Op(Call); U(w, runtime["rt_nativeWritable"]); Op(Drop);
                     RefreshValues(stack);
                     Op(End);
-                    Get(w, StackCount(array) + 1); Get(w, StackI(index)); I(w, 4); Op(0x74, 0x6a);
-                    PushStack(type, top); AsPayload(type); Memory(w, F64Store, 3, ValueNumber);
+                    ElementAt(StackCount(array) + 1, StackI(index), stack[array]); StoreElement(stack[array], () => PushStack(type, top));
                     PushStack(type, top); PopStack(type, array); break;
                 }
                 case IrOperation.CompoundIndex: {
@@ -1512,24 +1567,26 @@ internal sealed class WasmNativeFunction
                     Get(w, StackI(array)); Op(Call); U(w, runtime["rt_nativeWritable"]); Op(Drop);
                     RefreshValues(stack);
                     Op(End);
-                    Get(w, StackCount(array) + 1); Get(w, StackI(index)); I(w, 4); Op(0x74, 0x6a); Set(w, resultI);
-                    void LoadElement() { Get(w, resultI); Memory(w, F64Load, 3, ValueNumber); if (!Wide(left)) ExactInteger(w); }
-                    void StoreElement(Action number) { Get(w, resultI); number(); Memory(w, F64Store, 3, ValueNumber); }
+                    int arrayType = stack[array];
+                    ElementAt(StackCount(array) + 1, StackI(index), arrayType); Set(w, resultI);
+                    void LoadIt() { Get(w, resultI); LoadElement(arrayType); }
+                    void StoreIt(Action value) { Get(w, resultI); StoreElement(arrayType, value); }
                     if (left == IntType && right == IntType) {
                         IntCheck(operation, () => PushStack(IntType, top));
-                        StoreElement(() => { IntOperation(operation, LoadElement, () => PushStack(IntType, top)); Op(0xb7); });
+                        StoreIt(() => IntOperation(operation, LoadIt, () => PushStack(IntType, top)));
                     } else {
                         if (left == IntType && operation == IrOperation.Modulo) { AsDouble(right, top); F(w, 0); Op(0x61, If, 0x40); Fail(1); Op(End); }
-                        LoadElement(); if (!Wide(left)) Op(0xb7); Set(w, tempF);
+                        LoadIt(); if (!Wide(left)) Op(0xb7); Set(w, tempF);
                         AsDouble(right, top); Set(w, tempG);
                         FloatOperation(operation, tempF, tempG); Set(w, tempF);
-                        StoreElement(() => { Get(w, tempF); if (left == IntType) { Op(0xfc, 0x02); Op(0xb7); } else if (left == FloatType) RoundFloat(); });
+                        StoreIt(() => { Get(w, tempF); if (left == IntType) Op(0xfc, 0x02); else if (left == FloatType) RoundFloat(); });
                     }
                     break;
                 }
                 case IrOperation.IncrementIndex: case IrOperation.IncrementMember: {
                     // ++ on an element CheckArrayWrite proved in range, or on a numeric field; the result replaces the receiver.
-                    int receiver, type;
+                    // A field is a whole Value, read and written like a loose array's element.
+                    int receiver, type, layout;
                     if (op.Code == IrOperation.IncrementIndex) {
                         receiver = depth - 2; type = TopType(2) & 15;
                         Get(w, StackI(receiver)); Memory(w, I32Load, 2, ArrayStorage); Memory(w, I32Load, 2, ArrayStorageReferences); I(w, 1); Op(0x47);
@@ -1537,17 +1594,18 @@ internal sealed class WasmNativeFunction
                         Get(w, StackI(receiver)); Op(Call); U(w, runtime["rt_nativeWritable"]); Op(Drop);
                         RefreshValues(stack);
                         Op(End);
-                        Get(w, StackCount(receiver) + 1); Get(w, StackI(top)); I(w, 4); Op(0x74, 0x6a); Set(w, resultI);
+                        layout = stack[receiver];
+                        ElementAt(StackCount(receiver) + 1, StackI(top), layout); Set(w, resultI);
                     } else {
                         receiver = top; var field = cur.StructField(TopType(), cur.NameOf(operand >> 1))!.Value; type = field.Code;
+                        layout = type | 16 | LooseFlag;
                         NullCheck(top, 5); FieldAddress(StackI(top), field.Index); Get(w, tempI); Set(w, resultI);
                     }
                     bool prefix = (operand & 1) != 0;
-                    void Load() { Get(w, resultI); Memory(w, F64Load, 3, ValueNumber); if (!Wide(type)) ExactInteger(w); }
+                    void Load() { Get(w, resultI); LoadElement(layout); }
                     if (!prefix) { Load(); PopStack(type, receiver); }
-                    Get(w, resultI); Load();
-                    if (type == IntType) { I(w, 1); Op(0x6a, 0xb7); } else { F(w, 1); Op(0xa0); if (type == FloatType) RoundFloat(); }
-                    Memory(w, F64Store, 3, ValueNumber);
+                    Get(w, resultI);
+                    StoreElement(layout, () => { Load(); if (type == IntType) { I(w, 1); Op(0x6a); } else { F(w, 1); Op(0xa0); if (type == FloatType) RoundFloat(); } });
                     if (prefix) { Load(); PopStack(type, receiver); }
                     break;
                 }
@@ -1574,6 +1632,18 @@ internal sealed class WasmNativeFunction
                     int count = operand, at = depth - count - 1, callee = stack[at];
                     if (callee == BuiltinBase + LengthBuiltin && stack[top] == StringType) { Get(w, StackI(top)); Memory(w, I32Load, 2, TextLength); Set(w, StackI(at)); break; }
                     if (callee == BuiltinBase + LengthBuiltin) { Get(w, StackCount(top)); Set(w, StackI(at)); break; }
+                    if (callee == BuiltinBase + MakeBuiltin) {
+                        // 陣列.建立(count, value[, capacity]) with the generic size errors, made packed by the runtime.
+                        int length = at + 1, item = at + 2, capacity = count == 3 ? at + 3 : at + 1, element = stack[item];
+                        Get(w, StackI(length)); I(w, ArrayLimit); Op(0x4b, If, 0x40); Fail(7); Op(End);
+                        if (count == 3) {
+                            Get(w, StackI(capacity)); I(w, ArrayLimit); Op(0x4b, If, 0x40); Fail(7); Op(End);
+                            Get(w, StackI(capacity)); Get(w, StackI(length)); Op(0x48, If, 0x40); Fail(8); Op(End);
+                        }
+                        Get(w, StackI(length)); Get(w, StackI(capacity)); I(w, element); PushStack(element, item); AsPayload(element);
+                        Op(Call); U(w, runtime["rt_nativeArrayMake"]); Set(w, StackI(at)); Describe(StackI(at), StackCount(at));
+                        break;
+                    }
                     if (callee == BuiltinBase + AppendBuiltin) {
                         // 陣列.追加(array, element): the generic limit error, then the runtime appends (it may copy or grow
                         // the storage, so every array local is described again); the result is the array.

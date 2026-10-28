@@ -219,7 +219,7 @@ public sealed class WasmProgram
         if (abi < WasmAbi.OldestVersion || abi > WasmAbi.Version) throw new InvalidDataException("Missing or incompatible Aquarius WebAssembly ABI.");
         int Int() => checked((int)reader.Unsigned());
         int valueAbi = Int(), programAddress = Int(), heapStart = Int(), functionLayout = Int(), functionCount = Int();
-        if (valueAbi != 2 || programAddress != WasmRuntimeImage.ProgramAddress || heapStart < programAddress + 8 || heapStart > MaxBytes || functionLayout != 40)
+        if (valueAbi < WasmAbi.OldestValueAbi || valueAbi > WasmAbi.ValueAbi || programAddress != WasmRuntimeImage.ProgramAddress || heapStart < programAddress + 8 || heapStart > MaxBytes || functionLayout != 40)
             throw new InvalidDataException("Invalid Aquarius value ABI or memory layout.");
         if (functionCount <= 0 || functionCount > 100000) throw new InvalidDataException("Invalid application module count.");
         var paths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);

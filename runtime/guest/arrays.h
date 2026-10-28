@@ -35,7 +35,7 @@ static Value array_call(Frame*f,u32 id,Value*args,u32 n) {
         if(n==3&&!array_size(f,args[2],&capacity))return empty;
         if(capacity<count){failure(f,"Array capacity must be at least its length.");return empty;}
         Array*a=array(capacity);a->count=count;a->storage->used=count;a->kind=(uint16_t)args[1].tag;
-        for(u32 i=0;i<count;i++)a->values[i]=args[1];return value(ARRAY,address(a),0);
+        fill_elements(a,0,count,args[1]);return value(ARRAY,address(a),0);
     }
     if(args[0].tag!=ARRAY){failure(f,"Array function requires an array.");return empty;}
     Array*a=pointer(args[0].ref);
@@ -49,11 +49,11 @@ static Value array_call(Frame*f,u32 id,Value*args,u32 n) {
     if(id==10||id==11){
         Array*b=0;count=1;
         if(id==11){if(args[1].tag!=ARRAY){failure(f,"Array.AppendArray requires an array source.");return empty;}b=pointer(args[1].ref);count=b->count;
-            if(!elements_fit(f,a,b->values,count))return empty;}
+            if(!elements_fit(f,a,b,0,count))return empty;}
         else if(!element_fits(f,a,&args[1]))return empty;
         if(count>ARRAY_LIMIT-a->count){failure(f,"Array length exceeds the Wasm array limit.");return empty;}
         if(!count)return args[0];start=a->count;writable_array(a,start+count);
-        if(b){memmove(a->values+start,b->values,count*sizeof(Value));widen_elements(a,start,count);}else a->values[start]=args[1];
+        if(b)copy_elements(a,start,b,0,count);else array_put(a,start,args[1]);
         if(a->kind!=(b?b->kind:args[1].tag))a->kind=0;
         a->count=start+count;a->storage->used=a->count;array_changed(a);return args[0];
     }
@@ -65,30 +65,31 @@ static Value array_call(Frame*f,u32 id,Value*args,u32 n) {
         if(start>a->count||end>b->count){failure(f,"Array.Copy index is out of bounds.");return empty;}
         count=a->count-start;if(count>b->count-end)count=b->count-end;
         if(n==5){u32 requested;if(!array_size(f,args[4],&requested))return empty;if(requested<count)count=requested;}
-        if(!elements_fit(f,a,b->values+end,count))return empty;
-        if(count){writable_array(a,a->count);memmove(a->values+start,b->values+end,count*sizeof(Value));widen_elements(a,start,count);if(a->kind!=b->kind)a->kind=0;array_changed(a);}return number(count,INT);
+        if(!elements_fit(f,a,b,end,count))return empty;
+        if(count){writable_array(a,a->count);copy_elements(a,start,b,end,count);if(a->kind!=b->kind)a->kind=0;array_changed(a);}return number(count,INT);
     }
     if(id==13||id==14){
         end=a->count;
         if(id==14&&(!array_size(f,args[1],&start)||!array_size(f,args[2],&end)))return empty;
         if(start>end||end>a->count){failure(f,"Array slice range is out of bounds.");return empty;}
-        Array*b=array(end-start);memcpy(b->values,a->values+start,b->count*sizeof(Value));b->kind=a->kind;return value(ARRAY,address(b),0);
+        Array*b=array(end-start);copy_elements(b,0,a,start,b->count);b->kind=a->kind;return value(ARRAY,address(b),0);
     }
     if(id==15){
         if(!element_fits(f,a,&args[1]))return empty;
-        if(a->count){writable_array(a,a->count);for(u32 i=0;i<a->count;i++)a->values[i]=args[1];array_changed(a);}a->kind=(uint16_t)args[1].tag;return args[0];
+        if(a->count){writable_array(a,a->count);fill_elements(a,0,a->count,args[1]);array_changed(a);}a->kind=(uint16_t)args[1].tag;return args[0];
     }
     if(id==16){
         if(!array_size(f,args[1],&start)||!array_size(f,args[2],&end))return empty;
         if(start>end||end>a->count){failure(f,"Array delete range is out of bounds.");return empty;}
-        if(start!=end){writable_array(a,a->count);memmove(a->values+start,a->values+end,(a->count-end)*sizeof(Value));
-            count=a->count-(end-start);memset(a->values+count,0,(a->count-count)*sizeof(Value));
+        if(start!=end){writable_array(a,a->count);u32 size=layout_size(a->storage->layout);char*items=a->values;
+            memmove(items+(size_t)start*size,items+(size_t)end*size,(size_t)(a->count-end)*size);
+            count=a->count-(end-start);memset(items+(size_t)count*size,0,(size_t)(a->count-count)*size);
             a->count=count;a->storage->used=count;array_changed(a);}return args[0];
     }
     if(id==17){
-        if(a->count>1){writable_array(a,a->count);for(u32 i=0,j=a->count-1;i<j;i++,j--){Value v=a->values[i];a->values[i]=a->values[j];a->values[j]=v;}array_changed(a);}return args[0];
+        if(a->count>1){writable_array(a,a->count);for(u32 i=0,j=a->count-1;i<j;i++,j--){Value v=array_get(a,i);array_put(a,i,array_get(a,j));array_put(a,j,v);}array_changed(a);}return args[0];
     }
-    for(u32 i=0;i<a->count;i++)if(equal(a->values[i],args[1],0))return id==18?number(i,INT):value(BOOL,0,1);
+    for(u32 i=0;i<a->count;i++)if(equal(array_get(a,i),args[1],0))return id==18?number(i,INT):value(BOOL,0,1);
     return id==18?number(-1,INT):value(BOOL,0,0);
 }
 /* Builtin IDs 50..56: array kernels of the same module. Sort, Sum, Min and Max run here. Map, Filter, Reduce and Sort
@@ -136,7 +137,7 @@ static void merge_sort(Value*v,Value*t,u32 n,int texts) {
 /* Which kinds of elements an array holds: 1 all integers, 2 all numbers, 4 all texts (an empty array has every kind). */
 static u32 element_kinds(Array*a) {
     u32 ints=1,numbers=1,texts=1;
-    for(u32 i=0;i<a->count&&(numbers|texts);i++){u32 t=a->values[i].tag;ints&=t==INT;numbers&=t>=INT&&t<=DOUBLE;texts&=t==STRING;}
+    for(u32 i=0;i<a->count&&(numbers|texts);i++){u32 t=array_get(a,i).tag;ints&=t==INT;numbers&=t>=INT&&t<=DOUBLE;texts&=t==STRING;}
     return ints|numbers<<1|texts<<2;
 }
 static Value array_sort(Frame*f,Array*a,Value self) {
@@ -144,11 +145,20 @@ static Value array_sort(Frame*f,Array*a,Value self) {
     if(!(kinds&6)){failure(f,"Array.Sort requires numbers or strings, or a comparison function / 排序需要數字或字串，或比較函式。");return empty;}
     if(n<2)return self;
     writable_array(a,n);
+    u32 layout=a->storage->layout;
     if(kinds&1){
-        int32_t*x=allocate(n*4,RAW);u32 depth=0;for(u32 m=n;m;m>>=1)depth+=2;
-        for(u32 i=0;i<n;i++)x[i]=(int32_t)a->values[i].number;
-        int_introsort(x,n,depth);for(u32 i=0;i<n;i++)a->values[i]=value(INT,0,x[i]);release(x);
-    }else{Value*t=allocate(n*sizeof(Value),RAW);merge_sort(a->values,t,n,!(kinds&2));release(t);}
+        // A packed integer array is sorted in place; whole Values through an int32 copy.
+        u32 depth=0;for(u32 m=n;m;m>>=1)depth+=2;
+        if(layout==INT)int_introsort(a->values,n,depth);
+        else{int32_t*x=allocate(n*4,RAW);for(u32 i=0;i<n;i++)x[i]=(int32_t)array_get(a,i).number;
+            int_introsort(x,n,depth);for(u32 i=0;i<n;i++)array_put(a,i,value(INT,0,x[i]));release(x);}
+    }else{
+        // Packed float and double arrays sort as whole Values, then are written back.
+        Value*v=layout?allocate(n*sizeof(Value),RAW):a->values,*t=allocate(n*sizeof(Value),RAW);
+        if(layout)for(u32 i=0;i<n;i++)v[i]=array_get(a,i);
+        merge_sort(v,t,n,!(kinds&2));release(t);
+        if(layout){for(u32 i=0;i<n;i++)array_put(a,i,v[i]);release(v);}
+    }
     array_changed(a);return self;
 }
 /* Sum: left to right with the rules of +, starting from the first element (0 for an empty array). */
@@ -156,16 +166,16 @@ static Value array_sum(Frame*f,Array*a) {
     u32 kinds=element_kinds(a);
     if(!(kinds&2)){failure(f,"Array.Sum requires numbers / 總和需要數字。");return empty;}
     if(!a->count)return number(0,INT);
-    if(kinds&1){u32 s=0;for(u32 i=0;i<a->count;i++)s+=(u32)(int32_t)a->values[i].number;return integer((int32_t)s);}
-    Value s=a->values[0];for(u32 i=1;i<a->count;i++)s=binary(f,0,s,a->values[i],0);return s;
+    if(kinds&1){u32 s=0;for(u32 i=0;i<a->count;i++)s+=(u32)(int32_t)array_get(a,i).number;return integer((int32_t)s);}
+    Value s=array_get(a,0);for(u32 i=1;i<a->count;i++)s=binary(f,0,s,array_get(a,i),0);return s;
 }
 /* Min and Max: the first smallest or largest element (the first NaN, if a number is NaN); null for an empty array. */
 static Value array_extreme(Frame*f,Array*a,int largest) {
     u32 kinds=element_kinds(a);
     if(!(kinds&6)){failure(f,largest?"Array.Max requires numbers or strings / 最大值需要數字或字串。":"Array.Min requires numbers or strings / 最小值需要數字或字串。");return empty;}
     if(!a->count)return value(NULL_VALUE,0,0);
-    Value best=a->values[0];
-    for(u32 i=1;i<a->count;i++){Value v=a->values[i];
+    Value best=array_get(a,0);
+    for(u32 i=1;i<a->count;i++){Value v=array_get(a,i);
         if(kinds&2){if(best.number!=best.number)break;if(v.number!=v.number){best=v;break;}if(largest?v.number>best.number:v.number<best.number)best=v;}
         else if(largest?text_before(best,v):text_before(v,best))best=v;}
     return best;
