@@ -1,0 +1,87 @@
+# Type declarations: optional `name: type` annotations in English syntax.
+# Every annotation is optional; annotated and unannotated code mix freely.
+
+# 1. Scalar types: int, float, double, bool, string.
+var count: int = 3;
+var ratio: float = 1.5f;
+var precise: double = 2.25d;
+var ready: bool = true;
+var title: string = "Inventory";
+print(title, count, ratio, precise, ready);
+print("typeOf", typeOf(count), typeOf(ratio), typeOf(precise), typeOf(ready), typeOf(title));
+
+# Integers widen to float and double; narrowing needs an explicit conversion.
+var widened: double = count;
+var truncated: int = int(precise * 3);
+print("widened / truncated", widened, truncated);
+
+# Compound assignment keeps the variable's type: an int stays an int.
+var total: int = 10;
+total += 2.9d;
+total *= 2;
+print("total stays int", total, typeOf(total));
+
+# 2. Typed functions: parameter types and a return type after the parameter list.
+var square = function(n: int): int { return n * n; };
+var average = function(a: double, b: double): double { return (a + b) / 2; };
+var greet = function(name: string, loud: bool): string {
+    if (loud) { return "HELLO, " + name + "!"; }
+    return "hello, " + name;
+};
+print("square / average", square(7), average(3, 4));
+print(greet("Aquarius", true), "|", greet("world", false));
+
+# 3. Typed arrays: int[], double[], bool[]; `array` holds any values (strings, arrays, ...).
+var scores: int[] = [90, 72, 85, 64];
+var prices: double[] = [19.99d, 5.5d, 12.0d];
+var names: array = ["apple", "banana", "cherry"];
+var mixed: array = [1, "two", [3, 4], true];
+print("scores", scores, "prices", prices);
+print("names", names, "mixed", mixed);
+
+var sum = function(values: int[]): int {
+    var result: int = 0;
+    for (var i: int = 0; i < len(values); i++) { result += values[i]; }
+    return result;
+};
+var longest = function(words: array): string {
+    var best: string = "";
+    for (var i: int = 0; i < len(words); i++) {
+        if (len(words[i]) > len(best)) { best = words[i]; }
+    }
+    return best;
+};
+print("sum of scores", sum(scores), "longest name", longest(names));
+
+# 4. Structs: named records whose fields can be typed.
+struct Item { name: string; price: double; quantity: int; tags }
+var pen = Item(name: "pen", price: 1.25d, quantity: 4);
+var book = Item("book", 12.5d, 1, ["paper", "reading"]);
+print(pen);
+print("book", book.name, book.tags, typeOf(book));
+
+pen.quantity += 6;
+pen.price *= 2;
+print("updated pen", pen.quantity, pen.price);
+
+var cost = function(item: Item): double { return item.price * item.quantity; };
+print("costs", cost(pen), cost(book));
+
+# Struct fields can refer to struct types, including their own.
+struct Node { value: int; next: Node }
+var list = Node(1, Node(2, Node(3)));
+# A field left out of a construction is null; typeOf tells where the list ends.
+var listSum = function(node: Node): int {
+    if (typeOf(node.next) == "null") { return node.value; }
+    return node.value + listSum(node.next);
+};
+print("linked list sum", listSum(list));
+
+# 5. Annotations are checked. A definite mistake is rejected when compiling:
+#     var bad: int = "text";   -> Type mismatch: bad expects 整數 int, got 字串 string.
+# A value that comes from untyped code is checked when the program runs.
+var checked = function(n: int): int { return n + 1; };
+var fromUntyped = 41;
+print("checked at run time", checked(fromUntyped));
+# Remove the "#" below to see the run-time error: Type mismatch: n expects int, got STRING
+# fromUntyped = "not a number"; print(checked(fromUntyped));
