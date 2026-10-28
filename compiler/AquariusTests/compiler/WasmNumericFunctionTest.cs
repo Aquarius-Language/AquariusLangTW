@@ -59,8 +59,9 @@ public class WasmNumericFunctionTest
     [RuntimeFact]
     public void DirectScalarCallsUseTheTypedTier()
     {
-        const string source = "變數 fib=函式(n){如果(n<2){回傳 n;}回傳 fib(n-1)+fib(n-2);};fib(20);";
-        // The optimizing emitter gives the recursive function a typed scalar entry calling itself directly by name.
+        // The argument comes from an untyped call, so n has no guess and fib is no clone (CloneTest): the optimizing emitter
+        // gives the recursive function a typed scalar entry calling itself directly by name.
+        const string source = "變數 id=函式(x){回傳 x;};變數 fib=函式(n){如果(n<2){回傳 n;}回傳 fib(n-1)+fib(n-2);};fib(id(20));";
         var fib = new WasmCompiler().Compile(source).Functions.Single(f => f.Parameters.SequenceEqual(new[] { "n" }));
         Assert.True(fib.NumericTable > 0); Assert.Equal("fib", fib.NumericRecursiveName);
         Assert.Equal(0, new WasmCompiler(false).Compile(source).Functions.Single(f => f.Parameters.SequenceEqual(new[] { "n" })).NumericTable);

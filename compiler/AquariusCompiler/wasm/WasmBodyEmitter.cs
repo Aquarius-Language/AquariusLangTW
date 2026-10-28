@@ -561,10 +561,17 @@ internal sealed class WasmBodyEmitter
         foreach (int position in WasmFuel.Checkpoints(body).Keys) leaders.Add(position);
         // A read of an untyped array a native region may speculate on (an array guess) starts a block: a read outside the
         // array leaves the region there, with its operands in the frame (WasmNativeFunction loose arrays).
-        foreach (var (enter, _, leave, region) in body.Loops) {
-            if (region == null) continue;
-            var guessed = region.Outer.Where(o => o.Value.Type == 0 && (o.Value.Guess & 16) != 0 && (o.Value.Guess & 15) is >= 1 and <= 4)
-                .Select(o => o.Key).ToHashSet(StringComparer.Ordinal);
+        static bool GuessedArray(int guess) => (guess & 16) != 0 && (guess & 15) is >= 1 and <= 4 && guess < 32;
+        var spans = body.Loops.Where(l => l.Region != null).Select(l => (l.Enter, l.Leave, l.Region!.Outer)).ToList();
+        // A clone of an untyped function reads its guessed array parameters and outer arrays anywhere in its body.
+        if (body.Function is { Signature: { Clone: true } clone, Parameters: var parameters }) {
+            var outer = new Dictionary<string, NativeSignature.OuterName>(clone.Outer, StringComparer.Ordinal);
+            for (int p = 0; p < parameters.Length && p < clone.Parameters.Length; p++)
+                outer[parameters[p]] = new NativeSignature.OuterName(0, null, false, true, null, clone.Parameters[p]);
+            spans.Add((0, n, outer));
+        }
+        foreach (var (enter, leave, names) in spans) {
+            var guessed = names.Where(o => o.Value.Type == 0 && GuessedArray(o.Value.Guess)).Select(o => o.Key).ToHashSet(StringComparer.Ordinal);
             if (guessed.Count == 0) continue;
             for (int i = Math.Max(enter, 1); i < leave && i < n; i++) {
                 if (code[i].Code != IrOperation.Index || plan.Depth[i] < 2) continue;

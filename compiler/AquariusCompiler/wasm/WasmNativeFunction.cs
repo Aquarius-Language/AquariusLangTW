@@ -75,6 +75,10 @@ internal sealed class WasmNativeFunction
     internal int Stop { get; }
     /// <summary>The types a region assumes for untyped bindings instead of their guesses (a JIT stencil's variant).</summary>
     private readonly IReadOnlyDictionary<string, int>? assumed;
+    /// <summary>The native-tier signature of a callee literal (typed or a clone), during selection.</summary>
+    private Func<AquariusLang.ast.FunctionLiteral, NativeSignature?>? signatureOf;
+    /// <summary>The result types a clone tries, in order.</summary>
+    private static readonly int[] CloneResults = [IntType, DoubleType, BoolType, FloatType, AnyArrayType, VoidType];
     private int Assumed(string name, NativeSignature.OuterName outer) => assumed != null && assumed.TryGetValue(name, out int type) ? type : outer.Guess;
 
     private WasmNativeFunction(int bodyIndex, NativeSignature signature, LoweredProgram body, WasmScopePlan plan, int start = 0, int end = -1,
@@ -83,7 +87,8 @@ internal sealed class WasmNativeFunction
         Body = bodyIndex; Signature = signature; this.body = body; this.plan = plan; this.assumed = assumed;
         IsRegion = end >= 0; Start = start; Stop = IsRegion ? end : body.Code.Length;
         slotTypes = Enumerable.Repeat(Unknown, plan.Locals).ToArray();
-        for (int p = 0; p < signature.Parameters.Length; p++) slotTypes[p] = signature.Parameters[p];
+        for (int p = 0; p < signature.Parameters.Length; p++)
+            slotTypes[p] = signature.Clone && IsArray(signature.Parameters[p]) ? signature.Parameters[p] | LooseFlag : signature.Parameters[p];
         // A region also uses the generic frame's slots declared before it, with the types the generic dataflow proves.
         if (IsRegion && plan.SlotTags[start] is { } proven)
             for (int s = 0; s < proven.Length; s++)
@@ -214,19 +219,28 @@ internal sealed class WasmNativeFunction
     {
         var bodyOf = new Dictionary<AquariusLang.ast.FunctionLiteral, int>(ReferenceEqualityComparer.Instance);
         for (int f = 0; f < codes.Count; f++) if (codes[f] is { } code) bodyOf[code.Literal] = f;
-        var candidates = new HashSet<int>(Enumerable.Range(0, bodies.Count).Where(f => codes[f]?.Native != null && plans[f].PromotedFunction));
+        // Clones (untyped functions whose parameters all have guesses) try each result type in turn until one is proven.
+        var candidates = new HashSet<int>(Enumerable.Range(0, bodies.Count).Where(f => codes[f]?.Native is { } s
+            && (!s.Clone || s.Parameters.All(p => p != 0)) && plans[f].PromotedFunction));
+        var choice = candidates.Where(f => codes[f]!.Native!.Clone).ToDictionary(f => f, f => 0);
+        foreach (var (f, _) in choice) codes[f]!.Native!.Result = CloneResults[0];
+        NativeSignature? SignatureOf(AquariusLang.ast.FunctionLiteral literal) => bodyOf.TryGetValue(literal, out int g) ? codes[g]!.Native : null;
         Dictionary<int, WasmNativeFunction> accepted;
         while (true) {
             accepted = new();
+            var retry = new HashSet<int>();
             foreach (int f in candidates) {
-                var native = new WasmNativeFunction(f, codes[f]!.Native!, bodies[f], plans[f]);
+                var native = new WasmNativeFunction(f, codes[f]!.Native!, bodies[f], plans[f]) { signatureOf = SignatureOf };
                 if (native.Analyze(literal => bodyOf.TryGetValue(literal, out int g) && candidates.Contains(g)
                         && codes[g]!.Native!.DefiningScope == codes[f]!.Native!.DefiningScope ? g : -1))
                     accepted.Add(f, native);
-                else rejected?.Invoke(f, native.Rejection ?? "its control flow does not nest");
+                else {
+                    rejected?.Invoke(f, native.Rejection ?? "its control flow does not nest");
+                    if (choice.TryGetValue(f, out int k) && k + 1 < CloneResults.Length) { choice[f] = k + 1; codes[f]!.Native!.Result = CloneResults[k + 1]; retry.Add(f); }
+                }
             }
             if (accepted.Count == candidates.Count) break;
-            candidates = accepted.Keys.ToHashSet();
+            candidates = accepted.Keys.Concat(retry).ToHashSet();
         }
         // Pointers and guards are transitive over direct calls.
         bool changed = true;
@@ -298,7 +312,7 @@ internal sealed class WasmNativeFunction
             }
             // A region speculates that an untyped binding holds its guessed type (TypeChecker): its entry checks the tag and
             // leaves the loop to the generic code when the guess is wrong, so speculation never changes a result.
-            int type = outer.Type == 0 && IsRegion ? Assumed(name, outer) : outer.Type;
+            int type = outer.Type == 0 && (IsRegion || Signature.Clone) ? Assumed(name, outer) : outer.Type;
             if (outer.Type == 0 && IsArray(type)) type |= LooseFlag;
             if (!Value(type)) return Unknown;
             OwnPointers[name] = (type, -1);
@@ -560,13 +574,14 @@ internal sealed class WasmNativeFunction
                     } else if (Construction(callee, arguments, null) is int made) {
                         result = made;
                     } else if (callee >= CallableBase && !IsRegion && !StructCallee(callee, out _)) {
-                        var target = Signature.Outer[callNames[callee - CallableBase]].Function!;
-                        var parameters = target.Parameters ?? Array.Empty<AquariusLang.ast.Identifier>();
-                        if (parameters.Length != count) return Reject(pc);
-                        // An element of an array of any values passes to an 陣列 parameter after a tag check at the call.
+                        var target = signatureOf?.Invoke(Signature.Outer[callNames[callee - CallableBase]].Function!);
+                        if (target == null || target.Parameters.Length != count) return Reject(pc);
+                        // An element of an array of any values passes to an 陣列 parameter after a tag check at the call. A
+                        // clone takes exactly its parameters' types (any array of that element), as its entry would.
                         for (int i = 0; i < count; i++)
-                            if (!Widens(arguments[i], parameters[i].Type!.Code) && !(arguments[i] == AnyValueType && parameters[i].Type!.Code == AnyArrayType)) return Reject(pc);
-                        result = target.ReturnType!.Code;
+                            if (target.Clone ? !(arguments[i] == target.Parameters[i] || IsArray(arguments[i]) && IsArray(target.Parameters[i]) && (arguments[i] & 15) == (target.Parameters[i] & 15))
+                                : !Widens(arguments[i], target.Parameters[i]) && !(arguments[i] == AnyValueType && target.Parameters[i] == AnyArrayType)) return Reject(pc);
+                        result = target.Result;
                     } else return Reject(pc);
                     Pop(count + 1); stack.Add(result); break;
                 }
@@ -665,8 +680,11 @@ internal sealed class WasmNativeFunction
                 continue;
             }
             Unless(() => { Get(w, Pointer(k)); Memory(w, I32Load, 2, ValueTag); I(w, IsRef(expected.Tag) ? ArrayTag : expected.Tag); w.Write((byte)0x46); });
+            // A loose array (an untyped binding a clone speculates on) must hold only elements of its type.
+            if (IsLoose(expected.Tag))
+                Unless(() => { Get(w, Pointer(k)); Memory(w, I32Load, 2, ValueRef); I(w, expected.Tag & 15); w.Write(Call); U(w, runtime["rt_arrayKind"]); });
             // A typed array binding must hold an array locked to that element type.
-            if (IsArray(expected.Tag))
+            else if (IsArray(expected.Tag))
                 Unless(() => { Get(w, Pointer(k)); Memory(w, I32Load, 2, ValueRef); Memory(w, I32Load, 2, ArrayElement); I(w, expected.Tag & 15); w.Write((byte)0x46); });
             if (expected.Callee >= 0 && expected.Tag == ClosureTag) {
                 // The callee's binding must still hold the closure of that body from this program.
@@ -704,6 +722,13 @@ internal sealed class WasmNativeFunction
                 Unless(() => {
                     Get(w, 0); Memory(w, I32Load, 2, offset + ValueTag); Set(w, scratch);
                     if (type == AnyArrayType) { Get(w, scratch); I(w, ArrayTag); w.Write((byte)0x46); }
+                    else if (Signature.Clone && IsArray(type)) {
+                        // A clone's array argument: any array (typed or untyped) of only that element type.
+                        Get(w, scratch); I(w, ArrayTag); w.Write((byte)0x46); w.Write(new byte[] { 0x04, 0x7f });
+                        Get(w, 0); Memory(w, I32Load, 2, offset + ValueRef); I(w, type & 15); w.Write(Call); U(w, runtime["rt_arrayKind"]);
+                        w.Write((byte)0x05); I(w, 0); w.Write((byte)0x0b);
+                    }
+                    else if (Signature.Clone) { Get(w, scratch); I(w, type); w.Write((byte)0x46); }
                     else if (IsStructType(type)) StructCheck(w, () => Get(w, scratch), () => { Get(w, 0); Memory(w, I32Load, 2, offset + ValueRef); }, type, false);
                     else if (IsArray(type)) {
                         // Only an array an annotation check already locked to this element type.
@@ -1493,7 +1518,8 @@ internal sealed class WasmNativeFunction
             if (kind == ErrorSite) SaveOuter();
             if (kind == ErrorSite && region) { Execution(); I(w, message); Op(Call); U(w, runtime["rt_nativeFailure"]); Op(Drop); I(w, -3); Op(Return); continue; }
             if (kind == ErrorSite) { Raise(() => { Execution(); I(w, message); Op(Call); U(w, runtime["rt_nativeFailure"]); }); continue; }
-            if (kind == IndexSite) { WriteOperands(operands); RegionExit(block, message); continue; }
+            if (kind == IndexSite && region) { WriteOperands(operands); RegionExit(block, message); continue; }
+            if (kind == IndexSite) { SaveBudget(); SaveOuter(); Materialize(block, message, operands); Raise(() => Get(w, frame)); continue; }
             if (region) { RegionExit(block, message); continue; } // A loop head: the generic body continues there and yields.
             // A checkpoint consumed nothing yet; after a call the callee already stored the budget.
             if (kind == CheckpointSite) { SaveBudget(); SaveOuter(); }

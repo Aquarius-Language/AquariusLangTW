@@ -164,6 +164,21 @@ Code quality details, all plain Wasm:
   array on write, so the entry checkpoint no longer reads `Execution.poll`; the entry adapter sends a call made while a
   collection is pending to the generic body, whose entry checkpoint collects.
 
+## Typed clones of untyped functions (every target)
+
+An untyped function without any annotation whose parameters all have guesses (the static or guessed types of the
+arguments of its direct calls, see below) is also a native-tier candidate: a *clone* (`NativeSignature.Clone`) typed by
+those guesses. The native tier proves its result type by trying integer, double, Boolean, float, an array of any values
+and no value in turn (callers use the callee's current choice, so mutually recursive clones settle together); a clone
+whose body cannot be typed stays generic. Unlike a typed function, a clone's entry adapter takes only arguments of exactly
+its types (an integer is not widened to a double parameter) and arrays of only its element type (`rt_arrayKind`), and a
+call between native functions passes a clone exactly those types, so its generic semantics never change; any other call
+runs the generic body. Untyped outer bindings it uses are speculated on their guesses and checked by the entry adapter,
+guessed arrays are loose arrays, and a read outside one deoptimizes to the generic frame at that read (which starts a
+generic block). A clone takes precedence over the integer tier and over regions of its loops. The untyped Ackermann
+benchmark runs 5× faster and the spectral norm 12×, on every target. `CloneTest` compares clones with the unoptimized
+compiler: guesses that fail, every result type, outer writes, reads past the end, errors, arity, rebinding and tiny quanta.
+
 ## Native regions in untyped code
 
 A loop of an untyped body (a top-level script, an untyped function whose loop scopes are promoted, or a typed function

@@ -18,10 +18,15 @@ internal sealed class NativeSignature {
     /// <summary>The struct types the program's annotations name, by code (shared by every signature of a program).</summary>
     internal IReadOnlyDictionary<int, StructStatement> Structs = new Dictionary<int, StructStatement>();
     internal readonly int[] Parameters;
-    internal readonly int Result;
+    /// <summary>The result type; for a clone, the one the native tier is trying (see <see cref="Clone"/>).</summary>
+    internal int Result;
     internal readonly object DefiningScope;
     internal readonly Dictionary<string, OuterName> Outer = new(System.StringComparer.Ordinal);
-    internal NativeSignature(int[] parameters, int result, object definingScope) { Parameters = parameters; Result = result; DefiningScope = definingScope; }
+    /// <summary>A typed clone of an untyped function (no annotations at all): its parameters are their guesses (0 where a
+    /// parameter has none), set when the whole program is checked, and the native tier infers its result type. Its entry
+    /// takes only arguments of exactly those types; any other call runs the generic body.</summary>
+    internal readonly bool Clone;
+    internal NativeSignature(int[] parameters, int result, object definingScope, bool clone = false) { Parameters = parameters; Result = result; DefiningScope = definingScope; Clone = clone; }
 }
 
 /// <summary>
@@ -105,6 +110,11 @@ public sealed class TypeChecker {
                     declaration.Assigned || declaration.Count != 1, owner == native.DefiningScope, declaration.Count == 1 ? declaration.Struct : null,
                     declaration.Count == 1 && declaration.Guess > 0 ? declaration.Guess : 0);
         foreach (var (native, _) in checker.pending) native.Structs = checker.Structs;
+        // A clone's parameters are their guesses: numbers, Booleans and arrays of one of them.
+        foreach (var (function, native) in checker.Natives)
+            if (native.Clone && checker.parameterDeclarations.TryGetValue(function, out var guessed))
+                for (int i = 0; i < guessed.Length; i++)
+                    native.Parameters[i] = (guessed[i].Guess & ~ArrayFlag) is Int or Float or Double or Bool && guessed[i].Guess is > 0 and < StructFlag ? guessed[i].Guess : Dynamic;
         return checker;
     }
 
@@ -461,7 +471,8 @@ public sealed class TypeChecker {
         // Numbers, Booleans, typed arrays and arrays of any values; string parameters or results keep the function generic.
         static bool NativeType(int t) => (t & 15) is Int or Float or Double or Bool || t == ArrayFlag || IsStruct(t);
         NativeSignature? native = function.ReturnType != null && parameterTypes.All(NativeType) && NativeType(Code(function.ReturnType))
-            ? new NativeSignature(parameterTypes, Code(function.ReturnType), outer) : null;
+            ? new NativeSignature(parameterTypes, Code(function.ReturnType), outer)
+            : function.ReturnType == null && parameterTypes.All(t => t == Dynamic) ? new NativeSignature(new int[parameterTypes.Length], 0, outer, clone: true) : null;
         var uses = new Dictionary<string, (Declaration, Scope)>(System.StringComparer.Ordinal);
         functions.Push((scope, native, uses));
         if (native != null) { Natives[function] = native; pending.Add((native, uses)); }
