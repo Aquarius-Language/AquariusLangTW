@@ -16,7 +16,10 @@ public enum IrOperation : byte {
     Duplicate, Modulo, CheckType,
     // Structs: a declaration's type, a construction with named arguments, field assignment, compound field assignment
     // and a struct annotation check.
-    StructType, CallNamed, SetMember, CompoundMember, CheckStruct
+    StructType, CallNamed, SetMember, CompoundMember, CheckStruct,
+    // A compound assignment to an element or hash entry (`陣列[i] += x`): array, index and value on the stack. ++ on an
+    // element (operand 1 for prefix) or a field (operand: the name constant << 1 | prefix).
+    CompoundIndex, IncrementIndex, IncrementMember
 }
 
 public readonly struct Instruction {

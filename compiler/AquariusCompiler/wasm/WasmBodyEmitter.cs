@@ -802,6 +802,9 @@ internal sealed class WasmBodyEmitter
             case IrOperation.CheckStruct: Helper("checkStruct", n, d, 1); return false;
             case IrOperation.SetMember: if (inlineCaches) SetStructField(n, d); else Helper("setMember", n, d, 2); return false;
             case IrOperation.CompoundMember: Helper("compoundMember", n, d, 2); return false;
+            case IrOperation.CompoundIndex: Helper("compoundIndex", n, d, 3); return false;
+            case IrOperation.IncrementIndex: Helper("incrementIndex", n, d, 2); return false;
+            case IrOperation.IncrementMember: Helper("incrementMember", n, d, 1); return false;
             case IrOperation.CallNamed: Helper("callNamed", n, d, body.NamedArguments(n) + 1); return false;
             case IrOperation.CheckType: CheckType(n, d); return false;
             case IrOperation.Member: if (inlineCaches) StructField(n, d); else Helper("member", n, d, 1); return false;

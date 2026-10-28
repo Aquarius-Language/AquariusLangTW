@@ -31,10 +31,10 @@ var greet = function(name: string, loud: bool): string {
 print("square / average", square(7), average(3, 4));
 print(greet("Aquarius", true), "|", greet("world", false));
 
-# 3. Typed arrays: int[], double[], bool[]; `array` holds any values (strings, arrays, ...).
+# 3. Typed arrays: int[], double[], bool[], string[]; `array` holds any values (mixed or nested).
 var scores: int[] = [90, 72, 85, 64];
 var prices: double[] = [19.99d, 5.5d, 12.0d];
-var names: array = ["apple", "banana", "cherry"];
+var names: string[] = ["apple", "banana", "cherry"];
 var mixed: array = [1, "two", [3, 4], true];
 print("scores", scores, "prices", prices);
 print("names", names, "mixed", mixed);
@@ -44,7 +44,7 @@ var sum = function(values: int[]): int {
     for (var i: int = 0; i < len(values); i++) { result += values[i]; }
     return result;
 };
-var longest = function(words: array): string {
+var longest = function(words: string[]): string {
     var best: string = "";
     for (var i: int = 0; i < len(words); i++) {
         if (len(words[i]) > len(best)) { best = words[i]; }
@@ -53,6 +53,12 @@ var longest = function(words: array): string {
 };
 print("sum of scores", sum(scores), "longest name", longest(names));
 
+# Elements take compound assignments and ++, and keep their type.
+scores[0] += 5;
+scores[3]++;
+prices[1] = 6;
+print("updated", scores, prices);
+
 # 4. Structs: named records whose fields can be typed.
 struct Item { name: string; price: double; quantity: int; tags }
 var pen = Item(name: "pen", price: 1.25d, quantity: 4);
@@ -60,7 +66,8 @@ var book = Item("book", 12.5d, 1, ["paper", "reading"]);
 print(pen);
 print("book", book.name, book.tags, typeOf(book));
 
-pen.quantity += 6;
+pen.quantity += 5;
+pen.quantity++;
 pen.price *= 2;
 print("updated pen", pen.quantity, pen.price);
 
@@ -70,10 +77,11 @@ print("costs", cost(pen), cost(book));
 # Struct fields can refer to struct types, including their own.
 struct Node { value: int; next: Node }
 var list = Node(1, Node(2, Node(3)));
-# A field left out of a construction is null; typeOf tells where the list ends.
+# A field left out of a construction is null, and null fits any struct type.
 var listSum = function(node: Node): int {
-    if (typeOf(node.next) == "null") { return node.value; }
-    return node.value + listSum(node.next);
+    var total: int = 0;
+    for (var at: Node = node; at != null; at = at.next) { total += at.value; }
+    return total;
 };
 print("linked list sum", listSum(list));
 

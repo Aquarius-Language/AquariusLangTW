@@ -19,6 +19,8 @@ public sealed class LoweringCompiler {
     private readonly List<object> constants = new();
     private readonly Dictionary<string, int> names = new();
     private readonly Stack<List<int>> breaks = new();
+    // The 繼續 / continue jumps of each enclosing loop of this body, patched to its next iteration.
+    private readonly Stack<List<int>> continues = new();
     private readonly List<(int, int, int, NativeSignature?)> loops = new();
     // The TypeChecker result for the whole program (runtime checks, native candidates), shared by nested function bodies.
     private TypeChecker? types;
@@ -37,7 +39,7 @@ public sealed class LoweringCompiler {
 
     public LoweredProgram Compile(INode node) {
         if (node == null) throw new ArgumentNullException(nameof(node));
-        code.Clear(); constants.Clear(); names.Clear(); breaks.Clear(); loops.Clear();
+        code.Clear(); constants.Clear(); names.Clear(); breaks.Clear(); continues.Clear(); loops.Clear();
         if (node is AbstractSyntaxTree tree && types == null) {
             var checker = TypeChecker.Check(tree);
             if (checker.Errors.Count > 0) throw new CompilationException(string.Join("\n", checker.Errors.Select(e => e.Message)));
@@ -49,7 +51,7 @@ public sealed class LoweringCompiler {
 
     /// <summary>A function body: typed parameters are checked on entry and the implicit result like a return.</summary>
     internal LoweredProgram CompileFunction(FunctionLiteral function) {
-        code.Clear(); constants.Clear(); names.Clear(); breaks.Clear(); loops.Clear();
+        code.Clear(); constants.Clear(); names.Clear(); breaks.Clear(); continues.Clear(); loops.Clear();
         foreach (var parameter in function.Parameters ?? Array.Empty<Identifier>()) {
             if (parameter.Type == null) continue;
             // Assign consumes the target's loaded value below the new value, like `p = p`.
@@ -122,6 +124,10 @@ public sealed class LoweringCompiler {
                     $"\u0001{f.Value}\u0002{f.Type?.Code ?? 0}\u0002{f.Type?.String() ?? ""}"))));
                 Emit(IrOperation.Declare, Name(shape.Name.Value));
                 break;
+            case ContinueStatement:
+                if (continues.Count == 0) throw new CompilationException("繼續 只能用在迴圈中 / continue can only be used inside a loop.");
+                continues.Peek().Add(Emit(IrOperation.Break));
+                break;
             case BreakStatement _:
                 if (breaks.Count > 0) breaks.Peek().Add(Emit(IrOperation.Break));
                 else Value(RepeatedPrimitives.BREAK);
@@ -130,12 +136,18 @@ public sealed class LoweringCompiler {
             case FloatLiteral floating: Value(new FloatObj(floating.Value)); break;
             case DoubleLiteral number: Value(new DoubleObj(number.Value)); break;
             case BooleanLiteral boolean: Value(boolean.Value ? RepeatedPrimitives.TRUE : RepeatedPrimitives.FALSE); break;
+            case NullLiteral: Emit(IrOperation.Null); break;
             case StringLiteral text: Value(new StringObj(text.Value)); break;
             case Identifier identifier: Emit(IrOperation.Load, Name(identifier.Value)); break;
             case IncrementExpression increment:
                 if (increment.Operand is Identifier variable)
                     Emit(increment.IsPrefix ? IrOperation.IncrementPrefix : IrOperation.IncrementPostfix, Name(variable.Value));
-                else Error("++ 的運算元必須是變數名稱。");
+                else if (increment.Operand is IndexExpression element) {
+                    Node(element.Left); Node(element.Index); Emit(IrOperation.CheckArrayWrite);
+                    Emit(IrOperation.IncrementIndex, increment.IsPrefix ? 1 : 0);
+                } else if (increment.Operand is InfixExpression { Operator: ".", Right: Identifier field } member) {
+                    Node(member.Left); Emit(IrOperation.IncrementMember, Name(field.Value) << 1 | (increment.IsPrefix ? 1 : 0));
+                } else throw new CompilationException("++ 的運算元必須是變數、欄位或索引 / The operand of ++ must be a variable, a field or an index.");
                 break;
             case PrefixExpression prefix:
                 Node(prefix.Right);
@@ -172,30 +184,28 @@ public sealed class LoweringCompiler {
             else Emit(IrOperation.CompoundMember, Constant(new Assignment(field.Value, BinaryCode(op.Substring(0, 1)))));
             return;
         }
-        if (op == "=" && expression.Left is IndexExpression index) {
+        if (op is "=" or "+=" or "-=" or "*=" or "/=" or "%=" && expression.Left is IndexExpression index) {
             Node(index.Left); Node(index.Index); Emit(IrOperation.CheckArrayWrite);
-            Node(expression.Right); Emit(IrOperation.WriteIndex); return;
+            Node(expression.Right);
+            if (op == "=") Emit(IrOperation.WriteIndex);
+            else Emit(IrOperation.CompoundIndex, Constant(new Assignment("", BinaryCode(op.Substring(0, 1)))));
+            return;
         }
         Node(expression.Left);
         if (op == ".") {
-            // Indexing binds tighter than member access in the parser, so `模組.表["鍵"]` and
-            // `模組.函式()[0]` arrive as a member whose right side is an index chain. Lower them as
-            // indexing the member result, innermost index first.
-            var indices = new Stack<IExpression>(); var right = expression.Right;
-            while (right is IndexExpression indexed) { indices.Push(indexed.Index); right = indexed.Left; }
-            if (right is Identifier member) Emit(IrOperation.Member, Name(member.Value));
-            else if (right is CallExpression call) {
+            // The parser rebuilds index chains on a member (`模組.表["鍵"]`) as indexing the member.
+            if (expression.Right is Identifier member) Emit(IrOperation.Member, Name(member.Value));
+            else if (expression.Right is CallExpression call) {
                 if (call.Function is Identifier function) Emit(IrOperation.MemberFunction, Name(function.Value));
                 else Emit(IrOperation.ResolveMemberFunction, Constant(new LoweringCompiler(types).Compile(call.Function)));
                 Arguments(call.Arguments); Emit(IrOperation.Call, call.Arguments.Length);
-            } else throw new CompilationException("Unsupported module member expression.");
-            while (indices.Count > 0) { Node(indices.Pop()); Emit(IrOperation.Index); }
+            } else throw new CompilationException("成員存取的右側必須是名稱或呼叫 / The right side of a member access must be a name or a call.");
             return;
         }
         Node(expression.Right);
         if (op == "=" || op == "+=" || op == "-=" || op == "*=" || op == "/=" || op == "%=") {
             if (!(expression.Left is Identifier variable)) {
-                Error($"Left operand for {op} operator not identifier. Got={expression.Left.GetType()}"); return;
+                throw new CompilationException($"{op} 的左側必須是變數、欄位或索引 / The left side of {op} must be a variable, a field or an index.");
             }
             if (op == "=") { Check(expression); Emit(IrOperation.Assign, Name(variable.Value)); }
             else Emit(IrOperation.CompoundAssign, Constant(new Assignment(variable.Value, BinaryCode(op.Substring(0, 1)))));
@@ -230,12 +240,17 @@ public sealed class LoweringCompiler {
         int enter = Emit(IrOperation.EnterLoop, loop.DeclareStatement == null ? -1 : Name(loop.DeclareStatement.Name.Value));
         if (loop.DeclareStatement != null) { Node(loop.DeclareStatement); Emit(IrOperation.Pop); }
         int condition = code.Count;
-        if (loop.ConditionalExpression != null) Node(loop.ConditionalExpression); else Emit(IrOperation.Void);
+        // A loop without a condition runs until 中斷 / break.
+        if (loop.ConditionalExpression != null) Node(loop.ConditionalExpression); else Value(RepeatedPrimitives.TRUE);
         int end = Emit(IrOperation.LoopCondition);
-        breaks.Push(new List<int>());
+        breaks.Push(new List<int>()); continues.Push(new List<int>());
         if (loop.Body != null) { Node(loop.Body); breaks.Peek().Add(Emit(IrOperation.JumpIfBreak)); Emit(IrOperation.Pop); }
+        // The next iteration starts before the update, so closures made in this iteration keep its value of the loop
+        // variable (迴圈 (變數 i = 0; ...; i++) makes closures that see 0, 1, 2, ...).
+        foreach (int jump in continues.Pop()) Patch(jump);
+        Emit(IrOperation.NextIteration);
         if (loop.ValueChangeStatement != null) { Node(loop.ValueChangeStatement); Emit(IrOperation.Pop); }
-        Emit(IrOperation.NextIteration); Emit(IrOperation.Jump, condition);
+        Emit(IrOperation.Jump, condition);
         Patch(end);
         foreach (int jump in breaks.Pop()) Patch(jump);
         int leave = Emit(IrOperation.LeaveLoop);

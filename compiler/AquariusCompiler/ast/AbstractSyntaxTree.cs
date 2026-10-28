@@ -148,6 +148,15 @@ public class ReturnStatement : IStatement {
     }
 }
 
+/// <summary><c>繼續;</c> / <c>continue;</c>: start the innermost loop's next iteration (its update part runs first).</summary>
+public sealed class ContinueStatement : IStatement {
+    public Token Token { get; }
+    public ContinueStatement(Token token) { Token = token; }
+    public string TokenLiteral() => Token.Literal;
+    public void StatementNode() { }
+    public string String() => "(" + Token.Literal + ")";
+}
+
 public class BreakStatement : IStatement {
     private Token token;
 
@@ -317,6 +326,15 @@ public class IncrementExpression : IExpression {
     public string TokenLiteral() => Token.Literal;
     public void ExpressionNode() { }
     public string String() => IsPrefix ? "(++" + Operand.String() + ")" : "(" + Operand.String() + "++)";
+}
+
+/// <summary>The null literal, <c>空值</c> / <c>null</c>: the value of a missing field, entry or array element.</summary>
+public sealed class NullLiteral : IExpression {
+    public Token Token { get; }
+    public NullLiteral(Token token) { Token = token; }
+    public string TokenLiteral() => Token.Literal;
+    public void ExpressionNode() { }
+    public string String() => Token.Literal;
 }
 
 public class BooleanLiteral : IExpression {
@@ -712,9 +730,9 @@ public class ForLoopLiteral : IExpression {
         StringBuilder builder = new StringBuilder();
         builder.Append(TokenLiteral())
             .Append('(')
-            .Append(declareStatement.String())
-            .Append(conditionalExpression.String())
-            .Append(valueChangeStatement.String())
+            .Append(declareStatement?.String())
+            .Append(conditionalExpression?.String())
+            .Append(valueChangeStatement?.String())
             .Append(')')
             .Append('{')
             .Append(body.String())

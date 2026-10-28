@@ -26,7 +26,7 @@ print("面積 area", 面積(2.5d, 4));
 # 3. Typed arrays 型別陣列
 var 溫度們: 雙精度[] = [18.5d, 21.0d, 24.5d, 19.0d];
 變數 flags: 布林[] = [真, false, true];
-var 標籤: array = ["室內 indoor", "室外 outdoor"];
+var 標籤: string[] = ["室內 indoor", "室外 outdoor"];
 var 最高 = function(values: 雙精度[]): double {
     變數 best: 雙精度 = values[0];
     for (變數 i: int = 1; i < len(values); i++) {
@@ -39,7 +39,7 @@ print("flags", flags, "標籤", 標籤, 長度(標籤));
 
 # 4. Structs 結構: 中文與英文的 struct 關鍵字都可以
 struct 感測器 { 名稱: string; 讀數: 雙精度[]; 單位: 字串 }
-結構 Station { name: 字串; sensor: 感測器; online: bool }
+結構 Station { name: 字串; sensor: 感測器; online: bool; backup: Station }
 
 var 室內 = 感測器(名稱: "indoor", 讀數: 溫度們, 單位: "°C");
 變數 station = Station("Taipei 台北", 室內, 真);
@@ -53,10 +53,11 @@ var 平均讀數 = function(s: 感測器): 雙精度 {
 印出("平均 average", 平均讀數(station.sensor), station.sensor.單位);
 
 station.online = 假;
-# Structs and arrays are references 參考值: 讀數 shares the sensor's array.
-var 讀數: 雙精度[] = station.sensor.讀數;
-讀數[0] = 讀數[0] + 1.5d;
+# Writes reach through members 穿過成員寫入: the sensor shares 溫度們 (arrays are references 參考值).
+station.sensor.讀數[0] += 1.5d;
+station.sensor.讀數[1]++;
 print("updated 更新", station.online, 室內.讀數, typeOf(station));
+如果 (station.backup == null) { print("no backup 沒有備援", station.backup); }
 
 # 5. Checks 檢查: 註解中的這行在編譯時就會被拒絕
 #     var 錯誤: int = "text";   -> Type mismatch: 錯誤 expects 整數 int, got 字串 string
