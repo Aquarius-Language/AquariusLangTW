@@ -1,0 +1,11 @@
+# Build a string from 100k pieces with s = s + t in a function (s is a local variable).
+變數 build = 函式(n) {
+    變數 s = "";
+    迴圈 (變數 i = 0; i < n; i++) { s = s + "ab"; }
+    回傳 s;
+};
+變數 start = 目前時間();
+變數 s = build(100000);
+變數 elapsed = 目前時間() - start;
+印出("RESULT", 長度(s));
+印出("ELAPSED_MS", elapsed);

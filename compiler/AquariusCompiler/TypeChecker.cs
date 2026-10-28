@@ -18,10 +18,15 @@ internal sealed class NativeSignature {
     /// <summary>The struct types the program's annotations name, by code (shared by every signature of a program).</summary>
     internal IReadOnlyDictionary<int, StructStatement> Structs = new Dictionary<int, StructStatement>();
     internal readonly int[] Parameters;
-    internal readonly int Result;
+    /// <summary>The result type; for a clone, the one the native tier is trying (see <see cref="Clone"/>).</summary>
+    internal int Result;
     internal readonly object DefiningScope;
     internal readonly Dictionary<string, OuterName> Outer = new(System.StringComparer.Ordinal);
-    internal NativeSignature(int[] parameters, int result, object definingScope) { Parameters = parameters; Result = result; DefiningScope = definingScope; }
+    /// <summary>A typed clone of an untyped function (no annotations at all): its parameters are their guesses (0 where a
+    /// parameter has none), set when the whole program is checked, and the native tier infers its result type. Its entry
+    /// takes only arguments of exactly those types; any other call runs the generic body.</summary>
+    internal readonly bool Clone;
+    internal NativeSignature(int[] parameters, int result, object definingScope, bool clone = false) { Parameters = parameters; Result = result; DefiningScope = definingScope; Clone = clone; }
 }
 
 /// <summary>
@@ -53,8 +58,10 @@ public sealed class TypeChecker {
         internal const int Conflict = -2;
         internal void Observe(int value) {
             if (value == Conflict) Guess = Conflict;
-            else if (value > 0 && Guess != Conflict) Guess = Guess == 0 || Guess == value ? value : Conflict;
+            // Arrays of different element types are arrays of any values.
+            else if (value > 0 && Guess != Conflict) Guess = Guess == 0 || Guess == value ? value : IsArrayGuess(Guess) && IsArrayGuess(value) ? ArrayFlag : Conflict;
         }
+        private static bool IsArrayGuess(int type) => type > 0 && type < StructFlag && (type & ArrayFlag) != 0;
     }
     private sealed class Scope {
         internal readonly Scope? Outer;
@@ -72,7 +79,13 @@ public sealed class TypeChecker {
     private readonly List<ParseError> errors = new();
     // Guesses for untyped parameters: the static argument types of every direct call, merged like Declaration.Observe.
     private readonly Dictionary<FunctionLiteral, Declaration[]> parameterDeclarations = new(ReferenceEqualityComparer.Instance);
+    // Guesses for the results of untyped functions: the values of their return statements, merged the same way.
+    private readonly Dictionary<FunctionLiteral, Declaration> resultDeclarations = new(ReferenceEqualityComparer.Instance);
+    private readonly Stack<Declaration?> results = new();
     private readonly List<(FunctionLiteral Function, int Index, int Type)> arguments = new();
+    // Guesses that copy another untyped variable's guess (or its array's element type), known only once every
+    // parameter's guess is: a target declaration or a parameter (function, index), the source and whether it is an element.
+    private readonly List<(Declaration? Target, FunctionLiteral? Function, int Index, Declaration Source, bool Element)> derived = new();
     private readonly Stack<TypeAnnotation?> returns = new();
     private Scope scope = new(null);
 
@@ -86,12 +99,28 @@ public sealed class TypeChecker {
         // Assignments and calls anywhere in the program are known only now.
         foreach (var (function, index, type) in checker.arguments)
             if (checker.parameterDeclarations.TryGetValue(function, out var declared) && index < declared.Length) declared[index].Observe(type);
+        // Derived guesses until none changes (a guess only goes from none to a type to a conflict).
+        for (bool changed = true; changed;) {
+            changed = false;
+            foreach (var (target, function, index, source, element) in checker.derived) {
+                var into = target ?? (checker.parameterDeclarations.TryGetValue(function!, out var parameters) && index < parameters.Length ? parameters[index] : null);
+                if (into == null) continue;
+                int guess = element ? ((source.Guess & ArrayFlag) != 0 ? source.Guess & 15 : 0) : source.Guess, before = into.Guess;
+                into.Observe(guess); changed |= into.Guess != before;
+            }
+        }
         foreach (var (native, uses) in checker.pending)
             foreach (var (name, (declaration, owner)) in uses)
                 native.Outer[name] = new NativeSignature.OuterName(Code(declaration.Type), declaration.Count == 1 ? declaration.Function : null,
                     declaration.Assigned || declaration.Count != 1, owner == native.DefiningScope, declaration.Count == 1 ? declaration.Struct : null,
                     declaration.Count == 1 && declaration.Guess > 0 ? declaration.Guess : 0);
         foreach (var (native, _) in checker.pending) native.Structs = checker.Structs;
+        // A clone's parameters are their guesses: numbers, Booleans and arrays of one of them.
+        foreach (var (function, native) in checker.Natives)
+            if (native.Clone && checker.parameterDeclarations.TryGetValue(function, out var guessed))
+                for (int i = 0; i < guessed.Length; i++)
+                    native.Parameters[i] = guessed[i].Guess is > 0 and < StructFlag && ((guessed[i].Guess & ~ArrayFlag) is Int or Float or Double or Bool || guessed[i].Guess == ArrayFlag)
+                        ? guessed[i].Guess : Dynamic;
         return checker;
     }
 
@@ -191,11 +220,12 @@ public sealed class TypeChecker {
             case LetStatement let: {
                 int value = Expression(let.Value);
                 if (let.Name.Type != null) Require(let.Name.Type.Code, value, let, let.Name.Value, let.Name.Token);
-                else if (scope.Names.TryGetValue(let.Name.Value, out var declared)) declared.Observe(value);
+                else if (scope.Names.TryGetValue(let.Name.Value, out var declared)) Guess(declared, null, 0, value, let.Value);
                 break;
             }
             case ReturnStatement returned: {
                 int value = Expression(returned.ReturnValue);
+                if (results.Count > 0 && results.Peek() is { } result) Guess(result, null, 0, value, returned.ReturnValue);
                 if (returns.Count > 0 && returns.Peek() is { } type) Require(type.Code, value, returned, "回傳值 return value", returned.Token);
                 break;
             }
@@ -316,7 +346,7 @@ public sealed class TypeChecker {
             var declaration = Resolve(variable.Value);
             if (declaration == null) return Void;
             if (op == "=") declaration.Assigned = true;
-            if (declaration.Type is not { } type) { if (op == "=") declaration.Observe(value); return Void; }
+            if (declaration.Type is not { } type) { if (op == "=") Guess(declaration, null, 0, value, infix.Right); return Void; }
             if (op == "=") Require(type.Code, value, infix, variable.Value, variable.Token);
             else if (value != Dynamic && !(Numeric(type.Code) && Numeric(value) || op == "+=" && type.Code == String && value == String))
                 Error($"型別不符：{variable.Value} ({Name(type.Code)}) 不能使用 {op} {Name(value)} / Type mismatch: {variable.Value} ({Name(type.Code)}) cannot use {op} with {Name(value)}.", infix.Token);
@@ -387,7 +417,9 @@ public sealed class TypeChecker {
         if (declaration.Function is not { } function || declaration.Assigned || declaration.Count != 1) return Dynamic;
         var parameters = function.Parameters ?? System.Array.Empty<Identifier>();
         if (parameters.Length == arguments.Length)
-            for (int i = 0; i < arguments.Length; i++) this.arguments.Add((function, i, arguments[i] == Dynamic ? Guessed(call.Arguments![i]) : arguments[i]));
+            for (int i = 0; i < arguments.Length; i++)
+                if (arguments[i] != Dynamic || Source(call.Arguments![i]) is not { } source) this.arguments.Add((function, i, arguments[i] == Dynamic ? GuessOf(call.Arguments![i]) : arguments[i]));
+                else derived.Add((null, function, i, source.Declaration, source.Element));
         if (parameters.Length == arguments.Length)
             for (int i = 0; i < arguments.Length; i++)
                 if (parameters[i].Type is { } type && arguments[i] != Dynamic && arguments[i] != type.Code && !Widens(arguments[i], type.Code)
@@ -396,8 +428,53 @@ public sealed class TypeChecker {
         return Code(function.ReturnType);
     }
 
-    /// <summary>An untyped argument's guessed type: a variable's guess so far (a guess, never proven).</summary>
-    private int Guessed(IExpression argument) => argument is Identifier name && Resolve(name.Value) is { Type: null, Count: 1 } d && d.Guess > 0 ? d.Guess : 0;
+    /// <summary>A guess (never proven) for an untyped value: a variable's guess so far, an element of a guessed array, an
+    /// array literal of scalars of one type, or an array made by 陣列.建立 / Array.Make with a scalar fill value (an
+    /// untyped array a native region may speculate holds only that type; its entry checks the elements).</summary>
+    /// <summary>Observes the value a declaration (or, with no target, parameter index of function) receives: its static
+    /// type, a guess of its own, or the guess of the variable (or array element) it copies, resolved at the end.</summary>
+    private void Guess(Declaration target, FunctionLiteral? function, int index, int value, IExpression? expression) {
+        if (value == Dynamic && Source(expression) is { } source) derived.Add((target, function, index, source.Declaration, source.Element));
+        else target.Observe(value != Dynamic ? value : GuessOf(expression));
+    }
+    /// <summary>The untyped variable whose guess a value copies: the variable itself, or the array of an element read.</summary>
+    private (Declaration Declaration, bool Element)? Source(IExpression? expression) => expression switch {
+        Identifier name when Resolve(name.Value) is { Type: null, Count: 1 } d => (d, false),
+        IndexExpression { Left: Identifier array } when Resolve(array.Value) is { Type: null, Count: 1 } d => (d, true),
+        CallExpression { Function: Identifier callee } when Resolve(callee.Value) is { Function: { ReturnType: null } function, Assigned: false, Count: 1 }
+            => (ResultGuess(function), false),
+        _ => null };
+    private Declaration ResultGuess(FunctionLiteral function) {
+        if (!resultDeclarations.TryGetValue(function, out var result)) resultDeclarations[function] = result = new Declaration();
+        return result;
+    }
+    private int GuessOf(IExpression? expression) {
+        switch (expression) {
+            case Identifier name: return Resolve(name.Value) is { Type: null, Count: 1 } d && d.Guess > 0 ? d.Guess : 0;
+            case IndexExpression index: { int array = GuessOf(index.Left); return (array & ArrayFlag) != 0 ? array & 15 : 0; }
+            case ArrayLiteral { Elements: { Length: > 0 } elements }: {
+                int first = ScalarOf(elements[0]);
+                return first != 0 && elements.All(e => ScalarOf(e) == first) ? first | ArrayFlag : ArrayFlag;
+            }
+            case InfixExpression { Operator: ".", Left: Identifier module, Right: CallExpression { Function: Identifier make, Arguments: { Length: >= 2 } arguments } }
+                when module.Value is "陣列" or "Array" && make.Value is "建立" or "Make" && Resolve(module.Value) == null: {
+                int fill = ScalarOf(arguments[1]);
+                return fill != 0 ? fill | ArrayFlag : 0;
+            }
+            case InfixExpression { Operator: "+" or "-" or "*" or "/" or "%" } arithmetic: {
+                int left = Known(arithmetic.Left), right = Known(arithmetic.Right);
+                return Numeric(left) && Numeric(right) ? System.Math.Max(left, right) : 0;
+            }
+            default: return 0;
+        }
+        int Known(IExpression operand) => ScalarOf(operand) is int t and not 0 ? t : GuessOf(operand);
+    }
+    /// <summary>The scalar type of a literal, a negated number literal or a typed scalar variable, else 0.</summary>
+    private int ScalarOf(IExpression expression) => expression switch {
+        IntegerLiteral => Int, FloatLiteral => Float, DoubleLiteral => Double, BooleanLiteral => Bool,
+        PrefixExpression { Operator: "-", Right: var right } when ScalarOf(right) is Int or Float or Double => ScalarOf(right),
+        Identifier name when Code(Resolve(name.Value)?.Type) is Int or Float or Double or Bool => Code(Resolve(name.Value)?.Type),
+        _ => 0 };
 
     private void Function(FunctionLiteral function) {
         var outer = scope; scope = new Scope(outer);
@@ -407,7 +484,8 @@ public sealed class TypeChecker {
         // Numbers, Booleans, typed arrays and arrays of any values; string parameters or results keep the function generic.
         static bool NativeType(int t) => (t & 15) is Int or Float or Double or Bool || t == ArrayFlag || IsStruct(t);
         NativeSignature? native = function.ReturnType != null && parameterTypes.All(NativeType) && NativeType(Code(function.ReturnType))
-            ? new NativeSignature(parameterTypes, Code(function.ReturnType), outer) : null;
+            ? new NativeSignature(parameterTypes, Code(function.ReturnType), outer)
+            : function.ReturnType == null && parameterTypes.All(t => t == Dynamic) ? new NativeSignature(new int[parameterTypes.Length], 0, outer, clone: true) : null;
         var uses = new Dictionary<string, (Declaration, Scope)>(System.StringComparer.Ordinal);
         functions.Push((scope, native, uses));
         if (native != null) { Natives[function] = native; pending.Add((native, uses)); }
@@ -416,6 +494,7 @@ public sealed class TypeChecker {
         var statements = function.Body?.Statements ?? System.Array.Empty<IStatement>();
         Declare(statements);
         returns.Push(function.ReturnType);
+        results.Push(function.ReturnType == null ? ResultGuess(function) : null);
         for (int i = 0; i < statements.Length; i++) {
             if (i == statements.Length - 1 && function.ReturnType is { } type && statements[i] is ExpressionStatement last)
                 Require(type.Code, Expression(last.Expression), function, "回傳值 return value", function.ReturnType.Token);
@@ -423,7 +502,7 @@ public sealed class TypeChecker {
         }
         if (function.ReturnType is { } result && (statements.Length == 0 || statements[^1] is LetStatement or BreakStatement))
             Error($"函式必須回傳 {Name(result.Code)} / The function must return {Name(result.Code)}.", result.Token);
-        returns.Pop();
+        returns.Pop(); results.Pop();
         functions.Pop();
         scope = outer;
     }

@@ -53,6 +53,14 @@ internal sealed class WasmBodyEmitter
     // number, the head's site, its globals (the installed table index, 0 while cold, -1 when none applies; the count of
     // cold iterations) and the region type for call_indirect.
     private readonly Dictionary<int, (int Loop, int Site, int Slot, int Counter, int Type)> jitAt = new();
+    /// <summary>Appends to a promoted slot that may hold a string (`s = s + x`, `s += x`): the Add or CompoundAssign
+    /// position and its slot. Their helpers (rt_append, rt_compoundAppend) tag the text they build with its slot so the
+    /// next append can extend it in place; every other load of the slot clears the tag (<see cref="appendReads"/> are
+    /// the loads of the sites themselves), so a tagged text is never referenced from anywhere but its slot.</summary>
+    private readonly Dictionary<int, int> appendAt = new();
+    private readonly HashSet<int> appendReads = new(), appendSlots = new();
+    /// <summary>Struct field inline caches (off for the unoptimized reference).</summary>
+    private readonly bool inlineCaches;
     /// <summary>Cold iterations of a loop head before it asks the runtime JIT for native code.</summary>
     internal const int JitThreshold = 1000;
 
@@ -86,6 +94,49 @@ internal sealed class WasmBodyEmitter
         foreach (int constant in readOnly) readShadows[constant] = readShadows[constant] with { Number = next++ };
         foreach (var (slot, tag) in registers) if (tag != IntTag) slotRegisters.Add(slot, next++);
         f64Count = next - x;
+        if (shadowBindings) FindAppends();
+        inlineCaches = shadowBindings;
+    }
+
+    private void FindAppends()
+    {
+        var code = body.Code;
+        int SlotAt(int i) {
+            if (i < 0 || plan.Depth[i] < 0 || plan.Accesses[i] is not { } access) return -1;
+            var decl = plan.SlotDecl[i]!;
+            foreach (int slot in access.Slots) { if (decl[slot] == WasmScopePlan.Yes) return slot; if (decl[slot] == WasmScopePlan.Maybe) return -1; }
+            return -1;
+        }
+        // The instruction that pushed the operand at depth `depth` of the instruction at `at`: the last one before it
+        // that starts at that depth (the operands above it belong to one expression).
+        int Pusher(int at, int depth) { for (int k = at - 1; k >= 0; k--) if (plan.Depth[k] == depth) return k; return -1; }
+        bool LoadOf(int i, int slot) => i >= 0 && code[i].Code == IrOperation.Load && SlotAt(i) == slot;
+        bool MayBeString(int tag) => tag == Unknown || tag == StringTag;
+        for (int i = 0; i < code.Length; i++) {
+            if (plan.Depth[i] < 0) continue;
+            int slot = SlotAt(i);
+            if (slot < 0 || plan.RegisterSlots.ContainsKey(slot) || !MayBeString(plan.SlotTags[i]![slot])) continue;
+            if (code[i].Code == IrOperation.Assign) {
+                int add = i - 1; if (add >= 0 && code[add].Code == IrOperation.CheckType) add--;
+                if (add < 0 || code[add].Code != IrOperation.Add || plan.Depth[add] < 3) continue;
+                int depth = plan.Depth[add], left = Pusher(add, depth - 2), dummy = left - 1;
+                if (!LoadOf(left, slot) || !LoadOf(dummy, slot) || plan.Depth[dummy] != depth - 3 || !MayBeString(plan.StackTags[add]![depth - 2])) continue;
+                appendAt[add] = slot; appendReads.Add(left); appendReads.Add(dummy); appendSlots.Add(slot);
+            } else if (code[i].Code == IrOperation.CompoundAssign && ((Assignment)body.Pool[code[i].Operand]).Operation == IrOperation.Add) {
+                int depth = plan.Depth[i], dummy = Pusher(i, depth - 2);
+                if (depth < 2 || !LoadOf(dummy, slot)) continue;
+                appendAt[i] = slot; appendReads.Add(dummy); appendSlots.Add(slot);
+            }
+        }
+    }
+    /// <summary>After a load of an append slot that is not part of an append: clears the text's slot tag in the copy and
+    /// in the slot.</summary>
+    private void ClearAppendTag(int slot, int d, int tag)
+    {
+        if (!appendSlots.Contains(slot) || appendReads.Contains(pc) || tag != Unknown && tag != StringTag) return;
+        if (tag == Unknown) { Get(T(d)); I32(StringTag); Op(0x46); If(); }
+        F64(0); Set(N(d)); Get(F); F64(0); StoreF64(SlotOffset(slot) + ValueNumber);
+        if (tag == Unknown) End();
     }
 
 
@@ -469,11 +520,12 @@ internal sealed class WasmBodyEmitter
                     if (resultTag != plan.RegisterSlots[slot]) throw new InvalidOperationException("Register slot tag mismatch.");
                     Get(register); Set(resultTag == IntTag ? I(d) : N(d)); loc[d] = Loc.Reg; return;
                 }
-                LoadValue(d, F, SlotOffset(slot), resultTag == Unknown ? Unknown : slotTags[slot]); loc[d] = Loc.Reg; return;
+                LoadValue(d, F, SlotOffset(slot), resultTag == Unknown ? Unknown : slotTags[slot]); loc[d] = Loc.Reg;
+                ClearAppendTag(slot, d, resultTag == Unknown ? Unknown : slotTags[slot]); return;
             }
             if (resultTag != Unknown) throw new InvalidOperationException("Uncertain loads have unknown tags.");
             Get(F); LoadI32(SlotOffset(slot)); I32(-1); Op(0x47);
-            Branch(() => { LoadValue(d, F, SlotOffset(slot), Unknown); loc[d] = Loc.Reg; return false; }, () => { Chain(index + 1); return false; });
+            Branch(() => { LoadValue(d, F, SlotOffset(slot), Unknown); loc[d] = Loc.Reg; ClearAppendTag(slot, d, Unknown); return false; }, () => { Chain(index + 1); return false; });
         }
         Chain(0);
     }
@@ -507,6 +559,26 @@ internal sealed class WasmBodyEmitter
         var code = body.Code; int n = code.Length;
         var leaders = new SortedSet<int> { 0, n };
         foreach (int position in WasmFuel.Checkpoints(body).Keys) leaders.Add(position);
+        // A read of an untyped array a native region may speculate on (an array guess) starts a block: a read outside the
+        // array leaves the region there, with its operands in the frame (WasmNativeFunction loose arrays).
+        static bool GuessedArray(int guess) => (guess & 16) != 0 && (guess & 15) is >= 1 and <= 4 && guess < 32;
+        var spans = body.Loops.Where(l => l.Region != null).Select(l => (l.Enter, l.Leave, l.Region!.Outer)).ToList();
+        // A clone of an untyped function reads its guessed array parameters and outer arrays anywhere in its body.
+        if (body.Function is { Signature: { Clone: true } clone, Parameters: var parameters }) {
+            var outer = new Dictionary<string, NativeSignature.OuterName>(clone.Outer, StringComparer.Ordinal);
+            for (int p = 0; p < parameters.Length && p < clone.Parameters.Length; p++)
+                outer[parameters[p]] = new NativeSignature.OuterName(0, null, false, true, null, clone.Parameters[p]);
+            spans.Add((0, n, outer));
+        }
+        foreach (var (enter, leave, names) in spans) {
+            var guessed = names.Where(o => o.Value.Type == 0 && GuessedArray(o.Value.Guess)).Select(o => o.Key).ToHashSet(StringComparer.Ordinal);
+            if (guessed.Count == 0) continue;
+            for (int i = Math.Max(enter, 1); i < leave && i < n; i++) {
+                if (code[i].Code != IrOperation.Index || plan.Depth[i] < 2) continue;
+                int k = i - 1; while (k >= 0 && plan.Depth[k] != plan.Depth[i] - 2) k--;
+                if (k >= 0 && code[k].Code == IrOperation.Load && WasmScopePlan.NameOf(body, code[k]) is string name && guessed.Contains(name)) leaders.Add(i);
+            }
+        }
         for (int i = 0; i < n; i++) {
             if (plan.Depth[i] < 0) continue;
             var op = code[i];
@@ -715,11 +787,12 @@ internal sealed class WasmBodyEmitter
             case IrOperation.CheckHashKey: Helper("checkHashKey", n, d, 0); return false;
             case IrOperation.StructType: Helper("structType", n, d, 0); return false;
             case IrOperation.CheckStruct: Helper("checkStruct", n, d, 1); return false;
-            case IrOperation.SetMember: Helper("setMember", n, d, 2); return false;
+            case IrOperation.SetMember: if (inlineCaches) SetStructField(n, d); else Helper("setMember", n, d, 2); return false;
             case IrOperation.CompoundMember: Helper("compoundMember", n, d, 2); return false;
             case IrOperation.CallNamed: Helper("callNamed", n, d, body.NamedArguments(n) + 1); return false;
             case IrOperation.CheckType: CheckType(n, d); return false;
-            case IrOperation.Member: case IrOperation.MemberFunction: Helper("member", n, d, 1); return false;
+            case IrOperation.Member: if (inlineCaches) StructField(n, d); else Helper("member", n, d, 1); return false;
+            case IrOperation.MemberFunction: Helper("member", n, d, 1); return false;
             case IrOperation.EnterLoop: {
                 int child = plan.ScopeAt[pc + 1];
                 if (!plan.Scopes[child].Promoted) { Helper("enterLoop", n, d, 0); return false; }
@@ -802,7 +875,8 @@ internal sealed class WasmBodyEmitter
         Ensure(a, ta); Ensure(b, tb);
         bool comparison = op is IrOperation.Less or IrOperation.Greater or IrOperation.LessEqual or IrOperation.GreaterEqual or IrOperation.Equal or IrOperation.NotEqual;
         void Slow() {
-            Helper(HelperName(op), 0, d, 2);
+            if (appendAt.TryGetValue(pc, out int appendSlot)) Helper("append", appendSlot, d, 2);
+            else Helper(HelperName(op), 0, d, 2);
             LoadValue(a, F, StackOffset(a), result); loc[a] = Loc.Both;
         }
         if (op is IrOperation.And or IrOperation.Or) {
@@ -952,7 +1026,7 @@ internal sealed class WasmBodyEmitter
     private void CompoundMemory(int constant, int d, WasmScopePlan.Access access, int rhs, int rt, IrOperation operation, int slot)
     {
         if (slot >= 0) { Get(F); I32(SlotOffset(slot)); Op(0x6a); Set(A); WriteBack(slot); } else TargetAddress(access, constant);
-        void Slow() { Helper("compoundAt", constant, d, 2, true, A); }
+        void Slow() { if (appendAt.TryGetValue(pc, out int appendSlot)) Helper("compoundAppend", appendSlot, d, 2); else Helper("compoundAt", constant, d, 2, true, A); }
         if (operation == IrOperation.Modulo || rt != Unknown && !IsNumeric(rt)) { Slow(); if (slot >= 0) Reload(slot); return; }
         Get(A); LoadI32(ValueTag); Set(B);
         NumericTagTest(B); if (rt == Unknown) { NumericTagTest(T(rhs)); Op(0x71); }
@@ -1039,6 +1113,49 @@ internal sealed class WasmBodyEmitter
         }, () => { Slow(); return false; }, i);
     }
 
+    /// <summary>Inline caches of struct fields. A member name constant's number is unused, so it holds the cache of its sites:
+    /// the struct type id + 1 (ids are program-wide, so collections cannot invalidate it) and the field index, with bit 31 set
+    /// for an annotated field (rt_member, rt_setMember and rt_compoundMember fill it). A struct of that type reads its field
+    /// in place, and an unannotated field is written in place; anything else is the helper's.</summary>
+    private int FieldCache(int n) => pool + ValueSize * n + ValueNumber;
+    /// <summary>The cache's second word, the field index (the number's upper half).</summary>
+    private int FieldCacheIndex(int n) => FieldCache(n) + sizeof(int);
+    private void CachedStructTest(int m, int tm, int n)
+    {
+        if (tm == Unknown) { Get(T(m)); I32(StructTag); Op(0x46); } else I32(1);
+        If(0x7f); Get(R(m)); LoadI32(StructShape); LoadI32(ShapeId); I32(1); Op(0x6a); I32(FieldCache(n)); LoadI32(0); Op(0x46); Else(); I32(0); End();
+    }
+    /// <summary>The address of the cached field of struct operand m in B.</summary>
+    private void CachedFieldAddress(int m, int n)
+    {
+        I32(FieldCacheIndex(n)); LoadI32(0); I32(0x7fffffff); Op(0x71); I32(4); Op(0x74); Get(R(m)); Op(0x6a); I32(StructFields); Op(0x6a); Set(B);
+    }
+    private void StructField(int n, int d)
+    {
+        int m = d - 1, tm = Tags(pc)[m];
+        Ensure(m, tm);
+        void Slow() { Helper("member", n, d, 1); LoadValue(m, F, StackOffset(m), Unknown); loc[m] = Loc.Both; }
+        if (tm != Unknown && tm != StructTag) { Slow(); return; }
+        CachedStructTest(m, tm, n);
+        Branch(() => { CachedFieldAddress(m, n); LoadValue(m, B, 0, Unknown); loc[m] = Loc.Reg; return false; }, () => { Slow(); return false; }, d);
+    }
+    private void SetStructField(int n, int d)
+    {
+        int m = d - 2, v = d - 1; var tags = Tags(pc); int tm = tags[m], tv = tags[v];
+        Ensure(m, tm); Ensure(v, tv);
+        void Slow() { Helper("setMember", n, d, 2); LoadValue(m, F, StackOffset(m), tv); loc[m] = Loc.Both; }
+        if (tm != Unknown && tm != StructTag) { Slow(); return; }
+        CachedStructTest(m, tm, n);
+        If(0x7f); I32(FieldCacheIndex(n)); LoadI32(0); I32(31); Op(0x76); Op(0x45); Else(); I32(0); End();
+        Branch(() => {
+            CachedFieldAddress(m, n); StoreValue(v, B, 0, tv);
+            if (tv == Unknown) { Get(T(v)); Set(T(m)); }
+            if (HasRef(tv)) { Get(R(v)); Set(R(m)); }
+            if (tv == IntTag) { Get(I(v)); Set(I(m)); } else { Get(N(v)); Set(N(m)); }
+            loc[m] = Loc.Reg; return false;
+        }, () => { Slow(); return false; }, v);
+    }
+
     private void ArrayWriteTest(int a, int ta, int i, int ti)
     {
         if (ta == Unknown) { Get(T(a)); I32(ArrayTag); Op(0x46); } else I32(1);
@@ -1068,6 +1185,9 @@ internal sealed class WasmBodyEmitter
         Branch(() => {
             Get(R(a)); LoadI32(ArrayValues); IndexOf(i, ti); I32(4); Op(0x74); Op(0x6a); Set(B);
             StoreValue(v, B, 0, tv);
+            // An untyped array's element kind (Array.kind): a write of another tag makes it unknown.
+            Get(R(a)); Op(0x2f, 0x01); U(ArrayKind); if (tv == Unknown) Get(T(v)); else I32(tv); Op(0x47);
+            If(); Get(R(a)); I32(0); Op(0x3b, 0x01); U(ArrayKind); End();
             if (tv == Unknown) { Get(T(v)); Set(T(a)); }
             if (HasRef(tv)) { Get(R(v)); Set(R(a)); }
             if (tv == IntTag) { Get(I(v)); Set(I(a)); } else { Get(N(v)); Set(N(a)); }

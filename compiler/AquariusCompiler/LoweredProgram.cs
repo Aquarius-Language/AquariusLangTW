@@ -39,6 +39,8 @@ public sealed class LoweredProgram {
     /// <summary>Each loop's EnterLoop, condition (loop head) and LeaveLoop positions, with its native region
     /// candidate from the TypeChecker (outer names it resolves outside itself).</summary>
     internal (int Enter, int Head, int Leave, NativeSignature? Region)[] Loops { get; }
+    /// <summary>A function body's native-tier signature (typed, or a clone of an untyped function), with its parameters.</summary>
+    internal (NativeSignature Signature, string[] Parameters)? Function { get; set; }
 
     internal LoweredProgram(Instruction[] code, object[] constants, bool wrapReturn, (int, int, int, NativeSignature?)[]? loops = null) {
         Code = code; Pool = constants; WrapReturn = wrapReturn; Loops = loops ?? System.Array.Empty<(int, int, int, NativeSignature?)>();
@@ -81,6 +83,7 @@ internal sealed class FunctionCode {
         Parameters = function.Parameters;
         Body = function.Body;
         BodyCode = new LoweringCompiler(types).CompileFunction(function);
+        if (Native != null) BodyCode.Function = (Native, System.Array.ConvertAll(function.Parameters ?? System.Array.Empty<Identifier>(), p => p.Value));
     }
 }
 

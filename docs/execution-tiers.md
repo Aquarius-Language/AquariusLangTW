@@ -66,6 +66,18 @@ at least twice and never assigns get read shadows: the whole value (tag, ref, nu
 first load after a barrier, and barriers drop it. Unoptimized compilation, the differential tests' reference,
 emits no shadows.
 
+## Inline caches of struct fields
+
+A member read (`p.x`) and a member write (`p.x = v`) of generic code check an inline cache before calling the runtime: the
+member's name constant has an unused number, which holds the struct type id + 1 and the field index of the last struct
+the site's helper saw (`cache_site` in `runtime.c`). A struct whose type has that id reads its field in place; an
+unannotated field is also written in place (an annotated field's write still goes through `rt_setMember`, which checks and
+widens it). Struct type ids are program-wide and every type value of one declaration has the same fields, so collections
+and declarations that run again never invalidate a cache; another receiver (a module, null, another type) takes the
+helper, which refills it. The helper itself finds fields through a small cache by (type id, name). Field access in an
+untyped loop is three times faster. Module members (`陣列.建立`) are found through the module scope's hash index with the
+name's cached hash. Unoptimized compilation, the differential tests' reference, emits no caches (`InlineCacheTest`).
+
 ## Execution fuel (`WasmFuel`)
 
 Fuel is consumed only at the body entry and at targets of backward branches; every
@@ -137,6 +149,10 @@ Code quality details, all plain Wasm:
   are read again.
 - **Exact integer payloads.** Integer and Boolean payloads are always exact 32-bit integers, so typed loads convert
   them with `f64.add 1.5·2^52` and a reinterpretation instead of a saturating conversion and its branches.
+- **Tail calls.** A call whose result the function returns at once (`回傳 f(...)`, with the same result type) is a Wasm
+  `return_call` (the tail-call proposal, on by default in Wasmtime and in current browsers): the callee takes over the
+  activation and keeps its depth, so tail recursion runs natively at any depth. When the callee deoptimizes, its generic
+  frame's parent is the tail caller's caller, which is where the tail caller's frame would have returned the result.
 - **Pure calls.** A call to a function that (transitively) assigns no outer binding and writes no array element does
   not reload outer bindings or array companions afterwards.
 - **Inlining.** A small native leaf (no calls, loops or outer bindings, nothing it can mutate) is emitted in place of
@@ -147,6 +163,23 @@ Code quality details, all plain Wasm:
 - **Collections are polled by the adapters.** Native code only allocates when it leaves (a deoptimization) or copies an
   array on write, so the entry checkpoint no longer reads `Execution.poll`; the entry adapter sends a call made while a
   collection is pending to the generic body, whose entry checkpoint collects.
+
+## Typed clones of untyped functions (every target)
+
+An untyped function without any annotation whose parameters all have guesses (the static or guessed types of the
+arguments of its direct calls, see below) is also a native-tier candidate: a *clone* (`NativeSignature.Clone`) typed by
+those guesses. The native tier proves its result type by trying integer, double, Boolean, float, an array of any values
+and no value in turn (callers use the callee's current choice, so mutually recursive clones settle together); a clone
+whose body cannot be typed stays generic. Unlike a typed function, a clone's entry adapter takes only arguments of exactly
+its types (an integer is not widened to a double parameter) and arrays of only its element type (`rt_arrayKind`), and a
+call between native functions passes a clone exactly those types, so its generic semantics never change; any other call
+runs the generic body. Untyped outer bindings it uses are speculated on their guesses and checked by the entry adapter,
+guessed arrays are loose arrays, and a read outside one deoptimizes to the generic frame at that read (which starts a
+generic block). A clone takes precedence over the integer tier and over regions of its loops. Results of untyped functions are guessed too (the
+values of their return statements), so `變數 樹 = 建立(n)` passes an array to `檢查(樹, n)`; arrays of different element
+types merge to an array of any values. The untyped Ackermann benchmark runs 5× faster, the spectral norm 12× and the binary
+trees 2×, on every target. `CloneTest` compares clones with the unoptimized
+compiler: guesses that fail, every result type, outer writes, reads past the end, errors, arity, rebinding and tiny quanta.
 
 ## Native regions in untyped code
 
@@ -172,6 +205,24 @@ type. Since the region checks those types at every entry, a wrong guess only ret
 so speculation never changes a result (`SpeculationTest` compares it with the unoptimized compiler, also when a
 variable changes type between entries and under tiny quanta). This is plain Wasm in the artifact, so web and Android
 gain too: the untyped mandelbrot benchmark runs as fast as the typed one.
+
+### Speculation on untyped arrays (every target)
+
+The TypeChecker also guesses arrays: `陣列.建立(n, 0)` / `Array.Make(n, 0.0d)` (a scalar fill), an array literal of scalars
+of one type, arithmetic of guessed numbers, and values copied from guessed variables or read from guessed arrays (`變數
+pivot = a[i]`, parameters from the arguments of direct calls; these derived guesses are resolved after the whole program,
+to a fixpoint). A region speculates that such an untyped array holds only elements of its guessed type (a *loose* array,
+`WasmNativeFunction.LooseFlag`): it reads and writes it like the typed array, and writes only values of exactly that type.
+
+Every untyped array keeps its element kind (`Array.kind`: the tag all its elements have, or 0 when unknown): writes of
+another tag, host access to its values and library functions that mix elements reset it, `建立`, `填入`, literals and
+copies set it. A region's entry calls `rt_arrayKind`, which accepts a typed array of that element, an untyped array of that
+kind, or (when the kind is unknown) scans it once and records the kind; host-exposed arrays are scanned at every entry.
+A read outside a loose array cannot be the typed tier's error (the generic code gives null): every such read starts a
+generic block (`WasmBodyEmitter.BlockStarts`), and the region leaves at it with its slots and operands written to the frame,
+so the generic code performs the read. The untyped matrix benchmark runs 9× faster, the sieve and quicksort about 2×, on
+desktop, web and Android alike. `LooseArrayTest` compares them with the unoptimized compiler: reads past the end, element
+types changing between entries, library changes and tiny quanta.
 
 ### Desktop runtime JIT
 

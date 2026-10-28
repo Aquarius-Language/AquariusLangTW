@@ -43,6 +43,13 @@ print(values, backup);
 | 反轉 | Reverse | array | Reverse in place, return array / 原地反轉 |
 | 尋找 | Index | array, value | First matching index or -1 / 第一個相符索引，找不到為 -1 |
 | 包含 | Contains | array, value | Boolean membership / 是否包含 |
+| 排序 | Sort | array, optional compare | Sort in place, return array; numbers ascending (NaN last) or strings by code unit, or by `compare(x, y)` (negative: x first); stable / 原地排序 |
+| 總和 | Sum | array | Sum with the rules of `+`, left to right; 0 for `[]` / 依 `+` 規則加總 |
+| 最小值 | Min | array | First smallest number or string; null for `[]` / 最小元素 |
+| 最大值 | Max | array | First largest number or string; null for `[]` / 最大元素 |
+| 映射 | Map | array, function | New array of `function(element)` / 新陣列 |
+| 篩選 | Filter | array, function | New array of the elements for which `function` returns a true value / 篩選後的新陣列 |
+| 歸約 | Reduce | array, function, initial | `function(accumulator, element)` from left to right / 由左至右累積 |
 
 The design takes inspiration from Go's [slices package](https://pkg.go.dev/slices)
 and [length/capacity model](https://go.dev/blog/slices-intro). Length and capacity
@@ -119,3 +126,15 @@ literals natively and pass elements on to `陣列` parameters after checking tha
 
 `陣列`（不加中括號）標註元素可為任何值的陣列（例如巢狀陣列組成的樹），只檢查值是陣列；越界讀取回傳 `null`。
 參數與回傳值都有標註的函式即使使用 `陣列` 也能以原生層執行。
+
+## 核心演算法 / Kernels
+
+`排序`, `總和`, `最小值` and `最大值` run natively in the guest runtime (`runtime/guest/arrays.h`): integer arrays sort with an
+introsort, other numbers and strings with a stable merge sort, so sorting 1M integers takes about 30 ms instead of about
+280 ms for a quicksort written in Aquarius. `映射`, `篩選`, `歸約` and `排序` with a comparison call Aquarius functions, so
+after checking their arguments they continue in the guest prelude (`runtime/guest/prelude.aqua`), Aquarius functions the
+compiler adds to programs that name them: they yield, resume and report errors exactly like a loop in the program.
+Mixing numbers and strings, or other values, needs a comparison function.
+
+`排序`、`總和`、`最小值`、`最大值` 在客體執行環境中以原生程式執行（整數用 introsort，其他數字與字串用穩定的合併排序）；
+`映射`、`篩選`、`歸約` 與帶比較函式的 `排序` 會呼叫星泉函式，因此在檢查引數後於客體前導程式（`runtime/guest/prelude.aqua`）中執行。

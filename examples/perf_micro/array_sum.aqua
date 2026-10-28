@@ -1,0 +1,12 @@
+# Untyped array sum loop over 1M elements, 10 passes.
+變數 n = 1000000;
+變數 values = 陣列.建立(n, 0);
+迴圈 (變數 i = 0; i < n; i++) { values[i] = i % 1000; }
+變數 start = 目前時間();
+變數 total = 0;
+迴圈 (變數 pass = 0; pass < 10; pass++) {
+    迴圈 (變數 i = 0; i < n; i++) { total += values[i]; }
+}
+變數 elapsed = 目前時間() - start;
+印出("RESULT", total);
+印出("ELAPSED_MS", elapsed);

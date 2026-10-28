@@ -1,0 +1,10 @@
+# 100k integer keys: insert, then look every key up.
+變數 n = 100000;
+變數 start = 目前時間();
+變數 h = {};
+迴圈 (變數 i = 0; i < n; i++) { h[i * 3] = i; }
+變數 total = 0;
+迴圈 (變數 i = 0; i < n; i++) { total += h[i * 3]; }
+變數 elapsed = 目前時間() - start;
+印出("RESULT", total, 長度(h));
+印出("ELAPSED_MS", elapsed);

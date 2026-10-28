@@ -1,0 +1,10 @@
+# Index every character of a 100k-character string, 10 passes.
+變數 s = 字串.重複("abcde", 20000);
+變數 start = 目前時間();
+變數 count = 0;
+迴圈 (變數 pass = 0; pass < 10; pass++) {
+    迴圈 (變數 i = 0; i < 長度(s); i++) { 如果 (s[i] == "c") { count++; } }
+}
+變數 elapsed = 目前時間() - start;
+印出("RESULT", count);
+印出("ELAPSED_MS", elapsed);

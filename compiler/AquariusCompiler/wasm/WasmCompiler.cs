@@ -30,6 +30,14 @@ public sealed class WasmCompiler
     private static readonly Action<string>? environmentDiagnostics =
         System.Environment.GetEnvironmentVariable("AQUARIUS_WASM_TIER_DIAGNOSTICS") == "1" ? Console.Error.WriteLine : null;
     private static void Diagnose(int function, string tier, string reason) => TierDiagnostics?.Invoke($"function {function}: {tier}: {reason}");
+    /// <summary>Array kernels that call back into Aquarius (runtime/guest/arrays.h): their functions in the guest prelude
+    /// (runtime/guest/prelude.aqua), numbered in source order, which the guest runtime finds by Function.flags bits 8..15.</summary>
+    private static readonly HashSet<string> PreludeKernels = new(StringComparer.Ordinal) { "Sort", "排序", "Map", "映射", "Filter", "篩選", "Reduce", "歸約" };
+    private static readonly Lazy<string> PreludeSource = new(() => {
+        using var stream = typeof(WasmCompiler).Assembly.GetManifestResourceStream("AquariusLang.Wasm.prelude.aqua")
+            ?? throw new InvalidOperationException("The guest prelude (runtime/guest/prelude.aqua) is not embedded.");
+        return new StreamReader(stream).ReadToEnd().Replace("\r\n", "\n");
+    });
     public WasmProgram Compile(string source) => Compile(new LoweringCompiler().Compile(source));
     public WasmProgram Compile(INode tree) => Compile(new LoweringCompiler().Compile(tree));
     public WasmProgram Compile(LoweredProgram lowered) => Compile(new Dictionary<string, LoweredProgram> { ["main.aqua"] = lowered }, "main.aqua");
@@ -54,6 +62,14 @@ public sealed class WasmCompiler
             return id;
         }
         var exports = modules.ToDictionary(p => p.Key, p => Add(p.Value), StringComparer.OrdinalIgnoreCase);
+        // The guest prelude's functions follow the program's bodies, only when a body names one of their kernels.
+        var prelude = new Dictionary<int, int>();
+        if (bodies.Any(b => b.Constants.Any(c => c is string name && PreludeKernels.Contains(name))))
+        {
+            var code = new LoweringCompiler().Compile(PreludeSource.Value);
+            Add(code);
+            foreach (var function in code.Constants.OfType<FunctionCode>()) prelude.Add(ids[function.BodyCode], prelude.Count + 1);
+        }
         WasmConstant Constant(object value) => value switch
         {
             string s => new("name", Text: s),
@@ -87,7 +103,7 @@ public sealed class WasmCompiler
             // Promoted calls share one binding cache per closure, so free-name lookups are cached across calls.
             parameters.GetValueOrDefault(b, System.Array.Empty<string>()), capacities[f],
             b.Code.Any(op => op.Code == IrOperation.EnterLoop) || plans[f].PromotedFunction,
-            Locals: plans[f].Locals, PromotedScope: plans[f].PromotedFunction)).ToArray();
+            Locals: plans[f].Locals, PromotedScope: plans[f].PromotedFunction, Prelude: prelude.GetValueOrDefault(f))).ToArray();
         // Loops of untyped bodies whose code is native-eligible become native regions, entered from their loop heads.
         // Their functions follow the bodies, so their indices are known before the bodies are emitted.
         var codes = new FunctionCode?[bodies.Count];
@@ -135,6 +151,7 @@ public sealed class WasmCompiler
         // Fully typed functions get the native tier; the speculative scalar tiers handle the remaining ones.
         var natives = optimize ? WasmNativeFunction.Select(bodies, codes, plans, (f, reason) => Diagnose(f, "native", "rejected: " + reason)) : new List<WasmNativeFunction>();
         var nativeBodies = natives.Select(n => n.Body).ToHashSet();
+        foreach (var native in natives) if (native.Signature.Clone) Diagnose(native.Body, "native", "accepted: clone of an untyped function");
         foreach (int f in nativeBodies) Diagnose(f, "native", "accepted");
         var numeric = new List<(int Body, WasmNumericFunction Plan)>();
         if (optimize) for (int f = 0; f < bodies.Count; f++)

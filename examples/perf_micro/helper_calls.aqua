@@ -1,0 +1,9 @@
+# Untyped helper-function calls in a loop.
+變數 add = 函式(a, b) { 回傳 a + b; };
+變數 mix = 函式(a, b) { 回傳 add(a, b) % 1000003; };
+變數 start = 目前時間();
+變數 total = 0;
+迴圈 (變數 i = 0; i < 2000000; i++) { total = mix(total, i); }
+變數 elapsed = 目前時間() - start;
+印出("RESULT", total);
+印出("ELAPSED_MS", elapsed);

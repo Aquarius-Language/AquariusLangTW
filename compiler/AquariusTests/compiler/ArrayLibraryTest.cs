@@ -15,7 +15,8 @@ public class ArrayLibraryTest {
 
     internal static readonly PortableModule[] PortableModules = [
         new("Array", "陣列", ("Make", "建立"), ("Len", "長度"), ("Cap", "容量"), ("Grow", "擴充"), ("Append", "追加"), ("AppendArray", "追加陣列"),
-            ("Copy", "複製"), ("Clone", "克隆"), ("Slice", "切片"), ("Fill", "填入"), ("Delete", "刪除"), ("Reverse", "反轉"), ("Index", "尋找"), ("Contains", "包含")),
+            ("Copy", "複製"), ("Clone", "克隆"), ("Slice", "切片"), ("Fill", "填入"), ("Delete", "刪除"), ("Reverse", "反轉"), ("Index", "尋找"), ("Contains", "包含"),
+            ("Sort", "排序"), ("Sum", "總和"), ("Min", "最小值"), ("Max", "最大值"), ("Map", "映射"), ("Filter", "篩選"), ("Reduce", "歸約")),
         new("Hash", "雜湊", ("Keys", "鍵列表"), ("Values", "值列表"), ("Has", "包含鍵"), ("Get", "取得"), ("Delete", "刪除鍵"), ("Len", "長度"),
             ("Clone", "克隆"), ("Clear", "清空"), ("Merge", "合併"), ("Entries", "項目列表")),
         new("String", "字串", ("From", "轉文字"), ("Slice", "切片"), ("Find", "尋找"), ("Contains", "包含"), ("StartsWith", "開頭是"), ("EndsWith", "結尾是"),
@@ -47,7 +48,7 @@ public class ArrayLibraryTest {
             cases.Add((source, TypeOf(expected), expected));
             cases.Add((Chinese(source), TypeOf(expected), expected));
         }
-        Assert.Equal(52, cases.Count);
+        Assert.Equal(60, cases.Count);
         Assert.Contains(cases, c => c.Item1.Contains("陣列.追加陣列("));
         LanguageCases.Expect(cases.ToArray());
     }
@@ -59,14 +60,14 @@ public class ArrayLibraryTest {
         var cases = json.RootElement.GetProperty("invalid").EnumerateArray().Select(i => i.GetString()!)
             .SelectMany(source => new[] { source, Chinese(source) })
             .Select(source => ("變數 a=[1,2];" + source, "Array")).ToArray();
-        Assert.Equal(56, cases.Length);
+        Assert.Equal(70, cases.Length);
         LanguageCases.ExpectErrors(cases);
     }
 
     [RuntimeFact]
     public void ImportAndNamesExposeBothLanguages() {
         var module = Module("Array");
-        Assert.Equal(14, module.Functions.Length);
+        Assert.Equal(21, module.Functions.Length);
         // Every function answers to its English and Chinese name in either module name, and functions are distinct.
         var other = (string name) => name == "Make" ? "Len" : "Make";
         string checks = string.Join(",\n", module.Functions.Select(f =>
@@ -75,7 +76,26 @@ public class ArrayLibraryTest {
             ("變數 arrays=匯入(\"Array\");arrays.建立(2,7);", "array", "[7, 7]"),
             ("變數 arrays=匯入(\"陣列\");arrays.Make(2,7);", "array", "[7, 7]"),
             ("[匯入(\"Array\")==匯入(\"陣列\"),匯入(\"Array\")==陣列,Array==陣列];", "array", "[真, 真, 真]"),
-            ($"[{checks}];", "array", "[" + string.Join(", ", Enumerable.Repeat("真", 14)) + "]"));
+            ($"[{checks}];", "array", "[" + string.Join(", ", Enumerable.Repeat("真", 21)) + "]"));
+    }
+
+    [RuntimeFact]
+    public void KernelCallbacksRunAsResumableAquariusCode() {
+        // Map, Filter, Reduce and Sort with a comparison continue in the guest prelude: errors of the callback reach the
+        // caller unchanged, and a long run yields and resumes like any loop, with the same output under any fuel quantum.
+        LanguageCases.ExpectErrors(
+            ("變數 a=[1,2];陣列.排序(a,函式(x,y){回傳 真;});", "Type mismatch"),
+            ("變數 a=[1,2];Array.Map(a,函式(x){回傳 x/0;});", "整數不能除以零"));
+        LanguageCases.Expect(
+            ("變數 a=陣列.建立(3000,0);迴圈(變數 i=0;i<3000;i++){a[i]=(i*7919)%3001;}變數 b=陣列.克隆(a);Array.Sort(b,函式(x,y){回傳 y-x;});Array.Sort(a);"
+             + "[a[0],a[2999],b[0],b[2999],Array.Reduce(Array.Filter(Array.Map(a,函式(x){回傳 x*2;}),函式(x){回傳 x%3==0;}),函式(s,x){回傳 s+x;},0)];",
+             "array", "[0, 3000, 3000, 0, 3003000]"));
+        const string program = "var a = []; for (var i = 0; i < 20000; i++) { Array.Append(a, (i * 7919) % 20011); } " +
+            "Array.Sort(a, function(x, y) { return y - x; }); var m = Array.Map(a, function(x) { return x % 97; }); " +
+            "print(a[0], a[19999], Array.Reduce(Array.Filter(m, function(x) { return x > 50; }), function(s, x) { return s + x; }, 0));";
+        string expected = WasmTestHost.Run(program).Succeeded().Output;
+        Assert.Equal(expected, WasmTestHost.Run(program, new Dictionary<string, string> { ["AQUARIUS_FUEL_QUANTUM"] = "17" }).Succeeded().Output);
+        Assert.Equal(expected, WasmTestHost.Run(program, new Dictionary<string, string> { ["AQUARIUS_JIT"] = "0", ["AQUARIUS_FUEL_QUANTUM"] = "1000" }).Succeeded().Output);
     }
 
     [RuntimeFact]

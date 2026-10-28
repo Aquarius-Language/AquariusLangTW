@@ -54,7 +54,8 @@ public class SpeculationTest
         WasmCompiler.TierDiagnostics = reasons.Add;
         try { new WasmCompiler().Compile(Programs[0]); new WasmCompiler().Compile(Programs[3]); }
         finally { WasmCompiler.TierDiagnostics = previous; }
-        Assert.Equal(2, reasons.Count(r => r.Contains("native region: accepted")));
+        // Their functions are clones of untyped functions (guessed parameters) or their loops are regions.
+        Assert.Equal(2, reasons.Count(r => r.Contains("native region: accepted") || r.Contains("native: accepted: clone")));
     }
 
     [RuntimeFact]

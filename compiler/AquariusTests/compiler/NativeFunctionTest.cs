@@ -60,6 +60,32 @@ public class NativeFunctionTest
         EmitterTiers.AssertSame(Programs);
     }
 
+    /// <summary>Calls whose result a native function returns at once are Wasm tail calls (return_call): the callee takes
+    /// over the activation, so tail recursion runs natively at any depth, and a callee that deoptimizes or fails returns
+    /// straight to the tail caller's caller.</summary>
+    private static readonly string[] TailPrograms = [
+        "var loop = function(n: int, acc: int): int { if (n == 0) { return acc; } return loop(n - 1, acc + n % 7); }; loop(1000000, 0);",
+        "var odd = function(n: int): bool { if (n == 0) { return false; } return even(n - 1); }; var even = function(n: int): bool { if (n == 0) { return true; } return odd(n - 1); }; [even(100001), odd(77777)];",
+        "var step = function(n: int, d: double): double { if (n == 0) { return d; } return step(n - 1, d * 0.5d + 1.0d); }; var outer = function(k: int): double { return step(k, 0.0d) + 1.0d; }; outer(300000);",
+        "var div = function(a: int, b: int): int { return a / b; }; var down = function(n: int): int { if (n == 0) { return div(1, n); } return down(n - 1); }; down(50000);",
+        "var ack = function(m: int, n: int): int { if (m == 0) { return n + 1; } if (n == 0) { return ack(m - 1, 1); } return ack(m - 1, ack(m, n - 1)); }; ack(3, 6);",
+    ];
+
+    [RuntimeFact]
+    public void TailCallsMatchTheGenericEmitterUnderAnyQuantum()
+    {
+        var results = EmitterTiers.AssertSame(TailPrograms);
+        Assert.Equal("[假, 真]", results[1].Text);
+        Assert.True(results[3].IsError);
+        Assert.Equal(509, results[4].Integer);
+        string program = "var loop = function(n: int, acc: int): int { if (n == 0) { return acc; } return loop(n - 1, acc + n % 7); }; " +
+            "var odd = function(n: int): bool { if (n == 0) { return false; } return even(n - 1); }; var even = function(n: int): bool { if (n == 0) { return true; } return odd(n - 1); }; " +
+            "print(loop(200000, 0), even(30001));";
+        string expected = WasmTestHost.Run(new WasmCompiler(false).Compile(program)).Succeeded().Output;
+        foreach (string quantum in new[] { "1", "7", "4096" })
+            Assert.Equal(expected, WasmTestHost.Run(program, new Dictionary<string, string> { ["AQUARIUS_FUEL_QUANTUM"] = quantum }).Succeeded().Output);
+    }
+
     /// <summary>The desktop host runs longer run slices than the portable quantum (runtime/platform/desktop/main.c);
     /// results must not depend on it, including where native code deoptimizes at a slice's end.</summary>
     [RuntimeFact]
