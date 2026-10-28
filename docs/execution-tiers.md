@@ -120,8 +120,11 @@ reports the annotation error), structs (`結構` / `struct`: a struct-typed valu
 are loaded and stored at fixed offsets with the field's annotation enforced, constructions call `rt_nativeStruct` and
 fill the fields in place, a null receiver fails like the generic runtime, and the entry adapter checks a struct
 argument's tag and shape), the conversions `整數()`,
-`浮點數()`, `雙精度()` and `長度()`, typed bindings of the scope that declares it, and calls to other such functions of
-that scope. The promoted generic body's frame slots become typed Wasm locals; integer, float and double operations
+`浮點數()`, `雙精度()` and `長度()`, `陣列.追加` / `Array.Append` on a typed (or, in a region or clone, loose) array with an
+element of its type (widened like the generic element check; `rt_nativeArrayAppend` appends, and every array local's
+count and values are read again afterwards, also after a call to a function that appends; the entry checks that no
+binding shadows the `陣列` / `Array` module), typed bindings of the scope that declares it, and calls to other such
+functions of that scope. The promoted generic body's frame slots become typed Wasm locals; integer, float and double operations
 follow the generic runtime exactly; loops become Wasm loops; sibling calls are direct Wasm calls passing the outer
 bindings' addresses. Untyped locals are typed by the dataflow when every assignment agrees.
 

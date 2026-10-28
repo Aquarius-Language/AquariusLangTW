@@ -56,6 +56,9 @@ internal sealed class WasmNativeFunction
     /// <summary>Whether the body (or a callee) allocates: concatenates strings, builds array literals or constructs structs.
     /// Its loop heads then also poll for a pending collection (deoptimizing to the generic checkpoint, which collects).</summary>
     internal bool Allocates { get; private set; }
+    /// <summary>Whether the body (or a callee) appends to arrays (陣列.追加 / Array.Append): their counts change too, so every
+    /// array local's companions are read again after it (or after a call to it), not only the values pointers.</summary>
+    internal bool ResizesArrays { get; private set; }
 
     /// <summary>Appends to a string slot (`s = s + x`): the Add's position and its slot, and the loads that belong to such an
     /// append (its left operand and the assignment's placeholder). An append keeps the text it builds marked as owned by the
@@ -239,11 +242,15 @@ internal sealed class WasmNativeFunction
     private static bool FieldAccepts(int code, int value) => code == 0 ? Value(value) || value == AnyValueType
         : IsStructType(code) ? value == code : code == AnyArrayType ? IsRef(value) : Widens(value, code);
     private const int LengthBuiltin = 1;
+    /// <summary>陣列.追加 / Array.Append: the runtime's builtin id, so a deoptimized operand holds that very builtin. The
+    /// portable 陣列 / Array module itself is a compile-time-only operand (ArrayModule) that only its member call consumes.</summary>
+    private const int AppendBuiltin = 10, ArrayModule = 1000;
+    private const int ArrayLimit = 33554431; // ARRAY_LIMIT in runtime/guest/arrays.h
     private static bool Widens(int from, int to) => from == to || from is IntType or FloatType && to is FloatType or DoubleType && from < to
         || to == AnyArrayType && IsArray(from);
     private static int BuiltinOf(string name) => name switch {
         "int" or "整數" => ConvertFirst, "float" or "浮點數" => ConvertFirst + 1, "double" or "雙精度" => ConvertFirst + 2,
-        "len" or "長度" => LengthBuiltin, _ => -1 };
+        "len" or "長度" => LengthBuiltin, "Array" or "陣列" => ArrayModule, _ => -1 };
 
     // ---- selection ----------------------------------------------------------------------------------------------
 
@@ -293,7 +300,7 @@ internal sealed class WasmNativeFunction
         foreach (var native in accepted.Values) native.Pointers = pointers[native].OrderBy(n => n, StringComparer.Ordinal).ToArray();
         foreach (var native in accepted.Values) {
             native.WritesOuter = native.Written.Count > 0;
-            native.WritesArrays = native.body.Code.Any(op => op.Code is IrOperation.WriteIndex or IrOperation.CompoundIndex or IrOperation.IncrementIndex);
+            native.WritesArrays = native.ResizesArrays || native.body.Code.Any(op => op.Code is IrOperation.WriteIndex or IrOperation.CompoundIndex or IrOperation.IncrementIndex);
         }
         for (changed = true; changed;) {
             changed = false;
@@ -301,6 +308,7 @@ internal sealed class WasmNativeFunction
                 foreach (var callee in native.Callees.Select(c => accepted[c])) {
                     if (callee.WritesOuter && !native.WritesOuter) native.WritesOuter = changed = true;
                     if (callee.WritesArrays && !native.WritesArrays) native.WritesArrays = changed = true;
+                    if (callee.ResizesArrays && !native.ResizesArrays) native.ResizesArrays = changed = true;
                     if (callee.Allocates && !native.Allocates) native.Allocates = changed = true;
                 }
         }
@@ -446,6 +454,7 @@ internal sealed class WasmNativeFunction
     {
         var code = body.Code; int n = code.Length;
         states.Clear(); Callees.Clear(); OwnPointers.Clear(); Guards.Clear(); ClosureGuards.Clear(); Written.Clear(); callNames.Clear();
+        ResizesArrays = false;
         var work = new Queue<(int Pc, int[] Stack)>(); work.Enqueue((Start, Array.Empty<int>()));
         int pc = 0;
         bool Reject(int at) { Rejection = at < code.Length ? $"{code[at].Code} at instruction {at}" : "the result"; return false; }
@@ -496,8 +505,13 @@ internal sealed class WasmNativeFunction
                     if (slot == -2) return Reject(pc);
                     int type = slot >= 0 ? slotTypes[slot] : Outer(NameOf(operand), nativeBody);
                     if (type == Unknown) return Reject(pc);
+                    // The array module is only the receiver of a member call (it never reaches a deoptimization site).
+                    if (type == BuiltinBase + ArrayModule && (pc + 1 >= n || code[pc + 1].Code != IrOperation.MemberFunction)) return Reject(pc);
                     stack.Add(type); break;
                 }
+                case IrOperation.MemberFunction:
+                    if (Top() != BuiltinBase + ArrayModule || NameOf(operand) is not ("追加" or "Append")) return Reject(pc);
+                    stack[^1] = BuiltinBase + AppendBuiltin; break;
                 case IrOperation.Declare:
                     if (!Store(plan.DeclareSlot[pc], Top())) return Reject(pc);
                     stack[^1] = VoidType; break;
@@ -624,6 +638,14 @@ internal sealed class WasmNativeFunction
                     if (callee == BuiltinBase + LengthBuiltin) {
                         if (count != 1 || !IsRef(arguments[0]) && arguments[0] != StringType) return Reject(pc);
                         result = IntType;
+                    } else if (callee == BuiltinBase + AppendBuiltin) {
+                        // An element the typed array takes (widened like the generic element check) or, for a loose array, of
+                        // exactly its speculated type (anything else would make its elements mixed); the result is the array.
+                        if (count != 2 || !IsArray(arguments[0])) return Reject(pc);
+                        int element = arguments[0] & 15;
+                        if (arguments[1] != element && (IsLoose(arguments[0]) || !Numeric(arguments[1]) || !Widens(arguments[1], element))) return Reject(pc);
+                        Allocates = true; ResizesArrays = true;
+                        result = arguments[0];
                     } else if (callee >= BuiltinBase) {
                         if (count != 1 || !Numeric(arguments[0])) return Reject(pc);
                         result = callee - BuiltinBase - ConvertFirst + IntType;
@@ -768,6 +790,8 @@ internal sealed class WasmNativeFunction
         // name there means the builtin; a binding (a user's shadowing name) must hold that very builtin.
         foreach (var (name, id) in Guards) {
             Get(w, scope); I(w, text(name)); w.Write(Call); U(w, runtime["aqua_scope_get"]); Set(w, scratch);
+            // The portable array module: any binding of its name shadows it.
+            if (id == ArrayModule) { Unless(() => { Get(w, scratch); w.Write((byte)0x45); }); continue; }
             Unless(() => {
                 Get(w, scratch); w.Write(new byte[] { 0x45, 0x04, 0x7f }); I(w, 1); w.Write((byte)0x05);
                 Get(w, scratch); Memory(w, I32Load, 2, ValueTag); I(w, BuiltinTag); w.Write((byte)0x46);
@@ -967,6 +991,12 @@ internal sealed class WasmNativeFunction
             for (int k = 0; k < stack.Length; k++) if (IsRef(stack[k])) Refresh(StackI(k), StackCount(k));
             for (int c = 0; c < cached.Length; c++) if (IsRef(CachedType(cached[c]))) Refresh(CacheI(c), CacheCount(c));
         }
+        // After an append (here or in a callee) counts change too: every array local's companions are read again.
+        void Redescribe(int[] stack) {
+            for (int s = 0; s < slots; s++) if (IsRef(slotTypes[s])) Describe(SlotI(s), SlotCount(s));
+            for (int k = 0; k < stack.Length; k++) if (IsRef(stack[k])) Describe(StackI(k), StackCount(k));
+            for (int c = 0; c < cached.Length; c++) if (IsRef(CachedType(cached[c]))) Describe(CacheI(c), CacheCount(c));
+        }
         void ReadOuter(string name, int type) { int c = CacheOf(name); Local(type, CacheI(c), CacheF(c)); }
         void WriteOuterFrom(string name, int type, Action value) { int c = CacheOf(name); value(); SetLocal(type, CacheI(c), CacheF(c)); }
         void LoadOuter() { for (int c = 0; c < cached.Length; c++) { int type = CachedType(cached[c]);
@@ -1157,6 +1187,7 @@ internal sealed class WasmNativeFunction
             // A core global: no binding of its name means the builtin; a binding must hold that very builtin.
             foreach (var (name, id) in Guards) {
                 Get(w, frame); Memory(w, I32Load, 2, FrameScope); I(w, text!(name)); Op(Call); U(w, runtime["aqua_scope_get"]); Set(w, tempI);
+                if (id == ArrayModule) { Unless(() => { Get(w, tempI); Op(0x45); }); continue; }
                 Unless(() => { Get(w, tempI); Op(0x45, If, 0x7f); I(w, 1); Op(Else);
                     Get(w, tempI); Memory(w, I32Load, 2, ValueTag); I(w, BuiltinTag); Op(0x46); Get(w, tempI); Memory(w, I32Load, 2, ValueRef); I(w, id); Op(0x46, 0x71); Op(End); });
             }
@@ -1254,6 +1285,7 @@ internal sealed class WasmNativeFunction
                     }
                     break;
                 case IrOperation.Void: case IrOperation.Null: case IrOperation.Pop: case IrOperation.JumpIfBreak:
+                case IrOperation.MemberFunction: // 陣列.追加: a compile-time-only callee
                     break;
                 case IrOperation.Load: {
                     int slot = cur.SlotAt(pc, cur.plan.Accesses[pc]!), type = cur.states[pc + 1][depth];
@@ -1542,6 +1574,18 @@ internal sealed class WasmNativeFunction
                     int count = operand, at = depth - count - 1, callee = stack[at];
                     if (callee == BuiltinBase + LengthBuiltin && stack[top] == StringType) { Get(w, StackI(top)); Memory(w, I32Load, 2, TextLength); Set(w, StackI(at)); break; }
                     if (callee == BuiltinBase + LengthBuiltin) { Get(w, StackCount(top)); Set(w, StackI(at)); break; }
+                    if (callee == BuiltinBase + AppendBuiltin) {
+                        // 陣列.追加(array, element): the generic limit error, then the runtime appends (it may copy or grow
+                        // the storage, so every array local is described again); the result is the array.
+                        int array = at + 1, item = at + 2, element = stack[array] & 15, from = stack[item];
+                        Get(w, StackCount(array)); I(w, ArrayLimit); Op(0x4f, If, 0x40); Fail(6); Op(End);
+                        Get(w, StackI(array)); I(w, element);
+                        if (from == element) { PushStack(from, item); AsPayload(from); } else { AsDouble(from, item); if (element == FloatType) RoundFloat(); }
+                        Op(Call); U(w, runtime["rt_nativeArrayAppend"]); Op(Drop);
+                        Redescribe(stack);
+                        Get(w, StackI(array)); Set(w, StackI(at)); CopyCompanions(stack[array], StackCount(array), StackCount(at));
+                        break;
+                    }
                     if (callee >= BuiltinBase) {
                         int result = callee - BuiltinBase - ConvertFirst + IntType, argument = stack[top];
                         if (result == IntType) {
@@ -1586,7 +1630,8 @@ internal sealed class WasmNativeFunction
                     if (tail) { Op(ReturnCall); U(w, function); break; }
                     Op(Call); U(w, function); Set(w, budget); PopStack(target.Signature.Result, at);
                     if (target.WritesOuter) LoadOuter();
-                    if (target.WritesArrays) RefreshValues(stack.Take(at).ToArray());
+                    if (target.ResizesArrays) Redescribe(stack.Take(at).ToArray());
+                    else if (target.WritesArrays) RefreshValues(stack.Take(at).ToArray());
                     if (IsRef(target.Signature.Result)) Describe(StackI(at), StackCount(at));
                     Get(w, budget); I(w, int.MinValue); Op(0x46, If, 0x40);
                     // A raised error (5) unwinds every native activation with the signal kept.
