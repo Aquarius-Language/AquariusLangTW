@@ -39,12 +39,12 @@ All outputs of every warm-up and measured sample, in every mode and language, ma
 | 4 | Array element kinds | **Done** | `1157aa4` | `Array.kind` is maintained on every write. Writes of another tag, host access and mixing library calls reset it. Make, Fill, literals and copies set it. `rt_arrayKind` checks the kind at entry and scans only when it is unknown. Regions speculate on these "loose" arrays. An out-of-range read leaves the region at that read, which starts a generic block, so the result stays null. |
 | 6 | Inline caches for member access | **Done (struct fields)** | `db70145` | Generic `p.x` / `p.x = v` check a per-site cache stored in the member name constant's unused number (struct type id + field index). It needs no layout change and survives collections. Module members already go through the scope hash index with cached text hashes, so they got no separate cache. |
 | 3 | Typed clones of untyped functions | **Done** | `e5e3160`, `df291cc` | An untyped function whose parameters all have guesses gets a native clone with an inferred result type. Its entry adapter accepts exactly those types (no widening, arrays checked by kind) and otherwise runs the generic body. A read past the end of a guessed array deoptimizes at that read. Clones call each other directly. Calls from regions to clones were not added, because the clone of the enclosing function already covers those loops. |
-| 9 | Lazy deoptimization | **Not done** | | The machinery the other items needed already exists: regions leave at loop heads or at exact reads, and native functions deoptimize at any generic block. Re-executing an iteration from the loop head is only sound for iterations without effects, and no benchmark needs it. |
+| 9 | Lazy deoptimization | **Not done (see round 2)** | | The machinery the other items needed already exists: regions leave at loop heads or at exact reads, and native functions deoptimize at any generic block. Re-executing an iteration from the loop head is only sound for iterations without effects, and no benchmark needs it. |
 | 10 | Escape analysis / scalar replacement; generational GC | **Not done** | | In the benchmarks every allocated struct or array escapes into a tree or an array, so scalar replacement would not apply. A sticky-mark-bit generational collector needs a write barrier in the guest runtime, the generic emitter, the native tier and every host write path. That is too risky to add next to the changes above in one session. |
-| 5b | Typed 字串 in the native tier | **Not done** | | No benchmark uses strings in typed code. Left for a follow-up. |
+| 5b | Typed 字串 in the native tier | **Done in round 2** | | No benchmark uses strings in typed code. Left for a follow-up. |
 | 7 | Packed typed arrays + SIMD | **Not done** | | Changes the array ABI (SDK accessors, layout version, every library that reads arrays), which is too risky here. Typed array loops already run at native speed. |
 | 12 | Parallel.For / 平行 | **Not done** | | Needs a worker pool, shared memory on three hosts and a sequential fallback. The benchmark rules forbid worker threads, so it cannot show up in these numbers. |
-| 13 | Bounds-check elimination and loop-invariant hoisting | **Not done** | | The benchmark index expressions (`a[i*n+k]`, `flags[j]` with `j += p`, `board[prev]`) cannot be proven in range without symbolic range analysis. Cranelift already hoists loop-invariant code. Not worth it without range analysis. |
+| 13 | Bounds-check elimination and loop-invariant hoisting | **Not done (measured in round 2)** | | The benchmark index expressions (`a[i*n+k]`, `flags[j]` with `j += p`, `board[prev]`) cannot be proven in range without symbolic range analysis. Cranelift already hoists loop-invariant code. Not worth it without range analysis. |
 
 ## Benchmark results (ms, median of 5 processes; × = before ÷ after)
 
@@ -136,6 +136,86 @@ New tests:
 - Indexed-hash cases in `tests/hash-library.json`.
 
 Codegen goldens were regenerated after each intended emitter or guest-runtime change.
+
+## Round 2: items 13, 5b and 9, then a final rerun
+
+| # | Item | Status | Notes |
+| --- | --- | --- | --- |
+| 13 | Bounds-check elimination and loop-invariant hoisting | **Investigated, not implemented** | Ceiling measured by deleting every native read and write bounds check (unsafe, experiment only). Typed matrix gets ~20% faster (4.5 → 3.6 ms warmed), spectral norm and sieve ~5%, N-queens and quicksort not at all. The matrix gain needs loop versioning with affine-index analysis of computed indices (`a[i*n+k]`): Cranelift does not unswitch loops, so the native emitter would have to emit each innermost loop twice. Cranelift already hoists loop-invariant pure code. Left for a later round. |
+| 5b | Typed 字串 in the native tier | **Done** (`bbada2a`) | `字串` values are `Text*` in i32 locals. `長度` and code-unit reads run in place. Equality, `+` and one-unit results call small runtime helpers. `s = s + t` on a string slot appends in place: the slot's ownership mark is the pointer's low bit, and any other read or frame write drops it. A read past the end deoptimizes at that read, so the generic code gives null. Native functions that allocate (strings, array literals, structs, directly or through callees) now poll for pending collections at loop heads. Clones accept string guesses. Typed palindrome micro: 33.3 → 2.0 ms. **Bug fix found on the way:** typed functions and regions that called `長度` / `len` or a conversion always fell back to the generic body at run time, because the entry check expected the core global in the closure's scope chain. It now accepts the builtin when no binding shadows it. |
+| 9 | Lazy deoptimization | **Investigated, not implemented** | Ceiling measured by deleting the native loop-head checkpoints and their deoptimization sites entirely, which is more than deoptimizing back to the loop head could save. Typed matrix moves 0–10% (within noise), mandelbrot and collatz 0%, quicksort ~8%, and part of that is the fuel accounting that must stay. The warmed gaps to Node.js in these loops are not caused by values kept live for deoptimization. |
+
+Final benchmark: the same harness and settings (`--profile large`, 5 + 1 processes, seed 20261010) on the final build
+(`../aqua-perf-final`). Every sample matched the Python reference.
+
+### Standard mode — main baseline → final
+
+| Benchmark | n | Untyped before | Untyped final | × | Typed before | Typed final | × | Node.js (before / final) | C# (before / final) |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 遞迴費波那契 Fibonacci | 32 | 15.761 | 10.994 | 1.43× | 11.526 | 11.499 | 1.00× | 13.918 / 14.589 | 5.227 / 5.146 |
+| 阿克曼 Ackermann | 8 | 47.903 | 9.637 | 4.97× | 10.088 | 9.830 | 1.03× | 7.767 / 7.678 | 2.137 / 2.324 |
+| 篩法 Sieve | 200000 | 2.867 | 1.419 | 2.02× | 1.523 | 1.642 | 0.93× | 5.772 / 5.742 | 0.747 / 0.781 |
+| 快速排序 Quicksort | 30000 | 10.168 | 5.984 | 1.70× | 4.350 | 4.911 | 0.89× | 5.991 / 5.992 | 2.090 / 2.087 |
+| 矩陣乘法 Matrix | 150 | 52.764 | 5.749 | 9.18× | 4.505 | 4.253 | 1.06× | 8.191 / 8.226 | 1.983 / 1.975 |
+| 曼德布洛特 Mandelbrot | 300 | 3.975 | 4.151 | 0.96× | 4.027 | 4.103 | 0.98× | 5.044 / 4.969 | 3.183 / 3.286 |
+| N 皇后 N-Queens | 10 | 25.420 | 5.029 | 5.06× | 4.919 | 4.933 | 1.00× | 4.337 / 4.412 | 3.112 / 3.154 |
+| 二元樹 Binary trees | 16 | 132.506 | 57.491 | 2.30× | 50.808 | 48.854 | 1.04× | 28.375 / 28.217 | 17.540 / 16.560 |
+| 譜範數 Spectral norm | 250 | 71.893 | 5.963 | 12.06× | 5.823 | 5.855 | 0.99× | 9.009 / 9.372 | 2.974 / 3.164 |
+| 考拉茲 Collatz | 100000 | 15.688 | 15.621 | 1.00× | 15.184 | 15.663 | 0.97× | 43.900 / 45.240 | 16.947 / 17.563 |
+
+| Language | Score before | Score final | vs Node.js before | vs Node.js final |
+| --- | ---: | ---: | ---: | ---: |
+| Untyped 星泉 | 16.74 | 47.90 | 0.460× | 1.306× |
+| Typed 星泉（型別） | 50.02 | 50.34 | 1.376× | 1.372× |
+| Node.js | 36.35 | 36.69 | 1.000× | 1.000× |
+| C# | 100.00 | 100.00 | 2.751× | 2.726× |
+| Python | 2.58 | 2.68 | 0.071× | 0.073× |
+
+### Warmed mode — main baseline → final
+
+| Benchmark | n | Untyped before | Untyped final | × | Typed before | Typed final | × | Node.js (before / final) | C# (before / final) |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 遞迴費波那契 Fibonacci | 32 | 16.557 | 11.354 | 1.46× | 11.309 | 11.387 | 0.99× | 14.758 / 14.701 | 5.153 / 5.097 |
+| 阿克曼 Ackermann | 8 | 49.255 | 9.533 | 5.17× | 9.728 | 9.578 | 1.02× | 7.306 / 7.206 | 2.066 / 2.015 |
+| 篩法 Sieve | 200000 | 2.713 | 1.203 | 2.25× | 1.181 | 1.393 | 0.85× | 2.455 / 2.473 | 0.365 / 0.382 |
+| 快速排序 Quicksort | 30000 | 9.681 | 6.128 | 1.58× | 4.178 | 4.559 | 0.92× | 2.851 / 2.779 | 1.511 / 1.545 |
+| 矩陣乘法 Matrix | 150 | 51.643 | 6.114 | 8.45× | 4.677 | 4.672 | 1.00× | 3.070 / 3.246 | 1.742 / 1.742 |
+| 曼德布洛特 Mandelbrot | 300 | 3.869 | 3.906 | 0.99× | 3.863 | 3.927 | 0.98× | 3.052 / 3.163 | 3.082 / 3.141 |
+| N 皇后 N-Queens | 10 | 25.556 | 5.301 | 4.82× | 4.950 | 5.043 | 0.98× | 3.774 / 3.825 | 2.844 / 2.883 |
+| 二元樹 Binary trees | 16 | 137.905 | 57.000 | 2.42× | 36.884 | 40.694 | 0.91× | 13.937 / 12.724 | 17.401 / 16.767 |
+| 譜範數 Spectral norm | 250 | 76.199 | 6.090 | 12.51× | 6.119 | 5.719 | 1.07× | 7.248 / 6.893 | 2.150 / 2.079 |
+| 考拉茲 Collatz | 100000 | 15.750 | 15.627 | 1.01× | 15.270 | 15.585 | 0.98× | 42.432 / 43.356 | 17.273 / 17.402 |
+
+| Language | Score before | Score final | vs Node.js before | vs Node.js final |
+| --- | ---: | ---: | ---: | ---: |
+| Untyped 星泉 | 14.14 | 40.03 | 0.302× | 0.851× |
+| Typed 星泉（型別） | 45.08 | 43.62 | 0.963× | 0.927× |
+| Node.js | 46.83 | 47.06 | 1.000× | 1.000× |
+| C# | 100.00 | 100.00 | 2.136× | 2.125× |
+| Python | 2.17 | 2.18 | 0.046× | 0.046× |
+
+
+Typed results stay within run-to-run noise of `main`. Typed sieve (warmed) reads 1.18 → 1.39 ms, but interleaved runs of
+the two builds go both ways (200k: 1.16–1.53 vs 1.20–1.80 ms; 5M: 71–121 vs 62–137 ms); it is memory-bound. Typed binary
+trees and quicksort moved by about as much as C# did between runs, as in round 1.
+
+Micro-benchmarks on the final build (median of 5, ms), compared with `main`:
+
+| Program | main | final |
+| --- | ---: | ---: |
+| hash_int | 38367.3 | 15.5 |
+| hash_string | 22505.8 | 15.5 |
+| string_concat_local | 898.5 | 0.64 (the untyped helper is now a clone, so it appends natively) |
+| string_concat (module-level) | 1005.2 | 919.3 |
+| string_index | 61.8 | 46.1 |
+| sort_aqua / sort_builtin | 298.9 / — | 102.2 / 31.8 |
+| struct_field | 182.7 | 53.4 |
+| helper_calls | 171.0 | 47.1 |
+| array_sum | 55.9 | 8.6 |
+| typed_strings (new) | 34.2 | 2.0 |
+
+Tests after round 2: Windows `dotnet test` **785 passed**, 0 failed, 1 skipped. New tests: `NativeStringTest` (13
+differential programs, native-tier acceptance, collections in string loops under tiny quanta and with the JIT off).
 
 ## Language server and VS Code extension 0.1.3
 
