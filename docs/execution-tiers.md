@@ -66,6 +66,18 @@ at least twice and never assigns get read shadows: the whole value (tag, ref, nu
 first load after a barrier, and barriers drop it. Unoptimized compilation, the differential tests' reference,
 emits no shadows.
 
+## Inline caches of struct fields
+
+A member read (`p.x`) and a member write (`p.x = v`) of generic code check an inline cache before calling the runtime: the
+member's name constant has an unused number, which holds the struct type id + 1 and the field index of the last struct
+the site's helper saw (`cache_site` in `runtime.c`). A struct whose type has that id reads its field in place; an
+unannotated field is also written in place (an annotated field's write still goes through `rt_setMember`, which checks and
+widens it). Struct type ids are program-wide and every type value of one declaration has the same fields, so collections
+and declarations that run again never invalidate a cache; another receiver (a module, null, another type) takes the
+helper, which refills it. The helper itself finds fields through a small cache by (type id, name). Field access in an
+untyped loop is three times faster. Module members (`陣列.建立`) are found through the module scope's hash index with the
+name's cached hash. Unoptimized compilation, the differential tests' reference, emits no caches (`InlineCacheTest`).
+
 ## Execution fuel (`WasmFuel`)
 
 Fuel is consumed only at the body entry and at targets of backward branches; every

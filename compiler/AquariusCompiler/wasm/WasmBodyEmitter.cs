@@ -59,6 +59,8 @@ internal sealed class WasmBodyEmitter
     /// the loads of the sites themselves), so a tagged text is never referenced from anywhere but its slot.</summary>
     private readonly Dictionary<int, int> appendAt = new();
     private readonly HashSet<int> appendReads = new(), appendSlots = new();
+    /// <summary>Struct field inline caches (off for the unoptimized reference).</summary>
+    private readonly bool inlineCaches;
     /// <summary>Cold iterations of a loop head before it asks the runtime JIT for native code.</summary>
     internal const int JitThreshold = 1000;
 
@@ -93,6 +95,7 @@ internal sealed class WasmBodyEmitter
         foreach (var (slot, tag) in registers) if (tag != IntTag) slotRegisters.Add(slot, next++);
         f64Count = next - x;
         if (shadowBindings) FindAppends();
+        inlineCaches = shadowBindings;
     }
 
     private void FindAppends()
@@ -777,11 +780,12 @@ internal sealed class WasmBodyEmitter
             case IrOperation.CheckHashKey: Helper("checkHashKey", n, d, 0); return false;
             case IrOperation.StructType: Helper("structType", n, d, 0); return false;
             case IrOperation.CheckStruct: Helper("checkStruct", n, d, 1); return false;
-            case IrOperation.SetMember: Helper("setMember", n, d, 2); return false;
+            case IrOperation.SetMember: if (inlineCaches) SetStructField(n, d); else Helper("setMember", n, d, 2); return false;
             case IrOperation.CompoundMember: Helper("compoundMember", n, d, 2); return false;
             case IrOperation.CallNamed: Helper("callNamed", n, d, body.NamedArguments(n) + 1); return false;
             case IrOperation.CheckType: CheckType(n, d); return false;
-            case IrOperation.Member: case IrOperation.MemberFunction: Helper("member", n, d, 1); return false;
+            case IrOperation.Member: if (inlineCaches) StructField(n, d); else Helper("member", n, d, 1); return false;
+            case IrOperation.MemberFunction: Helper("member", n, d, 1); return false;
             case IrOperation.EnterLoop: {
                 int child = plan.ScopeAt[pc + 1];
                 if (!plan.Scopes[child].Promoted) { Helper("enterLoop", n, d, 0); return false; }
@@ -1100,6 +1104,49 @@ internal sealed class WasmBodyEmitter
             }, i);
             return false;
         }, () => { Slow(); return false; }, i);
+    }
+
+    /// <summary>Inline caches of struct fields. A member name constant's number is unused, so it holds the cache of its sites:
+    /// the struct type id + 1 (ids are program-wide, so collections cannot invalidate it) and the field index, with bit 31 set
+    /// for an annotated field (rt_member, rt_setMember and rt_compoundMember fill it). A struct of that type reads its field
+    /// in place, and an unannotated field is written in place; anything else is the helper's.</summary>
+    private int FieldCache(int n) => pool + ValueSize * n + ValueNumber;
+    /// <summary>The cache's second word, the field index (the number's upper half).</summary>
+    private int FieldCacheIndex(int n) => FieldCache(n) + sizeof(int);
+    private void CachedStructTest(int m, int tm, int n)
+    {
+        if (tm == Unknown) { Get(T(m)); I32(StructTag); Op(0x46); } else I32(1);
+        If(0x7f); Get(R(m)); LoadI32(StructShape); LoadI32(ShapeId); I32(1); Op(0x6a); I32(FieldCache(n)); LoadI32(0); Op(0x46); Else(); I32(0); End();
+    }
+    /// <summary>The address of the cached field of struct operand m in B.</summary>
+    private void CachedFieldAddress(int m, int n)
+    {
+        I32(FieldCacheIndex(n)); LoadI32(0); I32(0x7fffffff); Op(0x71); I32(4); Op(0x74); Get(R(m)); Op(0x6a); I32(StructFields); Op(0x6a); Set(B);
+    }
+    private void StructField(int n, int d)
+    {
+        int m = d - 1, tm = Tags(pc)[m];
+        Ensure(m, tm);
+        void Slow() { Helper("member", n, d, 1); LoadValue(m, F, StackOffset(m), Unknown); loc[m] = Loc.Both; }
+        if (tm != Unknown && tm != StructTag) { Slow(); return; }
+        CachedStructTest(m, tm, n);
+        Branch(() => { CachedFieldAddress(m, n); LoadValue(m, B, 0, Unknown); loc[m] = Loc.Reg; return false; }, () => { Slow(); return false; }, d);
+    }
+    private void SetStructField(int n, int d)
+    {
+        int m = d - 2, v = d - 1; var tags = Tags(pc); int tm = tags[m], tv = tags[v];
+        Ensure(m, tm); Ensure(v, tv);
+        void Slow() { Helper("setMember", n, d, 2); LoadValue(m, F, StackOffset(m), tv); loc[m] = Loc.Both; }
+        if (tm != Unknown && tm != StructTag) { Slow(); return; }
+        CachedStructTest(m, tm, n);
+        If(0x7f); I32(FieldCacheIndex(n)); LoadI32(0); I32(31); Op(0x76); Op(0x45); Else(); I32(0); End();
+        Branch(() => {
+            CachedFieldAddress(m, n); StoreValue(v, B, 0, tv);
+            if (tv == Unknown) { Get(T(v)); Set(T(m)); }
+            if (HasRef(tv)) { Get(R(v)); Set(R(m)); }
+            if (tv == IntTag) { Get(I(v)); Set(I(m)); } else { Get(N(v)); Set(N(m)); }
+            loc[m] = Loc.Reg; return false;
+        }, () => { Slow(); return false; }, v);
     }
 
     private void ArrayWriteTest(int a, int ta, int i, int ti)

@@ -644,6 +644,20 @@ static Text *piece(Text*d,u32*at,uint16_t stop) {
 static u32 decimal_value(Text*t) { u32 n=0;for(u32 i=0;i<t->length;i++)n=n*10+(u32)(t->data[i]-'0');return n; }
 static void unknown_field(Frame*f,Shape*s,Text*field) { fail(f,concat(concat(concat(ascii("Unknown field of "),s->name),ascii(": ")),field)); }
 static int field_index(Shape*s,Text*name) { for(u32 i=0;i<s->count;i++)if(text_equal(s->fields[i].name,name))return (int)i;return -1; }
+/* Field positions by (struct type id, member name constant), for generic member access: every shape of one declaration has
+   the same fields (its id is program-wide, so the cache survives collections), and names are the compiler's constants. */
+typedef struct { u32 id, name, index, pad; } FieldEntry;
+static FieldEntry field_cache[512];
+static int cached_field(Shape*s,Text*name) {
+    FieldEntry*e=&field_cache[(s->id*2654435761u^address(name)>>2)&511];
+    if(e->id==s->id+1&&e->name==address(name))return (int)e->index;
+    int k=field_index(s,name);if(k>=0){e->id=s->id+1;e->name=address(name);e->index=(u32)k;}return k;
+}
+/* The inline cache of a member site (WasmBodyEmitter.FieldCache): the name constant's unused number holds the struct type
+   id + 1 and the field index, bit 31 set for an annotated field (whose writes the helper checks). */
+static void cache_site(Frame*f,u32 n,Shape*s,int k) {
+    if(k<0)return;u32*c=(u32*)&f->function->constants[n].number;c[0]=s->id+1;c[1]=(u32)k|(s->fields[k].code?0x80000000u:0);
+}
 static int field_fits(Frame*f,Shape*s,u32 i,Value*v) {
     if(fits(v,s->fields[i].code))return 1;
     mismatch(f,concat(concat(s->name,ascii(".")),s->fields[i].name),code_name(s->fields[i].code,s->fields[i].type),*v);return 0;
@@ -682,7 +696,7 @@ int rt_callNamed(Frame*f,int n) {
 int rt_setMember(Frame*f,int n) {
     Value v=pop(f),m=pop(f);Text*t=name(f,(u32)n);
     if(m.tag!=STRUCT){fail(f,concat(ascii("Cannot assign a member of "),value_type(m)));return 0;}
-    Struct*x=pointer(m.ref);int k=field_index(x->shape,t);
+    Struct*x=pointer(m.ref);int k=cached_field(x->shape,t);cache_site(f,(u32)n,x->shape,k);
     if(k<0){unknown_field(f,x->shape,t);return 0;}
     if(!field_fits(f,x->shape,(u32)k,&v))return 0;x->fields[k]=v;push(f,v);return 0;
 }
@@ -690,7 +704,7 @@ int rt_setMember(Frame*f,int n) {
 int rt_compoundMember(Frame*f,int n) {
     Value c=constant(f,(u32)n),r=pop(f),m=pop(f);Text*t=pointer(c.ref);
     if(m.tag!=STRUCT){fail(f,concat(ascii("Cannot assign a member of "),value_type(m)));return 0;}
-    Struct*x=pointer(m.ref);int k=field_index(x->shape,t);
+    Struct*x=pointer(m.ref);int k=cached_field(x->shape,t);
     if(k<0){unknown_field(f,x->shape,t);return 0;}
     Value v=binary(f,(int)c.number,x->fields[k],r,1);if(f->execution->status||!field_fits(f,x->shape,(u32)k,&v))return 0;
     x->fields[k]=v;push(f,empty);return 0;
@@ -733,7 +747,7 @@ int rt_writeIndex(Frame*f,int n){Value v=pop(f);rt_checkArrayWrite(f,0);Value i=
     else{Array*x=pointer(a.ref);if(!element_fits(f,x,v)){push(f,v);return 0;}writable_array(x,x->count);x->values[(u32)i.number]=v;if(x->kind!=v.tag)x->kind=0;if(x->exposed&&!x->dirty){x->dirty=1;x->dirty_next=pending.dirty_arrays;pending.dirty_arrays=x;}}
 }push(f,v);return 0;}
 int rt_member(Frame*f,int n){Value m=pop(f),out=empty;Text*t=name(f,n);
-    if(m.tag==STRUCT){Struct*x=pointer(m.ref);int k=field_index(x->shape,t);if(k<0)unknown_field(f,x->shape,t);else out=x->fields[k];push(f,out);return 0;}
+    if(m.tag==STRUCT){Struct*x=pointer(m.ref);int k=cached_field(x->shape,t);cache_site(f,(u32)n,x->shape,k);if(k<0)unknown_field(f,x->shape,t);else out=x->fields[k];push(f,out);return 0;}
     if(m.tag==MODULE){Binding*b=find(pointer(m.ref),t);if(!b)named_failure(f,"Module member not found: ",t);else out=b->value;}else if(m.tag==NATIVE){MemberEntry*c=pending.host_era?member_entry(m.ref,address(t)):0;if(c&&c->era==pending.host_era&&c->native==m.ref&&c->name==address(t))out=c->value;else{int found=host_service(2,f->context,m.ref,address(t),0,0,address(&out));if(found!=0&&found!=2)named_failure(f,"Module member not found: ",t);else if(found==0&&c&&pending.host_era&&member_cacheable(out.tag)){c->native=m.ref;c->name=address(t);c->era=pending.host_era;c->value=out;}}}else named_failure(f,"Cannot access member of ",ascii(type_name(m.tag)));push(f,out);return 0;}
 int rt_resolveMemberFunction(Frame*f,int n){Value m=pop(f);if(m.tag==NATIVE){Value out=empty;if(host_service(3,f->context,m.ref,0,0,0,address(&out))){failure(f,"Cannot access computed member of native value.");return 0;}m=out;}if(m.tag!=MODULE){failure(f,"Computed member requires a module.");return 0;}Value c=constant(f,n);f->execution->current=frame(f->execution,f,f->program,(u32)c.number,pointer(m.ref),f->context);return 0;}
 int rt_enterLoop(Frame*f,int n){invalidate_scopes();Loop*l=allocate(sizeof(Loop),LOOPS);l->previous=f->loops;l->outer=f->scope;l->base=f->sp;l->binding=n<0?0:name(f,n);f->loops=l;f->scope=scope(f->scope);return 0;}
