@@ -2,7 +2,7 @@
 
 A standalone .NET 8 LSP server built on the compiler's lexer, parser and AST. Chinese, English and mixed syntax
 receive the same diagnostics, source ranges, keyword completion and hover help. Keywords include `變數` / `var`,
-`函式` / `function`, `回傳` / `return`, and `否則如果` / `else if` / `elif`. Build with
+`函式` / `function`, `回傳` / `return`, `否則如果` / `else if` / `elif`, `繼續` / `continue` and `空值` / `null`. Build with
 `dotnet build compiler/AquariusLanguageServer -c Release` from the repository root, then configure an LSP editor to
 launch:
 

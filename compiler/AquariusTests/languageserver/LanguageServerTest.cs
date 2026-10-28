@@ -173,6 +173,32 @@ public class LanguageServerTest
     }
 
     [Fact]
+    public void NullContinueStringArraysAndElementWritesAreUnderstood()
+    {
+        using var s = Launch();
+        string[] lines = [
+            "結構 站 { 名: 字串; 讀數: 雙精度[]; 下一個: 站 }",
+            "var 頭 = 站(\"甲\", [1.0d], 站(\"乙\", [2.0d]));",
+            "var 名單: string[] = [\"x\"]; 名單[0] += \"!\";",
+            "頭.讀數[0] += 1; 頭.讀數[0]++; 頭.下一個.讀數[0] = 3;",
+            "for (var at: 站 = 頭; at != null; at = at.下一個) { if (at.名 == \"甲\") { continue; } }",
+            "迴圈 (;;) { 中斷; } var s = \"say \\\"hi\\\"\"; 變數 無 = 空值;"];
+        NoDiagnostics(s.Open(string.Join("\n", lines)));
+        var completion = s.Feature("completion", 0, 0);
+        foreach (string name in new[] { "空值", "null", "繼續", "continue" }) Assert.True(HasItem(completion, name, 14), name);
+        Assert.Matches("null value", HoverText(s.Feature("hover", 4, lines[4].IndexOf("null"))));
+        Assert.Matches("null value", HoverText(s.Feature("hover", 5, lines[5].IndexOf("空值"))));
+        Assert.Matches("next iteration", HoverText(s.Feature("hover", 4, lines[4].IndexOf("continue"))));
+        // A field read through an index chain still hovers and jumps to the field.
+        Assert.Equal("欄位 field 站.讀數: 雙精度[]", HoverText(s.Feature("hover", 3, 2)));
+        Assert.Equal((0, lines[0].IndexOf("讀數")), Start(s.Feature("definition", 3, 2)));
+        s.Change(Uri, 2, new { text = "var a: string[] = [\"x\"]; a[0] = 1;\nvar n: int = null;\nvar f = function() { continue; };" });
+        var messages = s.Diagnostics(2).EnumerateArray().Select(d => d.GetProperty("message").GetString()!).ToArray();
+        Assert.Contains(messages, m => m.Contains("an element of 字串[] string[]"));
+        Assert.Contains(messages, m => m.Contains("got 空值 null"));
+    }
+
+    [Fact]
     public void CoreTimeAliasesProvideCompletionAndExplainMillisecondsInHover()
     {
         using var s = Launch();
@@ -497,12 +523,12 @@ public class LanguageServerTest
     {
         using var session = new LanguageServerSession();
         var result = session.Initialize();
-        Assert.Equal("0.1.3", result.GetProperty("serverInfo").GetProperty("version").GetString());
+        Assert.Equal("0.1.4", result.GetProperty("serverInfo").GetProperty("version").GetString());
         var triggers = result.GetProperty("capabilities").GetProperty("signatureHelpProvider").GetProperty("triggerCharacters");
         Assert.Equal(new[] { "(", "," }, triggers.EnumerateArray().Select(t => t.GetString()!));
         // The extension ships the same version.
         var manifest = JsonDocument.Parse(File.ReadAllText(Path.Combine(AquariusInstallation.Require().Root, "editors", "vscode", "package.json")));
-        Assert.Equal("0.1.3", manifest.RootElement.GetProperty("version").GetString());
+        Assert.Equal("0.1.4", manifest.RootElement.GetProperty("version").GetString());
     }
 
     [Fact]
