@@ -1383,7 +1383,12 @@ internal sealed class WasmNativeFunction
                         Inline(target, stack, at, count);
                         break;
                     }
-                    Get(w, depthParameter); I(w, 1); Op(0x6a); Get(w, budget);
+                    // A call whose result this body returns at once is a tail call (return_call): the callee takes over this
+                    // activation, so it keeps the depth. When it deoptimizes, its generic frame returns straight to this
+                    // body's caller, which is what this body's frame would have done after the call.
+                    bool tail = inlineReturn == null && pc + 1 < n && code[pc + 1].Code == IrOperation.Return && cur == this
+                        && target.Signature.Result == Signature.Result;
+                    Get(w, depthParameter); if (!tail) { I(w, 1); Op(0x6a); } Get(w, budget);
                     // The callee's closure: this activation's own for a recursive call, else loaded from its binding.
                     if (ClosureGuards.ContainsKey(name) && !OwnPointers.ContainsKey(name)) Get(w, selfParameter); else { Get(w, PointerOf(name)); Memory(w, I32Load, 2, ValueRef); }
                     foreach (string pointer in target.Pointers) Get(w, PointerOf(pointer));
@@ -1394,6 +1399,7 @@ internal sealed class WasmNativeFunction
                         else { AsDouble(from, at + 1 + a); if (to == FloatType) RoundFloat(); }
                     }
                     SaveOuter();
+                    if (tail) { Op(ReturnCall); U(w, function); break; }
                     Op(Call); U(w, function); Set(w, budget); PopStack(target.Signature.Result, at);
                     if (target.WritesOuter) LoadOuter();
                     if (target.WritesArrays) RefreshValues(stack.Take(at).ToArray());

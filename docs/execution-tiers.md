@@ -137,6 +137,10 @@ Code quality details, all plain Wasm:
   are read again.
 - **Exact integer payloads.** Integer and Boolean payloads are always exact 32-bit integers, so typed loads convert
   them with `f64.add 1.5·2^52` and a reinterpretation instead of a saturating conversion and its branches.
+- **Tail calls.** A call whose result the function returns at once (`回傳 f(...)`, with the same result type) is a Wasm
+  `return_call` (the tail-call proposal, on by default in Wasmtime and in current browsers): the callee takes over the
+  activation and keeps its depth, so tail recursion runs natively at any depth. When the callee deoptimizes, its generic
+  frame's parent is the tail caller's caller, which is where the tail caller's frame would have returned the result.
 - **Pure calls.** A call to a function that (transitively) assigns no outer binding and writes no array element does
   not reload outer bindings or array companions afterwards.
 - **Inlining.** A small native leaf (no calls, loops or outer bindings, nothing it can mutate) is emitted in place of
