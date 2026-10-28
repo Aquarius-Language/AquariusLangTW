@@ -2,9 +2,10 @@
 
 Edit `.aqua` files with bilingual Traditional Chinese / English syntax highlighting, bracket pairing,
 comment toggling, snippets, and a bundled Language Server Protocol server.
-The server provides live syntax diagnostics, keyword/builtin/local completion,
-hover documentation, same-document definitions, and an outline of variables,
-functions, and parameters. Chinese, English and mixed syntax work in the same
+The server provides live syntax and type-annotation diagnostics, keyword/builtin/local and module-member completion,
+hover documentation (with the parameters of every built-in and portable-module function, such as `陣列.排序(陣列, 比較?)`),
+signature help while typing a call, definitions, and an outline of variables, functions, parameters, structs and
+fields. Chinese, English and mixed syntax work in the same
 file, including `var`, `function`, `return` and `else if` / `elif`. Chinese and
 other Unicode names are supported. English snippet triggers emit English syntax;
 Chinese triggers emit Chinese syntax. The legacy `let` / `fn` snippet triggers
@@ -18,10 +19,10 @@ also expand to Chinese declarations; they are not Aquarius keywords.
    On Windows, use the **.NET Runtime** installer matching your architecture;
    the Desktop and ASP.NET runtimes are not required.
 3. In VS Code's Extensions view, select **… → Install from VSIX…** and choose
-   `aquariuslang-tw-0.1.0.vsix`. You can also install from a terminal:
+   `aquariuslang-tw-0.1.3.vsix`. You can also install from a terminal:
 
    ```powershell
-   code --install-extension "editors\vscode\aquariuslang-tw-0.1.0.vsix"
+   code --install-extension "editors\vscode\aquariuslang-tw-0.1.3.vsix"
    ```
 
 4. Open a folder you trust and open or create a UTF-8 `.aqua` file. The status bar
@@ -58,7 +59,7 @@ npm run package
 ```
 
 `npm run package` publishes the server into `server/`, bundles the client into
-`dist/extension.js`, and creates `aquariuslang-tw-0.1.0.vsix` in this directory.
+`dist/extension.js`, and creates `aquariuslang-tw-0.1.3.vsix` in this directory.
 It does not publish anything to the Marketplace. The generated DLLs and VSIX are
 ignored by Git; rebuild them after changing server code. `build-release.ps1` at the
 repository root runs these steps for every release and copies the VSIX, with its
@@ -125,15 +126,15 @@ the extension in your normal profile.
 - Syntax highlighting and snippets work in an untrusted workspace; the server
   starts after you trust it. Runtime analysis only parses source and never
   executes it or imports modules.
-- Diagnostics currently report syntax/lexical errors. Dynamic type errors,
-  undefined names, and runtime errors remain the VM's responsibility.
+- Diagnostics report syntax/lexical errors and the mistakes the compiler rejects in annotated code (type mismatches,
+  unknown struct fields). Dynamic type errors, undefined names, and runtime errors remain the runtime's responsibility.
 - Completion and definitions resolve declarations in the current document's
   function and loop scopes. Imported module members and cross-file navigation
   are not yet implemented. Static visibility follows source order and cannot
   model every dynamic closure or conditional declaration.
 - Extremely deep expressions are limited to 256 levels to keep incomplete or
-  pathological source from crashing the server. No formatter, rename provider,
-  signature-help provider, or debugger is included in this version.
+  pathological source from crashing the server. No formatter, rename provider or
+  debugger is included in this version.
 
 The implementation follows Microsoft's [LSP 3.17 specification](https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/)
 and [VS Code language-server extension guide](https://code.visualstudio.com/api/language-extensions/language-server-extension-guide).

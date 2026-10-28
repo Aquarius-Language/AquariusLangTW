@@ -1,0 +1,19 @@
+# Typed string work in a fully typed function: code-unit reads, equality and length (palindromes in 200k words).
+變數 是回文 = 函式(s: 字串): 布林 {
+    變數 n: 整數 = 長度(s);
+    迴圈 (變數 i: 整數 = 0; i < n / 2; i++) { 如果 (s[i] != s[n - 1 - i]) { 回傳 假; } }
+    回傳 真;
+};
+變數 數 = 函式(words: 陣列, rounds: 整數): 整數 {
+    變數 count: 整數 = 0;
+    迴圈 (變數 r: 整數 = 0; r < rounds; r++) {
+        迴圈 (變數 i: 整數 = 0; i < 長度(words); i++) { 如果 (是回文(words[i])) { count++; } }
+    }
+    回傳 count;
+};
+變數 words = ["level", "星泉泉星", "abcdefgh", "racecar", "noon", "palindrome", "上海自來水來自海上", "x"];
+變數 start = 目前時間();
+變數 total = 數(words, 25000);
+變數 elapsed = 目前時間() - start;
+印出("RESULT", total);
+印出("ELAPSED_MS", elapsed);

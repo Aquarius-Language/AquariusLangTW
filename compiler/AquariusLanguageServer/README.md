@@ -13,8 +13,10 @@ dotnet /absolute/path/to/AquariusLanguageServer/bin/Release/net8.0/AquariusLangu
 Use standard input/output transport, language ID `aquarius`, and extension `.aqua`. Stdout is reserved for UTF-8
 JSON-RPC messages with `Content-Length` headers; stderr carries logs. Positions use zero-based lines and UTF-16
 characters. The server supports `initialize`, `initialized`, `shutdown`, `exit`, `textDocument/didOpen`, incremental
-or full `textDocument/didChange`, `textDocument/didClose`, push diagnostics, completion, hover, definition, and
-document symbols. Document contents come from the client, including unsaved buffers. Unsupported requests return
+or full `textDocument/didChange`, `textDocument/didClose`, push diagnostics, completion, hover, definition,
+document symbols and signature help (`textDocument/signatureHelp`, triggered by `(` and `,`: the parameters of a
+declared function, a struct construction, a portable or native module member or a core global, in the language the
+call is written in). Document contents come from the client, including unsaved buffers. Unsupported requests return
 JSON-RPC MethodNotFound; unsupported notifications are ignored. No source is executed during analysis.
 
 ## Modules
@@ -27,7 +29,8 @@ Nothing about libraries is hard-coded in the server (`ModuleCatalog`):
 - **Aquarius-source library modules** (`[[modules]]` of the default libraries' and the project's manifests) resolve to
   their source files: completion, hover and definition of their exports, by every import name.
 - **The language's portable modules** (Array/陣列, Hash/雜湊, String/字串, Thread/執行緒) and the core globals'
-  descriptions are language facts (`LanguageFacts`); a test keeps them equal to the guest runtime's tables.
+  descriptions are language facts (`LanguageFacts`): every function's parameters in both languages (optional ones end
+  in `?`) and what it does. Tests keep the names and arities equal to the guest runtime's tables.
 
 Native functions carry no static result types, so members of the values native calls return are not completed.
 

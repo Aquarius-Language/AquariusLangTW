@@ -455,6 +455,71 @@ internal sealed class Document
         return declaration == null ? null : new { uri = Uri, range = Source.Range(declaration.Token.Start, declaration.Token.Length) };
     }
 
+    /// <summary>The signature of the call the position is inside: a declared function, a struct construction, a module
+    /// member (portable or native) or a core global, with the argument the position is in.</summary>
+    public object? SignatureHelp(Position position)
+    {
+        int offset = Source.Offset(position);
+        if (IsManifest || !Source.IsCode(offset)) return null;
+        // The innermost parenthesis still open at the position, and the commas before it at its own depth.
+        int depth = 0, commas = 0, open = -1;
+        for (int i = tokens.Count - 1; i >= 0; i--) {
+            var t = tokens[i];
+            if (t.Type == TokenType.EOF || t.Start >= offset) continue;
+            if (t.Type is TokenType.RPAREN or TokenType.RBRACKET or TokenType.RBRACE) depth++;
+            else if (t.Type is TokenType.LPAREN or TokenType.LBRACKET or TokenType.LBRACE) {
+                if (depth == 0) { if (t.Type == TokenType.LPAREN) open = i; break; }
+                depth--;
+            }
+            else if (t.Type == TokenType.COMMA && depth == 0) commas++;
+        }
+        if (open < 1 || tokens[open - 1].Type != TokenType.IDENT) return null;
+        var callee = tokens[open - 1];
+        if (CallLabel(callee, offset) is not string label) return null;
+        int start = label.IndexOf('('), end = label.LastIndexOf(')');
+        if (start < 0 || end < start) return null;
+        var parameters = new List<object>();
+        for (int p = start + 1; p < end;) {
+            while (p < end && label[p] == ' ') p++;
+            int stop = label.IndexOf(", ", p, end - p, StringComparison.Ordinal);
+            if (stop < 0) stop = end;
+            if (stop > p) parameters.Add(new { label = new[] { p, stop } });
+            p = stop + 2;
+        }
+        return new
+        {
+            signatures = new[] { new { label, parameters } },
+            activeSignature = 0,
+            activeParameter = parameters.Count == 0 ? 0 : Math.Min(commas, parameters.Count - 1)
+        };
+    }
+
+    // The signature text of a callee name: the part of its description up to " — ", and of "中文(...) / English(...)"
+    // the language the call uses.
+    private string? CallLabel(Token callee, int offset)
+    {
+        string name = callee.Literal;
+        string? detail;
+        if (IsMember(callee)) {
+            var module = MemberModule(callee, offset);
+            var exported = module?.Script?.Exports().LastOrDefault(d => d.Token.Literal == name);
+            if (exported?.Value is FunctionLiteral exportedFunction) return name + Signature(exportedFunction);
+            detail = module?.Module?.Find(name)?.Detail;
+        } else {
+            var declaration = Visible(offset).FirstOrDefault(d => d.Token.Literal == name)
+                ?? declarations.LastOrDefault(d => d.Struct != null && d.Token.Literal == name);
+            if (declaration?.Value is FunctionLiteral function) return name + Signature(function);
+            if (declaration?.Struct is { } shape) return $"{name}({string.Join(", ", shape.Fields.Select(f => f.Value + Annotation(f.Type)))})";
+            if (declaration != null) return null;
+            detail = LanguageFacts.Builtins.GetValueOrDefault(name) ?? Catalog.Globals.GetValueOrDefault(name);
+        }
+        if (detail == null) return null;
+        int dash = detail.IndexOf(" — ", StringComparison.Ordinal);
+        string label = dash < 0 ? detail : detail[..dash];
+        var parts = label.Split(" / ");
+        return parts.Count(part => part.Contains('(')) > 1 ? parts.FirstOrDefault(part => part.Contains(name + "(")) ?? parts[0] : label;
+    }
+
     public object Symbols() => declarations.Select(d => (object)new
     {
         name = d.Token.Literal, kind = d.Kind,

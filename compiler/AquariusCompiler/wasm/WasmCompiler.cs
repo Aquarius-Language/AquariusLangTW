@@ -176,6 +176,7 @@ public sealed class WasmCompiler
             functions[natives[k].Body] = functions[natives[k].Body] with { NumericTable = bodies.Count + 1 + numeric.Count + 2 * k, NumericRecursiveName = null, Native = true };
         var data = new WasmRuntimeImage.Data(); data.Build(functions);
         if (!data.Pools.SequenceEqual(layout.Pools)) throw new InvalidOperationException("Constant pool layout changed after tier selection.");
+        foreach (var native in natives.Concat(regions).Concat(stencils.Select(s => s.Region))) native.Pool = data.Pools[native.Body];
         // Names the native adapters look up, resolved to their texts before the heap start is fixed.
         var texts = natives.Concat(regions).Concat(stencils.Select(s => s.Region)).SelectMany(n => n.Pointers.Concat(n.Guards.Keys).Concat(n.ClosureGuards.Keys))
             .Distinct().ToDictionary(name => name, data.Text, StringComparer.Ordinal);

@@ -119,7 +119,7 @@ public sealed class TypeChecker {
         foreach (var (function, native) in checker.Natives)
             if (native.Clone && checker.parameterDeclarations.TryGetValue(function, out var guessed))
                 for (int i = 0; i < guessed.Length; i++)
-                    native.Parameters[i] = guessed[i].Guess is > 0 and < StructFlag && ((guessed[i].Guess & ~ArrayFlag) is Int or Float or Double or Bool || guessed[i].Guess == ArrayFlag)
+                    native.Parameters[i] = guessed[i].Guess is > 0 and < StructFlag && ((guessed[i].Guess & ~ArrayFlag) is Int or Float or Double or Bool || guessed[i].Guess is ArrayFlag or String)
                         ? guessed[i].Guess : Dynamic;
         return checker;
     }
@@ -482,7 +482,7 @@ public sealed class TypeChecker {
         Bind(function.ReturnType);
         var parameterTypes = (function.Parameters ?? System.Array.Empty<Identifier>()).Select(p => Code(p.Type)).ToArray();
         // Numbers, Booleans, typed arrays and arrays of any values; string parameters or results keep the function generic.
-        static bool NativeType(int t) => (t & 15) is Int or Float or Double or Bool || t == ArrayFlag || IsStruct(t);
+        static bool NativeType(int t) => (t & 15) is Int or Float or Double or Bool || t == String || t == ArrayFlag || IsStruct(t);
         NativeSignature? native = function.ReturnType != null && parameterTypes.All(NativeType) && NativeType(Code(function.ReturnType))
             ? new NativeSignature(parameterTypes, Code(function.ReturnType), outer)
             : function.ReturnType == null && parameterTypes.All(t => t == Dynamic) ? new NativeSignature(new int[parameterTypes.Length], 0, outer, clone: true) : null;

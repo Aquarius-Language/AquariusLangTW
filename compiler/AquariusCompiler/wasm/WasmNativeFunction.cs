@@ -53,6 +53,33 @@ internal sealed class WasmNativeFunction
     /// assignment to one) and arrays' values pointers (an element write, which may copy shared storage).</summary>
     internal bool WritesOuter { get; private set; } = true;
     internal bool WritesArrays { get; private set; } = true;
+    /// <summary>Whether the body (or a callee) allocates: concatenates strings, builds array literals or constructs structs.
+    /// Its loop heads then also poll for a pending collection (deoptimizing to the generic checkpoint, which collects).</summary>
+    internal bool Allocates { get; private set; }
+
+    /// <summary>Appends to a string slot (`s = s + x`): the Add's position and its slot, and the loads that belong to such an
+    /// append (its left operand and the assignment's placeholder). An append keeps the text it builds marked as owned by the
+    /// slot in the pointer's low bit (texts are 16-byte aligned), so the next append can extend it in place
+    /// (rt_nativeAppend); every other load of the slot, and every frame the slot is written to, drops the mark.</summary>
+    private Dictionary<int, int>? appendAt;
+    private HashSet<int>? appendReads;
+    private void FindAppends()
+    {
+        if (appendAt != null) return;
+        appendAt = new(); appendReads = new();
+        var code = body.Code;
+        int Pusher(int at, int depth) { for (int k = at - 1; k >= 0; k--) if (plan.Depth[k] == depth) return k; return -1; }
+        int Slot(int i) => i >= 0 && plan.Depth[i] >= 0 && plan.Accesses[i] is { } a ? SlotAt(i, a) : -1;
+        for (int i = 1; i < code.Length; i++) {
+            if (code[i].Code != IrOperation.Assign || plan.Depth[i] < 0 || Slot(i) is not (>= 0 and var slot)) continue;
+            int add = i - 1; if (code[add].Code == IrOperation.CheckType) add--;
+            if (add < 1 || code[add].Code != IrOperation.Add || plan.Depth[add] < 3) continue;
+            int depth = plan.Depth[add], left = Pusher(add, depth - 2), dummy = left - 1;
+            if (left < 1 || code[left].Code != IrOperation.Load || Slot(left) != slot || code[dummy].Code != IrOperation.Load || Slot(dummy) != slot
+                || plan.Depth[dummy] != depth - 3) continue;
+            appendAt[add] = slot; appendReads.Add(left); appendReads.Add(dummy);
+        }
+    }
     internal bool Mutates => WritesOuter || WritesArrays;
     /// <summary>A small leaf (no calls, loops or outer bindings) that changes nothing its caller holds: callers emit
     /// its body in place of the call. Its only checkpoint is its entry, which the caller tests before choosing the
@@ -77,8 +104,10 @@ internal sealed class WasmNativeFunction
     private readonly IReadOnlyDictionary<string, int>? assumed;
     /// <summary>The native-tier signature of a callee literal (typed or a clone), during selection.</summary>
     private Func<AquariusLang.ast.FunctionLiteral, NativeSignature?>? signatureOf;
+    /// <summary>The address of this body's constant pool (string constants are read from it).</summary>
+    internal int Pool { get; set; }
     /// <summary>The result types a clone tries, in order.</summary>
-    private static readonly int[] CloneResults = [IntType, DoubleType, BoolType, FloatType, AnyArrayType, VoidType];
+    private static readonly int[] CloneResults = [IntType, DoubleType, BoolType, FloatType, StringType, AnyArrayType, VoidType];
     private int Assumed(string name, NativeSignature.OuterName outer) => assumed != null && assumed.TryGetValue(name, out int type) ? type : outer.Guess;
 
     private WasmNativeFunction(int bodyIndex, NativeSignature signature, LoweredProgram body, WasmScopePlan plan, int start = 0, int end = -1,
@@ -180,7 +209,13 @@ internal sealed class WasmNativeFunction
     private static bool Numeric(int type) => type is IntType or FloatType or DoubleType;
     private static bool Wide(int type) => type is FloatType or DoubleType;
     /// <summary>Types a native local holds: numbers, Booleans, typed arrays and arrays of any values (an Array* in an i32).</summary>
-    private static bool Value(int type) => type is IntType or FloatType or DoubleType or BoolType || IsRef(type) || IsStructType(type);
+    private static bool Value(int type) => type is IntType or FloatType or DoubleType or BoolType or StringType || IsRef(type) || IsStructType(type);
+    /// <summary>A string (字串 / string): a Text* in an i32, never null. Its length and code units are read in place;
+    /// equality, concatenation and one-unit results call the runtime (rt_nativeTextEqual, rt_nativeConcat,
+    /// rt_nativeUnitText). A read past its end deoptimizes at that read, where the generic code gives null.</summary>
+    private const int StringType = 5;
+    /// <summary>Types held as a pointer in an i32: arrays, structs and strings.</summary>
+    private static bool IsPointer(int type) => IsRef(type) || IsStructType(type) || type == StringType;
     private static bool IsArray(int type) => (type & 16) != 0 && (type & 15) is >= IntType and <= BoolType;
     /// <summary>An array of any values (陣列 / array): code 16, element type 0.</summary>
     private const int AnyArrayType = 16;
@@ -266,6 +301,7 @@ internal sealed class WasmNativeFunction
                 foreach (var callee in native.Callees.Select(c => accepted[c])) {
                     if (callee.WritesOuter && !native.WritesOuter) native.WritesOuter = changed = true;
                     if (callee.WritesArrays && !native.WritesArrays) native.WritesArrays = changed = true;
+                    if (callee.Allocates && !native.Allocates) native.Allocates = changed = true;
                 }
         }
         foreach (var native in accepted.Values)
@@ -449,7 +485,7 @@ internal sealed class WasmNativeFunction
             switch (op.Code) {
                 case IrOperation.Constant:
                     int constant = body.Pool[operand] switch {
-                        IntegerObj => IntType, FloatObj => FloatType, DoubleObj => DoubleType, BooleanObj => BoolType, NullObj => NullType, _ => Unknown };
+                        IntegerObj => IntType, FloatObj => FloatType, DoubleObj => DoubleType, BooleanObj => BoolType, NullObj => NullType, StringObj => StringType, _ => Unknown };
                     if (constant == Unknown) return Reject(pc);
                     stack.Add(constant); break;
                 case IrOperation.Void: stack.Add(VoidType); break;
@@ -481,6 +517,7 @@ internal sealed class WasmNativeFunction
                     if (!Numeric(type)) return Reject(pc);
                     stack.Add(type); break;
                 }
+                case IrOperation.Add when Top() == StringType && Top(2) == StringType: Allocates = true; Pop(2); stack.Add(StringType); break;
                 case IrOperation.Add: case IrOperation.Subtract: case IrOperation.Multiply: case IrOperation.Divide: case IrOperation.Modulo:
                     if (!Numeric(Top()) || !Numeric(Top(2))) return Reject(pc);
                     { int type = Math.Max(Top(), Top(2)); Pop(2); stack.Add(type); }
@@ -490,7 +527,8 @@ internal sealed class WasmNativeFunction
                     Pop(2); stack.Add(BoolType); break;
                 case IrOperation.Equal: case IrOperation.NotEqual:
                     // Structs compare by identity, like the generic runtime.
-                    if (!(Numeric(Top()) && Numeric(Top(2)) || Top() == BoolType && Top(2) == BoolType || IsStructType(Top()) && IsStructType(Top(2)))) return Reject(pc);
+                    if (!(Numeric(Top()) && Numeric(Top(2)) || Top() == BoolType && Top(2) == BoolType || IsStructType(Top()) && IsStructType(Top(2))
+                        || Top() == StringType && Top(2) == StringType)) return Reject(pc);
                     Pop(2); stack.Add(BoolType); break;
                 case IrOperation.And: case IrOperation.Or:
                     if (Top() != BoolType || Top(2) != BoolType) return Reject(pc);
@@ -525,10 +563,16 @@ internal sealed class WasmNativeFunction
                     if (stack.Count < names.Length + 1 || stack.Contains(MixedType)) return Reject(pc);
                     int callee = stack[stack.Count - names.Length - 1];
                     if (Construction(callee, stack.Skip(stack.Count - names.Length).ToArray(), names) is not int made) return Reject(pc);
+                    Allocates = true;
                     Pop(names.Length + 1); stack.Add(made); break;
                 }
                 case IrOperation.Index:
                     if (Top(2) == AnyArrayType && Top() == IntType) { Pop(2); stack.Add(AnyValueType); break; }
+                    // A string's code unit is a one-unit string; past the end it deoptimizes, so the read must start a generic block.
+                    if (Top(2) == StringType && Top() == IntType) {
+                        if (Array.BinarySearch(WasmBodyEmitter.BlockStarts(body, plan), pc) < 0) return Reject(pc);
+                        Pop(2); stack.Add(StringType); break;
+                    }
                     if (!IsArray(Top(2)) || Top() != IntType) return Reject(pc);
                     if (IsLoose(Top(2)) && Array.BinarySearch(WasmBodyEmitter.BlockStarts(body, plan), pc) < 0) return Reject(pc);
                     { int element = Top(2) & 15; Pop(2); stack.Add(element); }
@@ -549,7 +593,7 @@ internal sealed class WasmNativeFunction
                 case IrOperation.Array:
                     // An array literal of native values is built natively (an array of any values, like the generic one).
                     if (stack.Count < operand || stack.Skip(stack.Count - operand).Any(t => !Value(t) && t != AnyValueType)) return Reject(pc);
-                    Pop(operand); stack.Add(AnyArrayType); break;
+                    Allocates = true; Pop(operand); stack.Add(AnyArrayType); break;
                 case IrOperation.JumpIfBreak: break; // Typed values are never a break value.
                 case IrOperation.Break: {
                     int base_ = plan.LoopBase[pc];
@@ -566,12 +610,13 @@ internal sealed class WasmNativeFunction
                     var arguments = stack.Skip(stack.Count - count).ToArray();
                     int result;
                     if (callee == BuiltinBase + LengthBuiltin) {
-                        if (count != 1 || !IsRef(arguments[0])) return Reject(pc);
+                        if (count != 1 || !IsRef(arguments[0]) && arguments[0] != StringType) return Reject(pc);
                         result = IntType;
                     } else if (callee >= BuiltinBase) {
                         if (count != 1 || !Numeric(arguments[0])) return Reject(pc);
                         result = callee - BuiltinBase - ConvertFirst + IntType;
                     } else if (Construction(callee, arguments, null) is int made) {
+                        Allocates = true;
                         result = made;
                     } else if (callee >= CallableBase && !IsRegion && !StructCallee(callee, out _)) {
                         var target = signatureOf?.Invoke(Signature.Outer[callNames[callee - CallableBase]].Function!);
@@ -580,8 +625,9 @@ internal sealed class WasmNativeFunction
                         // clone takes exactly its parameters' types (any array of that element), as its entry would.
                         for (int i = 0; i < count; i++)
                             if (target.Clone ? !(arguments[i] == target.Parameters[i] || IsArray(arguments[i]) && IsArray(target.Parameters[i]) && (arguments[i] & 15) == (target.Parameters[i] & 15)
-                                    || target.Parameters[i] == AnyArrayType && (IsRef(arguments[i]) || arguments[i] == AnyValueType))
-                                : !Widens(arguments[i], target.Parameters[i]) && !(arguments[i] == AnyValueType && target.Parameters[i] == AnyArrayType)) return Reject(pc);
+                                    || target.Parameters[i] == AnyArrayType && (IsRef(arguments[i]) || arguments[i] == AnyValueType)
+                                    || target.Parameters[i] == StringType && arguments[i] == AnyValueType)
+                                : !Widens(arguments[i], target.Parameters[i]) && !(arguments[i] == AnyValueType && target.Parameters[i] is AnyArrayType or StringType)) return Reject(pc);
                         result = target.Result;
                     } else return Reject(pc);
                     Pop(count + 1); stack.Add(result); break;
@@ -706,12 +752,14 @@ internal sealed class WasmNativeFunction
                 Get(w, scratch); Memory(w, I32Load, 2, ClosureProgram); Get(w, closure); Memory(w, I32Load, 2, ClosureProgram); w.Write(new byte[] { 0x46, 0x71 });
             });
         }
+        // A core global (長度, 整數, ...) lives in the host's builtin scope, never in the closure's chain: no binding of its
+        // name there means the builtin; a binding (a user's shadowing name) must hold that very builtin.
         foreach (var (name, id) in Guards) {
             Get(w, scope); I(w, text(name)); w.Write(Call); U(w, runtime["aqua_scope_get"]); Set(w, scratch);
-            Unless(() => Get(w, scratch));
             Unless(() => {
+                Get(w, scratch); w.Write(new byte[] { 0x45, 0x04, 0x7f }); I(w, 1); w.Write((byte)0x05);
                 Get(w, scratch); Memory(w, I32Load, 2, ValueTag); I(w, BuiltinTag); w.Write((byte)0x46);
-                Get(w, scratch); Memory(w, I32Load, 2, ValueRef); I(w, id); w.Write(new byte[] { 0x46, 0x71 });
+                Get(w, scratch); Memory(w, I32Load, 2, ValueRef); I(w, id); w.Write(new byte[] { 0x46, 0x71, 0x0b });
             });
         }
         // Arguments (in the frame's parameter slots when resuming at the entry): the exact type, or an integer for
@@ -738,7 +786,7 @@ internal sealed class WasmNativeFunction
                         Get(w, 0); Memory(w, I32Load, 2, offset + ValueRef); Memory(w, I32Load, 2, ArrayElement); I(w, type & 15); w.Write((byte)0x46);
                         w.Write((byte)0x05); I(w, 0); w.Write(new byte[] { 0x0b, 0x71 });
                     }
-                    else if (type is IntType or BoolType) { Get(w, scratch); I(w, type); w.Write((byte)0x46); }
+                    else if (type is IntType or BoolType or StringType) { Get(w, scratch); I(w, type); w.Write((byte)0x46); }
                     else { Get(w, scratch); I(w, IntType); w.Write((byte)0x4f); Get(w, scratch); I(w, type); w.Write(new byte[] { 0x4d, 0x71 }); }
                 });
             }
@@ -749,7 +797,7 @@ internal sealed class WasmNativeFunction
             for (int k = 0; k < Pointers.Length; k++) Get(w, Pointer(k));
             for (int p = 0; p < Signature.Parameters.Length; p++) {
                 int type = Signature.Parameters[p];
-                if (IsRef(type) || IsStructType(type)) { Get(w, 0); Memory(w, I32Load, 2, argumentBase + p * ValueSize + ValueRef); continue; }
+                if (IsPointer(type)) { Get(w, 0); Memory(w, I32Load, 2, argumentBase + p * ValueSize + ValueRef); continue; }
                 Get(w, 0); Memory(w, F64Load, 3, argumentBase + p * ValueSize + ValueNumber);
                 if (type is IntType or BoolType) ExactInteger(w);
                 else if (type == FloatType) w.Write(new byte[] { 0xb6, 0xbb });
@@ -778,11 +826,11 @@ internal sealed class WasmNativeFunction
         if (IsStructType(Signature.Result)) { I(w, StructTag); I(w, NullTag); Get(w, resultI); w.Write((byte)0x1b); }
         else I(w, IsRef(Signature.Result) ? ArrayTag : Signature.Result);
         Memory(w, I32Store, 2, ValueTag);
-        Get(w, 1); if (IsRef(Signature.Result) || IsStructType(Signature.Result)) Get(w, resultI); else I(w, 0); Memory(w, I32Store, 2, ValueRef);
+        Get(w, 1); if (IsPointer(Signature.Result)) Get(w, resultI); else I(w, 0); Memory(w, I32Store, 2, ValueRef);
         Get(w, 1);
         if (Signature.Result == IntType) { Get(w, resultI); w.Write((byte)0xb7); }
         else if (Signature.Result == BoolType) { Get(w, resultI); w.Write((byte)0xb8); }
-        else if (IsRef(Signature.Result) || IsStructType(Signature.Result)) F(w, 0);
+        else if (IsPointer(Signature.Result)) F(w, 0);
         else Get(w, resultF);
         Memory(w, F64Store, 3, ValueNumber);
         I(w, 1); w.Write((byte)0x0b);
@@ -884,7 +932,7 @@ internal sealed class WasmNativeFunction
         // A generic Value at base + offset as a typed local value: an array's reference, or the converted payload.
         void LoadPayload(Action pushBase, int offset, int type) {
             pushBase();
-            if (IsRef(type) || IsStructType(type)) { Memory(w, I32Load, 2, offset + ValueRef); return; }
+            if (IsPointer(type)) { Memory(w, I32Load, 2, offset + ValueRef); return; }
             Memory(w, F64Load, 3, offset + ValueNumber); if (!Wide(type)) ExactInteger(w);
         }
 
@@ -920,7 +968,7 @@ internal sealed class WasmNativeFunction
                     Memory(w, I32Store, 2, ValueRef);
                     Get(w, PointerOf(name)); I(w, StructTag); I(w, NullTag); Local(type, CacheI(c), CacheF(c)); Op(0x1b); Memory(w, I32Store, 2, ValueTag);
                 }
-                else if (IsRef(type)) Memory(w, I32Store, 2, ValueRef); else { AsPayload(type); Memory(w, F64Store, 3, ValueNumber); }
+                else if (IsRef(type) || type == StringType) Memory(w, I32Store, 2, ValueRef); else { AsPayload(type); Memory(w, F64Store, 3, ValueNumber); }
             }
         }
 
@@ -933,7 +981,7 @@ internal sealed class WasmNativeFunction
             for (int s = 0; s < slots; s++) {
                 int type = slotTypes[s];
                 if (type == Unknown || declared[s] == WasmScopePlan.No && !undeclare) continue;
-                void Declared() => StoreValue(FrameValues + ValueSize * s, type, () => { Local(type, SlotI(s), SlotF(s)); if (!IsRef(type)) AsPayload(type); });
+                void Declared() => StoreValue(FrameValues + ValueSize * s, type, () => { Local(type, SlotI(s), SlotF(s)); if (type == StringType) { I(w, -2); Op(0x71); } else if (!IsRef(type)) AsPayload(type); });
                 void Undeclared() { Get(w, frame); I(w, -1); Memory(w, I32Store, 2, FrameValues + ValueSize * s + ValueTag); }
                 if (declared[s] == WasmScopePlan.Yes) { Declared(); continue; }
                 if (declared[s] == WasmScopePlan.No) { Undeclared(); continue; }
@@ -973,8 +1021,8 @@ internal sealed class WasmNativeFunction
                 Get(w, frame); F(w, 0); Memory(w, F64Store, 3, offset + ValueNumber);
                 return;
             }
-            if (IsRef(type)) {
-                Get(w, frame); I(w, ArrayTag); Memory(w, I32Store, 2, offset + ValueTag);
+            if (IsRef(type) || type == StringType) {
+                Get(w, frame); I(w, type == StringType ? StringTag : ArrayTag); Memory(w, I32Store, 2, offset + ValueTag);
                 Get(w, frame); payload(); Memory(w, I32Store, 2, offset + ValueRef);
                 Get(w, frame); F(w, 0); Memory(w, F64Store, 3, offset + ValueNumber);
                 return;
@@ -1025,7 +1073,11 @@ internal sealed class WasmNativeFunction
                 // when it leaves (a deoptimization) or copies an array on write, which loops do not poll for either.
                 Get(w, depthParameter); I(w, depthLimit); Op(0x4f);
                 Get(w, budget); Op(0x45, 0x72);
-            } else { Get(w, budget); I(w, 0); Op(0x4c); }
+            } else {
+                Get(w, budget); I(w, 0); Op(0x4c);
+                // A loop that allocates leaves for a pending collection too: the generic checkpoint collects.
+                if (Allocates) { Execution(); Memory(w, I32Load, 2, ExecutionPoll); Op(0x72); }
+            }
             Op(If, 0x40); ToHandler(CheckpointSite, BlockOf(pc), states[pc], pc); Op(End);
             Get(w, budget); I(w, weight); Op(0x6b); Set(w, budget);
         }
@@ -1090,9 +1142,11 @@ internal sealed class WasmNativeFunction
                 if (IsLoose(tag)) Unless(() => { Get(w, pointer); Memory(w, I32Load, 2, ValueRef); I(w, tag & 15); Op(Call); U(w, runtime["rt_arrayKind"]); });
                 else if (IsArray(tag)) Unless(() => { Get(w, pointer); Memory(w, I32Load, 2, ValueRef); Memory(w, I32Load, 2, ArrayElement); I(w, tag & 15); Op(0x46); });
             }
+            // A core global: no binding of its name means the builtin; a binding must hold that very builtin.
             foreach (var (name, id) in Guards) {
-                Lookup(name, tempI);
-                Unless(() => { Get(w, tempI); Memory(w, I32Load, 2, ValueTag); I(w, BuiltinTag); Op(0x46); Get(w, tempI); Memory(w, I32Load, 2, ValueRef); I(w, id); Op(0x46, 0x71); });
+                Get(w, frame); Memory(w, I32Load, 2, FrameScope); I(w, text!(name)); Op(Call); U(w, runtime["aqua_scope_get"]); Set(w, tempI);
+                Unless(() => { Get(w, tempI); Op(0x45, If, 0x7f); I(w, 1); Op(Else);
+                    Get(w, tempI); Memory(w, I32Load, 2, ValueTag); I(w, BuiltinTag); Op(0x46); Get(w, tempI); Memory(w, I32Load, 2, ValueRef); I(w, id); Op(0x46, 0x71); Op(End); });
             }
             // Every slot the region holds is undeclared or has the region's type.
             for (int s = 0; s < slots; s++) {
@@ -1183,13 +1237,22 @@ internal sealed class WasmNativeFunction
                         case BooleanObj v: I(w, v.Value ? 1 : 0); Set(w, StackI(depth)); break;
                         case FloatObj v: F(w, v.Value); Set(w, StackF(depth)); break;
                         case DoubleObj v: F(w, v.Value); Set(w, StackF(depth)); break;
+                        // A string constant: its text, from the body's constant pool.
+                        case StringObj: I(w, cur.Pool + ValueSize * operand); Memory(w, I32Load, 2, ValueRef); Set(w, StackI(depth)); break;
                     }
                     break;
                 case IrOperation.Void: case IrOperation.Null: case IrOperation.Pop: case IrOperation.JumpIfBreak:
                     break;
                 case IrOperation.Load: {
                     int slot = cur.SlotAt(pc, cur.plan.Accesses[pc]!), type = cur.states[pc + 1][depth];
-                    if (slot >= 0) { Local(type, SlotI(slot), SlotF(slot)); PopStack(type, depth); CopyCompanions(type, SlotCount(slot), StackCount(depth)); }
+                    if (slot >= 0 && type == StringType) {
+                        // A string slot: an append's own loads keep the owned mark; any other load drops it (in the slot too).
+                        cur.FindAppends();
+                        Get(w, SlotI(slot));
+                        if (!cur.appendReads!.Contains(pc)) { I(w, -2); Op(0x71); Tee(w, SlotI(slot)); }
+                        Set(w, StackI(depth));
+                    }
+                    else if (slot >= 0) { Local(type, SlotI(slot), SlotF(slot)); PopStack(type, depth); CopyCompanions(type, SlotCount(slot), StackCount(depth)); }
                     else if (Value(type)) {
                         ReadOuter(cur.NameOf(operand), type); PopStack(type, depth);
                         CopyCompanions(type, CacheCount(CacheOf(cur.NameOf(operand))), StackCount(depth));
@@ -1248,6 +1311,10 @@ internal sealed class WasmNativeFunction
                     if (op.Code == IrOperation.IncrementPrefix) { LoadIt(); PopStack(type, depth); }
                     break;
                 }
+                case IrOperation.Add when TopType() == StringType:
+                    cur.FindAppends();
+                    Get(w, StackI(below)); Get(w, StackI(top));
+                    Op(Call); U(w, runtime[cur.appendAt!.ContainsKey(pc) ? "rt_nativeAppend" : "rt_nativeConcat"]); Set(w, StackI(below)); break;
                 case IrOperation.Add: case IrOperation.Subtract: case IrOperation.Multiply: case IrOperation.Divide: case IrOperation.Modulo: {
                     int left = TopType(2), right = TopType(), type = Math.Max(left, right);
                     if (type == IntType) {
@@ -1264,7 +1331,10 @@ internal sealed class WasmNativeFunction
                 case IrOperation.Less: case IrOperation.Greater: case IrOperation.LessEqual: case IrOperation.GreaterEqual:
                 case IrOperation.Equal: case IrOperation.NotEqual: {
                     int left = TopType(2), right = TopType();
-                    if (left is IntType or BoolType && right is IntType or BoolType || IsStructType(left) && IsStructType(right)) {
+                    if (left == StringType) {
+                        Get(w, StackI(below)); Get(w, StackI(top)); Op(Call); U(w, runtime["rt_nativeTextEqual"]);
+                        if (op.Code == IrOperation.NotEqual) Op(0x45);
+                    } else if (left is IntType or BoolType && right is IntType or BoolType || IsStructType(left) && IsStructType(right)) {
                         PushStack(left, below); PushStack(right, top);
                         Op(op.Code switch { IrOperation.Less => (byte)0x48, IrOperation.Greater => (byte)0x4a, IrOperation.LessEqual => (byte)0x4c,
                             IrOperation.GreaterEqual => (byte)0x4e, IrOperation.Equal => (byte)0x46, _ => (byte)0x47 });
@@ -1330,6 +1400,12 @@ internal sealed class WasmNativeFunction
                     var names = ((string)cur.body.Pool[operand]).Split('\u0001');
                     Construct(stack, depth - names.Length - 1, names); break;
                 }
+                case IrOperation.Index when TopType(2) == StringType: {
+                    Get(w, StackI(top)); Get(w, StackI(below)); Memory(w, I32Load, 2, TextLength); Op(0x49, 0x45, If, 0x40);
+                    ToHandler(IndexSite, BlockOf(pc), stack, pc); Op(End);
+                    Get(w, StackI(below)); Get(w, StackI(top)); I(w, 1); Op(0x74, 0x6a); Memory(w, 0x2f, 1, TextData);
+                    Op(Call); U(w, runtime["rt_nativeUnitText"]); Set(w, StackI(below)); break;
+                }
                 case IrOperation.Index when TopType(2) == AnyArrayType: {
                     // An array of any values reads like the generic code: an element, or null outside the array.
                     Get(w, StackI(top)); Get(w, StackCount(below)); Op(0x49, If, 0x40);
@@ -1348,10 +1424,10 @@ internal sealed class WasmNativeFunction
                     Get(w, tempI); Memory(w, I32Load, 2, ArrayValues); Set(w, tempJ);
                     for (int k = 0; k < operand; k++) {
                         int type = stack[at + k], offset = ValueSize * k;
-                        Get(w, tempJ); if (type == AnyValueType) Get(w, StackCount(at + k)); else I(w, IsRef(type) ? ArrayTag : type); Memory(w, I32Store, 2, offset + ValueTag);
-                        Get(w, tempJ); if (type == AnyValueType || IsRef(type)) Get(w, StackI(at + k)); else I(w, 0); Memory(w, I32Store, 2, offset + ValueRef);
+                        Get(w, tempJ); if (type == AnyValueType) Get(w, StackCount(at + k)); else if (IsStructType(type)) { I(w, StructTag); I(w, NullTag); Get(w, StackI(at + k)); Op(0x1b); } else I(w, IsRef(type) ? ArrayTag : type); Memory(w, I32Store, 2, offset + ValueTag);
+                        Get(w, tempJ); if (type == AnyValueType || IsPointer(type)) Get(w, StackI(at + k)); else I(w, 0); Memory(w, I32Store, 2, offset + ValueRef);
                         Get(w, tempJ);
-                        if (type == AnyValueType) Get(w, StackF(at + k)); else if (IsRef(type)) F(w, 0); else { PushStack(type, at + k); AsPayload(type); }
+                        if (type == AnyValueType) Get(w, StackF(at + k)); else if (IsPointer(type)) F(w, 0); else { PushStack(type, at + k); AsPayload(type); }
                         Memory(w, F64Store, 3, offset + ValueNumber);
                     }
                     Get(w, tempI); Set(w, StackI(at)); Describe(StackI(at), StackCount(at));
@@ -1404,6 +1480,7 @@ internal sealed class WasmNativeFunction
                 case IrOperation.LeaveLoop: ClearScope(cur.plan.ScopeAt[pc], -1); break;
                 case IrOperation.Call: {
                     int count = operand, at = depth - count - 1, callee = stack[at];
+                    if (callee == BuiltinBase + LengthBuiltin && stack[top] == StringType) { Get(w, StackI(top)); Memory(w, I32Load, 2, TextLength); Set(w, StackI(at)); break; }
                     if (callee == BuiltinBase + LengthBuiltin) { Get(w, StackCount(top)); Set(w, StackI(at)); break; }
                     if (callee >= BuiltinBase) {
                         int result = callee - BuiltinBase - ConvertFirst + IntType, argument = stack[top];
@@ -1416,10 +1493,10 @@ internal sealed class WasmNativeFunction
                     if (StructCallee(callee, out _)) { Construct(stack, at, null); break; }
                     string name = callNames[callee - CallableBase];
                     var (function, target) = natives[OwnPointers.TryGetValue(name, out var own) ? own.Callee : Body];
-                    // An element of an array of any values passed to an 陣列 parameter must be an array.
+                    // An element of an array of any values passed to an 陣列 (or 字串) parameter must be an array (or a string).
                     for (int a = 0; a < count; a++)
                         if (stack[at + 1 + a] == AnyValueType) {
-                            Get(w, StackCount(at + 1 + a)); I(w, ArrayTag); Op(0x47, If, 0x40);
+                            Get(w, StackCount(at + 1 + a)); I(w, target.Signature.Parameters[a] == StringType ? StringTag : ArrayTag); Op(0x47, If, 0x40);
                             ToHandler(CheckSite, BlockOf(pc + 1), stack.Take(at).ToArray(), pc); Op(End);
                         }
                     if (inlined.Contains(target) && !stack.Skip(at + 1).Contains(AnyValueType)) {
@@ -1573,9 +1650,9 @@ internal sealed class WasmNativeFunction
             if (IsStructType(value)) { I(w, StructTag); I(w, NullTag); Get(w, StackI(k)); Op(0x1b); }
             else I(w, IsRef(value) ? ArrayTag : stored);
             Memory(w, I32Store, 2, ValueTag);
-            Get(w, tempI); if (IsRef(value) || IsStructType(value)) Get(w, StackI(k)); else I(w, 0); Memory(w, I32Store, 2, ValueRef);
+            Get(w, tempI); if (IsPointer(value)) Get(w, StackI(k)); else I(w, 0); Memory(w, I32Store, 2, ValueRef);
             Get(w, tempI);
-            if (IsRef(value) || IsStructType(value)) F(w, 0);
+            if (IsPointer(value)) F(w, 0);
             else if (stored != value) { AsDouble(value, k); if (stored == FloatType) RoundFloat(); }
             else { PushStack(value, k); AsPayload(value); }
             Memory(w, F64Store, 3, ValueNumber);
