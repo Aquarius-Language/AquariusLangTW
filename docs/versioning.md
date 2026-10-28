@@ -2,7 +2,7 @@
 
 AquariusLang has one version number, a [semantic version](https://semver.org) `MAJOR.MINOR.PATCH`. The language, its
 compiler, the `aqua` CLI, the language server and the VS Code extension always share it: an editor using the server of
-release 0.1.4 understands exactly the syntax that the 0.1.4 compiler accepts.
+release 0.1.5 understands exactly the syntax that the 0.1.5 compiler accepts.
 
 星泉只有一個版本號（語意化版本 `主.次.修訂`）。語言、編譯器、`aqua` 命令列、語言伺服器與 VS Code 擴充功能永遠使用同一個版本，
 因此編輯器顯示的語法與同版本編譯器接受的語法完全一致。
@@ -14,7 +14,7 @@ release 0.1.4 understands exactly the syntax that the 0.1.4 compiler accepts.
 | `<Version>` in [`compiler/Directory.Build.props`](../compiler/Directory.Build.props) | The single source: every compiler assembly, `AquariusVersion.Current`, `aqua --version`, the language server's `serverInfo.version` |
 | `version` in `editors/vscode/package.json` and `package-lock.json`, the VSIX name in its `package` script | Must equal the props version; tests fail otherwise |
 
-`aqua --version` prints `AquariusLang 0.1.4`. The VS Code extension compares the server's `serverInfo.version` with its
+`aqua --version` prints `AquariusLang 0.1.5`. The VS Code extension compares the server's `serverInfo.version` with its
 own and warns when `aquarius.serverPath` points at a server from another release.
 
 ## Requiring a version / 指定需要的版本

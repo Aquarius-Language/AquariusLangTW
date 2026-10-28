@@ -3,7 +3,7 @@
   <PropertyGroup>
     <!-- The AquariusLang version (docs/versioning.md): the compiler, CLI and language server all report it, and the
          VS Code extension's package.json must match it. -->
-    <Version>0.1.4</Version>
+    <Version>0.1.5</Version>
     <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
     <TargetFramework>net8.0</TargetFramework>
     <LangVersion>12</LangVersion>
