@@ -50,7 +50,9 @@ map to the same token types, AST nodes and WebAssembly semantics.
 | `否則` | `else` | Fallback branch |
 | `迴圈` | `for` | Loop |
 | `中斷` | `break` | Exit the innermost loop |
+| `繼續` | `continue` | Start the innermost loop's next iteration |
 | `真` / `假` | `true` / `false` | Boolean literals |
+| `空值` | `null` | The null literal |
 
 ```aquarius
 var 加法, add = function(甲, b) { 回傳 甲 + b; };
@@ -92,9 +94,11 @@ Default value inspection still prints booleans as `真` / `假` and null as `nul
   Float results are rounded to 32 bits after each operation.
 - Optional annotations (`name: type` on declarations, parameters and after a parameter list) fix a binding's type:
   `整數`/`int`, `浮點數`/`float`, `雙精度`/`double`, `布林`/`bool`, `字串`/`string`, arrays such as `整數[]`, and
-  `陣列`/`array`, an array whose elements may be any values (arrays of arrays, mixed elements; every typed array is
-  one, and an `陣列` value passed to `整數[]` is checked when the program runs). Reading an `陣列` outside its range gives
-  `null` like an untyped array; a typed array's out-of-range read is an error.
+  `字串[]`/`string[]`, and `陣列`/`array`, an array whose elements may be any values (arrays of arrays, mixed elements;
+  every typed array is one, and an `陣列` value passed to `整數[]` is checked when the program runs). Reading an `陣列`
+  outside its range gives `null` like an untyped array; a typed array's out-of-range read is an error. A typed array
+  keeps its element type: integers written to a `浮點數[]` or `雙精度[]` widen like a typed variable, any other
+  mismatch is an error. `空值` / `null` fits only struct annotations (a definite `null` elsewhere is a compile error).
   Type names are recognized only after `:`. `TypeChecker` proves each write, rejects a definite mismatch at compile
   time, or lowers a `CheckType` (rt_checkType) where the value comes from untyped code; integers widen to float
   and double, floats to double, and narrowing needs `整數(x)`, `浮點數(x)` or `雙精度(x)`. Typed parameters are
@@ -106,8 +110,14 @@ Default value inspection still prints booleans as `真` / `假` and null as `nul
   reads and writes of annotated values, and lowers `CheckStruct` where values come from untyped code. Field writes
   (`SetMember`, `CompoundMember`) are checked against the field's annotation at run time. Structs are reference
   values compared by identity; `型別()` returns the declared name. See [structs](../../docs/structs.md).
-- `++值` returns the updated number; `值++` returns the original number.
-  Both require an existing numeric variable.
+- `++值` returns the updated number; `值++` returns the original number. The operand is a numeric variable, an array
+  element or hash entry (`計數[鍵]++`, `IncrementIndex`) or a struct field (`點.x++`, `IncrementMember`); the value keeps
+  its numeric type.
+- Compound assignments (`+= -= *= /= %=`) work on variables, elements and hash entries (`表[i] += 1`, `CompoundIndex`)
+  and fields. The target's receiver and index are evaluated once; an element keeps its numeric type like a variable.
+  Indexing and postfix `++` bind tighter than `.` in the parser, which rebuilds `物件.清單[0]` as `(物件.清單)[0]`, so
+  reads, writes and compound assignments through members work like on variables. Any other assignment target is a
+  compile error.
 - Boolean `&&` and `||` evaluate both operands. They do not short-circuit.
 - Functions support explicit `回傳` / `return`, a final expression as an implicit result,
   recursion and lexical closures. Assignments update the scope owning a variable.
@@ -121,7 +131,16 @@ Default value inspection still prints booleans as `真` / `假` and null as `nul
   call an unrelated global builtin.
 - A loop's declared control variable stays local to the loop and carries its value
   into the next iteration. Body declarations get a fresh scope each iteration;
-  closures can retain the environment from the iteration that created them.
+  closures can retain the environment from the iteration that created them. The next iteration starts before the
+  update part runs, so a closure keeps its own iteration's value of the variable (0, 1, 2, ... for `i++`). Each of the
+  three parts may be left out (`迴圈 (; 條件;)`, `迴圈 (;;)`); a loop without a condition runs until `中斷` / `break`.
+  `繼續` / `continue` starts the innermost loop's next iteration (its update part runs, then the condition); outside
+  a loop of the same function it is a compile error.
+- A statement that starts with `如果` / `if` or `迴圈` / `for` ends at its closing brace, so a next statement starting
+  with `(`, `[`, `-` or `++` stands alone. Inside an expression (`(如果 (c) { 1; } 否則 { 2; }) + 3`) both stay values.
+- String literals escape only `\"` and `\\`; any other backslash stays as written (Windows paths, regular
+  expressions). `-2147483648` is the smallest integer literal; other literals outside 32 bits are compile errors.
+- Expressions nest at most 256 levels; deeper source gives one parser error.
 - Arrays and hashes support indexed writes. Hash assignment replaces an existing
   typed key or adds a new one, preserving aliases and nested object identity.
   Invalid keys are rejected before evaluating the right-hand side.

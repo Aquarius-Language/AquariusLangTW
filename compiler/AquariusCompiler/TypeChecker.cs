@@ -510,7 +510,7 @@ public sealed class TypeChecker {
                 Require(type.Code, Expression(last.Expression), function, "回傳值 return value", function.ReturnType.Token);
             else Statement(statements[i]);
         }
-        if (function.ReturnType is { } result && (statements.Length == 0 || statements[^1] is LetStatement or BreakStatement))
+        if (function.ReturnType is { } result && (statements.Length == 0 || statements[^1] is LetStatement or BreakStatement or ContinueStatement))
             Error($"函式必須回傳 {Name(result.Code)} / The function must return {Name(result.Code)}.", result.Token);
         returns.Pop(); results.Pop();
         functions.Pop();

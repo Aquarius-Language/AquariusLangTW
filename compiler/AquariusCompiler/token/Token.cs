@@ -57,6 +57,7 @@ namespace AquariusLang.token {
         public const string RETURN = "RETURN";
         public const string FOR = "FOR";
         public const string BREAK = "BREAK";
+        public const string CONTINUE = "CONTINUE";
         public const string NULL = "NULL";
 
         public const string STRING = "STRING";
@@ -93,6 +94,8 @@ namespace AquariusLang.token {
             { "for", TokenType.FOR },
             { "中斷", TokenType.BREAK },
             { "break", TokenType.BREAK },
+            { "繼續", TokenType.CONTINUE },
+            { "continue", TokenType.CONTINUE },
             { "空值", TokenType.NULL },
             { "null", TokenType.NULL },
         };

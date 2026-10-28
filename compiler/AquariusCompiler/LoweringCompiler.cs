@@ -19,6 +19,8 @@ public sealed class LoweringCompiler {
     private readonly List<object> constants = new();
     private readonly Dictionary<string, int> names = new();
     private readonly Stack<List<int>> breaks = new();
+    // The 繼續 / continue jumps of each enclosing loop of this body, patched to its next iteration.
+    private readonly Stack<List<int>> continues = new();
     private readonly List<(int, int, int, NativeSignature?)> loops = new();
     // The TypeChecker result for the whole program (runtime checks, native candidates), shared by nested function bodies.
     private TypeChecker? types;
@@ -37,7 +39,7 @@ public sealed class LoweringCompiler {
 
     public LoweredProgram Compile(INode node) {
         if (node == null) throw new ArgumentNullException(nameof(node));
-        code.Clear(); constants.Clear(); names.Clear(); breaks.Clear(); loops.Clear();
+        code.Clear(); constants.Clear(); names.Clear(); breaks.Clear(); continues.Clear(); loops.Clear();
         if (node is AbstractSyntaxTree tree && types == null) {
             var checker = TypeChecker.Check(tree);
             if (checker.Errors.Count > 0) throw new CompilationException(string.Join("\n", checker.Errors.Select(e => e.Message)));
@@ -49,7 +51,7 @@ public sealed class LoweringCompiler {
 
     /// <summary>A function body: typed parameters are checked on entry and the implicit result like a return.</summary>
     internal LoweredProgram CompileFunction(FunctionLiteral function) {
-        code.Clear(); constants.Clear(); names.Clear(); breaks.Clear(); loops.Clear();
+        code.Clear(); constants.Clear(); names.Clear(); breaks.Clear(); continues.Clear(); loops.Clear();
         foreach (var parameter in function.Parameters ?? Array.Empty<Identifier>()) {
             if (parameter.Type == null) continue;
             // Assign consumes the target's loaded value below the new value, like `p = p`.
@@ -121,6 +123,10 @@ public sealed class LoweringCompiler {
                 Emit(IrOperation.StructType, Constant($"{shape.Id}\u0001{shape.Name.Value}" + string.Concat(shape.Fields.Select(f =>
                     $"\u0001{f.Value}\u0002{f.Type?.Code ?? 0}\u0002{f.Type?.String() ?? ""}"))));
                 Emit(IrOperation.Declare, Name(shape.Name.Value));
+                break;
+            case ContinueStatement:
+                if (continues.Count == 0) throw new CompilationException("繼續 只能用在迴圈中 / continue can only be used inside a loop.");
+                continues.Peek().Add(Emit(IrOperation.Break));
                 break;
             case BreakStatement _:
                 if (breaks.Count > 0) breaks.Peek().Add(Emit(IrOperation.Break));
@@ -237,10 +243,11 @@ public sealed class LoweringCompiler {
         // A loop without a condition runs until 中斷 / break.
         if (loop.ConditionalExpression != null) Node(loop.ConditionalExpression); else Value(RepeatedPrimitives.TRUE);
         int end = Emit(IrOperation.LoopCondition);
-        breaks.Push(new List<int>());
+        breaks.Push(new List<int>()); continues.Push(new List<int>());
         if (loop.Body != null) { Node(loop.Body); breaks.Peek().Add(Emit(IrOperation.JumpIfBreak)); Emit(IrOperation.Pop); }
         // The next iteration starts before the update, so closures made in this iteration keep its value of the loop
         // variable (迴圈 (變數 i = 0; ...; i++) makes closures that see 0, 1, 2, ...).
+        foreach (int jump in continues.Pop()) Patch(jump);
         Emit(IrOperation.NextIteration);
         if (loop.ValueChangeStatement != null) { Node(loop.ValueChangeStatement); Emit(IrOperation.Pop); }
         Emit(IrOperation.Jump, condition);

@@ -247,6 +247,11 @@ namespace AquariusLang.parser {
                     return parseReturnStatement();
                 case TokenType.BREAK:
                     return parseBreakStatement();
+                case TokenType.CONTINUE: {
+                    var statement = new ContinueStatement(currToken);
+                    if (peekTokenIs(TokenType.SEMICOLON)) nextToken();
+                    return statement;
+                }
                 // 結構 / struct is a keyword only where a declaration starts (two names in a row are no expression),
                 // so programs using these words as names keep working.
                 case TokenType.IDENT when currToken.Literal is "結構" or "struct" && peekTokenIs(TokenType.IDENT):

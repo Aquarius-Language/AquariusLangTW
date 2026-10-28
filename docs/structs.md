@@ -24,7 +24,10 @@ var length2 = function(q: Point): double { return q.x * q.x + q.y * q.y; };
 - A field left out of a construction is `null`. Fields annotated with a number, Boolean, string or array type cannot
   be `null`, so they must be given; struct-typed and unannotated fields may stay `null`.
 - Every write is checked against the field's annotation (integers widen to float and double, like variables); a
-  compound assignment (`+=`, `*=`, ...) keeps the field's numeric type.
+  compound assignment (`+=`, `*=`, ...) and `++` (`點.x++`, `++點.x`) keep the field's numeric type. Writes reach through
+  members and indexes: `船.貨艙[0] = 1`, `站.感測器.讀數[i] += 0.5d`.
+- `空值` / `null` is a literal: struct-typed variables, parameters, results and fields accept it
+  (`迴圈 (變數 at = 頭; at != 空值; at = at.下一個) { ... }`).
 - Reading an unknown field, or any field of `null`, is an error (`Cannot access member of NULL`).
 
 欄位以 `;` 或 `,` 分隔，可標註任何型別（含結構本身），未標註的欄位可存任何值。建立時省略的欄位為 `null`；標註為數字、

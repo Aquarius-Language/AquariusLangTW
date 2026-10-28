@@ -3,7 +3,7 @@ using System.Text;
 namespace AquariusTests.Wasm;
 
 /// <summary>Monkey tests: deterministic random programs over integers, doubles, typed arrays, struct fields, compound
-/// assignments, ++ on variables, elements and fields, conditionals, loops and breaks. Each program runs in a typed
+/// assignments, ++ on variables, elements and fields, conditionals, loops, breaks and continues. Each program runs in a typed
 /// version (annotations everywhere, so the native tier compiles it) and an untyped one (clones, regions and the generic
 /// code). Both emitters must agree on every program, and the typed and untyped versions must compute the same values.</summary>
 public class LanguageFuzzTest
@@ -151,7 +151,8 @@ public class LanguageFuzzTest
             body.Append(indent).Append($"for (var {counter}{T("int")} = 0; {counter} < {random.Next(1, 6)}; {counter}++) {{\n");
             ints.Add(counter);
             for (int i = random.Next(1, 4); i > 0; i--) Statement(indent + "    ");
-            if (Chance(30)) body.Append(indent).Append($"    if ({Condition()}) {{ break; }}\n");
+            if (Chance(30)) body.Append(indent).Append($"    if ({Condition()}) {{ {Pick("break", "continue")}; }}\n");
+            for (int i = random.Next(0, 2); i > 0; i--) Statement(indent + "    ");
             ints.Remove(counter);
             body.Append(indent).Append("}\n");
         }

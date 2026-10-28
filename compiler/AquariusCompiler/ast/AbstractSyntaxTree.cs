@@ -148,6 +148,15 @@ public class ReturnStatement : IStatement {
     }
 }
 
+/// <summary><c>繼續;</c> / <c>continue;</c>: start the innermost loop's next iteration (its update part runs first).</summary>
+public sealed class ContinueStatement : IStatement {
+    public Token Token { get; }
+    public ContinueStatement(Token token) { Token = token; }
+    public string TokenLiteral() => Token.Literal;
+    public void StatementNode() { }
+    public string String() => "(" + Token.Literal + ")";
+}
+
 public class BreakStatement : IStatement {
     private Token token;
 
