@@ -74,6 +74,46 @@ bool aqua_equal(aqua_runtime *rt, aqua_value a, aqua_value b) { return values_eq
 /* ---- Arrays ---- */
 
 static uint32_t array_items(aqua_runtime *rt, aqua_value array) { return guest_u32(rt, array.ref + G_Array_Values); }
+/* A typed number or Boolean array is packed (runtime/guest/runtime.c, array_get): its storage's layout is the element
+   type and each element is that type's payload alone (int32, float, double, one byte); layout 0 holds whole Values. */
+/* Applications of value ABI 2 (compiled before packed arrays) never pack, and their storage's layout word is unset. */
+static uint32_t array_layout(aqua_runtime *rt, aqua_value array) {
+    if (rt->app.value_abi < 3) return 0;
+    return guest_u32(rt, guest_u32(rt, array.ref + G_Array_Storage) + G_ArrayStorage_Layout);
+}
+static size_t layout_size(uint32_t layout) { return layout == AQUA_INT || layout == AQUA_FLOAT ? 4 : layout == AQUA_DOUBLE ? 8 : layout == AQUA_BOOL ? 1 : G_Value_Size; }
+static aqua_value element_read(aqua_runtime *rt, uint32_t items, uint32_t layout, uint32_t index) {
+    const uint8_t *at = guest_base(rt) + items + (size_t)index * layout_size(layout);
+    aqua_value v = {(aqua_type)layout, 0, 0};
+    switch (layout) {
+        case AQUA_INT: { int32_t x; memcpy(&x, at, 4); v.number = x; return v; }
+        case AQUA_FLOAT: { float x; memcpy(&x, at, 4); v.number = x; return v; }
+        case AQUA_DOUBLE: memcpy(&v.number, at, 8); return v;
+        case AQUA_BOOL: v.number = *at; return v;
+        default: return guest_read_value(rt, items + index * G_Value_Size);
+    }
+}
+/* item must fit the layout (element_fits). */
+static void element_write(aqua_runtime *rt, uint32_t items, uint32_t layout, uint32_t index, aqua_value item) {
+    uint8_t *at = guest_base(rt) + items + (size_t)index * layout_size(layout);
+    switch (layout) {
+        case AQUA_INT: { int32_t x = (int32_t)item.number; memcpy(at, &x, 4); return; }
+        case AQUA_FLOAT: { float x = (float)item.number; memcpy(at, &x, 4); return; }
+        case AQUA_DOUBLE: memcpy(at, &item.number, 8); return;
+        case AQUA_BOOL: *at = item.number != 0; return;
+        default: guest_write_value(rt, items + index * G_Value_Size, item);
+    }
+}
+/* Whether item fits a packed array, widened like the guest's element check (an integer or float into a float or double
+   array); any value fits whole Values. */
+static bool element_fits(uint32_t layout, aqua_value *item) {
+    if (!layout || item->type == (aqua_type)layout) return true;
+    if (aqua_is_number(*item) && (layout == AQUA_FLOAT || layout == AQUA_DOUBLE) && item->type < (aqua_type)layout) {
+        item->type = (aqua_type)layout; if (layout == AQUA_FLOAT) item->number = (double)(float)item->number;
+        return true;
+    }
+    return false;
+}
 
 aqua_value aqua_array_new(aqua_runtime *rt, uint32_t length) {
     uint32_t array = guest(rt, GUEST_array, length, 0, 0, 0);
@@ -87,14 +127,17 @@ uint32_t aqua_array_length(aqua_runtime *rt, aqua_value array) {
 }
 aqua_value aqua_array_get(aqua_runtime *rt, aqua_value array, uint32_t index) {
     if (array.type != AQUA_ARRAY || index >= guest_u32(rt, array.ref + G_Array_Count)) return aqua_null();
-    return guest_read_value(rt, array_items(rt, array) + index * G_Value_Size);
+    return element_read(rt, array_items(rt, array), array_layout(rt, array), index);
 }
-/* Element storage that may be written: detaches storage shared with other arrays (functional push). */
+/* Element storage that may be written, in the array's layout: detaches storage shared with other arrays (functional push). */
 static uint32_t writable_items(aqua_runtime *rt, aqua_value array) { return guest(rt, GUEST_array_values, array.ref, 0, 0, 0); }
 
+/* A typed number or Boolean array takes only its element type (widened like the language); anything else returns false. */
 bool aqua_array_set(aqua_runtime *rt, aqua_value array, uint32_t index, aqua_value item) {
     if (array.type != AQUA_ARRAY || index >= guest_u32(rt, array.ref + G_Array_Count)) return false;
-    guest_write_value(rt, writable_items(rt, array) + index * G_Value_Size, item);
+    uint32_t layout = array_layout(rt, array);
+    if (!element_fits(layout, &item)) return false;
+    element_write(rt, writable_items(rt, array), layout, index, item);
     return true;
 }
 bool aqua_array_resize(aqua_runtime *rt, aqua_value array, uint32_t length) {
@@ -104,6 +147,7 @@ bool aqua_array_resize(aqua_runtime *rt, aqua_value array, uint32_t length) {
 }
 bool aqua_array_push(aqua_runtime *rt, aqua_value array, aqua_value item) {
     uint32_t n = aqua_array_length(rt, array);
+    if (array.type != AQUA_ARRAY || !element_fits(array_layout(rt, array), &item)) return false;
     return aqua_array_resize(rt, array, n + 1) && aqua_array_set(rt, array, n, item);
 }
 
@@ -113,9 +157,9 @@ static bool range(aqua_runtime *rt, aqua_value array, uint32_t start, uint32_t c
 #define READ_NUMBERS(NAME, T, CHECK) \
     bool NAME(aqua_runtime *rt, aqua_value array, uint32_t start, uint32_t count, T *out) { \
         if (!range(rt, array, start, count)) return false; \
-        const uint8_t *items = guest_base(rt) + array_items(rt, array) + (size_t)start * G_Value_Size; \
+        uint32_t items = array_items(rt, array), layout = array_layout(rt, array); \
         for (uint32_t i = 0; i < count; i++) { \
-            aqua_value v; memcpy(&v, items + (size_t)i * G_Value_Size, sizeof v); \
+            aqua_value v = element_read(rt, items, layout, start + i); \
             if (!aqua_is_number(v) || !(CHECK)) return false; \
             out[i] = (T)v.number; \
         } \
@@ -129,15 +173,18 @@ READ_NUMBERS(aqua_array_read_u8, uint8_t, v.type == AQUA_INT && v.number >= 0 &&
 #define WRITE_NUMBERS(NAME, T, TAG) \
     bool NAME(aqua_runtime *rt, aqua_value array, uint32_t start, uint32_t count, const T *in TAG##_PARAMETER) { \
         if (!range(rt, array, start, count)) return false; \
+        /* A typed array takes only values of its element type (widened): all are checked before any is written. */ \
+        uint32_t layout = array_layout(rt, array); \
+        if (layout) { aqua_value v = {TAG##_TYPE, 0, 0}; if (count && !element_fits(layout, &v)) return false; } \
         uint32_t storage = writable_items(rt, array); /* may allocate: read the base after */ \
-        uint8_t *items = guest_base(rt) + storage + (size_t)start * G_Value_Size; \
         for (uint32_t i = 0; i < count; i++) { \
             aqua_value v = {TAG##_TYPE, 0, (double)in[i]}; \
             if (v.type == AQUA_FLOAT) v.number = (double)(float)v.number; \
             /* Integer values always hold an exact 32-bit integer (truncated, saturated, NaN 0) like the language's conversions. */ \
             if (v.type == AQUA_INT) v.number = v.number != v.number ? 0 : v.number <= -2147483648.0 ? -2147483648.0 \
                 : v.number >= 2147483647.0 ? 2147483647.0 : (double)(int32_t)v.number; \
-            memcpy(items + (size_t)i * G_Value_Size, &v, sizeof v); \
+            element_fits(layout, &v); \
+            element_write(rt, storage, layout, start + i, v); \
         } \
         return true; \
     }

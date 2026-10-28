@@ -116,10 +116,17 @@ typed variable. Reading or writing a typed array outside its bounds is an error 
 to make a `double[]`. Elements take compound assignments and `++` (`a[i] += 2`, `計數[k]++`): the element keeps its type,
 and fully typed functions run them natively for number elements. Fully typed
 functions read and write typed arrays natively (see [execution tiers](execution-tiers.md)); arrays copied by `push`,
-`Array.Clone` or `Array.Slice` start untyped. Native libraries that write an array's values directly are not checked.
+`Array.Clone` or `Array.Slice` start untyped. Native libraries write arrays only through the SDK, which keeps the type:
+`aqua_array_set`, `aqua_array_push` and the `aqua_array_write_*` functions return false for a value of another type.
+
+Typed number and Boolean arrays are packed: once fixed, an `整數[]` stores 4 bytes per element, a `浮點數[]` 4, a `雙精度[]`
+8 and a `布林[]` 1, instead of a 16-byte value each, so loops over them touch less memory. Results never change: values,
+errors and printing are the same as for untyped arrays. A fully typed function that writes `陣列.建立` straight into such
+an annotation creates the packed array directly. `字串[]`, untyped arrays and `陣列` keep whole values.
 
 標註 `整數[]`、`浮點數[]`、`雙精度[]`、`布林[]`、`字串[]` 會檢查每個元素的型別，之後該陣列（含所有別名）只能寫入相同型別
 （整數寫入浮點數或雙精度陣列時自動轉型）；型別陣列越界讀寫會回報錯誤，不再回傳 `null`。元素也能使用複合指派與 `++`。
+數字與布林型別陣列以緊湊方式儲存（整數 4 位元組、浮點數 4、雙精度 8、布林 1），結果與未標註的陣列完全相同。
 
 `陣列` / `array` (no brackets) annotates an array whose elements may be any values, such as a tree of nested arrays:
 `變數 樹: 陣列 = [[0, 0], [0, 0]];`. It checks only that the value is an array and fixes nothing; every typed array is

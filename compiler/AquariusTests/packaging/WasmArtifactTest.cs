@@ -35,7 +35,7 @@ public class WasmArtifactTest
     /// <summary>The binary metadata fields in encoding order (ABI 3 layout; ABI 4 appends the import table of bundled
     /// library modules and the native libraries).</summary>
     internal sealed record BinaryManifest(int HeapStart, int FunctionCount, (string Name, int Index)[] Modules, (string Name, int Length)[] Assets,
-        int Abi = 4, int ValueAbi = 2, int ProgramAddress = 4194304, int FunctionLayout = 40, int Entry = 0, string[]? Platforms = null, byte Storage = 0,
+        int Abi = 4, int ValueAbi = WasmAbi.ValueAbi, int ProgramAddress = 4194304, int FunctionLayout = 40, int Entry = 0, string[]? Platforms = null, byte Storage = 0,
         (string Name, int Module)[]? Imports = null, string[]? Libraries = null);
     internal static BinaryManifest Manifest(WasmProgram program)
     {

@@ -53,7 +53,7 @@ static void packet_encode(ThreadPacket*p,Value v,u32 depth) {
     packet_write(p,&v.tag,4);
     if(v.tag>=INT&&v.tag<=BOOL)packet_write(p,&v.number,8);
     else if(v.tag==STRING||v.tag==ERROR){Text*t=pointer(v.ref);packet_write(p,&t->length,4);packet_write(p,t->data,t->length*2);}
-    else if(v.tag==ARRAY){Array*a=pointer(v.ref);packet_write(p,&a->count,4);for(u32 i=0;i<a->count&&!p->failed;i++)packet_encode(p,a->values[i],depth+1);}
+    else if(v.tag==ARRAY){Array*a=pointer(v.ref);packet_write(p,&a->count,4);for(u32 i=0;i<a->count&&!p->failed;i++)packet_encode(p,array_get(a,i),depth+1);}
     else if(v.tag==HASH){Hash*h=pointer(v.ref);packet_write(p,&h->count,4);for(u32 i=0;i<h->count&&!p->failed;i++){packet_encode(p,h->pairs[i].key,depth+1);packet_encode(p,h->pairs[i].value,depth+1);}}
     else if(v.tag==STRUCT){Struct*x=pointer(v.ref);packet_shape(p,x->shape);for(u32 i=0;i<x->count&&!p->failed;i++)packet_encode(p,x->fields[i],depth+1);}
     else if(v.tag==STRUCT_TYPE)packet_shape(p,pointer(v.ref));
@@ -66,7 +66,7 @@ static Value packet_decode(ThreadPacket*p,u32 depth) {
     else if(tag==STRING||tag==ERROR){packet_read(p,&n,4);if(n>(p->size-p->position)/2){p->failed=1;return empty;}Text*t=pointer(aqua_text(n));packet_read(p,t->data,n*2);v.ref=address(t);}
     else if(tag==ARRAY||tag==HASH){packet_read(p,&n,4);if(n>p->size/4||p->count==THREAD_GRAPH_LIMIT){p->failed=1;return empty;}
         v.ref=tag==ARRAY?aqua_array(n):aqua_hash(n);p->values[p->count++]=v;
-        for(u32 i=0;i<n&&!p->failed;i++){if(tag==ARRAY)((Array*)pointer(v.ref))->values[i]=packet_decode(p,depth+1);
+        for(u32 i=0;i<n&&!p->failed;i++){if(tag==ARRAY)array_put(pointer(v.ref),i,packet_decode(p,depth+1));
             else{Hash*h=pointer(v.ref);h->pairs[i].key=packet_decode(p,depth+1);h->pairs[i].value=packet_decode(p,depth+1);}}
     }else if(tag==STRUCT){Shape*s=packet_read_shape(p);if(p->failed||p->count==THREAD_GRAPH_LIMIT){p->failed=1;return empty;}
         v.ref=(u32)rt_nativeStruct((int)address(s));p->values[p->count++]=v;

@@ -1114,13 +1114,14 @@ internal sealed class WasmBodyEmitter
         if (ta == Unknown) { Get(T(a)); I32(ArrayTag); Op(0x46); } else I32(1);
         if (ti == Unknown) { Get(T(i)); I32(IntTag); Op(0x46); Op(0x71); }
         Branch(() => {
-            // Out-of-range array reads produce null like rt_index; an unsigned compare also rejects negatives.
-            InBounds(a, i, ti);
+            // Out-of-range array reads produce null like rt_index; an unsigned compare also rejects negatives. A typed
+            // number or Boolean array (element 1..4) is packed: rt_index reads it.
+            InBounds(a, i, ti); Get(R(a)); LoadI32(ArrayElement); I32(1); Op(0x6b); I32(4); Op(0x4f); Op(0x71);
             Branch(() => {
                 Get(R(a)); LoadI32(ArrayValues); IndexOf(i, ti); I32(4); Op(0x74); Op(0x6a); Set(B);
                 LoadValue(a, B, 0, Unknown); loc[a] = Loc.Reg; return false;
             }, () => {
-                // A typed array's out-of-range read is the helper's error.
+                // A typed array's read is the helper's: packed, or out of range (an error).
                 Get(R(a)); LoadI32(ArrayElement);
                 Branch(() => { Slow(); return false; }, () => { I32(NullTag); Set(T(a)); I32(0); Set(R(a)); F64(0); Set(N(a)); loc[a] = Loc.Reg; return false; }, i);
                 return false;
@@ -1194,9 +1195,10 @@ internal sealed class WasmBodyEmitter
         if (ta != ArrayTag && ta != Unknown || ti != IntTag && ti != Unknown) { Slow(); return; }
         // Owned, unexposed storage needs no copy-on-write or host dirty tracking.
         ArrayWriteTest(a, ta, i, ti);
-        // A typed array (element tag set) takes only its element type here; the helper reports anything else.
+        // Only untyped arrays and typed string arrays given a string are written here: typed number and Boolean arrays are
+        // packed, and the helper reports any other value.
         If(0x7f); Get(R(a)); LoadI32(ArrayStorage); LoadI32(ArrayStorageReferences); I32(1); Op(0x46); Get(R(a)); LoadI32(ArrayExposed); Op(0x45); Op(0x71);
-        Get(R(a)); LoadI32(ArrayElement); Set(C); Get(C); Op(0x45); Get(C); if (tv == Unknown) Get(T(v)); else I32(tv); Op(0x46, 0x72, 0x71);
+        Get(R(a)); LoadI32(ArrayElement); Set(C); Get(C); Op(0x45); Get(C); if (tv == Unknown) Get(T(v)); else I32(tv); Op(0x46); Get(C); I32(StringTag); Op(0x46, 0x71, 0x72, 0x71);
         Else(); I32(0); End();
         Branch(() => {
             Get(R(a)); LoadI32(ArrayValues); IndexOf(i, ti); I32(4); Op(0x74); Op(0x6a); Set(B);

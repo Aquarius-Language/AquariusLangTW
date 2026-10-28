@@ -120,7 +120,9 @@ char *aqua_display(aqua_runtime *rt, aqua_value v);
 bool aqua_equal(aqua_runtime *rt, aqua_value a, aqua_value b);
 
 /* Arrays. Reads see the current elements; writes go straight into the guest array (copy-on-write sharing is resolved
-   by the runtime). Indices outside the array return null (get) or false (set). */
+   by the runtime). Indices outside the array return null (get) or false (set). A typed number or Boolean array (int[],
+   float[], double[], bool[] in the language) takes only its element type, integers widening into float and double
+   arrays: set, push and the write functions return false (writing nothing) for anything else. */
 aqua_value aqua_array_new(aqua_runtime *rt, uint32_t length);
 uint32_t aqua_array_length(aqua_runtime *rt, aqua_value array);
 aqua_value aqua_array_get(aqua_runtime *rt, aqua_value array, uint32_t index);

@@ -13,11 +13,13 @@ typedef struct { u32 size, reserved, kind, marked; } Block;
 typedef struct { u32 length; uint16_t data[]; } Text;
 typedef struct { Text *name; u32 hash; Value value; } Binding;
 typedef struct Scope { struct Scope *outer; Binding *bindings; u32 count, capacity, captured; u32 *index,index_capacity; } Scope;
-typedef struct { u32 references,capacity,used,padding; Value values[]; } ArrayStorage;
+/* Element storage, shared by arrays until one writes (copy-on-write). layout: 0 for whole Values, or the element type of
+   a packed typed array (see array_get). */
+typedef struct { u32 references,capacity,used,layout; _Alignas(16) unsigned char values[]; } ArrayStorage;
 /* element: 0, or the one value tag a typed array (整數[] / int[] ...) holds; set when an annotation check accepts it.
    kind: the tag every element of an untyped array has, or 0 when unknown. Writes of another tag (and host writes) reset it;
    native regions speculating on an untyped array check it at entry (rt_arrayKind), scanning only when it is unknown. */
-typedef struct Array { u32 count, capacity; Value *values; struct Array *dirty_next; uint16_t dirty, kind; u32 exposed; ArrayStorage *storage; u32 element; } Array;
+typedef struct Array { u32 count, capacity; void *values; struct Array *dirty_next; uint16_t dirty, kind; u32 exposed; ArrayStorage *storage; u32 element; } Array;
 typedef struct { Value key, value; } Pair;
 /* A struct type (結構 / struct), made when its declaration runs: its program-wide id (the annotation code is
    32 | id << 6), name and fields, each with its annotation code (0: any value) and type name (for messages). */
@@ -145,9 +147,11 @@ static __attribute__((noinline)) void *allocate_slow(u32 n,u32 bucket,u32 kind) 
     if(end>heap_high){heap_growth+=end-(heap_high>heap_end?heap_high:heap_end);heap_high=end;arm_collection();}
     Block *b=pointer(heap_end);b->size=n;b->reserved=0;b->kind=kind;b->marked=0;heap_end=end;initialize_allocation(b+1,n,kind);return b+1;
 }
+/* The block size allocate gives a request of n bytes. */
+static inline u32 block_size(u32 n) { return n<=16?16:1u<<(32u-(u32)__builtin_clz(n-1)); }
 static inline __attribute__((always_inline)) void *allocate(u32 n,u32 kind) {
     if(n>HEAP_LIMIT)__builtin_trap();
-    n=n<=16?16:1u<<(32u-(u32)__builtin_clz(n-1));u32 bucket=allocation_class(n);
+    n=block_size(n);u32 bucket=allocation_class(n);
     bytes_since_collection+=n;
     // Compiled checkpoints poll Execution.poll instead of calling into the runtime every block.
     if(bytes_since_collection>=gc_threshold)arm_collection();
@@ -262,15 +266,85 @@ static Value binary(Frame*f,int op,Value a,Value b,int compound) {
     if(op==0&&a.tag==STRING&&b.tag==STRING)return value(STRING,address(concat(pointer(a.ref),pointer(b.ref))),0);
     operator_failure(f,a,b,symbols[op]);return empty;
 }
-static ArrayStorage *array_storage(u32 n) { ArrayStorage*s=allocate(sizeof(ArrayStorage)+n*sizeof(Value),VALUES);s->references=1;s->capacity=(((Block*)s-1)->size-sizeof(ArrayStorage))/sizeof(Value);s->used=n;return s; }
+/* Packed typed arrays. An array locked to a number or Boolean type (element INT, FLOAT, DOUBLE or BOOL) stores only its
+   elements' payloads: int32, float, double or one byte each. Its storage's layout is that type (0: whole Values). Every
+   reader and writer of elements goes through array_get / array_put or compares layouts, so the collector, copy-on-write,
+   shared storage and hosts never read one layout as the other. Locking converts the storage once (lock_array); a lock
+   is permanent, so storage never converts back. */
+static int packable(u32 element) { return element>=INT&&element<=BOOL; }
+static u32 layout_size(u32 layout) { return layout==INT||layout==FLOAT?4u:layout==DOUBLE?8u:layout==BOOL?1u:(u32)sizeof(Value); }
+static Value load_element(const void*items,u32 layout,u32 i) {
+    switch(layout){
+        case INT:return value(INT,0,((const int32_t*)items)[i]);
+        case FLOAT:return value(FLOAT,0,((const float*)items)[i]);
+        case DOUBLE:return value(DOUBLE,0,((const double*)items)[i]);
+        case BOOL:return value(BOOL,0,((const uint8_t*)items)[i]);
+        default:return ((const Value*)items)[i];
+    }
+}
+/* A packed element must already have the layout's tag (element_fits checked and widened it). */
+static void store_element(void*items,u32 layout,u32 i,Value v) {
+    switch(layout){
+        case INT:((int32_t*)items)[i]=(int32_t)v.number;break;
+        case FLOAT:((float*)items)[i]=(float)v.number;break;
+        case DOUBLE:((double*)items)[i]=v.number;break;
+        case BOOL:((uint8_t*)items)[i]=v.number!=0;break;
+        default:((Value*)items)[i]=v;
+    }
+}
+static Value array_get(const Array*a,u32 i) { return load_element(a->values,a->storage->layout,i); }
+/* Writes into storage the caller made writable (writable_array, or a new array). */
+static void array_put(Array*a,u32 i,Value v) { store_element(a->values,a->storage->layout,i,v); }
+/* Sets elements [start, start + count) of writable storage to v (which fits): one loop per layout. */
+static void fill_elements(Array*a,u32 start,u32 count,Value v) {
+    u32 layout=a->storage->layout;char*items=(char*)a->values;
+    switch(layout){
+        case INT:{int32_t x=(int32_t)v.number;int32_t*p=(int32_t*)items+start;for(u32 i=0;i<count;i++)p[i]=x;break;}
+        case FLOAT:{float x=(float)v.number;float*p=(float*)items+start;for(u32 i=0;i<count;i++)p[i]=x;break;}
+        case DOUBLE:{double*p=(double*)items+start;for(u32 i=0;i<count;i++)p[i]=v.number;break;}
+        case BOOL:memset(items+start,v.number!=0,count);break;
+        default:{Value*p=(Value*)items+start;for(u32 i=0;i<count;i++)p[i]=v;}
+    }
+}
+static ArrayStorage *array_storage_of(u32 n,u32 layout) {
+    u32 size=layout_size(layout);ArrayStorage*s=allocate(sizeof(ArrayStorage)+n*size,VALUES);
+    s->references=1;s->capacity=(((Block*)s-1)->size-sizeof(ArrayStorage))/size;s->used=n;s->layout=layout;return s;
+}
+static ArrayStorage *array_storage(u32 n) { return array_storage_of(n,0); }
 static void attach_storage(Array*a,ArrayStorage*s) { a->storage=s;a->capacity=s->capacity;a->values=s->values; }
 static Array *array(u32 n) { Array*a=allocate(sizeof(Array),ARRAYS);a->count=n;attach_storage(a,array_storage(n));return a; }
-static void writable_array(Array*a,u32 count) { if(a->storage->references==1&&count<=a->capacity)return;u32 capacity=count>a->count?count:a->count;if(capacity<a->capacity)capacity=a->capacity;ArrayStorage*old=a->storage,*next=array_storage(capacity);memcpy(next->values,a->values,a->count*sizeof(Value));next->used=a->count;if(!--old->references)release(old);attach_storage(a,next); }
-static Array *append_array(Array*a,Value v) { Array*b=allocate(sizeof(Array),ARRAYS);b->count=a->count+1;if(a->count==a->storage->used&&b->count<=a->capacity){a->storage->references++;attach_storage(b,a->storage);}else{attach_storage(b,array_storage(b->count));memcpy(b->values,a->values,a->count*sizeof(Value));}b->values[a->count]=v;b->storage->used=b->count;b->kind=a->kind==v.tag?a->kind:0;return b; }
+static void writable_array(Array*a,u32 count) {
+    if(a->storage->references==1&&count<=a->capacity)return;
+    u32 capacity=count>a->count?count:a->count;if(capacity<a->capacity)capacity=a->capacity;
+    ArrayStorage*old=a->storage,*next=array_storage_of(capacity,old->layout);memcpy(next->values,a->values,(size_t)a->count*layout_size(old->layout));
+    next->used=a->count;if(!--old->references)release(old);attach_storage(a,next);
+}
+/* Locks an untyped array whose elements all have tag want (an annotation check accepted it); a number or Boolean type
+   packs its storage. Arrays that shared the old storage keep it. */
+static void lock_array(Array*a,u32 want) {
+    a->element=want;if(!packable(want))return;
+    ArrayStorage*old=a->storage,*s=array_storage_of(a->capacity>a->count?a->capacity:a->count,want);
+    for(u32 i=0;i<a->count;i++)store_element(s->values,want,i,((const Value*)a->values)[i]);
+    s->used=a->count;if(!--old->references)release(old);attach_storage(a,s);a->kind=(uint16_t)want;
+}
+/* The functional push (an untyped copy that shares unpacked storage while it is the append frontier). */
+static Array *append_array(Array*a,Value v) {
+    Array*b=allocate(sizeof(Array),ARRAYS);b->count=a->count+1;
+    if(!a->storage->layout&&a->count==a->storage->used&&b->count<=a->capacity){a->storage->references++;attach_storage(b,a->storage);}
+    else{attach_storage(b,array_storage(b->count));if(!a->storage->layout)memcpy(b->values,a->values,a->count*sizeof(Value));else for(u32 i=0;i<a->count;i++)array_put(b,i,array_get(a,i));}
+    array_put(b,a->count,v);b->storage->used=b->count;b->kind=a->kind==v.tag?a->kind:0;return b;
+}
 u32 aqua_array(u32 n) { return address(array(n)); }
-u32 aqua_array_values(u32 p) { Array*a=pointer(p);writable_array(a,a->count);a->kind=0;return address(a->values); }
+/* Writable element storage for a host, in the array's layout (hosts read ArrayStorage.layout). */
+u32 aqua_array_values(u32 p) { Array*a=pointer(p);writable_array(a,a->count);if(!a->storage->layout)a->kind=0;return address(a->values); }
+/* Thread.Start's arguments as whole Values: the elements, or a copy of a packed array's (the host copies memory for the
+   worker before anything can collect it). */
+u32 aqua_array_arguments(u32 p) { Array*a=pointer(p);if(!a->storage->layout)return address(a->values);
+    Value*v=allocate(a->count*sizeof(Value),RAW);for(u32 i=0;i<a->count;i++)v[i]=array_get(a,i);return address(v); }
 u32 aqua_array_count(u32 p) { return ((Array*)pointer(p))->count; }
-u32 aqua_array_resize(u32 p,u32 n) { Array*a=pointer(p);writable_array(a,n);a->kind=0;if(n>a->count)memset(a->values+a->count,0,(n-a->count)*sizeof(Value));a->count=n;a->storage->used=n;return 0; }
+/* New elements are zero: void Values, or 0 / false in a packed array (which keeps its type). */
+u32 aqua_array_resize(u32 p,u32 n) { Array*a=pointer(p);writable_array(a,n);u32 size=layout_size(a->storage->layout);if(!a->storage->layout)a->kind=0;
+    if(n>a->count)memset((char*)a->values+(size_t)a->count*size,0,(size_t)(n-a->count)*size);a->count=n;a->storage->used=n;return 0; }
 u32 aqua_array_expose(u32 p) { Array*a=pointer(p);if(a->exposed!=2)a->exposed=1;return 0; }
 /* Host-visible work lists: arrays and hashes changed since the host took them, and exposed ones the guest dropped
    (weak mirrors). Hosts read this block (aqua_pending) after a run slice or before a service call and call the take_*
@@ -307,7 +381,6 @@ static int keep_released(Block*b) {
     if(b->kind==HASHES){Hash*h=(Hash*)(b+1);if(h->exposed==1){h->exposed=2;h->dirty_next=pending.released_hashes;pending.released_hashes=h;}return h->exposed==2;}
     return 0;
 }
-u32 aqua_array_items(u32 p) { Array*a=pointer(p);a->kind=0;return address(a->values); }
 u32 aqua_stale(u32 tag,u32 p) { return tag==ARRAY?((Array*)pointer(p))->dirty:tag==HASH?((Hash*)pointer(p))->dirty:1; }
 u32 aqua_hash(u32 n) { Hash*h=allocate(sizeof(Hash),HASHES);h->count=n;h->pairs=allocate(n*sizeof(Pair),RAW);h->capacity=((Block*)h->pairs-1)->size/sizeof(Pair);return address(h); }
 u32 aqua_hash_pairs(u32 p) { return address(((Hash*)pointer(p))->pairs); }
@@ -325,12 +398,17 @@ static int element_fits(Frame*f,Array*a,Value*v) {
     Text*t=concat(ascii("型別不符 / Type mismatch: the array holds "),ascii(names[a->element]));
     fail(f,concat(concat(t,ascii(", got ")),ascii(type_name(v->tag))));return 0;
 }
-/* Whether values a bulk copy brings into a typed array fit it (they are widened after the copy by widen_elements). */
-static int elements_fit(Frame*f,Array*a,const Value*values,u32 count) {
-    if(a->element)for(u32 i=0;i<count;i++){Value v=values[i];if(!element_fits(f,a,&v))return 0;}return 1;
+/* Whether the elements a bulk copy brings from b into a typed array fit it (copy_elements widens them). */
+static int elements_fit(Frame*f,Array*a,const Array*b,u32 start,u32 count) {
+    if(a->element)for(u32 i=0;i<count;i++){Value v=array_get(b,start+i);if(!element_fits(f,a,&v))return 0;}return 1;
 }
-static void widen_elements(Array*a,u32 start,u32 count) {
-    if(a->element>=FLOAT&&a->element<=DOUBLE)for(u32 i=start;i<start+count;i++)if(a->values[i].tag!=a->element)a->values[i]=number(a->values[i].number,a->element);
+/* Copies count elements of b from start into a (made writable) at at: bytes when the layouts agree (memmove, so a and b
+   may be one array), else each element, widened to a's float or double type. */
+static void copy_elements(Array*a,u32 at,const Array*b,u32 start,u32 count) {
+    u32 layout=a->storage->layout,size=layout_size(layout);
+    if(layout==b->storage->layout){memmove((char*)a->values+(size_t)at*size,(const char*)b->values+(size_t)start*size,(size_t)count*size);return;}
+    for(u32 i=0;i<count;i++){Value v=array_get(b,start+i);
+        if(numeric(v)&&a->element>=FLOAT&&a->element<=DOUBLE&&v.tag<a->element)v=number(v.number,a->element);array_put(a,at+i,v);}
 }
 #include "arrays.h"
 #include "hashes.h"
@@ -466,7 +544,9 @@ int rt_pc(Frame*f,int unused) { return (int)f->pc; }
 int rt_failed(Frame*f,int unused) { return f->execution->status==3; }
 /* Fuel: a checkpoint consumes its static weight (see WasmFuel), saturating at zero, and yields only once the
    budget is exhausted, so every quantum makes progress even when a weight exceeds the quantum. */
-int rt_checkpoint(Frame*f,int weight) { if(collection_due())aqua_collect();u32 w=weight>1?(u32)weight:1;Execution*e=f->execution;if(!e->budget){e->status=1;return 1;}e->budget=e->budget>w?e->budget-w:0;return 0; }
+/* A collection armed earlier (Execution.poll) runs here even if releases since made it no longer due: otherwise poll would
+   stay set and every native region and function would keep leaving for this checkpoint. */
+int rt_checkpoint(Frame*f,int weight) { if(gc_armed||collection_due())aqua_collect();u32 w=weight>1?(u32)weight:1;Execution*e=f->execution;if(!e->budget){e->status=1;return 1;}e->budget=e->budget>w?e->budget-w:0;return 0; }
 int rt_constant(Frame*f,int n) { push(f,constant(f,n));return 0; }
 int rt_void(Frame*f,int n) { push(f,empty);return 0; }
 int rt_null(Frame*f,int n) { push(f,value(NULL_VALUE,0,0));return 0; }
@@ -529,19 +609,19 @@ static Value flood_fill(Frame*f,Value*args) {
     if(args[0].tag!=ARRAY||args[1].tag!=INT||args[2].tag!=INT||args[3].tag!=INT||args[4].tag!=INT||!numeric(args[5])){failure(f,"floodFill requires a numeric array, integer dimensions/coordinates and a numeric replacement.");return empty;}
     Array*a=pointer(args[0].ref);if(!element_fits(f,a,&args[5]))return empty;double wd=args[1].number,hd=args[2].number,xd=args[3].number,yd=args[4].number;
     if(wd<1||hd<1||wd>8192||hd>8192||wd*hd>16u*1024*1024||wd*hd!=a->count||xd<0||yd<0||xd>=wd||yd>=hd){failure(f,"Invalid floodFill dimensions or seed.");return empty;}
-    for(u32 i=0;i<a->count;i++)if(!numeric(a->values[i])){failure(f,"floodFill requires a numeric array.");return empty;}
-    u32 width=(u32)wd,height=(u32)hd,x=(u32)xd,y=(u32)yd;Value original=a->values[y*width+x],replacement=args[5];
+    for(u32 i=0;i<a->count;i++)if(!numeric(array_get(a,i))){failure(f,"floodFill requires a numeric array.");return empty;}
+    u32 width=(u32)wd,height=(u32)hd,x=(u32)xd,y=(u32)yd;Value original=array_get(a,y*width+x),replacement=args[5];
     if(equal(original,replacement,0)||!equal(original,original,0))return number(0,INT);
     writable_array(a,a->count);if(a->kind!=replacement.tag)a->kind=0;u32 capacity=64,count=0,changed=0;FillSpan*stack=allocate(capacity*sizeof(FillSpan),RAW);
-    u32 left=x,right=x;while(left&&equal(a->values[y*width+left-1],original,0))left--;while(right+1<width&&equal(a->values[y*width+right+1],original,0))right++;
-    for(u32 i=left;i<=right;i++){a->values[y*width+i]=replacement;changed++;}stack[count++]=(FillSpan){y,left,right};
+    u32 left=x,right=x;while(left&&equal(array_get(a,y*width+left-1),original,0))left--;while(right+1<width&&equal(array_get(a,y*width+right+1),original,0))right++;
+    for(u32 i=left;i<=right;i++){array_put(a,y*width+i,replacement);changed++;}stack[count++]=(FillSpan){y,left,right};
     while(count){FillSpan span=stack[--count];for(u32 side=0;side<2;side++){
         if((side==0&&span.y==0)||(side==1&&span.y+1==height))continue;u32 row=side?span.y+1:span.y-1;
         for(u32 column=span.left;column<=span.right;){
-            if(!equal(a->values[row*width+column],original,0)){column++;continue;}
-            left=right=column;while(left&&equal(a->values[row*width+left-1],original,0))left--;while(right+1<width&&equal(a->values[row*width+right+1],original,0))right++;
+            if(!equal(array_get(a,row*width+column),original,0)){column++;continue;}
+            left=right=column;while(left&&equal(array_get(a,row*width+left-1),original,0))left--;while(right+1<width&&equal(array_get(a,row*width+right+1),original,0))right++;
             if(count==capacity){capacity*=2;FillSpan*next=allocate(capacity*sizeof(FillSpan),RAW);memcpy(next,stack,count*sizeof(FillSpan));release(stack);stack=next;}
-            for(u32 i=left;i<=right;i++){a->values[row*width+i]=replacement;changed++;}stack[count++]=(FillSpan){row,left,right};column=right+1;
+            for(u32 i=left;i<=right;i++){array_put(a,row*width+i,replacement);changed++;}stack[count++]=(FillSpan){row,left,right};column=right+1;
         }
     }}release(stack);if(a->exposed&&!a->dirty){a->dirty=1;a->dirty_next=pending.dirty_arrays;pending.dirty_arrays=a;}return number(changed,INT);
 }
@@ -565,8 +645,8 @@ int rt_call(Frame*f,int n) {
     else if(callee.tag==BUILTIN){Value out=empty;if(callee.ref<1||callee.ref>5||n!=(callee.ref==5?6:callee.ref==4?2:1)){failure(f,"Incorrect builtin argument count.");return 1;}Value a=args[0];
         if(callee.ref==5)out=flood_fill(f,args);
         else if(callee.ref==1){if(a.tag==STRING)out=number(((Text*)pointer(a.ref))->length,INT);else if(a.tag==ARRAY)out=number(((Array*)pointer(a.ref))->count,INT);else if(a.tag==HASH)out=number(((Hash*)pointer(a.ref))->count,INT);else failure(f,"Length requires string, array or hash.");}
-        else if(a.tag!=ARRAY)failure(f,"Builtin requires an array.");else{Array*x=pointer(a.ref);if(callee.ref==2)out=x->count?x->values[x->count-1]:value(NULL_VALUE,0,0);
-            else if(callee.ref==3){if(!x->count)out=value(NULL_VALUE,0,0);else{Array*y=array(x->count-1);memcpy(y->values,x->values+1,y->count*sizeof(Value));y->kind=x->kind;out=value(ARRAY,address(y),0);}}
+        else if(a.tag!=ARRAY)failure(f,"Builtin requires an array.");else{Array*x=pointer(a.ref);if(callee.ref==2)out=x->count?array_get(x,x->count-1):value(NULL_VALUE,0,0);
+            else if(callee.ref==3){if(!x->count)out=value(NULL_VALUE,0,0);else{Array*y=array(x->count-1);copy_elements(y,0,x,1,y->count);y->kind=x->kind;out=value(ARRAY,address(y),0);}}
             else{Array*y=append_array(x,args[1]);out=value(ARRAY,address(y),0);}}
         f->sp=base;push(f,out);}
     else if(callee.tag==STRUCT_TYPE){Value out=struct_new(f,pointer(callee.ref),args,(u32)n,0);f->sp=base;if(!f->execution->status)push(f,out);}
@@ -616,7 +696,8 @@ int rt_nativeFrame(Execution*e,int closure,int pc,int depth) {
 int rt_nativeFailure(Execution*e,int code) {
     static const char *const messages[]={"Integer division by zero / 整數不能除以零。","Integer remainder by zero / 整數不能對零取餘數。",
         "Array index is out of bounds / 陣列索引超出範圍。","Array assignment index is out of bounds.",
-        "Cannot access member of NULL","Cannot assign a member of NULL","Array length exceeds the Wasm array limit."};
+        "Cannot access member of NULL","Cannot assign a member of NULL","Array length exceeds the Wasm array limit.",
+        "Array size/index must be a nonnegative integer within the Wasm array limit.","Array capacity must be at least its length."};
     e->result=value(ERROR,address(ascii(messages[code])),0);e->status=3;return 5;
 }
 /* An array literal built by native code (an array of any values): it writes every element before anything can collect. */
@@ -624,8 +705,16 @@ int rt_nativeArray(int n){return (int)address(array((u32)n));}
 /* Array.Append (陣列.追加) of native code, like array_call's: the element already has the array's element type (widened
    by the caller), so it always fits; the caller raises the length-limit error before calling. */
 int rt_nativeArrayAppend(int array,int tag,double n){
-    Array*a=pointer((u32)array);u32 start=a->count;writable_array(a,start+1);a->values[start]=value((u32)tag,0,n);
+    Array*a=pointer((u32)array);u32 start=a->count;writable_array(a,start+1);array_put(a,start,value((u32)tag,0,n));
     if(a->kind!=(u32)tag)a->kind=0;a->count=start+1;a->storage->used=a->count;array_changed(a);return 0;
+}
+/* Array.Make (陣列.建立) of native code straight into a typed array annotation of its value's type: the array the generic
+   Make and the annotation's lock would leave (the same capacity), built packed without the whole-Value copy. The caller
+   raised the generic size errors. */
+int rt_nativeArrayMake(int count,int capacity,int tag,double n){
+    u32 values=(block_size(sizeof(ArrayStorage)+(u32)capacity*sizeof(Value))-sizeof(ArrayStorage))/sizeof(Value);
+    Array*a=allocate(sizeof(Array),ARRAYS);a->count=(u32)count;attach_storage(a,array_storage_of(values>(u32)count?values:(u32)count,(u32)tag));
+    a->storage->used=(u32)count;a->element=(u32)tag;a->kind=(uint16_t)tag;fill_elements(a,0,(u32)count,value((u32)tag,0,n));return (int)address(a);
 }
 /* Strings of native code (WasmNativeFunction.StringType): equality, concatenation and one-unit texts. */
 int rt_nativeTextEqual(int a,int b){return text_equal(pointer((u32)a),pointer((u32)b));}
@@ -647,7 +736,7 @@ static int fits(Value*v,u32 code) {
     if(code&32u)return v->tag==NULL_VALUE||(v->tag==STRUCT&&((Struct*)pointer(v->ref))->shape->id==code>>6);
     u32 want=code&15u;
     if(code&16u){if(v->tag!=ARRAY)return 0;Array*a=pointer(v->ref);if(!want||a->element==want)return 1;
-        u32 i=0;if(!a->element)while(i<a->count&&a->values[i].tag==want)i++;if(!a->element&&i==a->count){a->element=want;return 1;}return 0;}
+        u32 i=0;if(!a->element)while(i<a->count&&((const Value*)a->values)[i].tag==want)i++;if(!a->element&&i==a->count){lock_array(a,want);return 1;}return 0;}
     if(v->tag==want)return 1;
     if(numeric(*v)&&want>=FLOAT&&want<=DOUBLE&&v->tag<want){*v=number(v->number,want);return 1;}
     return 0;
@@ -746,19 +835,19 @@ int rt_nativeStruct(int shape) {
     Shape*s=pointer((u32)shape);Struct*x=allocate(sizeof(Struct)+s->count*sizeof(Value),STRUCTS);x->shape=s;x->count=s->count;
     for(u32 i=0;i<s->count;i++)x->fields[i]=value(NULL_VALUE,0,0);return (int)address(x);
 }
-int rt_array(Frame*f,int n){Array*a=array(n);u32 kind=n?f->values[f->sp-1].tag:0;for(int i=n-1;i>=0;i--){a->values[i]=pop(f);if(a->values[i].tag!=kind)kind=0;}a->kind=(uint16_t)kind;push(f,value(ARRAY,address(a),0));return 0;}
-/* A native region speculating that an untyped array holds only elements of one tag checks it at entry: a typed array
-   must hold that tag, an untyped one must have that kind (Array.kind), found by a scan when unknown. Host-exposed arrays
-   are scanned every time, since the host may write them directly. */
-int rt_arrayKind(int array,int tag){Array*a=pointer((u32)array);if(a->element)return a->element==(u32)tag;if(a->kind==(u32)tag&&!a->exposed)return 1;
-    for(u32 i=0;i<a->count;i++)if(a->values[i].tag!=(u32)tag)return 0;if(!a->exposed)a->kind=(uint16_t)tag;return 1;}
+int rt_array(Frame*f,int n){Array*a=array(n);u32 kind=n?f->values[f->sp-1].tag:0;for(int i=n-1;i>=0;i--){Value v=pop(f);array_put(a,(u32)i,v);if(v.tag!=kind)kind=0;}a->kind=(uint16_t)kind;push(f,value(ARRAY,address(a),0));return 0;}
+/* A native region speculating that an untyped array holds only elements of one tag checks it at entry: it must be an
+   untyped array (a typed one is packed, which loose array code does not read) of that kind (Array.kind), found by a scan
+   when unknown. Host-exposed arrays are scanned every time, since the host may write them directly. */
+int rt_arrayKind(int array,int tag){Array*a=pointer((u32)array);if(a->element)return 0;if(a->kind==(u32)tag&&!a->exposed)return 1;
+    for(u32 i=0;i<a->count;i++)if(((const Value*)a->values)[i].tag!=(u32)tag)return 0;if(!a->exposed)a->kind=(uint16_t)tag;return 1;}
 /* An annotation check on the top operand: n = (subject constant << 5) | type code (element tag, +16 for arrays).
    Integers widen to float or double and floats to double; any other mismatch is a language error. */
 int rt_checkType(Frame*f,int n){
     static const char *const names[]={"","int","float","double","bool","string"};
     if(!f->sp)return 0;Value*v=f->values+f->sp-1;u32 code=(u32)n&31u,want=code&15u;
     if(code&16u){if(v->tag==ARRAY){Array*a=pointer(v->ref);if(!want||a->element==want)return 0; /* 陣列 / array: any array */
-        u32 i=0;if(!a->element)while(i<a->count&&a->values[i].tag==want)i++;if(!a->element&&i==a->count){a->element=want;return 0;}}}
+        u32 i=0;if(!a->element)while(i<a->count&&((const Value*)a->values)[i].tag==want)i++;if(!a->element&&i==a->count){lock_array(a,want);return 0;}}}
     else if(v->tag==want)return 0;
     else if(numeric(*v)&&want>=FLOAT&&want<=DOUBLE&&v->tag<want){*v=number(v->number,want);return 0;}
     Text*t=concat(ascii("型別不符 / Type mismatch: "),pointer(constant(f,(u32)n>>5).ref));
@@ -767,11 +856,11 @@ int rt_checkType(Frame*f,int n){
 }
 int rt_checkHashKey(Frame*f,int n){Value v=peek(f,1);if(!numeric(v)&&v.tag!=STRING&&v.tag!=BOOL)named_failure(f,"Unusable as hash key: ",ascii(type_name(v.tag)));return 0;}
 int rt_hash(Frame*f,int n){Hash*h=pointer(aqua_hash(n));u32 base=f->sp-n*2;h->count=0;for(int i=0;i<n;i++){Value k=f->values[base+i*2],v=f->values[base+i*2+1];u32 j=hash_find(h,k);if(j==h->count)h->count++;h->pairs[j]=(Pair){k,v};}f->sp=base;push(f,value(HASH,address(h),0));return 0;}
-int rt_index(Frame*f,int n){Value i=pop(f),v=pop(f),out=value(NULL_VALUE,0,0);if(v.tag==ARRAY&&i.tag==INT){Array*a=pointer(v.ref);if(i.number>=0&&i.number<a->count)out=a->values[(u32)i.number];else if(a->element){failure(f,"Array index is out of bounds / 陣列索引超出範圍。");return 0;}}else if(v.tag==STRING&&i.tag==INT){Text*t=pointer(v.ref);if(i.number>=0&&i.number<t->length)out=value(STRING,address(unit_text(t->data[(u32)i.number])),0);}else if(v.tag==HASH){if(!numeric(i)&&i.tag!=BOOL&&i.tag!=STRING){named_failure(f,"Unusable as hash key: ",ascii(type_name(i.tag)));return 0;}Hash*h=pointer(v.ref);u32 j=hash_find(h,i);if(j<h->count)out=h->pairs[j].value;}else {named_failure(f,"Index operator not supported: ",ascii(type_name(v.tag)));return 0;}push(f,out);return 0;}
+int rt_index(Frame*f,int n){Value i=pop(f),v=pop(f),out=value(NULL_VALUE,0,0);if(v.tag==ARRAY&&i.tag==INT){Array*a=pointer(v.ref);if(i.number>=0&&i.number<a->count)out=array_get(a,(u32)i.number);else if(a->element){failure(f,"Array index is out of bounds / 陣列索引超出範圍。");return 0;}}else if(v.tag==STRING&&i.tag==INT){Text*t=pointer(v.ref);if(i.number>=0&&i.number<t->length)out=value(STRING,address(unit_text(t->data[(u32)i.number])),0);}else if(v.tag==HASH){if(!numeric(i)&&i.tag!=BOOL&&i.tag!=STRING){named_failure(f,"Unusable as hash key: ",ascii(type_name(i.tag)));return 0;}Hash*h=pointer(v.ref);u32 j=hash_find(h,i);if(j<h->count)out=h->pairs[j].value;}else {named_failure(f,"Index operator not supported: ",ascii(type_name(v.tag)));return 0;}push(f,out);return 0;}
 int rt_checkArrayWrite(Frame*f,int n){Value i=peek(f,1),a=peek(f,2);if(a.tag==HASH){if(!numeric(i)&&i.tag!=STRING&&i.tag!=BOOL)named_failure(f,"Unusable as hash key: ",ascii(type_name(i.tag)));}else if(a.tag!=ARRAY)failure(f,"Indexed assignment requires an array or hash.");else if(i.tag!=INT)failure(f,"Array assignment index must be an integer.");else if(i.number<0||i.number>=((Array*)pointer(a.ref))->count)failure(f,"Array assignment index is out of bounds.");return 0;}
 int rt_writeIndex(Frame*f,int n){Value v=pop(f);rt_checkArrayWrite(f,0);Value i=pop(f),a=pop(f);if(!f->execution->status){
     if(a.tag==HASH){Hash*h=pointer(a.ref);u32 j=hash_find(h,i);if(j==h->count)aqua_hash_resize(a.ref,h->count+1);h->pairs[j]=(Pair){i,v};if(h->exposed&&!h->dirty){h->dirty=1;h->dirty_next=pending.dirty_hashes;pending.dirty_hashes=h;}}
-    else{Array*x=pointer(a.ref);if(!element_fits(f,x,&v)){push(f,v);return 0;}writable_array(x,x->count);x->values[(u32)i.number]=v;if(x->kind!=v.tag)x->kind=0;if(x->exposed&&!x->dirty){x->dirty=1;x->dirty_next=pending.dirty_arrays;pending.dirty_arrays=x;}}
+    else{Array*x=pointer(a.ref);if(!element_fits(f,x,&v)){push(f,v);return 0;}writable_array(x,x->count);array_put(x,(u32)i.number,v);if(x->kind!=v.tag)x->kind=0;if(x->exposed&&!x->dirty){x->dirty=1;x->dirty_next=pending.dirty_arrays;pending.dirty_arrays=x;}}
 }push(f,v);return 0;}
 /* array[i] op= value / hash[key] op= value: the element keeps its numeric type like a compound assignment to a variable,
    and a typed array's element type is checked like any write. The index is checked again after the value, which may
@@ -779,14 +868,15 @@ int rt_writeIndex(Frame*f,int n){Value v=pop(f);rt_checkArrayWrite(f,0);Value i=
 int rt_compoundIndex(Frame*f,int n){Value c=constant(f,(u32)n),r=pop(f);rt_checkArrayWrite(f,0);Value i=pop(f),a=pop(f);if(f->execution->status)return 0;
     if(a.tag==HASH){Hash*h=pointer(a.ref);u32 j=hash_find(h,i);Value v=binary(f,(int)c.number,j<h->count?h->pairs[j].value:value(NULL_VALUE,0,0),r,1);if(f->execution->status)return 0;
         if(j==h->count)aqua_hash_resize(a.ref,h->count+1);h->pairs[j]=(Pair){i,v};if(h->exposed&&!h->dirty){h->dirty=1;h->dirty_next=pending.dirty_hashes;pending.dirty_hashes=h;}}
-    else{Array*x=pointer(a.ref);Value v=binary(f,(int)c.number,x->values[(u32)i.number],r,1);if(f->execution->status||!element_fits(f,x,&v))return 0;
-        writable_array(x,x->count);x->values[(u32)i.number]=v;if(x->kind!=v.tag)x->kind=0;if(x->exposed&&!x->dirty){x->dirty=1;x->dirty_next=pending.dirty_arrays;pending.dirty_arrays=x;}}
+    else{Array*x=pointer(a.ref);Value v=binary(f,(int)c.number,array_get(x,(u32)i.number),r,1);if(f->execution->status||!element_fits(f,x,&v))return 0;
+        writable_array(x,x->count);array_put(x,(u32)i.number,v);if(x->kind!=v.tag)x->kind=0;if(x->exposed&&!x->dirty){x->dirty=1;x->dirty_next=pending.dirty_arrays;pending.dirty_arrays=x;}}
     push(f,empty);return 0;}
 /* ++array[i] / array[i]++ (n: 1 prefix, 0 postfix) on the element CheckArrayWrite proved writable; hash entries too. */
 int rt_incrementIndex(Frame*f,int n){Value i=pop(f),a=pop(f);if(f->execution->status)return 0;
     Value*slot;if(a.tag==HASH){Hash*h=pointer(a.ref);u32 j=hash_find(h,i);if(j==h->count){failure(f,"Increment requires a number.");return 0;}slot=&h->pairs[j].value;
         if(h->exposed&&!h->dirty){h->dirty=1;h->dirty_next=pending.dirty_hashes;pending.dirty_hashes=h;}}
-    else{Array*x=pointer(a.ref);writable_array(x,x->count);slot=&x->values[(u32)i.number];if(x->exposed&&!x->dirty){x->dirty=1;x->dirty_next=pending.dirty_arrays;pending.dirty_arrays=x;}}
+    else{Array*x=pointer(a.ref);writable_array(x,x->count);Value old=array_get(x,(u32)i.number);if(!numeric(old)){failure(f,"Increment requires a number.");return 0;}
+        Value next=successor(old);array_put(x,(u32)i.number,next);if(x->exposed&&!x->dirty){x->dirty=1;x->dirty_next=pending.dirty_arrays;pending.dirty_arrays=x;}push(f,n?next:old);return 0;}
     Value old=*slot;if(!numeric(old)){failure(f,"Increment requires a number.");return 0;}*slot=successor(old);push(f,n?*slot:old);return 0;}
 /* ++obj.field / obj.field++ (n: the field's name constant << 1 | prefix); the field keeps its numeric type. */
 int rt_incrementMember(Frame*f,int n){Value m=pop(f);Text*t=name(f,(u32)n>>1);
@@ -820,7 +910,7 @@ u32 aqua_collect(void){memset(member_cache,0,sizeof member_cache);
             // Dead longer push snapshots must not force a surviving prefix to copy.
             if(!storage->marked){a->storage->references=0;a->storage->used=0;}
             a->storage->references++;if(a->count>a->storage->used)a->storage->used=a->count;
-            mark_ref(a->storage);for(u32 i=0;i<a->count;i++)mark_value(a->values[i]);break;}
+            mark_ref(a->storage);if(!a->storage->layout)for(u32 i=0;i<a->count;i++)mark_value(((const Value*)a->values)[i]);break;}
         case HASHES:{Hash*h=p;mark_ref(h->pairs);mark_ref(h->index);for(u32 i=0;i<h->count;i++){mark_value(h->pairs[i].key);mark_value(h->pairs[i].value);}break;}
         case FRAMES:{Frame*f=p;mark_ref(f->parent);mark_ref(f->scope);mark_ref(f->loops);mark_ref(f->binding_cache);for(u32 i=0;i<f->sp;i++)mark_value(f->values[i]);for(u32 i=0;i<f->pending_count;i++)mark_value(f->values[f->pending_base+i]);break;}
         case LOOPS:{Loop*l=p;mark_ref(l->previous);mark_ref(l->outer);break;}

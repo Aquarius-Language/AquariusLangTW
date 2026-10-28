@@ -65,6 +65,12 @@ and host writable-buffer access detach shared storage first. Mutable aliases of
 the same array retain identity; independently appended arrays retain snapshots.
 The collector accounts for backing storage references when headers die.
 
+Value ABI 3 (the `aquarius.application` metadata's value ABI) packs typed number and Boolean arrays: the backing
+storage's `layout` word (runtime/guest/layout.def) is 0 for whole Values, or the element tag of an array locked to
+int, float, double or bool, whose elements are then int32, float, double or one byte each. Hosts read elements by
+that layout for applications of value ABI 3 and as whole Values for value ABI 2; hosts that only know ABI 2 reject
+ABI 3 applications.
+
 ## Capability transport
 
 The only host import is:

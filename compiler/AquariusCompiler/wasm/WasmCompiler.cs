@@ -194,7 +194,7 @@ public sealed class WasmCompiler
         }
         if (signal != nativeGlobals) throw new InvalidOperationException("The native tier's globals moved.");
         var metadata = new WasmMetadata(WasmAbi.Version, entry, exports, bodies.Count, assets?.Keys.ToArray() ?? System.Array.Empty<string>(),
-            ProgramAddress: WasmRuntimeImage.ProgramAddress, HeapStart: data.End, FunctionLayout: 40, SupportedPlatforms: linked.Platforms,
+            ValueAbi: WasmAbi.ValueAbi, ProgramAddress: WasmRuntimeImage.ProgramAddress, HeapStart: data.End, FunctionLayout: 40, SupportedPlatforms: linked.Platforms,
             Imports: linked.Imports, Libraries: linked.NativeLibraries);
         using var output = new MemoryStream();
         output.Write(new byte[] { 0, 97, 115, 109, 1, 0, 0, 0 });

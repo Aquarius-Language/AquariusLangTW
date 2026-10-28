@@ -14,6 +14,9 @@ Expected bytes in 0..255.
 Invalid document length, schema or checksum.
 {"x":1.5,"y":2,"tag":"a"}
 [{"a":1,"b":"two"},{"p":{"a":null,"b":[true]}}]
+[[1,-2,3],[0.5,-1.25],[true,false]]
+{i: [1, -2, 3], r: [0.5, -1.25], b: [真, 假]}
+Invalid document header or version.
 128
 真
 ERROR: ParseJson: InvalidData: The JSON value's depth exceeds the maximum depth of 64.

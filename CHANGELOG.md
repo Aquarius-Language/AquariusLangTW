@@ -3,6 +3,25 @@
 One version covers the language, the compiler, the CLI, the language server and the VS Code extension; see
 [versioning](docs/versioning.md).
 
+## 0.1.5
+
+Programs keep their meaning and output; they run faster.
+
+Performance:
+
+- Typed number and Boolean arrays are packed: an `整數[]` / `int[]` stores 4 bytes per element, `浮點數[]` / `float[]` 4,
+  `雙精度[]` / `double[]` 8 and `布林[]` / `bool[]` 1, instead of a 16-byte value each.
+- Fully typed functions and native loops run `陣列.追加` / `Array.Append` natively, and `陣列.建立` / `Array.Make` written
+  straight into a typed array annotation builds the packed array directly.
+- Fix: a pending garbage collection that stopped being due could keep every native loop on the slow path.
+
+Runtime and libraries:
+
+- Applications declare value ABI 3 (packed arrays). The runtime still runs applications built by 0.1.4; a 0.1.4 runtime
+  refuses 0.1.5 applications with a clear message instead of misreading their arrays.
+- The SDK's `aqua_array_set`, `aqua_array_push` and `aqua_array_write_*` return false for a value a typed array cannot
+  hold (an integer still widens into a float or double array), instead of breaking the array's type.
+
 ## 0.1.4
 
 Language:

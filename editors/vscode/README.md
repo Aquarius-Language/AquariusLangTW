@@ -19,10 +19,10 @@ also expand to Chinese declarations; they are not Aquarius keywords.
    On Windows, use the **.NET Runtime** installer matching your architecture;
    the Desktop and ASP.NET runtimes are not required.
 3. In VS Code's Extensions view, select **… → Install from VSIX…** and choose
-   `aquariuslang-tw-0.1.4.vsix`. You can also install from a terminal:
+   `aquariuslang-tw-0.1.5.vsix`. You can also install from a terminal:
 
    ```powershell
-   code --install-extension "editors\vscode\aquariuslang-tw-0.1.4.vsix"
+   code --install-extension "editors\vscode\aquariuslang-tw-0.1.5.vsix"
    ```
 
 4. Open a folder you trust and open or create a UTF-8 `.aqua` file. The status bar
@@ -59,7 +59,7 @@ npm run package
 ```
 
 `npm run package` publishes the server into `server/`, bundles the client into
-`dist/extension.js`, and creates `aquariuslang-tw-0.1.4.vsix` in this directory.
+`dist/extension.js`, and creates `aquariuslang-tw-0.1.5.vsix` in this directory.
 It does not publish anything to the Marketplace. The generated DLLs and VSIX are
 ignored by Git; rebuild them after changing server code. `build-release.ps1` at the
 repository root runs these steps for every release and copies the VSIX, with its
