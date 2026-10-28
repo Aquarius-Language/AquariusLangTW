@@ -389,7 +389,7 @@ static void target_Draw(aqua_call *call) {
     if (identity[0] == 0) for (int m = 0; m < 4; m++) for (int i = 0; i < 4; i++) identity[m * 16 + i * 5] = 1;
     gpu_state state = gpu_target_state(t->target);
     char error[1024];
-    if (!gpu_target_draw(t->target, s->shader, vertices, n, identity, 4, state.blend, state.depth, state.cull, NULL, NULL, 0, error, sizeof error))
+    if (!gpu_target_draw(t->target, s->shader, vertices, n, identity, NULL, 4, state.blend, state.depth, state.cull, NULL, NULL, 0, error, sizeof error))
         gfx_fail(call, "%s", error);
 }
 

@@ -110,15 +110,33 @@ aqua_value gfx_pixel_array(aqua_runtime *rt, const uint8_t *bytes, int count) {
     return array;
 }
 
+/* Rewrites a published pixels array in place when it still has `count` elements (scripts keep their reference). */
+static bool refresh_pixel_array(aqua_runtime *rt, aqua_value array, const uint8_t *bytes, int count) {
+    if (array.type != AQUA_ARRAY || (int)aqua_array_length(rt, array) != count) return false;
+    double *values = malloc((size_t)(count ? count : 1) * sizeof *values);
+    for (int i = 0; i < count; i++) {
+        const uint8_t *p = bytes + (size_t)i * 4;
+        values[i] = (double)((uint32_t)p[3] << 24 | (uint32_t)p[0] << 16 | (uint32_t)p[1] << 8 | p[2]);
+    }
+    bool ok = count == 0 || aqua_array_write_f64(rt, array, 0, (uint32_t)count, values, AQUA_DOUBLE);
+    free(values);
+    return ok;
+}
+
 bool gfx_pixel_bytes(aqua_call *call, aqua_value array, int count, uint8_t *out) {
     aqua_runtime *rt = aqua_call_runtime(call);
     if ((int)aqua_array_length(rt, array) != count) { gfx_fail(call, "pixels must contain %d packed ARGB colors.", count); return false; }
+    /* One bulk read of the numbers; other elements (or a failed read) take the per-element path and its messages. */
+    double *numbers = malloc((size_t)(count ? count : 1) * sizeof *numbers);
+    bool bulk = count > 0 && aqua_array_read_f64(rt, array, 0, (uint32_t)count, numbers);
     for (int i = 0; i < count; i++) {
-        uint32_t c = gfx_packed_value(call, aqua_array_get(rt, array, (uint32_t)i));
-        if (aqua_failed(call)) return false;
+        double n = bulk ? numbers[i] : -1;
+        uint32_t c = n >= 0 && n <= 4294967295.0 && n == (double)(uint32_t)n ? (uint32_t)n : gfx_packed_value(call, aqua_array_get(rt, array, (uint32_t)i));
+        if (aqua_failed(call)) { free(numbers); return false; }
         uint8_t *p = out + (size_t)i * 4;
         p[0] = (uint8_t)(c >> 16); p[1] = (uint8_t)(c >> 8); p[2] = (uint8_t)c; p[3] = (uint8_t)(c >> 24);
     }
+    free(numbers);
     return true;
 }
 
@@ -129,25 +147,29 @@ void gfx_image_filter(uint8_t *bytes, int width, int height, int mode, float par
     if (mode == 5) {
         int radius = (int)ceilf(parameter);
         radius = radius < 1 ? 1 : radius > 32 ? 32 : radius;
-        uint8_t *source = malloc(n), *tmp = malloc(n);
-        memcpy(source, bytes, n);
+        /* Horizontal then vertical box sums over edge-clamped samples, as running sums (cost independent of radius). */
+        uint8_t *tmp = malloc(n);
+        int span = 2 * radius + 1;
         for (int pass = 0; pass < 2; pass++) {
-            const uint8_t *from = pass == 0 ? source : tmp;
+            const uint8_t *from = pass == 0 ? bytes : tmp;
             uint8_t *to = pass == 0 ? tmp : bytes;
-            for (int y = 0; y < height; y++)
-                for (int x = 0; x < width; x++)
-                    for (int ch = 0; ch < 4; ch++) {
-                        int sum = 0;
-                        for (int d = -radius; d <= radius; d++) {
-                            int yy = y + (pass == 1 ? d : 0), xx = x + (pass == 0 ? d : 0);
-                            yy = yy < 0 ? 0 : yy > height - 1 ? height - 1 : yy;
-                            xx = xx < 0 ? 0 : xx > width - 1 ? width - 1 : xx;
-                            sum += from[((size_t)yy * (size_t)width + (size_t)xx) * 4 + (size_t)ch];
-                        }
-                        to[((size_t)y * (size_t)width + (size_t)x) * 4 + (size_t)ch] = (uint8_t)(sum / (2 * radius + 1));
+            int lines = pass == 0 ? height : width, length = pass == 0 ? width : height;
+            size_t step = pass == 0 ? 4 : (size_t)width * 4, line_step = pass == 0 ? (size_t)width * 4 : 4;
+            for (int l = 0; l < lines; l++) {
+                const uint8_t *src = from + (size_t)l * line_step;
+                uint8_t *dst = to + (size_t)l * line_step;
+                for (int ch = 0; ch < 4; ch++) {
+                    int sum = 0;
+                    for (int d = -radius; d <= radius; d++) { int i = d < 0 ? 0 : d > length - 1 ? length - 1 : d; sum += src[(size_t)i * step + (size_t)ch]; }
+                    for (int i = 0; i < length; i++) {
+                        dst[(size_t)i * step + (size_t)ch] = (uint8_t)(sum / span);
+                        int out = i - radius < 0 ? 0 : i - radius, in = i + radius + 1 > length - 1 ? length - 1 : i + radius + 1;
+                        sum += src[(size_t)in * step + (size_t)ch] - src[(size_t)out * step + (size_t)ch];
                     }
+                }
+            }
         }
-        free(source); free(tmp);
+        free(tmp);
         return;
     }
     double levels = floor((double)parameter) - 1;
@@ -208,9 +230,12 @@ pimage *gfx_image_load(aqua_call *call, processing *p, const char *path) {
     return image;
 }
 
-static void publish_pixels(aqua_runtime *rt, aqua_ref *slot, aqua_value array) {
+/* loadPixels() and friends: the published array is refreshed in place when its size still fits, as Processing keeps one
+   pixels[] per image (no new array per frame); otherwise a new one replaces it. */
+static void publish_pixels(aqua_runtime *rt, aqua_ref *slot, const uint8_t *bytes, int count) {
+    if (*slot && refresh_pixel_array(rt, aqua_ref_value(rt, *slot), bytes, count)) return;
     if (*slot) aqua_release(rt, *slot);
-    *slot = aqua_retain(rt, array);
+    *slot = aqua_retain(rt, gfx_pixel_array(rt, bytes, count));
 }
 
 /* ---- PImage members ---- */
@@ -218,7 +243,7 @@ static void publish_pixels(aqua_runtime *rt, aqua_ref *slot, aqua_value array) {
 static void p_image_loadPixels(aqua_call *call, processing *p, pimage *image) {
     (void)p;
     aqua_runtime *rt = aqua_call_runtime(call);
-    publish_pixels(rt, &image->pixels, gfx_pixel_array(rt, image->bytes, image->width * image->height));
+    publish_pixels(rt, &image->pixels, image->bytes, image->width * image->height);
 }
 
 static void p_image_updatePixels(aqua_call *call, processing *p, pimage *image) {
@@ -319,7 +344,7 @@ static void p_image_resize(aqua_call *call, processing *p, pimage *image) {
     image->width = w; image->height = h;
     image->dirty = true;
     aqua_runtime *rt = aqua_call_runtime(call);
-    publish_pixels(rt, &image->pixels, gfx_pixel_array(rt, image->bytes, w * h));
+    publish_pixels(rt, &image->pixels, image->bytes, w * h);
 }
 
 typedef struct copy_operation {
@@ -379,7 +404,7 @@ static void loaded(void *data, const uint8_t *rgba, int width, int height, const
     canvas *c = *(canvas **)gfx_async_data(a);
     if (error) { gfx_async_fail(a, "%s", error); return; }
     aqua_runtime *rt = gfx_async_runtime(a);
-    publish_pixels(rt, &c->pixels, gfx_pixel_array(rt, rgba, width * height));
+    publish_pixels(rt, &c->pixels, rgba, width * height);
     gfx_async_finish(a, aqua_void());
 }
 static void p_loadPixels(aqua_call *call, processing *p, canvas *c) {
@@ -435,20 +460,6 @@ static void p_get(aqua_call *call, processing *p, canvas *c) {
     gfx_async_end(a);
 }
 
-typedef struct set_operation { canvas *canvas; int x, y; uint32_t color; } set_operation;
-static void set_read(void *data, const uint8_t *rgba, int width, int height, const char *error) {
-    gfx_async *a = data;
-    set_operation *o = gfx_async_data(a);
-    if (error) { gfx_async_fail(a, "%s", error); return; }
-    canvas *c = o->canvas;
-    size_t n = (size_t)width * (size_t)height * 4;
-    uint8_t *bytes = malloc(n);
-    memcpy(bytes, rgba, n);
-    gfx_pixel_set(bytes, c->pixel_width, c->pixel_height, (int)((int64_t)o->x * c->pixel_width / c->width), (int)((int64_t)o->y * c->pixel_height / c->height), o->color);
-    bool ok = gfx_canvas_write_pixels(gfx_async_call(a), c, bytes);
-    free(bytes);
-    gfx_async_settle(a, ok, aqua_void());
-}
 static void p_set(aqua_call *call, processing *p, canvas *c) {
     if (!pixel_draw_checks(call, p, c)) return;
     if (aqua_arg(call, 2).type == AQUA_NATIVE) {
@@ -457,12 +468,10 @@ static void p_set(aqua_call *call, processing *p, canvas *c) {
         if (image && !aqua_failed(call)) gfx_canvas_image(call, c, image, x, y, NULL, NULL);
         return;
     }
-    set_operation o = {c, gfx_int(call, 0), gfx_int(call, 1), gfx_packed(call, 2)};
-    if (aqua_failed(call)) return;
-    gfx_async *a = gfx_async_begin(call, sizeof o);
-    *(set_operation *)gfx_async_data(a) = o;
-    gfx_canvas_read_pixels(c, set_read, a);
-    gfx_async_end(a);
+    int x = gfx_int(call, 0), y = gfx_int(call, 1);
+    uint32_t color = gfx_packed(call, 2);
+    if (aqua_failed(call) || x < 0 || y < 0 || x >= c->width || y >= c->height) return;
+    gfx_canvas_set_pixel(call, c, (int)((int64_t)x * c->pixel_width / c->width), (int)((int64_t)y * c->pixel_height / c->height), color);
 }
 
 typedef struct save_operation { char path[1024]; } save_operation;

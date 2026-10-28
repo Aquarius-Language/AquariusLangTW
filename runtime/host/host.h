@@ -78,6 +78,7 @@ struct aqua_library {
     void *(*create_state)(aqua_runtime *); void (*destroy_state)(aqua_runtime *, void *);
     uint32_t index;             /* position in the registry, indexes per-runtime state */
 };
+typedef struct member_name { uint16_t *units; uint32_t count, member; } member_name;
 struct aqua_class {
     aqua_library *library;
     char *names;                /* module aliases, or the class's type name */
@@ -85,6 +86,8 @@ struct aqua_class {
     void (*finalize)(aqua_runtime *, void *);
     member *members; uint32_t member_count, member_capacity;
     uint32_t index;             /* position in the registry */
+    /* Every alias's UTF-16 units in an open-addressing table, built when its library finishes registering. */
+    member_name *lookup; uint32_t lookup_capacity, lookup_members;
 };
 typedef struct registry {
     aqua_library **libraries; uint32_t library_count;
@@ -100,6 +103,8 @@ void registry_ensure(void);
 aqua_library *registry_library(const char *name); /* a registered library by name */
 aqua_class *registry_module(const char *name);   /* a module by any alias */
 int32_t class_member(const aqua_class *c, const char *name);
+/* The member named by UTF-16 units (a guest Text), from the class's alias table. */
+int32_t class_member_units(const aqua_class *c, const uint16_t *units, uint32_t count);
 void class_define_value(aqua_class *owner, const char *names, aqua_value value);
 bool names_contain(const char *names, const char *name);
 const char *names_first(const char *names, char *buffer, size_t size);
@@ -189,6 +194,7 @@ void guest_write_value(aqua_runtime *rt, uint32_t address, aqua_value value);
 uint32_t guest_cell(aqua_runtime *rt, aqua_value value);           /* a fresh guest value cell holding `value` */
 uint32_t guest_text_ascii(aqua_runtime *rt, const char *ascii);    /* guest Text address */
 char *guest_text_utf8(aqua_runtime *rt, uint32_t text, size_t *length); /* malloc'd UTF-8 of guest Text */
+int32_t guest_member_index(aqua_runtime *rt, const aqua_class *c, uint32_t text); /* the member a guest Text names */
 
 /* ---- Host core internals shared between files. ------------------------------------------------------------------ */
 uint32_t handle_new(aqua_runtime *rt, handle_kind kind, aqua_class *cls, void *data);

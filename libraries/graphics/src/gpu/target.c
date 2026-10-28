@@ -12,6 +12,19 @@
 
 typedef struct arena { WGPUBuffer buffer; uint8_t *data; size_t used, capacity; } arena;
 typedef struct cached_group { WGPUBuffer buffer; WGPUTextureView view; WGPUBindGroup group; } cached_group;
+/* A Processing draw not yet recorded: later draws with the same pipeline, bindings, scissor and uniform snapshot whose
+   vertices follow its own in the arena extend it, so a run of shapes in one style becomes one GPU draw. */
+typedef struct pending_draw {
+    size_t bytes;                       /* vertex bytes; 0 when there is none */
+    WGPURenderPipeline pipeline;
+    WGPUBindGroup group, user, textures;
+    WGPUTextureView view;
+    WGPUBuffer vertex_buffer;
+    size_t vertex_offset;
+    uint32_t uniform_offset, stencil;
+    const uint8_t *uniforms;            /* the snapshot in its arena (arenas stay allocated until the pass is submitted) */
+    gpu_rect scissor;
+} pending_draw;
 
 struct gpu_target {
     gpu_resource link;
@@ -24,11 +37,27 @@ struct gpu_target {
     arena *spent; size_t spent_count, spent_capacity;
     WGPUBindGroup *groups; size_t group_count, group_capacity;
     cached_group cache[16]; int cache_count;
+    pending_draw pending;
     gpu_state state;
     bool released;
 };
 
 static void begin(gpu_target *t, const float *clear, bool clear_depth, bool clear_stencil);
+
+/* Records the pending Processing draw into the open pass. */
+static void record_pending(gpu_target *t) {
+    pending_draw *p = &t->pending;
+    if (!p->bytes) return;
+    wgpuRenderPassEncoderSetPipeline(t->pass, p->pipeline);
+    wgpuRenderPassEncoderSetBindGroup(t->pass, 0, p->group, 1, &p->uniform_offset);
+    wgpuRenderPassEncoderSetBindGroup(t->pass, 1, p->user, 0, NULL);
+    wgpuRenderPassEncoderSetBindGroup(t->pass, 2, p->textures, 0, NULL);
+    wgpuRenderPassEncoderSetStencilReference(t->pass, p->stencil == 2 ? 0u : 1u);
+    wgpuRenderPassEncoderSetVertexBuffer(t->pass, 0, p->vertex_buffer, p->vertex_offset, p->bytes);
+    wgpuRenderPassEncoderSetScissorRect(t->pass, (uint32_t)p->scissor.x, (uint32_t)p->scissor.y, (uint32_t)p->scissor.width, (uint32_t)p->scissor.height);
+    if (p->scissor.width > 0 && p->scissor.height > 0) wgpuRenderPassEncoderDraw(t->pass, (uint32_t)(p->bytes / (GPU_FLOATS_PER_VERTEX * 4)), 1, 0, 0);
+    p->bytes = 0;
+}
 
 static void create_attachments(gpu_target *t, int width, int height) {
     gpu_device *d = t->link.device;
@@ -61,6 +90,7 @@ static void push_group(gpu_target *t, WGPUBindGroup group) {
 void gpu_target_flush(gpu_target *t) {
     if (!t->pass) return;
     gpu_device *d = t->link.device;
+    record_pending(t);
     wgpuRenderPassEncoderEnd(t->pass);
     wgpuRenderPassEncoderRelease(t->pass);
     t->pass = NULL;
@@ -210,7 +240,27 @@ static bool live(gpu_target *t, char *error, size_t error_size) {
     return true;
 }
 
-bool gpu_target_draw(gpu_target *t, gpu_shader *shader, const float *vertices, size_t floats, const float *uniforms,
+/* Maps the vertices just appended at `offset` through a row-vector model matrix: positions by it, normals by the
+   inverse transpose of its 3x3 part (left unnormalized; shaders normalize). */
+static void transform_vertices(uint8_t *at, size_t count, const float *m) {
+    float a = m[0], b = m[1], c = m[2], d = m[4], e = m[5], f = m[6], g = m[8], h = m[9], i = m[10];
+    float c00 = e * i - f * h, c01 = f * g - d * i, c02 = d * h - e * g;
+    float c10 = c * h - b * i, c11 = a * i - c * g, c12 = b * g - a * h;
+    float c20 = b * f - c * e, c21 = c * d - a * f, c22 = a * e - b * d;
+    float det = a * c00 + b * c01 + c * c02, k = det != 0 ? 1 / det : 1;
+    for (size_t v = 0; v < count; v++) {
+        float *q = (float *)(at + v * GPU_FLOATS_PER_VERTEX * 4);
+        float x = q[0], y = q[1], z = q[2], nx = q[3], ny = q[4], nz = q[5];
+        q[0] = x * m[0] + y * m[4] + z * m[8] + m[12];
+        q[1] = x * m[1] + y * m[5] + z * m[9] + m[13];
+        q[2] = x * m[2] + y * m[6] + z * m[10] + m[14];
+        q[3] = (nx * c00 + ny * c01 + nz * c02) * k;
+        q[4] = (nx * c10 + ny * c11 + nz * c12) * k;
+        q[5] = (nx * c20 + ny * c21 + nz * c22) * k;
+    }
+}
+
+bool gpu_target_draw(gpu_target *t, gpu_shader *shader, const float *vertices, size_t floats, const float *uniforms, const float *model,
                      int mode, int blend, int depth_mode, int cull, const gpu_rect *scissor, gpu_texture *texture, int stencil,
                      char *error, size_t error_size) {
     if (!live(t, error, error_size)) return false;
@@ -223,22 +273,28 @@ bool gpu_target_draw(gpu_target *t, gpu_shader *shader, const float *vertices, s
     if (!pipeline) return false;
     begin(t, NULL, false, false);
     size_t vertex_offset, uniform_offset;
-    if (!append(t, &t->vertices, vertices, floats * 4, 4, WGPUBufferUsage_Vertex, 256 * 1024, &vertex_offset) ||
-        !append(t, &t->uniforms, uniforms, GPU_UNIFORM_BYTES, UNIFORM_ALIGNMENT, WGPUBufferUsage_Uniform, 64 * 1024, &uniform_offset)) {
+    if (!append(t, &t->vertices, vertices, floats * 4, 4, WGPUBufferUsage_Vertex, 256 * 1024, &vertex_offset)) {
         snprintf(error, error_size, "wgpu buffer size must be 1..64 MiB.");
         return false;
     }
-    WGPUBindGroup group = drawing_group(t, texture);
-    uint32_t dynamic = (uint32_t)uniform_offset;
-    wgpuRenderPassEncoderSetPipeline(t->pass, pipeline);
-    wgpuRenderPassEncoderSetBindGroup(t->pass, 0, group, 1, &dynamic);
-    wgpuRenderPassEncoderSetBindGroup(t->pass, 1, gpu_shader_user_group(shader), 0, NULL);
-    wgpuRenderPassEncoderSetBindGroup(t->pass, 2, textures, 0, NULL);
-    wgpuRenderPassEncoderSetStencilReference(t->pass, stencil == 2 ? 0u : 1u);
-    wgpuRenderPassEncoderSetVertexBuffer(t->pass, 0, t->vertices.buffer, vertex_offset, floats * 4);
+    if (model) transform_vertices(t->vertices.data + vertex_offset, floats / GPU_FLOATS_PER_VERTEX, model);
+    WGPUBindGroup user = gpu_shader_user_group(shader);
+    WGPUTextureView view = gpu_texture_view(texture ? texture : gpu_device_white(d));
     gpu_rect r = scissor ? *scissor : (gpu_rect){0, 0, gpu_texture_width(t->color), gpu_texture_height(t->color)};
-    wgpuRenderPassEncoderSetScissorRect(t->pass, (uint32_t)r.x, (uint32_t)r.y, (uint32_t)r.width, (uint32_t)r.height);
-    if (r.width > 0 && r.height > 0) wgpuRenderPassEncoderDraw(t->pass, (uint32_t)(floats / GPU_FLOATS_PER_VERTEX), 1, 0, 0);
+    pending_draw *p = &t->pending;
+    if (p->bytes && !stencil && !p->stencil && p->pipeline == pipeline && p->view == view && p->user == user && p->textures == textures &&
+        p->vertex_buffer == t->vertices.buffer && p->vertex_offset + p->bytes == vertex_offset && memcmp(&p->scissor, &r, sizeof r) == 0 &&
+        memcmp(p->uniforms, uniforms, GPU_UNIFORM_BYTES) == 0) {
+        p->bytes += floats * 4;
+        return true;
+    }
+    record_pending(t);
+    if (!append(t, &t->uniforms, uniforms, GPU_UNIFORM_BYTES, UNIFORM_ALIGNMENT, WGPUBufferUsage_Uniform, 64 * 1024, &uniform_offset)) {
+        snprintf(error, error_size, "wgpu buffer size must be 1..64 MiB.");
+        return false;
+    }
+    *p = (pending_draw){floats * 4, pipeline, drawing_group(t, texture), user, textures, view, t->vertices.buffer, vertex_offset,
+                        (uint32_t)uniform_offset, (uint32_t)stencil, t->uniforms.data + uniform_offset, r};
     const char *failure = gpu_device_take_error(d);
     if (failure) { snprintf(error, error_size, "%s", failure); return false; }
     return true;
@@ -254,6 +310,7 @@ bool gpu_target_draw_retained(gpu_target *t, gpu_shader *shader, gpu_buffer *ver
     WGPURenderPipeline pipeline = gpu_shader_pipeline(shader, 4, t->state.blend, t->state.depth, t->samples, 0, t->format, t->state.cull, vertices != NULL, error, error_size);
     if (!pipeline) return false;
     begin(t, NULL, false, false);
+    record_pending(t);
     uint32_t zero = 0;
     wgpuRenderPassEncoderSetPipeline(t->pass, pipeline);
     wgpuRenderPassEncoderSetBindGroup(t->pass, 0, gpu_device_identity_group(d), 1, &zero);

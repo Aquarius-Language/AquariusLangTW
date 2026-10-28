@@ -133,10 +133,12 @@ void gpu_target_clear_stencil(gpu_target *target);
 void gpu_target_flush(gpu_target *target);                       /* submits the open pass */
 void gpu_target_set_state(gpu_target *target, gpu_state state);
 gpu_state gpu_target_state(const gpu_target *target);
-/* Processing draws: `floats` vertex floats (12 per vertex), one uniform block snapshot, topology `mode` (0 points,
-   1 lines, 5 strip, else triangles), Processing blend 0..5, depth test for 3D, a scissor in pixels (NULL for the whole
-   target), an image texture (NULL for white) and stencil mode (0 none, 1 write outer, 2 cut holes, 3 test). */
-bool gpu_target_draw(gpu_target *target, gpu_shader *shader, const float *vertices, size_t floats, const float *uniforms,
+/* Processing draws: `floats` vertex floats (12 per vertex), one uniform block snapshot, an optional row-vector model
+   matrix applied to the vertices on the CPU (16 floats, NULL for none), topology `mode` (0 points, 1 lines, 5 strip,
+   else triangles), Processing blend 0..4, depth test for 3D, a scissor in pixels (NULL for the whole target), an image
+   texture (NULL for white) and stencil mode (0 none, 1 write outer, 2 cut holes, 3 test). Consecutive draws with equal
+   state are merged into one GPU draw. */
+bool gpu_target_draw(gpu_target *target, gpu_shader *shader, const float *vertices, size_t floats, const float *uniforms, const float *model,
                      int mode, int blend, int depth_mode, int cull, const gpu_rect *scissor, gpu_texture *texture, int stencil,
                      char *error, size_t error_size);
 /* WGPU-module draws with the target's state and identity Processing uniforms: retained vertices or procedural. */

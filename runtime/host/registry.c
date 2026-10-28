@@ -8,6 +8,8 @@
 
 registry host_registry;
 extern const aqua_api_table host_api_table;
+char *utf16_to_utf8(const uint16_t *units, size_t count, size_t *length);
+size_t utf8_to_utf16(const char *text, size_t length, uint16_t *out);
 
 static char *copy(const char *s) { size_t n = strlen(s) + 1; char *c = malloc(n); memcpy(c, s, n); return c; }
 
@@ -43,15 +45,70 @@ static aqua_library *new_library(const char *name) {
     return library;
 }
 
+/* ---- Member lookup by the guest's UTF-16 names ----
+   Guest member reads name members by Text. Each class's aliases are indexed by their UTF-16 units when its library has
+   registered, so a read hashes the name in place instead of converting it and scanning every alias. A class that gained
+   members afterwards falls back to the scan. */
+static uint32_t units_hash(const uint16_t *units, uint32_t count) {
+    uint32_t h = 2166136261u;
+    for (uint32_t i = 0; i < count; i++) h = (h ^ units[i]) * 16777619u;
+    return h;
+}
+
+static void index_class(aqua_class *c) {
+    uint32_t aliases = 0;
+    for (uint32_t i = 0; i < c->member_count; i++) for (const char *p = c->members[i].names; p; p = strchr(p, '|'), p = p ? p + 1 : NULL) aliases++;
+    uint32_t capacity = 16;
+    while (capacity < aliases * 2) capacity *= 2;
+    member_name *table = calloc(capacity, sizeof *table);
+    for (uint32_t i = 0; i < c->member_count; i++)
+        for (const char *p = c->members[i].names; p;) {
+            const char *end = strchr(p, '|');
+            size_t length = end ? (size_t)(end - p) : strlen(p);
+            uint16_t *units = malloc(length * 2 + 2);
+            uint32_t count = (uint32_t)utf8_to_utf16(p, length, units);
+            uint32_t at = units_hash(units, count) & (capacity - 1);
+            /* The first member with an alias wins, as in the scan. */
+            while (table[at].units && !(table[at].count == count && memcmp(table[at].units, units, (size_t)count * 2) == 0)) at = (at + 1) & (capacity - 1);
+            if (table[at].units) free(units);
+            else table[at] = (member_name){units, count, i};
+            p = end ? end + 1 : NULL;
+        }
+    for (uint32_t i = 0; i < c->lookup_capacity; i++) free(c->lookup[i].units);
+    free(c->lookup);
+    c->lookup = table; c->lookup_capacity = capacity; c->lookup_members = c->member_count;
+}
+
+static void index_library(aqua_library *library) {
+    for (uint32_t i = 0; i < host_registry.class_count; i++) if (host_registry.classes[i]->library == library) index_class(host_registry.classes[i]);
+}
+
+int32_t class_member_units(const aqua_class *c, const uint16_t *units, uint32_t count) {
+    if (!c->lookup || c->lookup_members != c->member_count) {
+        size_t length;
+        char *name = utf16_to_utf8(units, count, &length);
+        int32_t index = class_member(c, name);
+        free(name);
+        return index;
+    }
+    for (uint32_t at = units_hash(units, count) & (c->lookup_capacity - 1);; at = (at + 1) & (c->lookup_capacity - 1)) {
+        const member_name *e = &c->lookup[at];
+        if (!e->units) return -1;
+        if (e->count == count && memcmp(e->units, units, (size_t)count * 2) == 0) return (int32_t)e->member;
+    }
+}
+
 aqua_library *registry_add(const char *name, void (*entry)(aqua_library *)) {
     aqua_library *library = new_library(name);
     entry(library);
+    index_library(library);
     return library;
 }
 
 aqua_library *registry_add_external(const char *name, uint32_t (*entry)(aqua_library *, uint32_t)) {
     aqua_library *library = new_library(name);
     if (entry(library, AQUA_API_VERSION) == 0) return NULL;
+    index_library(library);
     return library;
 }
 

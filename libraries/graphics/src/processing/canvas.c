@@ -29,7 +29,7 @@ canvas *gfx_canvas_new(processing *p, int width, int height, bool is3d, bool off
     c->offscreen = offscreen;
     gfx_style_default(&c->style);
     c->model = c->view = c->projection = gfx_m4_identity();
-    c->detail = 32; c->sphere_u = 24; c->sphere_v = 16; c->shape_mode = -1;
+    c->bezier_detail = c->curve_detail = 32; c->sphere_u = 24; c->sphere_v = 16; c->shape_mode = -1;
     c->normal = v3(0, 0, 1);
     c->smooth = true;
     c->color_format = WGPUTextureFormat_RGBA8Unorm;
@@ -81,6 +81,7 @@ void gfx_canvas_free(canvas *c) {
     }
     free(c->surface);
     free(c->matrices); free(c->styles); free(c->vertices); free(c->contour_vertices); free(c->contour_starts); free(c->curve);
+    free(c->read_bytes);
     free(c);
 }
 
@@ -149,6 +150,7 @@ void gfx_canvas_bind(canvas *c) {
 void gfx_canvas_background(canvas *c, vec4 color) {
     gfx_canvas_bind(c);
     if (!c->target) return;
+    c->generation++;
     float rgba[4] = {color.x, color.y, color.z, color.w};
     gpu_target_clear(c->target, rgba);
 }
@@ -177,12 +179,15 @@ void gfx_canvas_set_clip(canvas *c, float x, float y, float width, float height)
 static void write_matrix(float *out, int *offset, mat4 m) { memcpy(out + *offset, m.m, sizeof m.m); *offset += 16; }
 static void write_vector(float *out, int *offset, vec3 v, float w) { out[(*offset)++] = v.x; out[(*offset)++] = v.y; out[(*offset)++] = v.z; out[(*offset)++] = w; }
 
-static void uniforms(float *data, const canvas *c, bool textured, bool premultiplied, bool lit) {
+/* With `transformed` the vertices arrive already in world space (the model matrix applied on the CPU), so the block
+   carries an identity model and every draw in a style shares one snapshot. */
+static void uniforms(float *data, const canvas *c, bool textured, bool premultiplied, bool lit, bool transformed) {
     memset(data, 0, GPU_UNIFORM_BYTES);
     int o = 0;
-    write_matrix(data, &o, c->model); write_matrix(data, &o, c->view); write_matrix(data, &o, c->projection);
+    mat4 model = transformed ? gfx_m4_identity() : c->model;
+    write_matrix(data, &o, model); write_matrix(data, &o, c->view); write_matrix(data, &o, c->projection);
     mat4 inverse;
-    gfx_m4_invert(gfx_m4_multiply(c->model, c->view), &inverse);
+    gfx_m4_invert(gfx_m4_multiply(model, c->view), &inverse);
     write_matrix(data, &o, gfx_m4_transpose(inverse));
     write_vector(data, &o, v3(textured ? 1.0f : 0.0f, c->style.lit && lit ? 1.0f : 0.0f, premultiplied ? 1.0f : 0.0f), c->blend_mode == 4 ? 1.0f : 0.0f);
     write_vector(data, &o, c->style.ambient, 0);
@@ -226,6 +231,7 @@ bool gfx_canvas_draw_packed(aqua_call *call, canvas *c, const float *floats, siz
     if (count == 0) return true;
     gfx_canvas_bind(c);
     if (!c->target || c->pixel_width <= 0 || c->pixel_height <= 0) return true;
+    c->generation++;
     gpu_device *device = c->owner->device;
     char error[1024];
     if (image) {
@@ -239,12 +245,14 @@ bool gfx_canvas_draw_packed(aqua_call *call, canvas *c, const float *floats, siz
         clip[2] = c->clip[2] * (float)c->pixel_width / (float)c->width; clip[3] = c->clip[3] * (float)c->pixel_height / (float)c->height;
         scaled = clip;
     }
+    /* The default shader gets world-space vertices; scripts' shaders may read processing.model, so theirs keep it. */
+    bool transformed = !c->custom;
     float data[GPU_UNIFORM_BYTES / 4];
-    uniforms(data, c, image != NULL, image && image->premultiplied, lit);
+    uniforms(data, c, image != NULL, image && image->premultiplied, lit, transformed);
     gpu_shader *shader = c->custom ? c->custom->shader : gfx_processing_default_shader(c->owner);
     if (!shader || gpu_shader_released(shader)) { gfx_fail(call, "wgpu shader has been disposed."); return false; }
     gpu_rect scissor = gpu_scissor(gpu_target_width(c->target), gpu_target_height(c->target), scaled);
-    if (!gpu_target_draw(c->target, shader, floats, count, data, 4, c->blend_mode, c->is3d ? 1 : 0, 0, &scissor,
+    if (!gpu_target_draw(c->target, shader, floats, count, data, transformed ? c->model.m : NULL, 4, c->blend_mode, c->is3d ? 1 : 0, 0, &scissor,
                          image ? image->texture : NULL, stencil, error, sizeof error)) {
         gfx_fail(call, "%s", error);
         return false;
@@ -274,7 +282,7 @@ geo *gfx_canvas_geometry(canvas *c) {
     s[GEO_NORMAL] = c->normal.x; s[GEO_NORMAL + 1] = c->normal.y; s[GEO_NORMAL + 2] = c->normal.z;
     s[GEO_HAS_FILL] = c->style.has_fill ? 1.0f : 0.0f; s[GEO_HAS_STROKE] = c->style.has_stroke ? 1.0f : 0.0f;
     s[GEO_RECT_MODE] = (float)c->style.rect_mode; s[GEO_ELLIPSE_MODE] = (float)c->style.ellipse_mode;
-    s[GEO_DETAIL] = (float)c->detail; s[GEO_TIGHTNESS] = c->tightness;
+    s[GEO_DETAIL] = (float)c->bezier_detail; s[GEO_TIGHTNESS] = c->tightness;
     mat4 m = gfx_canvas_mvp(c);
     memcpy(s + GEO_MVP, m.m, sizeof m.m);
     gfx_geo_state_changed(g);
@@ -361,9 +369,21 @@ bool gfx_canvas_rect(aqua_call *call, canvas *c, float x, float y, float w, floa
     return run(call, c, g, gfx_geo_rect(g));
 }
 
+/* Segments of a full ellipse from its on-screen size, as Processing's OpenGL renderers choose them: 2*pi times the
+   projected diagonal over 10 device pixels, within 20..200. */
+static int ellipse_detail(const canvas *c, float x, float y, float w, float h) {
+    mat4 m = gfx_canvas_mvp(c);
+    vec4 a = gfx_v4_transform((vec4){x, y, 0, 1}, m), b = gfx_v4_transform((vec4){x + w, y + h, 0, 1}, m);
+    if (a.w <= 0 || b.w <= 0) return 20;
+    float dx = (b.x / b.w - a.x / a.w) * (float)c->pixel_width / 2, dy = (b.y / b.w - a.y / a.w) * (float)c->pixel_height / 2;
+    float n = 6.28318530717958647692f * sqrtf(dx * dx + dy * dy) / 10;
+    return !isfinite(n) || n < 20 ? 20 : n > 200 ? 200 : (int)n;
+}
+
 bool gfx_canvas_ellipse(aqua_call *call, canvas *c, float x, float y, float w, float h, float start, float stop, int mode, bool arc) {
     if (!gfx_canvas_require_drawing(call, c)) return false;
     geo *g = gfx_canvas_geometry(c);
+    g->state[GEO_DETAIL] = (float)ellipse_detail(c, x, y, w, h);
     float values[6] = {x, y, w, h, start, stop};
     if (!floats_input(g, values, 6)) return gfx_canvas_check(call, GEO_OUT_OF_MEMORY);
     return run(call, c, g, gfx_geo_ellipse(g, mode, arc ? 1 : 0));
@@ -371,12 +391,14 @@ bool gfx_canvas_ellipse(aqua_call *call, canvas *c, float x, float y, float w, f
 
 bool gfx_canvas_curve(aqua_call *call, canvas *c, bool catmull, const vec3 *controls) {
     geo *g = gfx_canvas_geometry(c);
+    g->state[GEO_DETAIL] = (float)(catmull ? c->curve_detail : c->bezier_detail);
     if (!points_input(g, controls, 4, 0)) return gfx_canvas_check(call, GEO_OUT_OF_MEMORY);
     return run(call, c, g, gfx_geo_curve(g, catmull ? 1 : 0));
 }
 
 int gfx_canvas_curve_points(canvas *c, bool catmull, const vec3 *controls, int from, vec3 *out, int capacity) {
     geo *g = gfx_canvas_geometry(c);
+    g->state[GEO_DETAIL] = (float)(catmull ? c->curve_detail : c->bezier_detail);
     if (!points_input(g, controls, 4, 0)) return GEO_OUT_OF_MEMORY;
     int count = gfx_geo_curve_points(g, catmull ? 1 : 0, from);
     if (count < 0) return count;
@@ -520,41 +542,80 @@ bool gfx_canvas_end_shape(aqua_call *call, canvas *c, bool close) {
 
 /* ---- Pixels ---- */
 
-typedef struct read_request { canvas *canvas; pixels_done done; void *data; } read_request;
+typedef struct read_request { canvas *canvas; uint64_t generation; pixels_done done; void *data; } read_request;
 static void on_read(void *data, const uint8_t *rgba, int width, int height, const char *error) {
     read_request *r = data;
+    canvas *c = r->canvas;
+    if (rgba && !c->disposed && c->generation == r->generation) {
+        size_t n = (size_t)width * (size_t)height * 4;
+        if (!c->read_bytes || c->read_width != width || c->read_height != height) { free(c->read_bytes); c->read_bytes = malloc(n); }
+        memcpy(c->read_bytes, rgba, n);
+        c->read_width = width; c->read_height = height; c->read_generation = r->generation;
+    }
     r->done(r->data, rgba, width, height, error);
     free(r);
 }
 
+/* Reads the attachment, or answers from the last readback while nothing was drawn since (get() in a loop). */
 void gfx_canvas_read_pixels(canvas *c, pixels_done done, void *data) {
     if (c->disposed || !c->target) { done(data, NULL, 0, 0, "Canvas has been disposed."); return; }
     gfx_canvas_bind(c);
+    if (c->read_bytes && c->read_generation == c->generation && c->read_width == gpu_target_width(c->target) && c->read_height == gpu_target_height(c->target)) {
+        done(data, c->read_bytes, c->read_width, c->read_height, NULL);
+        return;
+    }
     read_request *r = malloc(sizeof *r);
-    r->canvas = c; r->done = done; r->data = data;
+    r->canvas = c; r->generation = c->generation; r->done = done; r->data = data;
     gpu_target_read(c->target, on_read, r);
 }
 
-bool gfx_canvas_write_pixels(aqua_call *call, canvas *c, const uint8_t *bytes) {
+/* Pixel writes draw REPLACE quads in device pixels with the default style and shader, ignoring the canvas's state. */
+typedef struct raw_state { mat4 model, view, projection; style style; bool is3d, clipped; int blend; pshader *custom; } raw_state;
+static void raw_begin(canvas *c, raw_state *s) {
+    *s = (raw_state){c->model, c->view, c->projection, c->style, c->is3d, c->has_clip, c->blend_mode, c->custom};
+    c->model = c->view = gfx_m4_identity();
+    gfx_canvas_ortho(NULL, 0, (float)c->pixel_width, (float)c->pixel_height, 0, -10000, 10000, &c->projection);
+    gfx_style_default(&c->style);
+    c->is3d = false; c->has_clip = false; c->custom = NULL; c->blend_mode = 4;
+}
+static void raw_end(canvas *c, const raw_state *s) {
+    c->model = s->model; c->view = s->view; c->projection = s->projection; c->style = s->style; c->is3d = s->is3d;
+    c->has_clip = s->clipped; c->blend_mode = s->blend; c->custom = s->custom;
+}
+
+bool gfx_canvas_write_region(aqua_call *call, canvas *c, const uint8_t *bytes, int x, int y, int width, int height) {
     pimage image;
     memset(&image, 0, sizeof image);
     image.owner = c->owner;
-    image.width = c->pixel_width; image.height = c->pixel_height;
+    image.width = width; image.height = height;
     image.bytes = (uint8_t *)bytes;
     image.dirty = true;
-    mat4 model = c->model, view = c->view, projection = c->projection;
-    style saved = c->style;
-    bool is3d = c->is3d;
-    int blend = c->blend_mode;
-    c->model = c->view = gfx_m4_identity();
-    gfx_canvas_ortho(NULL, 0, (float)c->width, (float)c->height, 0, -10000, 10000, &c->projection);
-    gfx_style_default(&c->style);
-    c->is3d = false;
-    c->blend_mode = 4;
-    float w = (float)c->width, h = (float)c->height;
-    bool ok = gfx_canvas_image(call, c, &image, 0, 0, &w, &h);
-    c->model = model; c->view = view; c->projection = projection; c->style = saved; c->is3d = is3d; c->blend_mode = blend;
-    if (image.texture) gpu_texture_free(image.texture);
+    raw_state saved;
+    raw_begin(c, &saved);
+    float w = (float)width, h = (float)height;
+    bool ok = gfx_canvas_image(call, c, &image, (float)x, (float)y, &w, &h);
+    raw_end(c, &saved);
+    if (image.texture) gpu_texture_free(image.texture); /* submits the quad first */
     gfx_canvas_bind(c);
     return ok;
+}
+
+/* set(x, y, color): one device pixel as an untextured quad, so a loop of set() calls batches into one draw. */
+bool gfx_canvas_set_pixel(aqua_call *call, canvas *c, int x, int y, uint32_t argb) {
+    if (x < 0 || y < 0 || x >= c->pixel_width || y >= c->pixel_height) return true;
+    raw_state saved;
+    raw_begin(c, &saved);
+    vec4 color = gfx_color_unpack(argb);
+    float x0 = (float)x, y0 = (float)y, x1 = x0 + 1, y1 = y0 + 1;
+    pvertex quad[6] = {
+        gfx_canvas_vertex(c, v3(x0, y0, 0), color, (vec2){0, 0}), gfx_canvas_vertex(c, v3(x1, y0, 0), color, (vec2){0, 0}),
+        gfx_canvas_vertex(c, v3(x1, y1, 0), color, (vec2){0, 0}), gfx_canvas_vertex(c, v3(x0, y0, 0), color, (vec2){0, 0}),
+        gfx_canvas_vertex(c, v3(x1, y1, 0), color, (vec2){0, 0}), gfx_canvas_vertex(c, v3(x0, y1, 0), color, (vec2){0, 0})};
+    bool ok = gfx_canvas_draw(call, c, quad, 6, NULL, false, 0);
+    raw_end(c, &saved);
+    return ok;
+}
+
+bool gfx_canvas_write_pixels(aqua_call *call, canvas *c, const uint8_t *bytes) {
+    return gfx_canvas_write_region(call, c, bytes, 0, 0, c->pixel_width, c->pixel_height);
 }

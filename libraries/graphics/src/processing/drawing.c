@@ -172,8 +172,8 @@ static void p_arc(aqua_call *call, processing *p, canvas *c) {
     int mode = aqua_argc(call) == 7 ? GFX_CHOICE(call, 6, 0, 1, 2) : 0;
     if (!aqua_failed(call)) gfx_canvas_ellipse(call, c, x, y, w, h, start, stop, mode, true);
 }
-static void p_bezierDetail(aqua_call *call, processing *p, canvas *c) { (void)p; if (!action(call, c)) return; int d = detail_of(call, 0); if (!aqua_failed(call)) c->detail = d; }
-static void p_curveDetail(aqua_call *call, processing *p, canvas *c) { (void)p; if (!action(call, c)) return; int d = detail_of(call, 0); if (!aqua_failed(call)) c->detail = d; }
+static void p_bezierDetail(aqua_call *call, processing *p, canvas *c) { (void)p; if (!action(call, c)) return; int d = detail_of(call, 0); if (!aqua_failed(call)) c->bezier_detail = d; }
+static void p_curveDetail(aqua_call *call, processing *p, canvas *c) { (void)p; if (!action(call, c)) return; int d = detail_of(call, 0); if (!aqua_failed(call)) c->curve_detail = d; }
 static void p_curveTightness(aqua_call *call, processing *p, canvas *c) { (void)p; if (!action(call, c)) return; float t = gfx_float(call, 0); if (!aqua_failed(call)) c->tightness = t; }
 static void curve_call(aqua_call *call, processing *p, canvas *c, bool catmull) {
     if (!draw(call, p, c)) return;

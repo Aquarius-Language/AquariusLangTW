@@ -84,6 +84,10 @@ size_t utf8_to_utf16(const char *text, size_t length, uint16_t *out) {
     return n;
 }
 
+int32_t guest_member_index(aqua_runtime *rt, const aqua_class *c, uint32_t text) {
+    return class_member_units(c, (const uint16_t *)(guest_base(rt) + text + G_Text_Data), guest_u32(rt, text + G_Text_Length));
+}
+
 char *guest_text_utf8(aqua_runtime *rt, uint32_t text, size_t *length) {
     uint32_t count = guest_u32(rt, text + G_Text_Length);
     uint16_t *units = malloc((size_t)count * 2 + 2);

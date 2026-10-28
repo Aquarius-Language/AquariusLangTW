@@ -85,7 +85,7 @@ struct canvas {
     mat4 *matrices; size_t matrix_count, matrix_capacity;
     style *styles; size_t style_count, style_capacity;
     pshader *custom; aqua_ref custom_ref;
-    int detail, sphere_u, sphere_v, shape_mode, texture_mode, blend_mode;
+    int bezier_detail, curve_detail, sphere_u, sphere_v, shape_mode, texture_mode, blend_mode;
     float tightness;
     pvertex *vertices; size_t vertex_count, vertex_capacity;
     pvertex *contour_vertices; size_t contour_vertex_count, contour_vertex_capacity;
@@ -98,6 +98,9 @@ struct canvas {
     bool has_clip;
     float clip[4];
     aqua_ref pixels;
+    /* Drawing bumps `generation`; the last readback (straight RGBA) serves reads until the next draw. */
+    uint64_t generation, read_generation;
+    uint8_t *read_bytes; int read_width, read_height;
     canvas *previous, *next;  /* the owner's offscreen canvases */
 };
 
@@ -139,6 +142,9 @@ bool gfx_canvas_end_shape(aqua_call *call, canvas *c, bool close);
 void gfx_canvas_read_pixels(canvas *c, pixels_done done, void *data);
 /* Replaces the canvas's pixels with `bytes` (pixel_width x pixel_height), drawn as an unlit REPLACE quad. */
 bool gfx_canvas_write_pixels(aqua_call *call, canvas *c, const uint8_t *bytes);
+/* Replaces the device-pixel rectangle (x, y, width, height) with `bytes` (width x height straight RGBA). */
+bool gfx_canvas_write_region(aqua_call *call, canvas *c, const uint8_t *bytes, int x, int y, int width, int height);
+bool gfx_canvas_set_pixel(aqua_call *call, canvas *c, int x, int y, uint32_t argb); /* one device pixel */
 pvertex gfx_canvas_vertex(const canvas *c, vec3 position, vec4 color, vec2 uv);
 void gfx_canvas_vertices_clear(canvas *c);
 void gfx_canvas_push_vertex(canvas *c, pvertex v);           /* into the active contour or the shape */

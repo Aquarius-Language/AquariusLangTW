@@ -168,10 +168,7 @@ aqua_value member_value(aqua_runtime *rt, uint32_t self, uint32_t member_index, 
 static int32_t lookup_member(aqua_runtime *rt, uint32_t self, uint32_t name, aqua_value *out, bool *cacheable) {
     handle *h = handle_get(rt, self);
     if (!h || h->kind == HANDLE_BOUND) return -1;
-    size_t length;
-    char *key = guest_text_utf8(rt, name, &length);
-    int32_t index = class_member(h->cls, key);
-    free(key);
+    int32_t index = guest_member_index(rt, h->cls, name);
     if (index < 0) return -1;
     *out = member_value(rt, self, (uint32_t)index, cacheable);
     return index;
@@ -184,10 +181,7 @@ int32_t host_service(aqua_runtime *rt, int32_t operation, int32_t context, int32
     case 0: { /* resolve a global name in a context */
         aqua_value value; bool cacheable;
         handle *globals = handle_get(rt, rt->global_handle);
-        size_t length;
-        char *key = guest_text_utf8(rt, (uint32_t)name, &length);
-        int32_t index = class_member(globals->cls, key);
-        free(key);
+        int32_t index = guest_member_index(rt, globals->cls, (uint32_t)name);
         if (index < 0) return 1;
         const member *m = &globals->cls->members[index];
         if (m->kind == MEMBER_PROPERTY) {
