@@ -133,6 +133,7 @@ namespace AquariusLang.parser {
             parser.registerPrefix(TokenType.INCREMENT, parser.parsePrefixIncrementExpression);
             parser.registerPrefix(TokenType.TRUE, parser.parseBoolean);
             parser.registerPrefix(TokenType.FALSE, parser.parseBoolean);
+            parser.registerPrefix(TokenType.NULL, parser.parseNull);
             parser.registerPrefix(TokenType.LPAREN, parser.parseGroupedExpression);
             parser.registerPrefix(TokenType.IF, parser.parseIfExpression);
             parser.registerPrefix(TokenType.FOR, parser.parseForLoopLiteral);
@@ -348,7 +349,11 @@ namespace AquariusLang.parser {
              * In parseExpressionStatement we pass the lowest possible precedence to parseExpression, since
              * we didn’t parse anything yet and we can’t compare precedences.
              */
-            statement.Expression = parseExpression((int)Precedence.OperatorPrecedence.LOWEST);
+            // A statement that starts with 如果 / if or 迴圈 / for ends at its closing brace, so a next statement starting
+            // with (, [, - or ++ is its own statement, not a call, index, subtraction or increment of the block's value.
+            statement.Expression = currTokenIs(TokenType.IF) ? parseIfExpression()
+                : currTokenIs(TokenType.FOR) ? parseForLoopLiteral()
+                : parseExpression((int)Precedence.OperatorPrecedence.LOWEST);
             if (peekTokenIs(TokenType.SEMICOLON)) {
                 nextToken();
             }
@@ -516,7 +521,25 @@ namespace AquariusLang.parser {
             int precedence = currPrecedence();
             nextToken();
             expression.Right = parseExpression(precedence);
-            return expression;
+            return expression.Operator == "." ? indexMember(expression) : expression;
+        }
+
+        /// <summary>
+        /// Indexing and postfix ++ bind tighter than member access, so <c>表.欄位[0][1]</c> first parses as a member whose right side is an
+        /// index chain. It means indexing the member, innermost index first: rebuild it as <c>((表.欄位)[0])[1]</c>, so
+        /// reads, assignments and compound assignments see an ordinary index expression.
+        /// </summary>
+        private static IExpression indexMember(InfixExpression member) {
+            // A postfix ++ binds tighter than member access too: `點.x++` parses as `點.(x++)` and means `(點.x)++`.
+            if (member.Right is IncrementExpression { IsPrefix: false } increment) {
+                member.Right = increment.Operand; increment.Operand = indexMember(member);
+                return increment;
+            }
+            var indices = new Stack<IndexExpression>();
+            while (member.Right is IndexExpression indexed) { indices.Push(indexed); member.Right = indexed.Left; }
+            IExpression result = member;
+            while (indices.Count > 0) { var indexed = indices.Pop(); indexed.Left = result; result = indexed; }
+            return result;
         }
 
         private IExpression parsePrefixIncrementExpression() {
@@ -531,8 +554,9 @@ namespace AquariusLang.parser {
         }
 
         private IExpression createIncrementExpression(Token token, IExpression operand, bool isPrefix) {
-            if (!(operand is Identifier)) {
-                addError("++ 的運算元必須是變數名稱。", currToken);
+            // A variable, an element (陣列[i]++) or a field (點.x++); a postfix ++ after a member is moved out of it by indexMember.
+            if (!(operand is Identifier || operand is IndexExpression || operand is InfixExpression { Operator: ".", Right: Identifier })) {
+                addError("++ 的運算元必須是變數、欄位或索引 / The operand of ++ must be a variable, a field or an index.", currToken);
                 return null;
             }
             return new IncrementExpression(token, operand, isPrefix);
@@ -541,6 +565,8 @@ namespace AquariusLang.parser {
         private IExpression parseBoolean() {
             return new BooleanLiteral(currToken, currTokenIs(TokenType.TRUE));
         }
+
+        private IExpression parseNull() => new NullLiteral(currToken);
 
         /// <summary>
         /// This will be the magical function that makes parsing grouped expressions "()" correct
@@ -773,10 +799,6 @@ namespace AquariusLang.parser {
             if (peekTokenIs(TokenType.LBRACKET)) {
                 nextToken();
                 if (!expectPeek(TokenType.RBRACKET)) return null;
-                if (element == ScalarType.String) {
-                    addError("字串陣列不能標註型別 / String arrays cannot be typed.", name);
-                    return null;
-                }
                 array = true;
             }
             return new TypeAnnotation(name, element, array);

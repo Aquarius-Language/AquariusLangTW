@@ -316,12 +316,21 @@ u32 aqua_hash_resize(u32 p,u32 n) { Hash*h=pointer(p);if(n<h->indexed){release(h
 u32 aqua_hash_write_support(void) { return 1; }
 u32 aqua_hash_expose(u32 p) { Hash*h=pointer(p);if(h->exposed!=2)h->exposed=1;return 0; }
 u32 aqua_take_dirty_hash(void) { Hash*h=pending.dirty_hashes;if(!h)return 0;pending.dirty_hashes=h->dirty_next;h->dirty_next=0;h->dirty=0;return address(h); }
-/* A typed array keeps its element type: a generic write of another type is a language error. */
-static int element_fits(Frame*f,Array*a,Value v) {
-    static const char *const names[]={"","int","float","double","bool"};
-    if(!a->element||v.tag==a->element)return 1;
+/* A typed array keeps its element type: integers widen to float and double and floats to double (in place, like a
+   typed variable), and a generic write of any other type is a language error. */
+static int element_fits(Frame*f,Array*a,Value*v) {
+    static const char *const names[]={"","int","float","double","bool","string"};
+    if(!a->element||v->tag==a->element)return 1;
+    if(numeric(*v)&&a->element>=FLOAT&&a->element<=DOUBLE&&v->tag<a->element){*v=number(v->number,a->element);return 1;}
     Text*t=concat(ascii("型別不符 / Type mismatch: the array holds "),ascii(names[a->element]));
-    fail(f,concat(concat(t,ascii(", got ")),ascii(type_name(v.tag))));return 0;
+    fail(f,concat(concat(t,ascii(", got ")),ascii(type_name(v->tag))));return 0;
+}
+/* Whether values a bulk copy brings into a typed array fit it (they are widened after the copy by widen_elements). */
+static int elements_fit(Frame*f,Array*a,const Value*values,u32 count) {
+    if(a->element)for(u32 i=0;i<count;i++){Value v=values[i];if(!element_fits(f,a,&v))return 0;}return 1;
+}
+static void widen_elements(Array*a,u32 start,u32 count) {
+    if(a->element>=FLOAT&&a->element<=DOUBLE)for(u32 i=start;i<start+count;i++)if(a->values[i].tag!=a->element)a->values[i]=number(a->values[i].number,a->element);
 }
 #include "arrays.h"
 #include "hashes.h"
@@ -518,7 +527,7 @@ typedef struct { u32 y,left,right; } FillSpan;
 int rt_nativeWritable(int array) { Array*a=pointer((u32)array);writable_array(a,a->count);array_changed(a);return 0; }
 static Value flood_fill(Frame*f,Value*args) {
     if(args[0].tag!=ARRAY||args[1].tag!=INT||args[2].tag!=INT||args[3].tag!=INT||args[4].tag!=INT||!numeric(args[5])){failure(f,"floodFill requires a numeric array, integer dimensions/coordinates and a numeric replacement.");return empty;}
-    Array*a=pointer(args[0].ref);if(!element_fits(f,a,args[5]))return empty;double wd=args[1].number,hd=args[2].number,xd=args[3].number,yd=args[4].number;
+    Array*a=pointer(args[0].ref);if(!element_fits(f,a,&args[5]))return empty;double wd=args[1].number,hd=args[2].number,xd=args[3].number,yd=args[4].number;
     if(wd<1||hd<1||wd>8192||hd>8192||wd*hd>16u*1024*1024||wd*hd!=a->count||xd<0||yd<0||xd>=wd||yd>=hd){failure(f,"Invalid floodFill dimensions or seed.");return empty;}
     for(u32 i=0;i<a->count;i++)if(!numeric(a->values[i])){failure(f,"floodFill requires a numeric array.");return empty;}
     u32 width=(u32)wd,height=(u32)hd,x=(u32)xd,y=(u32)yd;Value original=a->values[y*width+x],replacement=args[5];
@@ -756,8 +765,28 @@ int rt_index(Frame*f,int n){Value i=pop(f),v=pop(f),out=value(NULL_VALUE,0,0);if
 int rt_checkArrayWrite(Frame*f,int n){Value i=peek(f,1),a=peek(f,2);if(a.tag==HASH){if(!numeric(i)&&i.tag!=STRING&&i.tag!=BOOL)named_failure(f,"Unusable as hash key: ",ascii(type_name(i.tag)));}else if(a.tag!=ARRAY)failure(f,"Indexed assignment requires an array or hash.");else if(i.tag!=INT)failure(f,"Array assignment index must be an integer.");else if(i.number<0||i.number>=((Array*)pointer(a.ref))->count)failure(f,"Array assignment index is out of bounds.");return 0;}
 int rt_writeIndex(Frame*f,int n){Value v=pop(f);rt_checkArrayWrite(f,0);Value i=pop(f),a=pop(f);if(!f->execution->status){
     if(a.tag==HASH){Hash*h=pointer(a.ref);u32 j=hash_find(h,i);if(j==h->count)aqua_hash_resize(a.ref,h->count+1);h->pairs[j]=(Pair){i,v};if(h->exposed&&!h->dirty){h->dirty=1;h->dirty_next=pending.dirty_hashes;pending.dirty_hashes=h;}}
-    else{Array*x=pointer(a.ref);if(!element_fits(f,x,v)){push(f,v);return 0;}writable_array(x,x->count);x->values[(u32)i.number]=v;if(x->kind!=v.tag)x->kind=0;if(x->exposed&&!x->dirty){x->dirty=1;x->dirty_next=pending.dirty_arrays;pending.dirty_arrays=x;}}
+    else{Array*x=pointer(a.ref);if(!element_fits(f,x,&v)){push(f,v);return 0;}writable_array(x,x->count);x->values[(u32)i.number]=v;if(x->kind!=v.tag)x->kind=0;if(x->exposed&&!x->dirty){x->dirty=1;x->dirty_next=pending.dirty_arrays;pending.dirty_arrays=x;}}
 }push(f,v);return 0;}
+/* array[i] op= value / hash[key] op= value: the element keeps its numeric type like a compound assignment to a variable,
+   and a typed array's element type is checked like any write. The index is checked again after the value, which may
+   have changed the array. */
+int rt_compoundIndex(Frame*f,int n){Value c=constant(f,(u32)n),r=pop(f);rt_checkArrayWrite(f,0);Value i=pop(f),a=pop(f);if(f->execution->status)return 0;
+    if(a.tag==HASH){Hash*h=pointer(a.ref);u32 j=hash_find(h,i);Value v=binary(f,(int)c.number,j<h->count?h->pairs[j].value:value(NULL_VALUE,0,0),r,1);if(f->execution->status)return 0;
+        if(j==h->count)aqua_hash_resize(a.ref,h->count+1);h->pairs[j]=(Pair){i,v};if(h->exposed&&!h->dirty){h->dirty=1;h->dirty_next=pending.dirty_hashes;pending.dirty_hashes=h;}}
+    else{Array*x=pointer(a.ref);Value v=binary(f,(int)c.number,x->values[(u32)i.number],r,1);if(f->execution->status||!element_fits(f,x,&v))return 0;
+        writable_array(x,x->count);x->values[(u32)i.number]=v;if(x->kind!=v.tag)x->kind=0;if(x->exposed&&!x->dirty){x->dirty=1;x->dirty_next=pending.dirty_arrays;pending.dirty_arrays=x;}}
+    push(f,empty);return 0;}
+/* ++array[i] / array[i]++ (n: 1 prefix, 0 postfix) on the element CheckArrayWrite proved writable; hash entries too. */
+int rt_incrementIndex(Frame*f,int n){Value i=pop(f),a=pop(f);if(f->execution->status)return 0;
+    Value*slot;if(a.tag==HASH){Hash*h=pointer(a.ref);u32 j=hash_find(h,i);if(j==h->count){failure(f,"Increment requires a number.");return 0;}slot=&h->pairs[j].value;
+        if(h->exposed&&!h->dirty){h->dirty=1;h->dirty_next=pending.dirty_hashes;pending.dirty_hashes=h;}}
+    else{Array*x=pointer(a.ref);writable_array(x,x->count);slot=&x->values[(u32)i.number];if(x->exposed&&!x->dirty){x->dirty=1;x->dirty_next=pending.dirty_arrays;pending.dirty_arrays=x;}}
+    Value old=*slot;if(!numeric(old)){failure(f,"Increment requires a number.");return 0;}*slot=successor(old);push(f,n?*slot:old);return 0;}
+/* ++obj.field / obj.field++ (n: the field's name constant << 1 | prefix); the field keeps its numeric type. */
+int rt_incrementMember(Frame*f,int n){Value m=pop(f);Text*t=name(f,(u32)n>>1);
+    if(m.tag!=STRUCT){fail(f,concat(ascii("Cannot assign a member of "),value_type(m)));return 0;}
+    Struct*x=pointer(m.ref);int k=cached_field(x->shape,t);if(k<0){unknown_field(f,x->shape,t);return 0;}
+    Value old=x->fields[k];if(!numeric(old)){failure(f,"Increment requires a number.");return 0;}x->fields[k]=successor(old);push(f,n&1?x->fields[k]:old);return 0;}
 int rt_member(Frame*f,int n){Value m=pop(f),out=empty;Text*t=name(f,n);
     if(m.tag==STRUCT){Struct*x=pointer(m.ref);int k=cached_field(x->shape,t);cache_site(f,(u32)n,x->shape,k);if(k<0)unknown_field(f,x->shape,t);else out=x->fields[k];push(f,out);return 0;}
     if(m.tag==MODULE){Binding*b=find(pointer(m.ref),t);if(!b)named_failure(f,"Module member not found: ",t);else out=b->value;}else if(m.tag==NATIVE){MemberEntry*c=pending.host_era?member_entry(m.ref,address(t)):0;if(c&&c->era==pending.host_era&&c->native==m.ref&&c->name==address(t))out=c->value;else{int found=host_service(2,f->context,m.ref,address(t),0,0,address(&out));if(found!=0&&found!=2)named_failure(f,"Module member not found: ",t);else if(found==0&&c&&pending.host_era&&member_cacheable(out.tag)){c->native=m.ref;c->name=address(t);c->era=pending.host_era;c->value=out;}}}else named_failure(f,"Cannot access member of ",ascii(type_name(m.tag)));push(f,out);return 0;}

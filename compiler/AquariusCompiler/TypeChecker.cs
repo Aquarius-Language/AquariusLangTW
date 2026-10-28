@@ -37,8 +37,8 @@ internal sealed class NativeSignature {
 /// their scope regardless of order, because closures resolve names when they run.
 /// </summary>
 public sealed class TypeChecker {
-    /// <summary>Static types: 0 is unknown (untyped), -1 is no value (void), otherwise a type code.</summary>
-    internal const int Dynamic = 0, Void = -1, Int = 1, Float = 2, Double = 3, Bool = 4, String = 5, ArrayFlag = 16, StructFlag = 32;
+    /// <summary>Static types: 0 is unknown (untyped), -1 is no value (void), -3 is the null literal, otherwise a type code.</summary>
+    internal const int Dynamic = 0, Void = -1, Null = -3, Int = 1, Float = 2, Double = 3, Bool = 4, String = 5, ArrayFlag = 16, StructFlag = 32;
     internal static bool IsStruct(int code) => code > 0 && (code & StructFlag) != 0;
     /// <summary>The names of struct type codes seen by any check (for messages).</summary>
     private static readonly System.Collections.Concurrent.ConcurrentDictionary<int, string> structNames = new();
@@ -126,12 +126,13 @@ public sealed class TypeChecker {
 
     public static string Name(int code) {
         if (code == Void) return "無值 / no value";
+        if (code == Null) return "空值 null";
         if (code == ArrayFlag) return "陣列 array";
         if (IsStruct(code)) return structNames.TryGetValue(code, out var name) ? name : "結構 struct";
         string suffix = (code & ArrayFlag) != 0 ? "[]" : "";
         return (code & 15) switch {
             Int => $"整數{suffix} int{suffix}", Float => $"浮點數{suffix} float{suffix}", Double => $"雙精度{suffix} double{suffix}",
-            Bool => $"布林{suffix} bool{suffix}", String => $"字串 string", _ => "?" };
+            Bool => $"布林{suffix} bool{suffix}", String => $"字串{suffix} string{suffix}", _ => "?" };
     }
 
     private void Error(string message, Token token) => errors.Add(new ParseError(message, token));
@@ -237,8 +238,8 @@ public sealed class TypeChecker {
     /// <summary>Records a check or reports a mismatch for a value of static type <paramref name="value"/> stored where
     /// <paramref name="target"/> is required. Integers widen to float and double, floats to double.</summary>
     private void Require(int target, int value, INode site, string subject, Token token) {
-        if (value == target) return;
-        if (IsStruct(target) && value != Dynamic) {
+        if (value == target || value == Null && IsStruct(target)) return;
+        if ((IsStruct(target) || value == Null) && value != Dynamic) {
             Error($"型別不符：{subject} 需要 {Name(target)}，卻是 {Name(value)} / Type mismatch: {subject} expects {Name(target)}, got {Name(value)}.", token);
             return;
         }
@@ -248,6 +249,12 @@ public sealed class TypeChecker {
     }
     // Integers widen to float and double, floats to double, and every typed array is an array (陣列 / array).
     private static bool Widens(int from, int to) => from is Int or Float && to is Float or Double && from < to || to == ArrayFlag && (from & ArrayFlag) != 0;
+    /// <summary>Whether a value of static type value may be stored where target is required without a definite mismatch:
+    /// the same type, a widening, null in a struct, or an array of any values in a typed array (checked when it runs).</summary>
+    private static bool Compatible(int value, int target) => value == target || Widens(value, target) || value == Null && IsStruct(target)
+        || value == ArrayFlag && (target & ArrayFlag) != 0 && !IsStruct(target);
+    /// <summary>Whether target op= value can run for values of these static types: numbers, or strings joined with +=.</summary>
+    private static bool Combines(string op, int target, int value) => Numeric(target) && Numeric(value) || op == "+=" && target == String && value == String;
     private static bool Numeric(int type) => type is Int or Float or Double;
 
     // ---- expressions -------------------------------------------------------------------------------
@@ -259,6 +266,7 @@ public sealed class TypeChecker {
             case FloatLiteral: return Float;
             case DoubleLiteral: return Double;
             case BooleanLiteral: return Bool;
+            case NullLiteral: return Null;
             case StringLiteral: return String;
             case Identifier identifier: return Code(Resolve(identifier.Value)?.Type);
             case IncrementExpression increment: {
@@ -317,14 +325,16 @@ public sealed class TypeChecker {
             // A field of a value of a known struct type has the field's type.
             if (IsStruct(receiver) && infix.Right is Identifier member && Structs.TryGetValue(receiver, out var shape))
                 return FieldType(shape, member);
-            // The right side is a member name, a member call or an index chain on one; only its arguments are code here.
-            var right = infix.Right;
-            while (right is IndexExpression indexed) { Expression(indexed.Index); right = indexed.Left; }
-            if (right is CallExpression call) foreach (var a in call.Arguments ?? System.Array.Empty<IExpression>()) Expression(a);
+            // The right side is a member name or a member call; only a call's arguments are code here.
+            if (infix.Right is CallExpression call) foreach (var a in call.Arguments ?? System.Array.Empty<IExpression>()) Expression(a);
             return Dynamic;
         }
-        if (op == "=" && infix.Left is IndexExpression) {
-            Expression(infix.Left); Expression(infix.Right);
+        if (op is "=" or "+=" or "-=" or "*=" or "/=" or "%=" && infix.Left is IndexExpression element) {
+            // An element of a typed array: definite mismatches are compile errors; the runtime checks every write anyway.
+            int array = Expression(element.Left); Expression(element.Index); int value = Expression(infix.Right);
+            if ((array & ArrayFlag) == 0 || IsStruct(array) || array == ArrayFlag || array <= 0 || value == Dynamic) return Void;
+            if (op == "=" ? !Compatible(value, array & 15) : !Combines(op, array & 15, value))
+                Error($"型別不符：{Name(array)} 的元素不能使用 {op} {Name(value)} / Type mismatch: an element of {Name(array)} cannot use {op} with {Name(value)}.", infix.Token);
             return Void;
         }
         if (op is "=" or "+=" or "-=" or "*=" or "/=" or "%=" && infix.Left is InfixExpression { Operator: "." } target && target.Right is Identifier field) {
@@ -334,9 +344,9 @@ public sealed class TypeChecker {
             int type = FieldType(shape, field);
             string subject = $"{shape.Name.Value}.{field.Value}";
             if (type == Dynamic || value == Dynamic) return Void;
-            if (op == "=" && value != type && !Widens(value, type) && !(value == ArrayFlag && (type & ArrayFlag) != 0))
+            if (op == "=" && !Compatible(value, type))
                 Error($"型別不符：{subject} 需要 {Name(type)}，卻是 {Name(value)} / Type mismatch: {subject} expects {Name(type)}, got {Name(value)}.", field.Token);
-            else if (op != "=" && !(Numeric(type) && Numeric(value) || op == "+=" && type == String && value == String))
+            else if (op != "=" && !Combines(op, type, value))
                 Error($"型別不符：{subject} ({Name(type)}) 不能使用 {op} {Name(value)} / Type mismatch: {subject} ({Name(type)}) cannot use {op} with {Name(value)}.", infix.Token);
             return Void;
         }
@@ -348,7 +358,7 @@ public sealed class TypeChecker {
             if (op == "=") declaration.Assigned = true;
             if (declaration.Type is not { } type) { if (op == "=") Guess(declaration, null, 0, value, infix.Right); return Void; }
             if (op == "=") Require(type.Code, value, infix, variable.Value, variable.Token);
-            else if (value != Dynamic && !(Numeric(type.Code) && Numeric(value) || op == "+=" && type.Code == String && value == String))
+            else if (value != Dynamic && !Combines(op, type.Code, value))
                 Error($"型別不符：{variable.Value} ({Name(type.Code)}) 不能使用 {op} {Name(value)} / Type mismatch: {variable.Value} ({Name(type.Code)}) cannot use {op} with {Name(value)}.", infix.Token);
             else if ((op != "+=" || type.Code != String) && !Numeric(type.Code))
                 Error($"{variable.Value} ({Name(type.Code)}) 不能使用 {op} / {variable.Value} ({Name(type.Code)}) cannot use {op}.", infix.Token);
@@ -388,7 +398,7 @@ public sealed class TypeChecker {
             }
             given.Add(field.Value);
             int type = Code(field.Type), value = arguments[i];
-            if (type != Dynamic && value != Dynamic && value != type && !Widens(value, type) && !(value == ArrayFlag && (type & ArrayFlag) != 0))
+            if (type != Dynamic && value != Dynamic && !Compatible(value, type))
                 Error($"型別不符：{shape.Name.Value}.{field.Value} 需要 {Name(type)}，卻是 {Name(value)} / Type mismatch: {shape.Name.Value}.{field.Value} expects {Name(type)}, got {Name(value)}.", token);
         }
         foreach (var field in shape.Fields)
@@ -422,8 +432,7 @@ public sealed class TypeChecker {
                 else derived.Add((null, function, i, source.Declaration, source.Element));
         if (parameters.Length == arguments.Length)
             for (int i = 0; i < arguments.Length; i++)
-                if (parameters[i].Type is { } type && arguments[i] != Dynamic && arguments[i] != type.Code && !Widens(arguments[i], type.Code)
-                    && !(arguments[i] == ArrayFlag && (type.Code & ArrayFlag) != 0))
+                if (parameters[i].Type is { } type && arguments[i] != Dynamic && !Compatible(arguments[i], type.Code))
                     Error($"型別不符：參數 {parameters[i].Value} 需要 {Name(type.Code)}，卻是 {Name(arguments[i])} / Type mismatch: parameter {parameters[i].Value} expects {Name(type.Code)}, got {Name(arguments[i])}.", name.Token);
         return Code(function.ReturnType);
     }

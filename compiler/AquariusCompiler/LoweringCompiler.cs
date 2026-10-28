@@ -130,12 +130,18 @@ public sealed class LoweringCompiler {
             case FloatLiteral floating: Value(new FloatObj(floating.Value)); break;
             case DoubleLiteral number: Value(new DoubleObj(number.Value)); break;
             case BooleanLiteral boolean: Value(boolean.Value ? RepeatedPrimitives.TRUE : RepeatedPrimitives.FALSE); break;
+            case NullLiteral: Emit(IrOperation.Null); break;
             case StringLiteral text: Value(new StringObj(text.Value)); break;
             case Identifier identifier: Emit(IrOperation.Load, Name(identifier.Value)); break;
             case IncrementExpression increment:
                 if (increment.Operand is Identifier variable)
                     Emit(increment.IsPrefix ? IrOperation.IncrementPrefix : IrOperation.IncrementPostfix, Name(variable.Value));
-                else Error("++ 的運算元必須是變數名稱。");
+                else if (increment.Operand is IndexExpression element) {
+                    Node(element.Left); Node(element.Index); Emit(IrOperation.CheckArrayWrite);
+                    Emit(IrOperation.IncrementIndex, increment.IsPrefix ? 1 : 0);
+                } else if (increment.Operand is InfixExpression { Operator: ".", Right: Identifier field } member) {
+                    Node(member.Left); Emit(IrOperation.IncrementMember, Name(field.Value) << 1 | (increment.IsPrefix ? 1 : 0));
+                } else throw new CompilationException("++ 的運算元必須是變數、欄位或索引 / The operand of ++ must be a variable, a field or an index.");
                 break;
             case PrefixExpression prefix:
                 Node(prefix.Right);
@@ -172,30 +178,28 @@ public sealed class LoweringCompiler {
             else Emit(IrOperation.CompoundMember, Constant(new Assignment(field.Value, BinaryCode(op.Substring(0, 1)))));
             return;
         }
-        if (op == "=" && expression.Left is IndexExpression index) {
+        if (op is "=" or "+=" or "-=" or "*=" or "/=" or "%=" && expression.Left is IndexExpression index) {
             Node(index.Left); Node(index.Index); Emit(IrOperation.CheckArrayWrite);
-            Node(expression.Right); Emit(IrOperation.WriteIndex); return;
+            Node(expression.Right);
+            if (op == "=") Emit(IrOperation.WriteIndex);
+            else Emit(IrOperation.CompoundIndex, Constant(new Assignment("", BinaryCode(op.Substring(0, 1)))));
+            return;
         }
         Node(expression.Left);
         if (op == ".") {
-            // Indexing binds tighter than member access in the parser, so `模組.表["鍵"]` and
-            // `模組.函式()[0]` arrive as a member whose right side is an index chain. Lower them as
-            // indexing the member result, innermost index first.
-            var indices = new Stack<IExpression>(); var right = expression.Right;
-            while (right is IndexExpression indexed) { indices.Push(indexed.Index); right = indexed.Left; }
-            if (right is Identifier member) Emit(IrOperation.Member, Name(member.Value));
-            else if (right is CallExpression call) {
+            // The parser rebuilds index chains on a member (`模組.表["鍵"]`) as indexing the member.
+            if (expression.Right is Identifier member) Emit(IrOperation.Member, Name(member.Value));
+            else if (expression.Right is CallExpression call) {
                 if (call.Function is Identifier function) Emit(IrOperation.MemberFunction, Name(function.Value));
                 else Emit(IrOperation.ResolveMemberFunction, Constant(new LoweringCompiler(types).Compile(call.Function)));
                 Arguments(call.Arguments); Emit(IrOperation.Call, call.Arguments.Length);
-            } else throw new CompilationException("Unsupported module member expression.");
-            while (indices.Count > 0) { Node(indices.Pop()); Emit(IrOperation.Index); }
+            } else throw new CompilationException("成員存取的右側必須是名稱或呼叫 / The right side of a member access must be a name or a call.");
             return;
         }
         Node(expression.Right);
         if (op == "=" || op == "+=" || op == "-=" || op == "*=" || op == "/=" || op == "%=") {
             if (!(expression.Left is Identifier variable)) {
-                Error($"Left operand for {op} operator not identifier. Got={expression.Left.GetType()}"); return;
+                throw new CompilationException($"{op} 的左側必須是變數、欄位或索引 / The left side of {op} must be a variable, a field or an index.");
             }
             if (op == "=") { Check(expression); Emit(IrOperation.Assign, Name(variable.Value)); }
             else Emit(IrOperation.CompoundAssign, Constant(new Assignment(variable.Value, BinaryCode(op.Substring(0, 1)))));

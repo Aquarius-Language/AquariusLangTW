@@ -293,7 +293,7 @@ internal sealed class WasmNativeFunction
         foreach (var native in accepted.Values) native.Pointers = pointers[native].OrderBy(n => n, StringComparer.Ordinal).ToArray();
         foreach (var native in accepted.Values) {
             native.WritesOuter = native.Written.Count > 0;
-            native.WritesArrays = native.body.Code.Any(op => op.Code == IrOperation.WriteIndex);
+            native.WritesArrays = native.body.Code.Any(op => op.Code is IrOperation.WriteIndex or IrOperation.CompoundIndex or IrOperation.IncrementIndex);
         }
         for (changed = true; changed;) {
             changed = false;
@@ -585,6 +585,18 @@ internal sealed class WasmNativeFunction
                     if (stack.Count < 3 || !IsArray(Top(3)) || Top(2) != IntType || Top() != (Top(3) & 15)) return Reject(pc);
                     { int value = Top(); Pop(3); stack.Add(value); }
                     break;
+                case IrOperation.CompoundIndex:
+                    // A number element keeps its type; anything else (strings, Booleans, other arrays) stays generic.
+                    if (stack.Count < 3 || !IsArray(Top(3)) || Top(2) != IntType || !Numeric(Top(3) & 15) || !Numeric(Top())) return Reject(pc);
+                    Pop(3); stack.Add(VoidType); break;
+                case IrOperation.IncrementIndex:
+                    if (!IsArray(Top(2)) || Top() != IntType || !Numeric(Top(2) & 15)) return Reject(pc);
+                    { int element = Top(2) & 15; Pop(2); stack.Add(element); }
+                    break;
+                case IrOperation.IncrementMember: {
+                    if (StructField(Top(), NameOf(operand >> 1)) is not { } field || !Numeric(field.Code)) return Reject(pc);
+                    stack[^1] = field.Code; break;
+                }
                 case IrOperation.Jump:
                     work.Enqueue((operand, stack.ToArray())); continue;
                 case IrOperation.JumpIfFalse: case IrOperation.LoopCondition:
@@ -1458,6 +1470,54 @@ internal sealed class WasmNativeFunction
                     Get(w, StackCount(array) + 1); Get(w, StackI(index)); I(w, 4); Op(0x74, 0x6a);
                     PushStack(type, top); AsPayload(type); Memory(w, F64Store, 3, ValueNumber);
                     PushStack(type, top); PopStack(type, array); break;
+                }
+                case IrOperation.CompoundIndex: {
+                    // Like a compound field assignment, on the element CheckArrayWrite proved in range.
+                    var operation = ((Assignment)cur.body.Pool[operand]).Operation;
+                    int array = depth - 3, index = depth - 2, left = TopType(3) & 15, right = TopType();
+                    Get(w, StackI(array)); Memory(w, I32Load, 2, ArrayStorage); Memory(w, I32Load, 2, ArrayStorageReferences); I(w, 1); Op(0x47);
+                    Get(w, StackI(array)); Memory(w, I32Load, 2, ArrayExposed); Op(0x72, If, 0x40);
+                    Get(w, StackI(array)); Op(Call); U(w, runtime["rt_nativeWritable"]); Op(Drop);
+                    RefreshValues(stack);
+                    Op(End);
+                    Get(w, StackCount(array) + 1); Get(w, StackI(index)); I(w, 4); Op(0x74, 0x6a); Set(w, resultI);
+                    void LoadElement() { Get(w, resultI); Memory(w, F64Load, 3, ValueNumber); if (!Wide(left)) ExactInteger(w); }
+                    void StoreElement(Action number) { Get(w, resultI); number(); Memory(w, F64Store, 3, ValueNumber); }
+                    if (left == IntType && right == IntType) {
+                        IntCheck(operation, () => PushStack(IntType, top));
+                        StoreElement(() => { IntOperation(operation, LoadElement, () => PushStack(IntType, top)); Op(0xb7); });
+                    } else {
+                        if (left == IntType && operation == IrOperation.Modulo) { AsDouble(right, top); F(w, 0); Op(0x61, If, 0x40); Fail(1); Op(End); }
+                        LoadElement(); if (!Wide(left)) Op(0xb7); Set(w, tempF);
+                        AsDouble(right, top); Set(w, tempG);
+                        FloatOperation(operation, tempF, tempG); Set(w, tempF);
+                        StoreElement(() => { Get(w, tempF); if (left == IntType) { Op(0xfc, 0x02); Op(0xb7); } else if (left == FloatType) RoundFloat(); });
+                    }
+                    break;
+                }
+                case IrOperation.IncrementIndex: case IrOperation.IncrementMember: {
+                    // ++ on an element CheckArrayWrite proved in range, or on a numeric field; the result replaces the receiver.
+                    int receiver, type;
+                    if (op.Code == IrOperation.IncrementIndex) {
+                        receiver = depth - 2; type = TopType(2) & 15;
+                        Get(w, StackI(receiver)); Memory(w, I32Load, 2, ArrayStorage); Memory(w, I32Load, 2, ArrayStorageReferences); I(w, 1); Op(0x47);
+                        Get(w, StackI(receiver)); Memory(w, I32Load, 2, ArrayExposed); Op(0x72, If, 0x40);
+                        Get(w, StackI(receiver)); Op(Call); U(w, runtime["rt_nativeWritable"]); Op(Drop);
+                        RefreshValues(stack);
+                        Op(End);
+                        Get(w, StackCount(receiver) + 1); Get(w, StackI(top)); I(w, 4); Op(0x74, 0x6a); Set(w, resultI);
+                    } else {
+                        receiver = top; var field = cur.StructField(TopType(), cur.NameOf(operand >> 1))!.Value; type = field.Code;
+                        NullCheck(top, 5); FieldAddress(StackI(top), field.Index); Get(w, tempI); Set(w, resultI);
+                    }
+                    bool prefix = (operand & 1) != 0;
+                    void Load() { Get(w, resultI); Memory(w, F64Load, 3, ValueNumber); if (!Wide(type)) ExactInteger(w); }
+                    if (!prefix) { Load(); PopStack(type, receiver); }
+                    Get(w, resultI); Load();
+                    if (type == IntType) { I(w, 1); Op(0x6a, 0xb7); } else { F(w, 1); Op(0xa0); if (type == FloatType) RoundFloat(); }
+                    Memory(w, F64Store, 3, ValueNumber);
+                    if (prefix) { Load(); PopStack(type, receiver); }
+                    break;
                 }
                 case IrOperation.CheckType: {
                     int want = operand & 31, from = TopType();

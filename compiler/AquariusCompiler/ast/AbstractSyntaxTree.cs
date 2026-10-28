@@ -319,6 +319,15 @@ public class IncrementExpression : IExpression {
     public string String() => IsPrefix ? "(++" + Operand.String() + ")" : "(" + Operand.String() + "++)";
 }
 
+/// <summary>The null literal, <c>空值</c> / <c>null</c>: the value of a missing field, entry or array element.</summary>
+public sealed class NullLiteral : IExpression {
+    public Token Token { get; }
+    public NullLiteral(Token token) { Token = token; }
+    public string TokenLiteral() => Token.Literal;
+    public void ExpressionNode() { }
+    public string String() => Token.Literal;
+}
+
 public class BooleanLiteral : IExpression {
     private Token token;
     private bool value;
