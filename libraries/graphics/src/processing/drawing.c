@@ -116,8 +116,37 @@ static void p_imageMode(aqua_call *call, processing *p, canvas *c) { (void)p; if
 
 static void p_background(aqua_call *call, processing *p, canvas *c) {
     vec4 color;
-    if (draw(call, p, c) && gfx_color_arguments(call, &c->style, 0, aqua_argc(call), &color)) gfx_canvas_background(c, color);
+    if (!draw(call, p, c)) return;
+    if (aqua_argc(call) == 1 && aqua_arg(call, 0).type == AQUA_NATIVE) {
+        /* background(image): the image replaces the whole canvas, stretched to it. */
+        pimage *image = gfx_image_argument(call, p, 0);
+        if (!image) return;
+        if (c->surface == image) { gfx_fail(call, "Cannot draw a canvas into itself."); return; }
+        gfx_canvas_background(c, (vec4){0, 0, 0, 0});
+        mat4 model = c->model, view = c->view, projection = c->projection;
+        style saved = c->style;
+        bool is3d = c->is3d;
+        c->model = c->view = gfx_m4_identity();
+        gfx_canvas_ortho(NULL, 0, (float)c->width, (float)c->height, 0, -10000, 10000, &c->projection);
+        c->style.tint = (vec4){1, 1, 1, 1}; c->style.image_mode = 0; c->is3d = false;
+        float w = (float)c->width, h = (float)c->height;
+        gfx_canvas_image(call, c, image, 0, 0, &w, &h);
+        c->model = model; c->view = view; c->projection = projection; c->style = saved; c->is3d = is3d;
+        return;
+    }
+    if (gfx_color_arguments(call, &c->style, 0, aqua_argc(call), &color)) gfx_canvas_background(c, color);
 }
+static void p_hint(aqua_call *call, processing *p, canvas *c) {
+    (void)p;
+    if (!action(call, c)) return;
+    /* The depth hints act; the other Processing hints are accepted and have nothing to change here. */
+    int h = GFX_CHOICE(call, 0, 2, -2, 3, -3, 4, -4, 5, -5, 6, -6, 7, -7, 8, -8, 9, -9, 10, -10, 11, -11, 12, -12);
+    if (aqua_failed(call)) return;
+    if (h == 2 || h == -2) c->depth_test = h < 0;
+    if (h == 5 || h == -5) c->depth_mask = h < 0;
+}
+static void p_textureWrap(aqua_call *call, processing *p, canvas *c) { (void)p; if (!action(call, c)) return; int w = GFX_CHOICE(call, 0, 0, 1); if (!aqua_failed(call)) c->texture_wrap = w; }
+static void p_shapeMode(aqua_call *call, processing *p, canvas *c) { (void)p; if (!action(call, c)) return; int v = GFX_CHOICE(call, 0, 0, 1, 2); if (!aqua_failed(call)) c->style.pshape_mode = v; }
 static void p_clear(aqua_call *call, processing *p, canvas *c) { if (draw(call, p, c)) gfx_canvas_background(c, (vec4){0, 0, 0, 0}); }
 
 /* ---- Primitives ---- */
@@ -234,7 +263,25 @@ static void p_scale(aqua_call *call, processing *p, canvas *c) {
     float x = gfx_float(call, 0), y = n == 1 ? x : gfx_float(call, 1), z = n == 1 ? x : n == 3 ? gfx_float(call, 2) : 1;
     if (!aqua_failed(call)) apply(c, gfx_m4_scale(x, y, z));
 }
-static void p_rotate(aqua_call *call, processing *p, canvas *c) { (void)p; if (!transform(call, c)) return; float r = gfx_float(call, 0); if (!aqua_failed(call)) apply(c, gfx_m4_rotation_z(r)); }
+/* System.Numerics Matrix4x4.CreateFromAxisAngle (the axis normalized), the convention of rotateX/Y/Z. */
+static mat4 axis_rotation(vec3 axis, float angle) {
+    vec3 a = gfx_v3_normalize(axis);
+    float x = a.x, y = a.y, z = a.z, sa = sinf(angle), ca = cosf(angle), xx = x * x, yy = y * y, zz = z * z, xy = x * y, xz = x * z, yz = y * z;
+    return gfx_m4_make(xx + ca * (1 - xx), xy - ca * xy + sa * z, xz - ca * xz - sa * y, 0,
+                       xy - ca * xy - sa * z, yy + ca * (1 - yy), yz - ca * yz + sa * x, 0,
+                       xz - ca * xz + sa * y, yz - ca * yz - sa * x, zz + ca * (1 - zz), 0, 0, 0, 0, 1);
+}
+static void p_rotate(aqua_call *call, processing *p, canvas *c) {
+    (void)p;
+    if (!transform(call, c)) return;
+    uint32_t n = aqua_argc(call);
+    if (n != 1 && n != 4) { gfx_fail(call, "rotate() takes an angle, or an angle and an axis x,y,z."); return; }
+    float r = gfx_float(call, 0);
+    vec3 axis = n == 4 ? point_of(call, 1, 3) : v3(0, 0, 1);
+    if (aqua_failed(call)) return;
+    if (n == 4 && gfx_v3_length_squared(axis) < 1e-12f) { gfx_fail(call, "Cannot normalize a zero vector."); return; }
+    apply(c, n == 4 ? axis_rotation(axis, r) : gfx_m4_rotation_z(r));
+}
 static void p_rotateX(aqua_call *call, processing *p, canvas *c) { (void)p; if (!transform(call, c)) return; float r = gfx_float(call, 0); if (!aqua_failed(call)) apply(c, gfx_m4_rotation_x(r)); }
 static void p_rotateY(aqua_call *call, processing *p, canvas *c) { (void)p; if (!transform(call, c)) return; float r = gfx_float(call, 0); if (!aqua_failed(call)) apply(c, gfx_m4_rotation_y(r)); }
 static void p_rotateZ(aqua_call *call, processing *p, canvas *c) { (void)p; if (!transform(call, c)) return; float r = gfx_float(call, 0); if (!aqua_failed(call)) apply(c, gfx_m4_rotation_z(r)); }
@@ -274,11 +321,21 @@ aqua_value gfx_matrix_value(aqua_runtime *rt, mat4 m) {
     return aqua_array_from_f64(rt, values, 16, AQUA_DOUBLE);
 }
 
+/* applyMatrix(array16) takes the column-major array GLM uses; applyMatrix(n00, n01, n02, n10, n11, n12) and the
+   16-number form take Processing's row-major matrix for column vectors (n02/n03 the translation). */
 static void p_applyMatrix(aqua_call *call, processing *p, canvas *c) {
     (void)p;
     if (!transform(call, c)) return;
-    mat4 m;
-    if (gfx_matrix_argument(call, 0, &m)) apply(c, m);
+    uint32_t n = aqua_argc(call);
+    mat4 m = gfx_m4_identity();
+    if (n == 1) { if (gfx_matrix_argument(call, 0, &m)) apply(c, m); return; }
+    if (n != 6 && n != 16) { gfx_fail(call, "applyMatrix() takes a 16-element array, 6 numbers (2D) or 16 numbers (3D)."); return; }
+    float v[16];
+    for (uint32_t i = 0; i < n; i++) v[i] = gfx_float(call, i);
+    if (aqua_failed(call)) return;
+    if (n == 6) { m.m[0] = v[0]; m.m[4] = v[1]; m.m[12] = v[2]; m.m[1] = v[3]; m.m[5] = v[4]; m.m[13] = v[5]; }
+    else for (int row = 0; row < 4; row++) for (int column = 0; column < 4; column++) m.m[column * 4 + row] = v[row * 4 + column];
+    apply(c, m);
 }
 static void p_getMatrix(aqua_call *call, processing *p, canvas *c) { (void)p; aqua_return(call, gfx_matrix_value(aqua_call_runtime(call), c->model)); }
 
@@ -324,6 +381,32 @@ static void p_perspective(aqua_call *call, processing *p, canvas *c) {
     float fov = gfx_float(call, 0), aspect = gfx_float(call, 1), near = gfx_float(call, 2), far = gfx_float(call, 3);
     if (aqua_failed(call)) return;
     if (gfx_canvas_perspective(call, fov, aspect, near, far, &m)) { m.m[5] = -m.m[5]; c->projection = m; }
+}
+/* glFrustum with Processing's downward screen Y (as perspective() flips it). */
+static void p_frustum(aqua_call *call, processing *p, canvas *c) {
+    if (!draw(call, p, c)) return;
+    float l = gfx_float(call, 0), r = gfx_float(call, 1), b = gfx_float(call, 2), t = gfx_float(call, 3), n = gfx_float(call, 4), f = gfx_float(call, 5);
+    if (aqua_failed(call)) return;
+    if (l == r || b == t || n <= 0 || f <= n) { gfx_fail(call, "Invalid frustum parameters."); return; }
+    mat4 m = gfx_m4_make(2 * n / (r - l), 0, 0, 0, 0, 2 * n / (t - b), 0, 0, (r + l) / (r - l), (t + b) / (t - b), (f + n) / (n - f), -1,
+                         0, 0, 2 * f * n / (n - f), 0);
+    m.m[5] = -m.m[5];
+    m.m[9] = -m.m[9];
+    c->projection = m;
+}
+/* Between beginCamera() and endCamera() transforms build the camera: endCamera() folds them into the view. */
+static void p_beginCamera(aqua_call *call, processing *p, canvas *c) {
+    if (!draw(call, p, c)) return;
+    if (c->in_camera) { gfx_fail(call, "beginCamera() cannot be nested."); return; }
+    c->in_camera = true;
+    c->model = gfx_m4_identity();
+}
+static void p_endCamera(aqua_call *call, processing *p, canvas *c) {
+    if (!draw(call, p, c)) return;
+    if (!c->in_camera) { gfx_fail(call, "Call beginCamera() first."); return; }
+    c->in_camera = false;
+    c->view = gfx_m4_multiply(c->model, c->view);
+    c->model = gfx_m4_identity();
 }
 static void p_ortho(aqua_call *call, processing *p, canvas *c) {
     if (!draw(call, p, c)) return;
@@ -560,7 +643,7 @@ static void p_clip(aqua_call *call, processing *p, canvas *c) {
     gfx_canvas_bind(c);
 }
 static void p_noClip(aqua_call *call, processing *p, canvas *c) { if (!draw(call, p, c)) return; c->has_clip = false; gfx_canvas_bind(c); }
-static void p_blendMode(aqua_call *call, processing *p, canvas *c) { if (!draw(call, p, c)) return; int m = GFX_CHOICE(call, 0, 0, 1, 2, 3, 4); if (!aqua_failed(call)) c->blend_mode = m; }
+static void p_blendMode(aqua_call *call, processing *p, canvas *c) { if (!draw(call, p, c)) return; int m = GFX_CHOICE(call, 0, 0, 1, 2, 3, 4, 6, 7, 8, 9); if (!aqua_failed(call)) c->blend_mode = m; }
 
 #define DRAWING(X) \
     X(colorMode, "colorMode|色彩模式", 1, 5) X(color, "color|顏色", 1, 4) X(red, "red|紅色分量", 1, 1) X(green, "green|綠色分量", 1, 1) \
@@ -576,12 +659,13 @@ static void p_blendMode(aqua_call *call, processing *p, canvas *c) { if (!draw(c
     X(curve, "curve|曲線", 8, 12) X(pushMatrix, "pushMatrix|推入矩陣", 0, 0) X(popMatrix, "popMatrix|彈出矩陣", 0, 0) \
     X(resetMatrix, "resetMatrix|重設矩陣", 0, 0) X(pushStyle, "pushStyle|推入樣式", 0, 0) X(popStyle, "popStyle|彈出樣式", 0, 0) \
     X(push, "push|推入狀態", 0, 0) X(pop, "pop|彈出狀態", 0, 0) X(translate, "translate|平移", 2, 3) X(scale, "scale|縮放", 1, 3) \
-    X(rotate, "rotate|旋轉", 1, 1) X(rotateX, "rotateX|旋轉X", 1, 1) X(rotateY, "rotateY|旋轉Y", 1, 1) X(rotateZ, "rotateZ|旋轉Z", 1, 1) \
-    X(shearX, "shearX|剪切X", 1, 1) X(shearY, "shearY|剪切Y", 1, 1) X(applyMatrix, "applyMatrix|套用矩陣", 1, 1) \
+    X(rotate, "rotate|旋轉", 1, 4) X(rotateX, "rotateX|旋轉X", 1, 1) X(rotateY, "rotateY|旋轉Y", 1, 1) X(rotateZ, "rotateZ|旋轉Z", 1, 1) \
+    X(shearX, "shearX|剪切X", 1, 1) X(shearY, "shearY|剪切Y", 1, 1) X(applyMatrix, "applyMatrix|套用矩陣", 1, 16) \
     X(getMatrix, "getMatrix|取得矩陣", 0, 0) X(modelX, "modelX|模型X", 2, 3) X(modelY, "modelY|模型Y", 2, 3) X(modelZ, "modelZ|模型Z", 2, 3) \
     X(screenX, "screenX|螢幕X", 2, 3) X(screenY, "screenY|螢幕Y", 2, 3) X(screenZ, "screenZ|螢幕Z", 2, 3) X(camera, "camera|攝影機", 0, 9) \
-    X(perspective, "perspective|透視", 0, 4) X(ortho, "ortho|正交投影", 0, 6) X(lights, "lights|燈光", 0, 0) X(noLights, "noLights|停用燈光", 0, 0) \
-    X(ambientLight, "ambientLight|環境光", 3, 3) X(directionalLight, "directionalLight|方向光", 6, 6) X(pointLight, "pointLight|點光源", 6, 6) \
+    X(perspective, "perspective|透視", 0, 4) X(ortho, "ortho|正交投影", 0, 6) X(frustum, "frustum|視錐", 6, 6) \
+    X(beginCamera, "beginCamera|開始攝影機", 0, 0) X(endCamera, "endCamera|結束攝影機", 0, 0) X(lights, "lights|燈光", 0, 0) \
+    X(noLights, "noLights|停用燈光", 0, 0) X(ambientLight, "ambientLight|環境光", 3, 6) X(directionalLight, "directionalLight|方向光", 6, 6) X(pointLight, "pointLight|點光源", 6, 6) \
     X(spotLight, "spotLight|聚光燈", 11, 11) X(lightFalloff, "lightFalloff|光衰減", 3, 3) X(lightSpecular, "lightSpecular|鏡面光", 3, 3) \
     X(ambient, "ambient|環境材質", 1, 3) X(specular, "specular|鏡面材質", 1, 3) X(emissive, "emissive|自發光", 1, 3) X(shininess, "shininess|光澤度", 1, 1) \
     X(box, "box|方塊", 1, 3) X(sphere, "sphere|球體", 1, 1) X(sphereDetail, "sphereDetail|球體細節", 1, 2) X(beginShape, "beginShape|開始圖形", 0, 1) \
@@ -589,7 +673,8 @@ static void p_blendMode(aqua_call *call, processing *p, canvas *c) { if (!draw(c
     X(normal, "normal|法向量", 3, 3) X(texture, "texture|紋理", 1, 1) X(textureMode, "textureMode|紋理模式", 1, 1) \
     X(bezierVertex, "bezierVertex|貝茲頂點", 6, 9) X(quadraticVertex, "quadraticVertex|二次曲線頂點", 4, 6) X(curveVertex, "curveVertex|曲線頂點", 2, 3) \
     X(endShape, "endShape|結束圖形", 0, 1) X(image, "image|圖片", 3, 5) X(smooth, "smooth|平滑", 0, 1) X(noSmooth, "noSmooth|停用平滑", 0, 0) \
-    X(clip, "clip|裁切", 4, 4) X(noClip, "noClip|停用裁切", 0, 0) X(blendMode, "blendMode|混色模式", 1, 1)
+    X(clip, "clip|裁切", 4, 4) X(noClip, "noClip|停用裁切", 0, 0) X(blendMode, "blendMode|混色模式", 1, 1) X(hint, "hint|提示", 1, 1) \
+    X(textureWrap, "textureWrap|紋理環繞", 1, 1) X(shapeMode, "shapeMode|圖形模式", 1, 1)
 
 DRAWING(CANVAS_WRAPPERS)
 

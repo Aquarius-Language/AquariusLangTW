@@ -20,7 +20,7 @@ set(sources
     src/common/matrix.c src/common/records.c src/common/unicode.c
     src/gpu/buffer.c src/gpu/device.c src/gpu/shader.c src/gpu/shaders.c src/gpu/surface.c src/gpu/target.c
     src/gpu/texture.c
-    src/processing/canvas.c src/processing/color.c src/processing/drawing.c src/processing/geometry.c
+    src/processing/canvas.c src/processing/color.c src/processing/data.c src/processing/drawing.c src/processing/geometry.c
     src/processing/image.c src/processing/input.c src/processing/lifecycle.c src/processing/math.c
     src/processing/module.c src/processing/shapes.c src/processing/shaders.c src/processing/text.c
     src/processing/vector.c

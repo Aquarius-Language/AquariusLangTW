@@ -77,6 +77,16 @@ static void p_lerp(aqua_call *call, processing *p, pvector *self) {
     float t = gfx_float(call, 1);
     if (!aqua_failed(call)) mutated(call, self, gfx_v3_lerp(self->v, o, t));
 }
+static void p_setHeading(aqua_call *call, processing *p, pvector *self) {
+    (void)p;
+    float a = gfx_float(call, 0);
+    if (aqua_failed(call)) return;
+    float m = sqrtf(self->v.x * self->v.x + self->v.y * self->v.y);
+    mutated(call, self, v3(m * cosf(a), m * sinf(a), self->v.z));
+}
+static void p_setX(aqua_call *call, processing *p, pvector *self) { (void)p; float n = gfx_float(call, 0); if (!aqua_failed(call)) mutated(call, self, v3(n, self->v.y, self->v.z)); }
+static void p_setY(aqua_call *call, processing *p, pvector *self) { (void)p; float n = gfx_float(call, 0); if (!aqua_failed(call)) mutated(call, self, v3(self->v.x, n, self->v.z)); }
+static void p_setZ(aqua_call *call, processing *p, pvector *self) { (void)p; float n = gfx_float(call, 0); if (!aqua_failed(call)) mutated(call, self, v3(self->v.x, self->v.y, n)); }
 static void p_copy(aqua_call *call, processing *p, pvector *self) { (void)p; aqua_return(call, vector_new(aqua_call_runtime(call), self->v)); }
 static void p_array(aqua_call *call, processing *p, pvector *self) {
     (void)p;
@@ -106,6 +116,21 @@ static void p_createVector(aqua_call *call, processing *p) {
     if (!aqua_failed(call)) aqua_return(call, vector_new(aqua_call_runtime(call), v));
 }
 static void p_PVector(aqua_call *call, processing *p) { p_createVector(call, p); }
+/* PVector.fromAngle(angle[, length]), PVector.random2D(), PVector.random3D() as module functions (seeded by
+   randomSeed()); random3D picks a uniform direction on the sphere, as Processing does. */
+static void p_fromAngle(aqua_call *call, processing *p) {
+    (void)p;
+    float a = gfx_float(call, 0), length = aqua_argc(call) == 2 ? gfx_float(call, 1) : 1;
+    if (!aqua_failed(call)) aqua_return(call, vector_new(aqua_call_runtime(call), v3(cosf(a) * length, sinf(a) * length, 0)));
+}
+static void p_random2D(aqua_call *call, processing *p) {
+    float a = (float)(gfx_random_next(p) * 6.28318530717958647692);
+    aqua_return(call, vector_new(aqua_call_runtime(call), v3(cosf(a), sinf(a), 0)));
+}
+static void p_random3D(aqua_call *call, processing *p) {
+    float angle = (float)(gfx_random_next(p) * 6.28318530717958647692), z = (float)(gfx_random_next(p) * 2 - 1), r = sqrtf(1 - z * z);
+    aqua_return(call, vector_new(aqua_call_runtime(call), v3(r * cosf(angle), r * sinf(angle), z)));
+}
 
 static void x_property(aqua_call *call) { aqua_return(call, aqua_float(((pvector *)aqua_self(call))->v.x)); }
 static void y_property(aqua_call *call) { aqua_return(call, aqua_float(((pvector *)aqua_self(call))->v.y)); }
@@ -116,12 +141,15 @@ static void z_property(aqua_call *call) { aqua_return(call, aqua_float(((pvector
     X(normalize, "normalize|正規化", 0, 0) X(setMag, "setMag|設定長度", 1, 1) X(limit, "limit|限制長度", 1, 1) X(rotate, "rotate|旋轉", 1, 1) \
     X(lerp, "lerp|線性插值", 2, 2) X(copy, "copy|複製", 0, 0) X(array, "array|轉陣列", 0, 0) X(mag, "mag|長度", 0, 0) \
     X(magSq, "magSq|長度平方", 0, 0) X(heading, "heading|方向角", 0, 0) X(dot, "dot|內積", 1, 1) X(cross, "cross|外積", 1, 1) \
-    X(dist, "dist|距離", 1, 1) X(angleBetween, "angleBetween|夾角", 1, 1)
+    X(dist, "dist|距離", 1, 1) X(angleBetween, "angleBetween|夾角", 1, 1) X(setHeading, "setHeading|設定方向角", 1, 1) \
+    X(setX, "setX|設定X", 1, 1) X(setY, "setY|設定Y", 1, 1) X(setZ, "setZ|設定Z", 1, 1)
 #define VECTOR_WRAPPER(name, names, minimum, maximum) OBJECT_WRAPPER(pvector, name, names, minimum, maximum)
 #define VECTOR_DEFINE(name, names, minimum, maximum) OBJECT_DEFINE(vector, name, names, minimum, maximum)
 VECTOR_MEMBERS(VECTOR_WRAPPER)
 
-#define VECTOR_MODULE(X) X(createVector, "createVector|建立向量", 2, 3) X(PVector, "PVector|向量", 2, 3)
+#define VECTOR_MODULE(X) \
+    X(createVector, "createVector|建立向量", 2, 3) X(PVector, "PVector|向量", 2, 3) X(fromAngle, "fromAngle|由角度建立向量", 1, 2) \
+    X(random2D, "random2D|隨機二維向量", 0, 0) X(random3D, "random3D|隨機三維向量", 0, 0)
 VECTOR_MODULE(MODULE_WRAPPER)
 
 void gfx_vector_register(aqua_class *module, aqua_class *vector) {

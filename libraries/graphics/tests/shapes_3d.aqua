@@ -1,0 +1,31 @@
+# (needs a window) OBJ models, 3D primitive shapes, beginCamera/endCamera, frustum and the depth hints in P3D.
+var p = import("Processing");
+p.run(function() { p.size(320, 240, p.P3D, "3D shapes"); }, function() {
+    var cx = p.width / 2;
+    var cy = p.height / 2;
+    p.background(0);
+    p.noStroke();
+    p.fill(255, 120, 0);
+    var model = p.loadShape("models/quad.obj");
+    print("obj", model.getVertexCount(), model.getWidth(), model.getHeight());
+    p.pushMatrix(); p.translate(cx - 80, cy, 0); p.scale(30); p.shape(model); p.popMatrix();
+    p.fill(0, 160, 255);
+    var cube = p.createShape(p.BOX, 40);
+    p.pushMatrix(); p.translate(cx, cy, 0); p.rotateY(0.5d); p.shape(cube); p.popMatrix();
+    # With the depth test off, a farther square drawn later still covers the cube.
+    p.hint(p.DISABLE_DEPTH_TEST);
+    p.fill(255);
+    p.pushMatrix(); p.translate(cx, cy, -200); p.rect(-20, -20, 40, 40); p.popMatrix();
+    p.hint(p.ENABLE_DEPTH_TEST);
+    p.loadPixels();
+    print(p.get(cx - 80, cy), p.get(cx, cy + 15), p.get(cx, cy), p.get(5, 5));
+    # beginCamera() transforms move the scene seen by the camera: translating by -40 shifts the box left.
+    p.background(0);
+    p.beginCamera(); p.camera(); p.translate(-40, 0, 0); p.endCamera();
+    p.fill(0, 255, 0);
+    p.pushMatrix(); p.translate(cx, cy, 0); p.box(30); p.popMatrix();
+    p.loadPixels();
+    print(p.get(cx - 40, cy), p.get(cx, cy));
+    p.frustum(-8, 8, -6, 6, 10, 1000);
+    p.exit();
+});

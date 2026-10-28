@@ -518,6 +518,21 @@ WGPURenderPipeline gpu_shader_pipeline(gpu_shader *s, int mode, int blend, int d
     blending.alpha.operation = WGPUBlendOperation_Add;
     blending.alpha.srcFactor = WGPUBlendFactor_One;
     blending.alpha.dstFactor = blend == 1 ? WGPUBlendFactor_One : blend == 4 ? WGPUBlendFactor_Zero : WGPUBlendFactor_OneMinusSrcAlpha;
+    /* 6 subtract (destination minus source), 7 lightest and 8 darkest (per channel), 9 exclusion, as Processing's
+       OpenGL renderers set them; min/max ignore factors, which WebGPU requires to be one. */
+    if (blend == 6) {
+        blending.color.operation = WGPUBlendOperation_ReverseSubtract;
+        blending.color.srcFactor = WGPUBlendFactor_SrcAlpha; blending.color.dstFactor = WGPUBlendFactor_One;
+        blending.alpha.dstFactor = WGPUBlendFactor_One;
+    } else if (blend == 7 || blend == 8) {
+        blending.color.operation = blend == 7 ? WGPUBlendOperation_Max : WGPUBlendOperation_Min;
+        blending.color.srcFactor = blending.color.dstFactor = WGPUBlendFactor_One;
+        blending.alpha.operation = WGPUBlendOperation_Max;
+        blending.alpha.srcFactor = blending.alpha.dstFactor = WGPUBlendFactor_One;
+    } else if (blend == 9) {
+        blending.color.srcFactor = WGPUBlendFactor_OneMinusDst; blending.color.dstFactor = WGPUBlendFactor_OneMinusSrc;
+        blending.alpha.dstFactor = WGPUBlendFactor_One;
+    }
     WGPUColorTargetState color = WGPU_COLOR_TARGET_STATE_INIT;
     color.format = format;
     color.writeMask = stencil_write ? WGPUColorWriteMask_None : WGPUColorWriteMask_All;

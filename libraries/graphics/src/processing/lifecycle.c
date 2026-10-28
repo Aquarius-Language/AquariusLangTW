@@ -29,6 +29,8 @@ float gfx_processing_content_scale(processing *p) {
 
 static double clock_now(processing *p) {
     if (!p->clock_running) return p->clock_stop;
+    const char *record = aqua_environment(p->rt, "AQUARIUS_GRAPHICS_RECORD");
+    if (record && *record) return (p->frame_count > 0 ? p->frame_count - 1 : 0) * 1000.0 / p->target_fps;
     return aqua_now_ms(p->rt) - p->clock_start;
 }
 
@@ -54,6 +56,12 @@ void gfx_processing_close(processing *p) {
     gfx_input_reset(p);
 }
 
+/* The main canvas's pixel size: the window's framebuffer, or the logical size times pixelDensity(). */
+static void sketch_pixels(processing *p, int width, int height, int *pw, int *ph) {
+    aqua_window_framebuffer_size(p->window, pw, ph);
+    if (p->pixel_density > 0 && *pw > 0 && *ph > 0) { *pw = width * p->pixel_density; *ph = height * p->pixel_density; }
+}
+
 /* ---- size() ---- */
 
 typedef struct sketch_start { processing *p; bool is3d; int width, height; } sketch_start;
@@ -65,7 +73,7 @@ static void started(gfx_async *a) {
     c->is3d = s->is3d;
     c->drawing = true;
     int pw = 0, ph = 0;
-    aqua_window_framebuffer_size(p->window, &pw, &ph);
+    sketch_pixels(p, s->width, s->height, &pw, &ph);
     gfx_canvas_resize(c, s->width, s->height, pw, ph);
     gfx_canvas_default_camera(c);
     if (!gfx_canvas_initialize(gfx_async_call(a), c, p->device)) { gfx_processing_close(p); gfx_async_settle(a, false, aqua_void()); return; }
@@ -156,6 +164,19 @@ static void p_windowMove(aqua_call *call, processing *p) {
 }
 
 static void p_displayDensity(aqua_call *call, processing *p) { aqua_return_double(call, gfx_processing_content_scale(p)); }
+/* pixelDensity(n): the main canvas renders n device pixels per unit (presented scaled to the window); 0 follows the
+   display again. Takes effect at the next frame. */
+static void p_pixelDensity(aqua_call *call, processing *p) {
+    int n = gfx_int(call, 0);
+    if (aqua_failed(call)) return;
+    if (n < 0 || n > 4) { gfx_fail(call, "Pixel density must be 0..4 (0 follows the display)."); return; }
+    p->pixel_density = n;
+}
+static void p_windowTitle(aqua_call *call, processing *p) {
+    if (!gfx_require_sketch(call, p)) return;
+    aqua_str title = gfx_text(call, 0);
+    if (!aqua_failed(call)) aqua_window_set_title(p->window, title.data);
+}
 static void p_displayScale(aqua_call *call, processing *p) {
     if (!gfx_require_sketch(call, p)) return;
     canvas *c = p->screen;
@@ -172,8 +193,8 @@ static void begin_frame(processing *p) {
     aqua_windows_poll(p->rt);
     if (!p->window) return;
     int pw = 0, ph = 0, w = 0, h = 0;
-    aqua_window_framebuffer_size(p->window, &pw, &ph);
     aqua_window_size(p->window, &w, &h);
+    sketch_pixels(p, w, h, &pw, &ph);
     canvas *c = p->screen;
     bool resized = gfx_canvas_resize(c, w, h, pw, ph);
     c->model = gfx_m4_identity();
@@ -362,6 +383,24 @@ static void captured(void *data, const uint8_t *rgba, int width, int height, con
     pump(p);
 }
 
+/* AQUARIUS_GRAPHICS_RECORD=frames/####.png saves every drawn frame ('#'s become the zero-padded frame number), and
+   millis() then advances exactly one frame period per frame, so recordings play back smoothly at frameRate(). */
+static void recorded(void *data, const uint8_t *rgba, int width, int height, const char *error) {
+    processing *p = data;
+    const char *pattern = aqua_environment(p->rt, "AQUARIUS_GRAPHICS_RECORD");
+    char path[1100], message[1024];
+    const char *hash = strchr(pattern, '#');
+    if (hash) {
+        size_t count = 0;
+        while (hash[count] == '#') count++;
+        snprintf(path, sizeof path, "%.*s%0*d%s", (int)(hash - pattern), pattern, (int)count, p->frame_count, hash + count);
+    } else snprintf(path, sizeof path, "%s", pattern);
+    if (error) fatal(p, error);
+    else if (!gfx_image_write_file(path, width, height, rgba, message, sizeof message)) fatal(p, message);
+    else p->phase = PHASE_AFTER_DRAW;
+    pump(p);
+}
+
 /* end_frame inside run(): a failure ends the run with its message. */
 static bool end_frame_detached(processing *p) {
     char message[2048];
@@ -415,6 +454,13 @@ static bool step(processing *p) {
     }
     case PHASE_AFTER_DRAW: {
         if (!p->window) { p->phase = PHASE_FINISH; return true; }
+        const char *record = aqua_environment(p->rt, "AQUARIUS_GRAPHICS_RECORD");
+        if (record && *record && p->recorded_frame != p->frame_count) {
+            p->recorded_frame = p->frame_count;
+            p->phase = PHASE_WAIT;
+            gfx_canvas_read_pixels(p->screen, recorded, p);
+            return true;
+        }
         if (p->frame_limit > 0 && p->frame_count >= p->frame_limit) {
             const char *capture = aqua_environment(p->rt, "AQUARIUS_GRAPHICS_CAPTURE");
             if (capture && *capture) { p->phase = PHASE_WAIT; gfx_canvas_read_pixels(p->screen, captured, p); return true; }
@@ -495,6 +541,7 @@ static void p_run(aqua_call *call, processing *p) {
     p->running = true;
     p->exiting = false;
     p->frame_count = 0;
+    p->recorded_frame = 0;
     p->redraw_at = -1;
     p->has_frame_rate = false;
     free(p->failure);
@@ -600,7 +647,8 @@ static void p_canvas_resize(aqua_call *call, processing *p, canvas *c) {
 
 #define LIFECYCLE_MODULE(X) \
     X(size, "size|尺寸", 2, 4) X(fullScreen, "fullScreen|全螢幕", 0, 2) X(resize, "resize|調整尺寸", 2, 2) X(windowMove, "windowMove|移動視窗", 2, 2) \
-    X(displayDensity, "displayDensity|顯示密度", 0, 0) X(displayScale, "displayScale|顯示縮放", 0, 0) X(beginFrame, "beginFrame|開始影格", 0, 0) \
+    X(displayDensity, "displayDensity|顯示密度", 0, 0) X(displayScale, "displayScale|顯示縮放", 0, 0) X(pixelDensity, "pixelDensity|像素密度", 1, 1) \
+    X(windowTitle, "windowTitle|視窗標題", 1, 1) X(beginFrame, "beginFrame|開始影格", 0, 0) \
     X(endFrame, "endFrame|結束影格", 0, 0) X(run, "run|執行", 2, 2) X(on, "on|註冊事件", 2, 2) X(noLoop, "noLoop|停止持續繪圖", 0, 0) \
     X(loop, "loop|持續繪圖", 0, 0) X(redraw, "redraw|重繪", 0, 0) X(redrawAfter, "redrawAfter|延遲重繪", 1, 1) X(exit, "exit|結束", 0, 0) \
     X(close, "close|關閉", 0, 0) X(frameRate, "frameRate|影格率", 1, 1) X(millis, "millis|毫秒", 0, 0) \

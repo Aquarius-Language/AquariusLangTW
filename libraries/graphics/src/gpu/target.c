@@ -11,7 +11,7 @@
 #define ARENA_LIMIT (64u * 1024 * 1024)
 
 typedef struct arena { WGPUBuffer buffer; uint8_t *data; size_t used, capacity; } arena;
-typedef struct cached_group { WGPUBuffer buffer; WGPUTextureView view; WGPUBindGroup group; } cached_group;
+typedef struct cached_group { WGPUBuffer buffer; WGPUTextureView view; WGPUSampler sampler; WGPUBindGroup group; } cached_group;
 /* A Processing draw not yet recorded: later draws with the same pipeline, bindings, scissor and uniform snapshot whose
    vertices follow its own in the arena extend it, so a run of shapes in one style becomes one GPU draw. */
 typedef struct pending_draw {
@@ -19,6 +19,7 @@ typedef struct pending_draw {
     WGPURenderPipeline pipeline;
     WGPUBindGroup group, user, textures;
     WGPUTextureView view;
+    int sampling;
     WGPUBuffer vertex_buffer;
     size_t vertex_offset;
     uint32_t uniform_offset, stencil;
@@ -203,20 +204,22 @@ static bool append(gpu_target *t, arena *a, const void *data, size_t size, size_
     return true;
 }
 
-static WGPUBindGroup drawing_group(gpu_target *t, gpu_texture *texture) {
+static WGPUBindGroup drawing_group(gpu_target *t, gpu_texture *texture, int sampling) {
     gpu_device *d = t->link.device;
     WGPUTextureView view = gpu_texture_view(texture ? texture : gpu_device_white(d));
-    for (int i = 0; i < t->cache_count; i++) if (t->cache[i].buffer == t->uniforms.buffer && t->cache[i].view == view) return t->cache[i].group;
+    WGPUSampler sampler = gpu_device_sampler_for(d, sampling);
+    for (int i = 0; i < t->cache_count; i++)
+        if (t->cache[i].buffer == t->uniforms.buffer && t->cache[i].view == view && t->cache[i].sampler == sampler) return t->cache[i].group;
     WGPUBindGroupEntry entries[3] = {WGPU_BIND_GROUP_ENTRY_INIT, WGPU_BIND_GROUP_ENTRY_INIT, WGPU_BIND_GROUP_ENTRY_INIT};
     entries[0].binding = 0; entries[0].buffer = t->uniforms.buffer; entries[0].offset = 0; entries[0].size = GPU_UNIFORM_BYTES;
     entries[1].binding = 1; entries[1].textureView = view;
-    entries[2].binding = 2; entries[2].sampler = gpu_device_sampler(d);
+    entries[2].binding = 2; entries[2].sampler = sampler;
     WGPUBindGroupDescriptor descriptor = WGPU_BIND_GROUP_DESCRIPTOR_INIT;
     descriptor.layout = gpu_device_drawing_layout(d); descriptor.entryCount = 3; descriptor.entries = entries;
     WGPUBindGroup group = wgpuDeviceCreateBindGroup(gpu_device_handle(d), &descriptor);
     push_group(t, group);
     if (t->cache_count == 16) { memmove(t->cache, t->cache + 1, 15 * sizeof *t->cache); t->cache_count = 15; }
-    t->cache[t->cache_count++] = (cached_group){t->uniforms.buffer, view, group};
+    t->cache[t->cache_count++] = (cached_group){t->uniforms.buffer, view, sampler, group};
     return group;
 }
 
@@ -261,7 +264,7 @@ static void transform_vertices(uint8_t *at, size_t count, const float *m) {
 }
 
 bool gpu_target_draw(gpu_target *t, gpu_shader *shader, const float *vertices, size_t floats, const float *uniforms, const float *model,
-                     int mode, int blend, int depth_mode, int cull, const gpu_rect *scissor, gpu_texture *texture, int stencil,
+                     int mode, int blend, int depth_mode, int cull, const gpu_rect *scissor, gpu_texture *texture, int sampling, int stencil,
                      char *error, size_t error_size) {
     if (!live(t, error, error_size)) return false;
     gpu_device *d = t->link.device;
@@ -272,6 +275,7 @@ bool gpu_target_draw(gpu_target *t, gpu_shader *shader, const float *vertices, s
     WGPURenderPipeline pipeline = gpu_shader_pipeline(shader, mode, blend, depth_mode, t->samples, stencil, t->format, cull, true, error, error_size);
     if (!pipeline) return false;
     begin(t, NULL, false, false);
+    if (!texture) sampling = 0;
     size_t vertex_offset, uniform_offset;
     if (!append(t, &t->vertices, vertices, floats * 4, 4, WGPUBufferUsage_Vertex, 256 * 1024, &vertex_offset)) {
         snprintf(error, error_size, "wgpu buffer size must be 1..64 MiB.");
@@ -282,7 +286,7 @@ bool gpu_target_draw(gpu_target *t, gpu_shader *shader, const float *vertices, s
     WGPUTextureView view = gpu_texture_view(texture ? texture : gpu_device_white(d));
     gpu_rect r = scissor ? *scissor : (gpu_rect){0, 0, gpu_texture_width(t->color), gpu_texture_height(t->color)};
     pending_draw *p = &t->pending;
-    if (p->bytes && !stencil && !p->stencil && p->pipeline == pipeline && p->view == view && p->user == user && p->textures == textures &&
+    if (p->bytes && !stencil && !p->stencil && p->pipeline == pipeline && p->view == view && p->sampling == sampling && p->user == user && p->textures == textures &&
         p->vertex_buffer == t->vertices.buffer && p->vertex_offset + p->bytes == vertex_offset && memcmp(&p->scissor, &r, sizeof r) == 0 &&
         memcmp(p->uniforms, uniforms, GPU_UNIFORM_BYTES) == 0) {
         p->bytes += floats * 4;
@@ -293,7 +297,7 @@ bool gpu_target_draw(gpu_target *t, gpu_shader *shader, const float *vertices, s
         snprintf(error, error_size, "wgpu buffer size must be 1..64 MiB.");
         return false;
     }
-    *p = (pending_draw){floats * 4, pipeline, drawing_group(t, texture), user, textures, view, t->vertices.buffer, vertex_offset,
+    *p = (pending_draw){floats * 4, pipeline, drawing_group(t, texture, sampling), user, textures, view, sampling, t->vertices.buffer, vertex_offset,
                         (uint32_t)uniform_offset, (uint32_t)stencil, t->uniforms.data + uniform_offset, r};
     const char *failure = gpu_device_take_error(d);
     if (failure) { snprintf(error, error_size, "%s", failure); return false; }

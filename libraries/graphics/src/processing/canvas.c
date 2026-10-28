@@ -29,6 +29,7 @@ canvas *gfx_canvas_new(processing *p, int width, int height, bool is3d, bool off
     c->offscreen = offscreen;
     gfx_style_default(&c->style);
     c->model = c->view = c->projection = gfx_m4_identity();
+    c->depth_test = c->depth_mask = true;
     c->bezier_detail = c->curve_detail = 32; c->sphere_u = 24; c->sphere_v = 16; c->shape_mode = -1;
     c->normal = v3(0, 0, 1);
     c->smooth = true;
@@ -252,8 +253,10 @@ bool gfx_canvas_draw_packed(aqua_call *call, canvas *c, const float *floats, siz
     gpu_shader *shader = c->custom ? c->custom->shader : gfx_processing_default_shader(c->owner);
     if (!shader || gpu_shader_released(shader)) { gfx_fail(call, "wgpu shader has been disposed."); return false; }
     gpu_rect scissor = gpu_scissor(gpu_target_width(c->target), gpu_target_height(c->target), scaled);
-    if (!gpu_target_draw(c->target, shader, floats, count, data, transformed ? c->model.m : NULL, 4, c->blend_mode, c->is3d ? 1 : 0, 0, &scissor,
-                         image ? image->texture : NULL, stencil, error, sizeof error)) {
+    int depth = !c->is3d || !c->depth_test ? 0 : c->depth_mask ? 1 : 2;
+    int sampling = (c->texture_wrap ? GPU_SAMPLE_REPEAT : 0) | (c->smooth ? 0 : GPU_SAMPLE_NEAREST);
+    if (!gpu_target_draw(c->target, shader, floats, count, data, transformed ? c->model.m : NULL, 4, c->blend_mode, depth, 0, &scissor,
+                         image ? image->texture : NULL, sampling, stencil, error, sizeof error)) {
         gfx_fail(call, "%s", error);
         return false;
     }
@@ -570,17 +573,17 @@ void gfx_canvas_read_pixels(canvas *c, pixels_done done, void *data) {
 }
 
 /* Pixel writes draw REPLACE quads in device pixels with the default style and shader, ignoring the canvas's state. */
-typedef struct raw_state { mat4 model, view, projection; style style; bool is3d, clipped; int blend; pshader *custom; } raw_state;
+typedef struct raw_state { mat4 model, view, projection; style style; bool is3d, clipped; int blend, wrap; pshader *custom; } raw_state;
 static void raw_begin(canvas *c, raw_state *s) {
-    *s = (raw_state){c->model, c->view, c->projection, c->style, c->is3d, c->has_clip, c->blend_mode, c->custom};
+    *s = (raw_state){c->model, c->view, c->projection, c->style, c->is3d, c->has_clip, c->blend_mode, c->texture_wrap, c->custom};
     c->model = c->view = gfx_m4_identity();
     gfx_canvas_ortho(NULL, 0, (float)c->pixel_width, (float)c->pixel_height, 0, -10000, 10000, &c->projection);
     gfx_style_default(&c->style);
-    c->is3d = false; c->has_clip = false; c->custom = NULL; c->blend_mode = 4;
+    c->is3d = false; c->has_clip = false; c->custom = NULL; c->blend_mode = 4; c->texture_wrap = 0;
 }
 static void raw_end(canvas *c, const raw_state *s) {
     c->model = s->model; c->view = s->view; c->projection = s->projection; c->style = s->style; c->is3d = s->is3d;
-    c->has_clip = s->clipped; c->blend_mode = s->blend; c->custom = s->custom;
+    c->has_clip = s->clipped; c->blend_mode = s->blend; c->texture_wrap = s->wrap; c->custom = s->custom;
 }
 
 bool gfx_canvas_write_region(aqua_call *call, canvas *c, const uint8_t *bytes, int x, int y, int width, int height) {

@@ -226,12 +226,32 @@ static void p_keyDown(aqua_call *call, processing *p) {
     if (!valid_key(code)) { gfx_fail(call, "Invalid GLFW key code."); return; }
     aqua_return_bool(call, aqua_window_key(p->window, code) == 1);
 }
-static void p_cursor(aqua_call *call, processing *p) { if (gfx_require_sketch(call, p)) aqua_window_set_cursor_mode(p->window, 0x34001); }
+/* cursor(), cursor(ARROW | CROSS | HAND | MOVE | TEXT | WAIT) as GLFW's standard shapes (WAIT has none: the arrow),
+   cursor(image[, x, y]) with the image's pixels and hot spot. */
+static void p_cursor(aqua_call *call, processing *p) {
+    if (!gfx_require_sketch(call, p)) return;
+    uint32_t n = aqua_argc(call);
+    if (n == 2) { gfx_fail(call, "cursor() takes a kind, or an image with an optional hot spot x, y."); return; }
+    if (n >= 1 && aqua_arg(call, 0).type == AQUA_NATIVE) {
+        pimage *image = gfx_image_argument(call, p, 0);
+        if (!image) return;
+        if (!image->bytes) { gfx_fail(call, "Use a PImage for the cursor, not a PGraphics."); return; }
+        int x = n == 3 ? gfx_int(call, 1) : image->width / 2, y = n == 3 ? gfx_int(call, 2) : image->height / 2;
+        if (aqua_failed(call)) return;
+        aqua_window_set_cursor_mode(p->window, 0x34001);
+        aqua_window_set_cursor_image(p->window, image->width, image->height, image->bytes, x, y);
+        return;
+    }
+    int kind = n == 1 ? GFX_CHOICE(call, 0, 0, 1, 2, 3, 12, 13) : 0;
+    if (aqua_failed(call)) return;
+    aqua_window_set_cursor_mode(p->window, 0x34001);
+    aqua_window_set_cursor_shape(p->window, kind == 1 ? 0x36003 : kind == 2 ? 0x36002 : kind == 12 ? 0x36004 : kind == 13 ? 0x36009 : 0);
+}
 static void p_noCursor(aqua_call *call, processing *p) { if (gfx_require_sketch(call, p)) aqua_window_set_cursor_mode(p->window, 0x34002); }
 
 #define INPUT_MODULE(X) \
     X(startTextInput, "startTextInput|開始文字輸入", 0, 0) X(stopTextInput, "stopTextInput|停止文字輸入", 0, 0) \
-    X(textInputRect, "textInputRect|文字輸入矩形", 4, 4) X(keyDown, "keyDown|按鍵是否按下", 1, 1) X(cursor, "cursor|游標", 0, 0) \
+    X(textInputRect, "textInputRect|文字輸入矩形", 4, 4) X(keyDown, "keyDown|按鍵是否按下", 1, 1) X(cursor, "cursor|游標", 0, 3) \
     X(noCursor, "noCursor|隱藏游標", 0, 0)
 INPUT_MODULE(MODULE_WRAPPER)
 
