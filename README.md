@@ -1,174 +1,192 @@
-# 星泉（AquariusLang）
+# AquariusLang（星泉）
 
-<p><strong>繁體中文</strong> | <a href="README.en.md">English</a></p>
+<p><a href="README.tw.md">繁體中文</a> | <strong>English</strong></p>
 
-史上第一個**繁體中文 + 英文雙語編譯式程式語言**。
-可使用全繁體中文、全英文語法，或在同一份 `.aqua` 檔案中自由混用；不需切換模式或設定。
-原始碼編譯後產生標準 **WebAssembly（`.wasm`）**，由同一個以 C 撰寫的原生執行環境執行：Windows、Linux 與 Android
-使用 **Wasmtime**，網頁使用瀏覽器內建的 WebAssembly 引擎；同一份編譯成果可輸出網站、獨立執行檔與 APK。
-C# 只作為編譯器，執行時不需要 .NET。
+World's first **bilingual Traditional Chinese + English compiled programming language**. Write entirely in
+Traditional Chinese, entirely in English, or mix both in the same `.aqua` file.
+No language mode or configuration is needed.
 
-作者：林天牧 / Temple Lin
+Sources compile to standard **WebAssembly (`.wasm`)**, run by one native runtime written in C: **Wasmtime** on
+Windows, Linux and Android, the browser's own WebAssembly engine on the web. The same compiled application exports as
+a website, a standalone executable or an APK. C# is only the compiler; nothing at run time needs .NET.
 
-- **統一入口**：`aqua` 提供編譯、執行、平台輸出與互動模式（REPL）。
-- **雙語語法**：`變數`／`var`、`函式`／`function`、`回傳`／`return` 等關鍵字完全等價，中文與英文腳本可互相匯入。
-- **可攜編譯成果**：將模組、圖片與著色器等資源一起封裝，執行與平台輸出不需原始碼。
-- **專案與第三方套件**：[Bottle / TOML 專案管理](compiler/AquariusBottle/README.md)提供 `aqua new`、`aqua bottle install/restore/uninstall`、本機／GitHub 安裝、版本鎖定、全域快取與相依資產封裝；見 [可執行範例](examples/bottle_showcase/README.md)。
-- **外部函式庫**：以星泉、C、C++ 或 Rust 撰寫，用[函式庫 SDK](runtime/sdk/README.md) 從同一份原始碼建置到所有平台，與預設函式庫完全相同；見[外部函式庫](docs/external-libraries.md)。
-- **多執行緒**：[Thread／執行緒](docs/threading.md)以函式啟動獨立工作，提供逾時等待、結果、取消與安全關閉，支援桌面、網頁及 Android；見[雙語範例](examples/threading/README.md)。
-- **跨平台網路**：[Network／網路](libraries/network/docs/networking.md)提供雙語 HTTP(S)、Cookie、可取消請求、串流回應、WebSocket、原生 TCP／TLS／UDP，以及 Windows、Linux、Android 的 HTTP(S) 伺服器（路由、靜態檔案、SSE、工作階段）；見[繁體中文前後端範例](examples/network_lab/README.md)。
-- **圖學**：[WebGPU、Processing 繪圖、文字輸入與 GPU 數學](libraries/graphics/README.md)使用 wgpu-native 或瀏覽器的 WebGPU；桌面另有 [OpenGL](libraries/opengl/README.md)。
-- **PBR 與模型匯入**：[Models／PBR](libraries/graphics/docs/pbr-models.md)在 Wasm 解析 OBJ／MTL，並以共用 WGSL 提供金屬度／粗糙度即時渲染；另有[具名 shader 紋理、cube mip chains 與線性浮點 render targets](libraries/graphics/docs/wgpu-textures.md)。
-- **跨平台音訊**：[音訊函式庫](libraries/audio/README.md)以 miniaudio 解碼與混音，支援音檔、音調、循環、聲像、音高及無硬體的離線樣本輸出。
-- **模型推論**：[ONNX Runtime 與 MediaPipe 姿態追蹤](libraries/onnx/README.md)依平台排序執行提供者，可選用 CUDA／TensorRT（於 `aqua.toml` 設定 `[onnx] cuda = true`），網頁使用以 C++ 原始碼建置的 ONNX Runtime；附 [繁體中文姿態範例](examples/mediapipe/README.md)。
+Author: 林天牧 / Temple Lin.
 
-## 目錄
+- **Bilingual syntax:** `var` / `變數`, `function` / `函式`, `return` / `回傳` and
+  all other keywords share the same semantics. Modules in either syntax interoperate.
+- **One CLI:** `aqua` builds programs, runs Wasm, exports platform applications
+  and provides an interactive REPL.
+- **Portable applications:** compiled modules, images, shaders and other assets
+  travel together; deployed applications do not need source files.
+- **Projects and packages:** [Bottle](compiler/AquariusBottle/README.md) provides TOML
+  manifests, local/GitHub dependencies, version locks, global caching and asset
+  packaging. See the [showcase](examples/bottle_showcase/README.md).
+- **External libraries:** [libraries in AquariusLang, C, C++ or Rust](docs/external-libraries.md) built from one
+  source tree for every target with the [library SDK](runtime/sdk/README.md), exactly like the default ones.
+- **Threads:** [Thread / 執行緒](docs/threading.md) provides isolated workers,
+  timed joins, results, cancellation and safe closing on desktop, web and Android.
+- **Networking:** [Network / 網路](libraries/network/README.md) provides HTTP(S), cookies,
+  cancellable requests, streamed responses, WebSockets and native TCP/TLS/UDP, with an HTTP(S)
+  server (routes, static files, SSE, sessions) on Windows, Linux and Android.
+- **Graphics:** [WebGPU, Processing drawing, text input and GPUMath](libraries/graphics/README.md) on
+  wgpu-native or the browser's WebGPU, plus desktop [OpenGL](libraries/opengl/README.md).
+- **Models and PBR:** [OBJ/MTL parsing and shared WGSL rendering](libraries/graphics/docs/pbr-models.md),
+  plus [named shader textures, cube mip chains and floating render targets](libraries/graphics/docs/wgpu-textures.md).
+- **Audio:** [miniaudio decoding and mixing](libraries/audio/README.md),
+  including files, tones, loops, panning, pitch and offline sample output.
+- **Inference:** [ONNX Runtime and the MediaPipe pose tracker](libraries/onnx/README.md) with ranked execution
+  providers per platform, optional CUDA/TensorRT through `[onnx] cuda = true` in `aqua.toml`, and ONNX Runtime built
+  from C++ for the web. See the [pose example](examples/mediapipe/README.md).
 
-- [快速開始](#快速開始)
-- [正式版編譯器：一鍵建置與打包](#正式版編譯器一鍵建置與打包)
-- [編譯、執行與平台輸出](#編譯執行與平台輸出)
-- [語法](#語法)
-- [函式庫與範例](#函式庫與範例)
-- [開發與測試](#開發與測試)
-- [專案結構](#專案結構)
-- [編輯器與延伸文件](#編輯器與延伸文件)
-- [名稱與授權](#名稱與授權)
+## Contents
 
-## 快速開始
+- [Quick start](#quick-start)
+- [Build and package a release](#build-and-package-a-release)
+- [Compile, run and export](#compile-run-and-export)
+- [Syntax](#syntax)
+- [Libraries and examples](#libraries-and-examples)
+- [Development and tests](#development-and-tests)
+- [Project structure](#project-structure)
+- [Editors and further documentation](#editors-and-further-documentation)
+- [Name and license](#name-and-license)
 
-使用下方批次腳本產生正式版，或從 [Releases](https://github.com/Aquarius-Language/AquariusLangTW/releases)
-取得發佈套件。完整解壓縮後，在含有 **`aqua.exe`** 的 `aqua` 資料夾開啟 PowerShell：
+## Quick start
+
+Download a package from [Releases](https://github.com/Aquarius-Language/AquariusLangTW/releases)
+or build one with the script below. Extract the whole archive, then open PowerShell
+in its `aqua` directory:
 
 ```powershell
-# 查看指令與版本
 .\aqua.exe --help
-.\aqua.exe --version
-
-# 編譯隨附範例，再執行
 .\aqua.exe build .\examples\increment.aqua -o app.wasm
 .\aqua.exe run .\app.wasm
-
-# 進入互動模式
 .\aqua.exe repl
 ```
 
-在 `>>` 提示符號後輸入 `印出("你好，星泉！");`，按 Enter 執行；按 Ctrl+C 離開。路徑含空白時請加上雙引號。
-編譯器套件為自包含，使用者不需安裝 .NET。請保留整個資料夾：`runtime/<平台>/` 是建置應用程式所用的執行環境，
-`web-glue/` 是網頁膠合程式，`libraries/` 是預設函式庫的清單與星泉原始碼，`sdk/` 是函式庫 SDK，`examples/` 是範例。
+At the `>>` prompt, enter `print("Hello, Aquarius!");` or `印出("你好，星泉！");`.
+Press Ctrl+C to exit. Quote paths containing spaces.
 
-## 正式版編譯器：一鍵建置與打包
+The compiler package is self-contained: users do not need the .NET SDK or a runtime. Keep the whole folder together:
+`runtime/<target>/` holds the runtime packs applications are built from, `web-glue/` the web glue, `libraries/` the
+default libraries' manifests and Aquarius sources, `sdk/` the library SDK and `examples/` the examples.
 
-`build-release.ps1` 產生本機平台的編譯器套件與 VS Code 擴充功能（含語言伺服器）。目前在 **Windows x64** 上驗證；腳本以
-PowerShell 7 的跨平台寫法撰寫，日後可在 Linux／macOS 以 `pwsh` 執行。請準備：
+## Build and package a release
 
-| 工具 | 用途 |
+`build-release.ps1` produces this host's compiler package and the VS Code extension with its language server. It is
+verified on **Windows x64**; it is written with PowerShell 7's cross-platform idioms so it can later run on Linux and
+macOS with `pwsh`. Prepare:
+
+| Tool | Purpose |
 | --- | --- |
-| PowerShell 7（或 Windows PowerShell 5.1） | 執行腳本。 |
-| .NET 8 SDK | 建置、測試與發佈編譯器與語言伺服器。 |
-| Node.js 20 以上與 npm | 打包 VS Code 擴充功能；以 Chromium 執行網頁測試（在 `scripts/` 執行 `npm install`）。 |
-| Android SDK（`ANDROID_HOME`）與 NDK 28.2 | 僅建置 Android 執行環境時需要。 |
+| PowerShell 7 (or Windows PowerShell 5.1) | Runs the scripts. |
+| .NET 8 SDK | Builds, tests and publishes the compiler and the language server. |
+| Node.js 20+ and npm | Packages the VS Code extension; web tests in Chromium (`npm install` in `scripts/`). |
+| Android SDK (`ANDROID_HOME`) with NDK 28.2 | Only for the Android packs. |
 
-鎖定版本的工具鏈（LLVM Clang、llvm-mingw sysroot、WASI sysroot、CMake、Ninja、Wasmtime 與 JDK，不使用 MSVC）由腳本
-自動檢查：`.native-build` 缺少的部分會依 `scripts/toolchain.json` 下載並驗證 SHA-256，無法下載時會說明原因後停止。
-也可事先執行 `scripts/install-toolchain.ps1 -Targets windows-x64,android-arm64-v8a,android-x86_64`。
+The script checks the pinned toolchain (LLVM Clang, the llvm-mingw sysroot, the WASI sysroot, CMake, Ninja, Wasmtime
+and a JDK; never MSVC): whatever `.native-build` lacks is downloaded per `scripts/toolchain.json` and SHA-256-verified,
+and the script stops with a clear error when it cannot be. `scripts/install-toolchain.ps1 -Targets
+windows-x64,android-arm64-v8a,android-x86_64` installs it ahead of time.
 
 ```powershell
 .\build-release.ps1
 .\build-release.ps1 -Help
-.\build-release.ps1 -Targets windows-x64,web         # 只建置部分執行環境；在 Windows 加入 linux-x64 會在 WSL 建置
-.\build-release.ps1 -SkipRuntime                     # 沿用 .native-build/install 中的執行環境
+.\build-release.ps1 -Targets windows-x64,web         # fewer runtime packs; on Windows, add linux-x64 to build it in WSL
+.\build-release.ps1 -SkipRuntime                     # reuse the packs in .native-build/install
 ```
 
-腳本依序建置執行環境（`scripts/build-runtime.ps1`）、建置並測試編譯器、發佈 `dist/aqua/`（`scripts/publish-cli.ps1`），
-在沒有安裝 .NET 的條件下驗證 `aqua.exe`（說明、編譯與執行、網站與獨立執行檔輸出），再以 `editors/vscode` 的腳本發佈
-語言伺服器並打包 VS Code 擴充功能（確認擴充功能內含伺服器，且伺服器能回應 LSP 初始化），最後打包：
+The script builds the runtime packs (`scripts/build-runtime.ps1`), builds and tests the compiler, publishes `dist/aqua/`
+(`scripts/publish-cli.ps1`), checks the published `aqua.exe` without an installed .NET (help, compile and run, a
+website and a standalone executable), publishes the language server and packages the VS Code extension with
+`editors/vscode`'s scripts (checking that the extension bundles the server and that the server answers an LSP
+initialize request), and archives them:
 
 ```text
-dist/releases/AquariusCompiler-win-x64-<建置識別>.zip（Linux／macOS 為 .tar.gz）
-dist/releases/AquariusCompiler-win-x64-<建置識別>.zip.sha256
-dist/releases/aquariuslang-tw-<版本>-<建置識別>.vsix
-dist/releases/aquariuslang-tw-<版本>-<建置識別>.vsix.sha256
+dist/releases/AquariusCompiler-win-x64-<build-id>.zip       (.tar.gz on Linux and macOS)
+dist/releases/AquariusCompiler-win-x64-<build-id>.zip.sha256
+dist/releases/aquariuslang-tw-<version>-<build-id>.vsix
+dist/releases/aquariuslang-tw-<version>-<build-id>.vsix.sha256
 ```
 
-可用 `Get-FileHash "套件.zip" -Algorithm SHA256` 比對校驗值。任一步驟失敗會回傳非零結束碼。
-Linux 見 [Linux 桌面指南](docs/linux.md)（`scripts/publish-cli.sh`），Android 見 [Android 平台](docs/android.md)。
+Verify with `Get-FileHash "package.zip" -Algorithm SHA256`. Failures return a nonzero exit code. For Linux see the
+[Linux guide](docs/linux.md) (`scripts/publish-cli.sh`); for Android, the [Android guide](docs/android.md).
 
-## 編譯、執行與平台輸出
+## Compile, run and export
 
-以下範例在自己的星泉專案目錄執行，假設已將 `aqua.exe` 所在資料夾加入 PATH：
+With `aqua` on PATH, run these commands in your application project:
 
 ```powershell
-# 編譯入口、所有匯入模組與資源，產生單一標準 WebAssembly 檔案
+# Compile the entry point, imported modules and assets into one standard Wasm
 aqua build main.aqua lib\tools.aqua --root . --assets assets --entry main.aqua -o app.wasm
-
-# 執行，不需原始碼
 aqua run app.wasm
 
-# 直接由原始碼輸出靜態網站或獨立 Windows x64 執行檔
+# Export directly from source
 aqua build main.aqua lib\tools.aqua --root . --assets assets --target web -o dist\web
 aqua build main.aqua lib\tools.aqua --root . --assets assets --target windows -o dist\app.exe
 
-# 也可將既有 WebAssembly 編譯成果輸出到不同平台
+# Export an existing compiled application
 aqua build app.wasm --target web -o dist\web
 aqua build app.wasm --target linux -o dist\app
 aqua build app.wasm --target android -o dist\app.apk
 ```
 
-| 選項 | 說明 |
+| Option | Meaning |
 | --- | --- |
-| `--root` | 設定原始碼根目錄，模組與資源保留相對路徑。 |
-| `--assets` | 加入檔案或資料夾，可重複指定。 |
-| `--entry` | 選擇編譯成果中的 `.aqua` 入口模組，預設為第一個輸入檔。 |
-| `-o` | 指定 `.wasm`／`.exe`／`.apk` 檔名或網頁輸出資料夾。 |
-| `--target wasm` | 預設目標；產生包含程式、模組與資源的標準 WebAssembly。 |
-| `--target web` | 靜態網站：`program.wasm`、網頁執行環境、膠合程式與資源，須搭配 `-o`。 |
-| `--target windows`、`--target linux` | 獨立執行檔：附加應用程式的執行環境，須搭配 `-o`。 |
-| `--target android` | 支援 arm64-v8a 與 x86_64 的已簽章 APK；參見 [Android 平台](docs/android.md)。 |
+| `--root` | Source root; preserves relative module and asset paths. |
+| `--assets` | Include a file or directory; may be repeated. |
+| `--entry` | Entry `.aqua` module, defaulting to the first source input. |
+| `-o` | Output `.wasm` / `.exe` / `.apk` path or website directory. |
+| `--target wasm` | Default: standard Wasm containing the program, modules and assets. |
+| `--target web` | A static site: `program.wasm`, the web runtime, the glue and assets; requires `-o`. |
+| `--target windows`, `--target linux` | A standalone executable: the runtime with the application appended; requires `-o`. |
+| `--target android` | A signed APK for arm64-v8a and x86_64; see [Android](docs/android.md). |
 
-必須列出所有匯入的腳本，包括動態匯入；資源須位於根目錄內。模組名稱保留 `.aqua` 相對路徑。
-編譯成果的 `aquarius.application` 自訂區段以二進位格式記錄 ABI 4 資訊（模組、資源、匯入的函式庫模組與需要的原生函式庫），
-資源位於 `aquarius.assets` 區段；輸出的應用程式只附帶用到的執行環境檔案與函式庫。
-編譯與平台輸出不執行程式，失敗時保留既有輸出。
+List every imported script, including dynamic imports. Assets must be under the
+root. Module names retain their relative `.aqua` paths. Compilation and export
+do not execute the program, and failed builds preserve existing output.
 
-請透過 localhost 或 HTTPS 提供網站；圖學需要瀏覽器可用的 WebGPU adapter。平台不支援的功能會回報不支援。
-完整指令見 [統一 CLI](compiler/AquariusCli/README.md)、[編譯成果格式](compiler/AquariusCompiler/README.md)、
-[部署後端](compiler/AquariusBuild/README.md) 及 [網頁膠合程式](web-glue/README.md)。
+The `aquarius.application` Wasm custom section contains the binary ABI 4 metadata (modules, assets, the library
+modules the application imports and the native libraries it needs); embedded assets are a raw `aquarius.assets`
+section. Exported applications carry only the runtime files and libraries they use.
 
-`aqua` 結束碼：**0** 成功、**1** 編譯／執行／檔案錯誤、**2** 指令或選項錯誤。
+Serve websites over localhost or HTTPS. Graphics requires a WebGPU adapter.
+Platform-specific services report unsupported capabilities when unavailable.
+See the [CLI](compiler/AquariusCli/README.md), [application format](compiler/AquariusCompiler/README.md),
+[build targets](compiler/AquariusBuild/README.md) and [web glue](web-glue/README.md).
+CLI exit codes are **0** for success, **1** for compilation/runtime/file failures,
+and **2** for invalid commands or options.
 
-## 語法
+## Syntax
 
-兩種語法使用相同的編譯器、作用域與執行語意，關鍵字可逐一選用繁體中文或英文：
+Every keyword can independently use either spelling:
 
-| 繁體中文 | English | 用途 |
+| Traditional Chinese | English | Meaning |
 | --- | --- | --- |
-| `變數` | `var` | 宣告可變變數 |
-| `函式` | `function` | 函式運算式與閉包 |
-| `回傳` | `return` | 回傳函式結果 |
-| `如果` | `if` | 條件分支 |
-| `否則如果` | `else if` 或 `elif` | 後續條件分支 |
-| `否則` | `else` | 預設分支 |
-| `迴圈` | `for` | 迴圈 |
-| `中斷` | `break` | 離開迴圈 |
-| `繼續` | `continue` | 進入迴圈的下一輪 |
-| `真` / `假` | `true` / `false` | 布林值 |
-| `空值` | `null` | 空值（不存在的欄位、項目或元素） |
+| `變數` | `var` | Mutable variable declaration |
+| `函式` | `function` | Function expression and closure |
+| `回傳` | `return` | Return a result |
+| `如果` | `if` | Conditional branch |
+| `否則如果` | `else if` or `elif` | Additional conditional branch |
+| `否則` | `else` | Fallback branch |
+| `迴圈` | `for` | Loop |
+| `中斷` | `break` | Exit a loop |
+| `真` / `假` | `true` / `false` | Boolean literals |
 
-繁體中文：
+Traditional Chinese:
 
 ```aquarius
 變數 加法 = 函式(甲, 乙) { 回傳 甲 + 乙; };
 印出(加法(3, 5));
 ```
 
-English：
+English:
 
 ```aquarius
 var add = function(a, b) { return a + b; };
 print(add(3, 5));
 ```
 
-同檔混用，也可讓同一個函式擁有雙語名稱：
+Mixed syntax, including two names for one shared function:
 
 ```aquarius
 var 加法, add = function(甲, b) { 回傳 甲 + b; };
@@ -181,145 +199,145 @@ for (變數 索引 = 0; 索引 < 5; 索引++) {
 印出(計數, 加法(3, 5), add(3, 5));
 ```
 
-分支也能混用：`if (假) { ... } else 如果 (true) { ... } 否則 { ... }`。
-英文關鍵字區分大小寫，以上中英文關鍵字都是保留字；例如 `returnValue`、`如果成立` 仍可作為識別字。
-函式以 `var add = function(...) { ... };` 宣告；`var` 沿用星泉既有的詞法作用域與可變變數語意。
-`let`、`fn` 不是語法關鍵字。字串、註解與自訂名稱保留原文；布林值的預設顯示仍為 `真`／`假`。
+Branches can also mix: `if (假) { ... } else 如果 (true) { ... } 否則 { ... }`.
+Keywords are case-sensitive reserved words in both languages. Longer names such
+as `returnValue` and `如果成立` remain identifiers. Existing code that used an
+English keyword as a name must rename it. `let` and `fn` remain ordinary identifiers;
+English declarations use `var name = function(...) { ... };`.
+`var` preserves Aquarius lexical scope and mutable-variable semantics.
+Strings, comments and user-defined names keep their original text. Default
+value inspection continues to display booleans as `真` / `假`.
 
-運算子包含 `+ - * / %`（餘數，整數向零截斷）及對應的複合指派 `+= -= *= /= %=`。複合指派與 `++` 可用於變數、
-陣列元素與雜湊項目（`表[i] += 1`、`計數[鍵]++`）以及結構欄位（`點.x *= 2`、`點.y++`），也能穿過成員存取（`物件.清單[0] = 值`）。
-`迴圈` 的三個部分都可省略（`迴圈 (; 條件;) { ... }`、`迴圈 (;;) { ... 中斷; }`）；每一輪的閉包保留該輪的迴圈變數值。
-字串中以 `\"` 表示雙引號、`\\` 表示反斜線，其他反斜線（例如 Windows 路徑）照原樣保留。
-整數為 32 位元：`+ - *` 溢位時環繞（與 C#、Java 相同），整數 `/` 與 `%` 除以零是執行錯誤；
-所有平台的結果都完全一致。
+Identifiers accept Unicode letters and underscores, followed by letters, digits
+or combining marks. The language supports local/global variables, arrays, hashes,
+closures, recursion and modules. Numeric values include integers, floats (`f`)
+and doubles (`d`). Operators include `+ - * / %` and `+= -= *= /= %=`.
+Prefix `++value` returns the updated number; postfix `value++` returns the old
+number. Both preserve the variable's numeric type. Integers are 32-bit: `+ - *`
+wrap around on overflow (like C# and Java), and integer `/` and `%` by zero are
+runtime errors. Results are identical on every platform.
 
-### 選用型別
+### Optional types
 
-變數、參數與回傳值可以在名稱後加上 `: 型別`，兩種語法通用；不加型別的程式照舊執行：
+Variables, parameters and return values can carry `: type` after the name, in
+either syntax. Untyped code keeps working unchanged:
 
 ```aquarius
-變數 次數: 整數 = 0;
-變數 費氏 = 函式(n: 整數): 整數 {
-    如果 (n < 2) { 回傳 n; }
-    回傳 費氏(n - 1) + 費氏(n - 2);
+var count: int = 0;
+var fib = function(n: int): int {
+    if (n < 2) { return n; }
+    return fib(n - 1) + fib(n - 2);
 };
-var ratio = function(a: int, b: int): double { return double(a) / b; };
+變數 比例 = 函式(a: 整數, b: 整數): 雙精度 { 回傳 雙精度(a) / b; };
 var flags: bool[] = Array.Make(10, true);
 ```
 
-| 繁體中文 | English | 型別 |
+| English | 繁體中文 | Type |
 | --- | --- | --- |
-| `整數` | `int` | 32 位元整數 |
-| `浮點數` | `float` | 單精度浮點數 |
-| `雙精度` | `double` | 倍精度浮點數 |
-| `布林` | `bool` | 真／假 |
-| `字串` | `string` | 字串 |
-| `整數[]` 等 | `int[]`、`float[]`、`double[]`、`bool[]`、`string[]` | 元素型別固定的陣列（整數寫入浮點數陣列時自動轉型） |
-| `陣列` | `array` | 元素可為任何值的陣列（例如巢狀陣列） |
-| 結構名稱 | struct name | 以 `結構`／`struct` 宣告的[結構](docs/structs.md) |
+| `int` | `整數` | 32-bit integer |
+| `float` | `浮點數` | 32-bit float |
+| `double` | `雙精度` | 64-bit float |
+| `bool` | `布林` | true / false |
+| `string` | `字串` | text |
+| `int[]`, `float[]`, `double[]`, `bool[]` | `整數[]` etc. | array with a fixed element type |
+| `array` | `陣列` | array whose elements may be any values (nested arrays, for example) |
+| struct name | 結構名稱 | a [struct](docs/structs.md) declared with `struct` / `結構` |
 
-`結構 節點 { 左: 節點; 右: 節點; 值: 整數 }` 宣告結構型別，`節點(左: 甲, 值: 3)` 或 `節點(甲, 乙, 3)` 建立值（省略的欄位為
-`空值`／`null`，結構型別的變數也可指定為 `空值`），`樹.值` 讀寫欄位。型別名稱只在 `:` 之後有意義，不是保留字。型別不符時，能在編譯時判斷的直接回報錯誤，其餘在執行時檢查；
-整數可自動轉成浮點數與倍精度，反方向需用 `整數(x)`／`int(x)`（向零截斷，超出範圍時取最接近的整數值）、
-`浮點數(x)`／`float(x)`、`雙精度(x)`／`double(x)` 明確轉換。
+`struct Node { left: Node; right: Node; value: int }` declares a struct type; `Node(left: a, value: 3)` or
+`Node(a, b, 3)` constructs one (fields left out are `null`) and `tree.value` reads or writes a field.
+Type names only mean something after `:`; they are not reserved words. A mismatch
+the compiler can see is a compile error, anything else is checked at run time.
+Integers widen to float and double automatically; the other direction needs
+`int(x)` / `整數(x)` (truncates toward zero, saturating at the integer range),
+`float(x)` / `浮點數(x)` or `double(x)` / `雙精度(x)`.
 
-核心內建 [`陣列`、`雜湊`與`字串`函式庫](docs/hash-and-string.md)：例如 `雜湊.鍵列表(表)` 列舉雜湊表的鍵、
-`字串.轉文字(98.5d)` 把數值轉成文字、`字串.分割("甲,乙", ",")` 分割字串，所有平台都在同一份 Wasm 執行。
+Builtins such as `print` / `印出`, `len` / `長度` and `import` / `匯入` have
+bilingual names. The portable [Array](docs/arrays.md), [Hash and String](docs/hash-and-string.md)
+modules run in shared Wasm. Module names, properties, constants and event strings
+follow their library's API.
 
-變數名稱可使用 Unicode 字母、底線，以及後續的數字與結合標記，例如 `計數1`、`中文_變數`。
-支援全域／區域變數、陣列、雜湊表、閉包、遞迴與模組；數值型別包含整數、
-單精度（`f` 後綴）與倍精度（`d` 後綴）。`++值` 回傳新值，`值++` 回傳原值，皆保留原數值型別。
+`currentTime()` / `目前時間()` returns monotonic double milliseconds for elapsed
+time measurements; subtract two readings and divide by `1000.0d` for seconds.
+`currentDate()` / `目前日期()` returns the host's local date as `yyyy-MM-dd`.
+`typeOf(value)` / `型別(值)` returns stable tags such as `integer`, `double`,
+`string`, `array`, `hash` and `null`.
+See the [language guide](compiler/AquariusCompiler/LANGUAGE.md) for detailed semantics.
 
-雙名稱宣告讓中文與英文名稱共用同一個函式與閉包，也可只宣告其中一個名稱。
-`印出`／`print`、`長度`／`len`、`匯入`／`import` 等內建函式同樣提供雙語別名。
-模組名稱、常數、屬性與事件字串依各函式庫定義使用。
+## Libraries and examples
 
-核心內建 `目前時間()`／`currentTime()`，桌面與瀏覽器皆不需匯入函式庫即可使用。
-回傳單調時鐘的倍精度毫秒數，保留小數；兩次讀值相減就是經過的毫秒數：
+Import a library with `var drawing = import("Processing");` or
+`變數 繪圖 = 匯入("Processing");`. Examples live in `examples/`, the single example tree;
+release packages include it. Each default library is one folder of `libraries/` with its README:
 
-```aquarius
-變數 開始 = 目前時間();
-# 在這裡執行要計時的程式
-印出("耗時（毫秒）：", 目前時間() - 開始);
-```
-
-除以 `1000.0d` 可換算成秒。時鐘起點由執行平台決定，不是日期或 Unix 時間戳記。
-`型別(值)`／`typeOf(value)` 回傳 `integer`、`double`、`string`、`array`、`hash`、`null` 等型別標記，
-方便處理 JSON 等動態資料，例如 `如果 (型別(資料["錯誤"]) == "hash") { ... }`。
-詳細語意見 [語言核心指南](compiler/AquariusCompiler/LANGUAGE.md)，名稱對照見
-[函式庫雙語名稱](docs/external-libraries.md)。
-
-## 函式庫與範例
-
-以 `變數 繪圖 = 匯入("Processing");` 匯入函式庫。範例統一位於 `examples/`；正式套件會一併發佈這些範例。
-每個預設函式庫是 `libraries/` 下的一個資料夾，各附說明文件：
-
-| 函式庫 | 模組 | 範例 |
+| Library | Modules | Examples |
 | --- | --- | --- |
-| [graphics](libraries/graphics/README.md) | Processing、WGPU、GLM、TextInput、Window、Fonts、Models、PBR、GPUMath | [六面板展示](examples/processing_showcase/README.md)、[GPU 計算](examples/wgpu_compute/README.md)、[離屏三角形](examples/wgpu_triangle/README.md)、[多語輸入](examples/multilingual_input/README.md) |
-| [opengl](libraries/opengl/README.md) | GLFW、GLAD、GL、STBImage（桌面） | [旋轉材質立方體](examples/opengl_cube/README.md) |
-| [application](libraries/application/README.md) | Files、Paths、Images、Serialization、Storage、Clipboard、Application、Tasks、TextEdit | [應用程式函式庫](examples/application_libraries/main.aqua) |
+| [graphics](libraries/graphics/README.md) | Processing, WGPU, GLM, TextInput, Window, Fonts, Models, PBR, GPUMath | [Processing showcase](examples/processing_showcase/README.md), [WGPU compute](examples/wgpu_compute/README.md), [triangle](examples/wgpu_triangle/README.md), [multilingual input](examples/multilingual_input/README.md) |
+| [opengl](libraries/opengl/README.md) | GLFW, GLAD, GL, STBImage (desktop) | [Textured cube](examples/opengl_cube/README.md) |
+| [application](libraries/application/README.md) | Files, Paths, Images, Serialization, Storage, Clipboard, Application, Tasks, TextEdit | [Application libraries](examples/application_libraries/main.aqua) |
 | [audio](libraries/audio/README.md) | Audio | |
-| [camera](libraries/camera/README.md) | 攝影機／Webcam、相機／Camera | [攝影機](examples/webcam/README.md) |
-| [network](libraries/network/README.md) | 網路／Network | [網路實驗室](examples/network_lab/README.md) |
-| [onnx](libraries/onnx/README.md) | 推論引擎／ONNX、姿態追蹤／MediaPipe | [姿態](examples/mediapipe/README.md) |
-| [terminal](libraries/terminal/README.md) | 終端機／Terminal | |
-| [input](libraries/input/README.md) | Android輸入／AndroidInput | |
+| [camera](libraries/camera/README.md) | Webcam, Camera | [Webcam](examples/webcam/README.md) |
+| [network](libraries/network/README.md) | Network | [Network lab](examples/network_lab/README.md) |
+| [onnx](libraries/onnx/README.md) | ONNX, MediaPipe | [Pose](examples/mediapipe/README.md) |
+| [terminal](libraries/terminal/README.md) | Terminal | |
+| [input](libraries/input/README.md) | AndroidInput | |
 
-語言本身內建可攜的[陣列](docs/arrays.md)、[雜湊與字串](docs/hash-and-string.md)及[執行緒](docs/threading.md)模組。
-[星艦遠征](examples/starship_expedition/README.md)與[雙語函式庫](examples/bilingual_library/README.md)示範語言功能。
-Jolt 物理由獨立的 `Aqua_JoltPhysics` Bottle 函式庫提供。
+The language itself has the portable [Array](docs/arrays.md), [Hash and String](docs/hash-and-string.md) and
+[Thread](docs/threading.md) modules. [Starship](examples/starship_expedition/README.md),
+[bilingual functions](examples/bilingual_library/README.md) and [arrays in both syntaxes](examples/arrays/README.md)
+show the language. Jolt physics is the independent `Aqua_JoltPhysics` Bottle library.
 
-## 開發與測試
+## Development and tests
 
-在專案根目錄：
+From the repository root:
 
 ```powershell
-scripts/install-toolchain.ps1 -Targets windows-x64                     # 鎖定版本的 LLVM、MinGW sysroot、Wasmtime
-scripts/build-runtime.ps1 -Targets windows-x64,web                     # 執行環境建置到 .native-build/install
+scripts/install-toolchain.ps1 -Targets windows-x64                     # pinned LLVM, MinGW sysroot, Wasmtime
+scripts/build-runtime.ps1 -Targets windows-x64,web                     # runtime packs in .native-build/install
 dotnet build AquariusLang.sln -c Release
 dotnet test compiler/AquariusTests -c Release
-scripts/test-libraries.ps1 -Targets windows-x64,web                    # 每個函式庫的測試（加上 -Devices 執行需要裝置的案例）
+scripts/test-libraries.ps1 -Targets windows-x64,web                    # every library's tests (add -Devices)
 
-# 開發時使用統一 CLI
+# Run the CLI from source
 dotnet run --project compiler/AquariusCli -- build examples/increment.aqua -o .native-build/increment.wasm
 dotnet run --project compiler/AquariusCli -- run .native-build/increment.wasm
 dotnet run --project compiler/AquariusCli -- repl
 ```
 
-修改專案前請先閱讀 [CLAUDE.md](CLAUDE.md)：其中列出每次修改都必須遵守的架構規則，`dotnet test` 會檢查這些規則。
-編譯器測試見 [測試說明](compiler/AquariusTests/README.md)；函式庫測試可在 Windows、Linux（WSL）、網頁（Chromium）
-與 Android（`-Targets android-x86_64 -Devices`）執行。另見 [架構說明](ARCHITECTURE.md)、[函式庫 SDK](runtime/sdk/README.md)
-與 [網頁膠合程式](web-glue/README.md)。
+Read [CLAUDE.md](CLAUDE.md) before changing anything: it lists the architecture rules every change must follow, which
+`dotnet test` checks. The [test guide](compiler/AquariusTests/README.md) describes the compiler tests; library tests
+run on Windows, Linux (WSL), the web (Chromium) and Android (`-Targets android-x86_64 -Devices`). See the
+[architecture](ARCHITECTURE.md), the [library SDK](runtime/sdk/README.md) and the [web glue](web-glue/README.md).
 
-## 專案結構
+## Project structure
 
-| 目錄 | 職責 |
+| Directory | Responsibility |
 | --- | --- |
-| `compiler/` | C#，只在編譯時使用：`AquariusCompiler`（前端、Wasm 產生、封裝）、`AquariusBuild`（平台輸出）、`AquariusBottle`、`AquariusCli`、`AquariusLanguageServer`、`AquariusTests`。 |
-| `runtime/` | C，所有平台的執行環境：`guest/`（連結進應用程式的客體執行環境）、`host/`（主機核心）、`platform/<os>/`（很薄的作業系統層）、`sdk/`（函式庫 SDK 與工具鏈檔案）。 |
-| `libraries/<名稱>/` | 預設函式庫，每個一個自成一體的資料夾。 |
-| `web-glue/` | 唯一的 JavaScript：啟動應用程式並提供網頁 API，每個 API 一個資料夾。 |
-| `scripts/` | 工具鏈版本與安裝、執行環境建置、函式庫測試、網頁與 Android 執行、正式版打包。 |
-| `examples/`、`tests/` | 範例與共用的語言測試資料。 |
-| `editors/vscode`、`website/` | VS Code 擴充套件與介紹網站。 |
+| `compiler/` | C#, compile time only: `AquariusCompiler` (front end, Wasm emission, packaging), `AquariusBuild` (build targets), `AquariusBottle`, `AquariusCli`, `AquariusLanguageServer`, `AquariusTests`. |
+| `runtime/` | C, the run time of every target: `guest/` (the runtime linked into applications), `host/` (the host core), `platform/<os>/` (thin per-OS layers), `sdk/` (the library SDK and toolchain files). |
+| `libraries/<name>/` | The default libraries, one self-contained folder each. |
+| `web-glue/` | The only JavaScript: starts applications and exposes Web APIs, one folder per API. |
+| `scripts/` | Toolchain pins and installers, runtime builds, library tests, web and Android runners, release packaging. |
+| `examples/`, `tests/` | Examples and shared language test data. |
+| `editors/vscode`, `website/` | The VS Code extension and the introduction website. |
 
-## 編輯器與延伸文件
+## Editors and further documentation
 
-[VS Code 擴充套件](https://marketplace.visualstudio.com/items?itemName=aquariuslang.aquariuslang-tw)
-提供語法上色、片段、即時診斷、雙語補全、懸停說明、定義跳轉與符號列表。
-安裝、設定、VSIX 打包及執行階段需求見 [VS Code 操作指南](editors/vscode/README.md)。
-其他 LSP 編輯器可參考 [語言伺服器說明](compiler/AquariusLanguageServer/README.md)；伺服器分析語法，不執行程式。
-語言、編譯器、語言伺服器與擴充套件共用同一個版本號（`aqua --version`），規則見 [版本](docs/versioning.md)，各版變更見 [CHANGELOG](CHANGELOG.md)。
+The [VS Code extension](https://marketplace.visualstudio.com/items?itemName=aquariuslang.aquariuslang-tw)
+provides bilingual highlighting, snippets, live diagnostics, completion, hover,
+definitions and symbols. See the [VS Code guide](editors/vscode/README.md) for
+installation, configuration and VSIX packaging. Other editors can use the
+[language server](compiler/AquariusLanguageServer/README.md), which analyzes source without executing it.
 
-[星泉介紹網站](https://aquarius-language.github.io/AquariusLangTW/) 的原始碼與本機操作位於
-[website](website/README.md)，GitHub Pages 設定見 [網站部署指南](website/docs/github-pages.md)。
+The [AquariusLang introduction website](https://aquarius-language.github.io/AquariusLangTW/)
+has [source and local instructions](website/README.md) and a
+[GitHub Pages deployment guide](website/docs/github-pages.md).
+Some detailed subsystem guides are written in Traditional Chinese.
 
-## 名稱與授權
+## Name and license
 
-**星泉**結合 Aquarius（水瓶座）的星空與水意象，寓意「靈感如星光閃耀，創意如泉水湧流」。
+**星泉** combines the starry sky of Aquarius with flowing spring water:
+inspiration shines like stars, and creativity flows like a spring.
 
-> 用熟悉的文字，讓靈感湧成作品。
-
-本專案採用 [MIT License](LICENSE)，Copyright (c) 2026 Temple Lin。
-第三方相依套件保留各自授權，鎖定在各函式庫的資料夾中，並隨執行環境安裝到 `licenses/`；正式套件會一併附上授權檔。
+Licensed under the [MIT License](LICENSE), Copyright (c) 2026 Temple Lin.
+Third-party dependencies keep their own licenses, pinned inside each library's folder and installed with the runtime
+packs (`licenses/`); release packages include them.
