@@ -22,8 +22,8 @@ public class NativeArrayAppendTest
         "var push = function(a: int[], v: int): int { Array.Append(a, v); return len(a); }; " +
         "var outer = function(a: int[], n: int): int { var s: int = 0; for (var i: int = 0; i < n; i++) { s += push(a, i); s += a[len(a) - 1]; } return s; }; var start: int[] = Array.Make(0, 0); outer(start, 100);",
         // 4: widening like the generic element check.
-        "var widen = function(): array { var f: float[] = Array.Make(0, 0.5); var d: double[] = Array.Make(0, 0.5d); Array.Append(f, 3); Array.Append(f, 0.1); " +
-        "Array.Append(d, 7); Array.Append(d, 0.1); Array.Append(d, 0.1d); return [f, d]; }; widen();",
+        "var widen = function(): array { var f: float[] = Array.Make(0, 0.5f); var d: double[] = Array.Make(0, 0.5d); Array.Append(f, 3); Array.Append(f, 0.1f); " +
+        "Array.Append(d, 7); Array.Append(d, 0.1f); Array.Append(d, 0.1d); return [f, d]; }; widen();",
         // 5: Boolean arrays.
         "var flags = function(n: int): int { var b: bool[] = Array.Make(0, true); for (var i: int = 0; i < n; i++) { Array.Append(b, i % 3 == 0); } " +
         "var c: int = 0; for (var i: int = 0; i < len(b); i++) { if (b[i]) { c++; } } return c; }; flags(100);",
@@ -50,6 +50,8 @@ public class NativeArrayAppendTest
     public void ArrayAppendsMatchTheUnoptimizedCompiler()
     {
         var results = EmitterTiers.AssertSame(Programs);
+        // Every program runs (only 6 and 7 are meant to fail), so no case passes by failing the same way twice.
+        for (int i = 0; i < Programs.Length; i++) Assert.True(results[i].IsError == (i is 6 or 7), $"program {i}: {results[i]}");
         Assert.Equal(332833500 + 1000, results[0].Integer);
         Assert.Equal(21019, results[2].Integer);
         Assert.Equal(2505, results[8].Integer);
