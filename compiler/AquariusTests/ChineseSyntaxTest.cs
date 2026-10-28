@@ -93,13 +93,12 @@ public class ChineseSyntaxTest {
     [InlineData("++5;")]
     [InlineData("5++;")]
     [InlineData("++(甲 + 乙);")]
-    [InlineData("[1][0]++;")]
     [InlineData("函式() { 1; }()++;")]
     [InlineData("變數 計數 = 0; 計數++++;")]
     public void InvalidIncrementTargetsProduceParserErrors(string input) {
         Parser parser = Parser.NewInstance(Lexer.NewInstance(input));
         parser.ParseAST();
-        Assert.Contains("++ 的運算元必須是變數名稱。", parser.Errors);
+        Assert.Contains("++ 的運算元必須是變數、欄位或索引 / The operand of ++ must be a variable, a field or an index.", parser.Errors);
     }
 
     [RuntimeFact]

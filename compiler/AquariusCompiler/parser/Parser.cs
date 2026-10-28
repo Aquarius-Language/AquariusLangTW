@@ -97,8 +97,10 @@ namespace AquariusLang.parser {
         private List<string> errors;
         private readonly List<ParseError> diagnostics = new List<ParseError>();
         private int expressionDepth;
+        private bool tooDeep;
         public IReadOnlyList<ParseError> Diagnostics => diagnostics;
         private void addError(string message, Token token) {
+            if (tooDeep) return;
             errors.Add(message);
             diagnostics.Add(new ParseError(message, token));
         }
@@ -363,8 +365,12 @@ namespace AquariusLang.parser {
 
         private IExpression parseExpression(int precedence) {
             if (expressionDepth >= 256) {
-                throw new System.InvalidOperationException("Expression nesting exceeds the limit of 256.");
+                // One error, then the rest of the program parses to nothing, so the deep nesting unwinds without more.
+                addError("運算式巢狀超過 256 層 / Expression nesting exceeds the limit of 256.", currToken);
+                tooDeep = true;
+                return null;
             }
+            if (tooDeep) return null;
             expressionDepth++;
             try { return parseExpressionCore(precedence); }
             finally { expressionDepth--; }
@@ -436,7 +442,7 @@ namespace AquariusLang.parser {
             IntegerLiteral integerLiteral = new IntegerLiteral(currToken);
             bool parseSuccess = int.TryParse(currToken.Literal, out int value);
             if (!parseSuccess) {
-                string msg = $"Could not parse{currToken.Literal} as integer.";
+                string msg = $"整數 {currToken.Literal} 超出 32 位元範圍 / Could not parse {currToken.Literal} as a 32-bit integer.";
                 addError(msg, currToken);
                 return null;
             }
@@ -453,7 +459,7 @@ namespace AquariusLang.parser {
                 return floatLiteral;
             }
 
-            string msg = $"Could not parse{currToken.Literal} as float.";
+            string msg = $"Could not parse {currToken.Literal} as float.";
             addError(msg, currToken);
             return null;
         }
@@ -466,7 +472,7 @@ namespace AquariusLang.parser {
                 return doubleLiteral;
             }
 
-            string msg = $"Could not parse{currToken.Literal} as double.";
+            string msg = $"Could not parse {currToken.Literal} as double.";
             addError(msg, currToken);
             return null;
         }
@@ -491,6 +497,11 @@ namespace AquariusLang.parser {
         /// </summary>
         /// <returns></returns>
         private IExpression parsePrefixExpression() {
+            // The smallest integer, -2147483648, is written with a minus sign before a literal one past the largest.
+            if (currTokenIs(TokenType.MINUS) && peekTokenIs(TokenType.INT) && peekToken.Literal == "2147483648") {
+                nextToken();
+                return new IntegerLiteral(currToken) { Value = int.MinValue };
+            }
             PrefixExpression expression = new PrefixExpression(currToken, currToken.Literal);
             nextToken();
             expression.Right = parseExpression((int)Precedence.OperatorPrecedence.PREFIX);
@@ -695,17 +706,25 @@ namespace AquariusLang.parser {
                 return null;
             }
 
-            if (!expectPeek(TokenType.LET)) return null;
-            forLoopLiteral.DeclareStatement = parseLetStatement();
-            if (!currTokenIs(TokenType.SEMICOLON)) {
-                addError("Expected ; after loop variable declaration.", currToken);
-                return null;
+            // Each of the three parts may be left out: 迴圈 (; 條件;) { ... } and 迴圈 (;;) { ... 中斷; }.
+            if (peekTokenIs(TokenType.SEMICOLON)) nextToken();
+            else {
+                if (!expectPeek(TokenType.LET)) return null;
+                forLoopLiteral.DeclareStatement = parseLetStatement();
+                if (!currTokenIs(TokenType.SEMICOLON)) {
+                    addError("Expected ; after loop variable declaration.", currToken);
+                    return null;
+                }
             }
             nextToken();
-            forLoopLiteral.ConditionalExpression = parseExpression((int)Precedence.OperatorPrecedence.LOWEST);
-            if (!expectPeek(TokenType.SEMICOLON)) return null;
-            nextToken();
-            forLoopLiteral.ValueChangeStatement = parseStatement();
+            if (!currTokenIs(TokenType.SEMICOLON)) {
+                forLoopLiteral.ConditionalExpression = parseExpression((int)Precedence.OperatorPrecedence.LOWEST);
+                if (!expectPeek(TokenType.SEMICOLON)) return null;
+            }
+            if (!peekTokenIs(TokenType.RPAREN)) {
+                nextToken();
+                forLoopLiteral.ValueChangeStatement = parseStatement();
+            }
             if (!expectPeek(TokenType.RPAREN)) return null;
             if (!expectPeek(TokenType.LBRACE)) return null;
             forLoopLiteral.Body = parseBlockStatement();
@@ -760,6 +779,8 @@ namespace AquariusLang.parser {
                     return null;
                 }
                 identifier = new Identifier(currToken, currToken.Literal);
+                if (identifiers.Exists(p => p.Value == identifier.Value))
+                    addError($"參數 {identifier.Value} 重複 / Duplicate parameter {identifier.Value}.", currToken);
                 identifiers.Add(identifier);
                 if (peekTokenIs(TokenType.COLON) && (identifier.Type = parseTypeAnnotation()) == null) return null;
             }

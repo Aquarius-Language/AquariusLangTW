@@ -721,9 +721,9 @@ public class ForLoopLiteral : IExpression {
         StringBuilder builder = new StringBuilder();
         builder.Append(TokenLiteral())
             .Append('(')
-            .Append(declareStatement.String())
-            .Append(conditionalExpression.String())
-            .Append(valueChangeStatement.String())
+            .Append(declareStatement?.String())
+            .Append(conditionalExpression?.String())
+            .Append(valueChangeStatement?.String())
             .Append(')')
             .Append('{')
             .Append(body.String())

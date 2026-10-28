@@ -238,7 +238,8 @@ public sealed class TypeChecker {
     /// <summary>Records a check or reports a mismatch for a value of static type <paramref name="value"/> stored where
     /// <paramref name="target"/> is required. Integers widen to float and double, floats to double.</summary>
     private void Require(int target, int value, INode site, string subject, Token token) {
-        if (value == target || value == Null && IsStruct(target)) return;
+        // An unknown struct name (already reported) leaves target unresolved.
+        if (value == target || target == Dynamic || value == Null && IsStruct(target)) return;
         if ((IsStruct(target) || value == Null) && value != Dynamic) {
             Error($"型別不符：{subject} 需要 {Name(target)}，卻是 {Name(value)} / Type mismatch: {subject} expects {Name(target)}, got {Name(value)}.", token);
             return;

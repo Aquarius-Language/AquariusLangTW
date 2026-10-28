@@ -234,12 +234,16 @@ public sealed class LoweringCompiler {
         int enter = Emit(IrOperation.EnterLoop, loop.DeclareStatement == null ? -1 : Name(loop.DeclareStatement.Name.Value));
         if (loop.DeclareStatement != null) { Node(loop.DeclareStatement); Emit(IrOperation.Pop); }
         int condition = code.Count;
-        if (loop.ConditionalExpression != null) Node(loop.ConditionalExpression); else Emit(IrOperation.Void);
+        // A loop without a condition runs until 中斷 / break.
+        if (loop.ConditionalExpression != null) Node(loop.ConditionalExpression); else Value(RepeatedPrimitives.TRUE);
         int end = Emit(IrOperation.LoopCondition);
         breaks.Push(new List<int>());
         if (loop.Body != null) { Node(loop.Body); breaks.Peek().Add(Emit(IrOperation.JumpIfBreak)); Emit(IrOperation.Pop); }
+        // The next iteration starts before the update, so closures made in this iteration keep its value of the loop
+        // variable (迴圈 (變數 i = 0; ...; i++) makes closures that see 0, 1, 2, ...).
+        Emit(IrOperation.NextIteration);
         if (loop.ValueChangeStatement != null) { Node(loop.ValueChangeStatement); Emit(IrOperation.Pop); }
-        Emit(IrOperation.NextIteration); Emit(IrOperation.Jump, condition);
+        Emit(IrOperation.Jump, condition);
         Patch(end);
         foreach (int jump in breaks.Pop()) Patch(jump);
         int leave = Emit(IrOperation.LeaveLoop);

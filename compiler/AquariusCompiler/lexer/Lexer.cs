@@ -156,8 +156,12 @@ namespace AquariusLang.lexer {
                     token = newToken(TokenType.RPAREN, ch);
                     break;
                 case '"':
+                    int quote = position;
                     token = newToken(TokenType.STRING, readString());
-                    if (ch == 0) token.Type = TokenType.ILLEGAL;
+                    if (ch == 0) {
+                        token.Type = TokenType.ILLEGAL;
+                        lexicalErrors.Add(new LexicalError("字串缺少結尾的 \" / Unterminated string.", quote, input.Length - quote));
+                    }
                     break;
                 case '[':
                     token = newToken(TokenType.LBRACKET, ch);
@@ -223,16 +227,20 @@ namespace AquariusLang.lexer {
             return token;
         }
 
+        /// <summary>A string literal's text. \" and \\ are its only escapes, so any other backslash (Windows paths,
+        /// regular expressions) stays as written.</summary>
         private string readString() {
-            int lastPos = position + 1;
+            var text = new System.Text.StringBuilder();
             while (true) {
                 readChar();
                 if (ch == '"' || ch == 0) {
                     break;
                 }
+                if (ch == '\\' && peekChar() is '"' or '\\') readChar();
+                text.Append(ch);
             }
 
-            return input.Substring(lastPos, position - lastPos);
+            return text.ToString();
         }
 
         private void skipComments() {
