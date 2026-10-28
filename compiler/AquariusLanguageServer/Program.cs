@@ -53,7 +53,7 @@ static async Task<int> RunAsync()
                                     hoverProvider = true, definitionProvider = true, documentSymbolProvider = true,
                                     signatureHelpProvider = new { triggerCharacters = new[] { "(", "," } }
                                 },
-                                serverInfo = new { name = "Aquarius Language Server", version = "0.1.4" }
+                                serverInfo = new { name = "Aquarius Language Server", version = AquariusLang.AquariusVersion.Current }
                             };
                             break;
                         case "initialized": case "$/cancelRequest": case "$/setTrace":

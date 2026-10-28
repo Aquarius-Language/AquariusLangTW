@@ -523,12 +523,16 @@ public class LanguageServerTest
     {
         using var session = new LanguageServerSession();
         var result = session.Initialize();
-        Assert.Equal("0.1.4", result.GetProperty("serverInfo").GetProperty("version").GetString());
+        // The server reports the AquariusLang version, set once in compiler/Directory.Build.props.
+        string props = File.ReadAllText(Path.Combine(AquariusInstallation.Require().Root, "compiler", "Directory.Build.props"));
+        string version = System.Text.RegularExpressions.Regex.Match(props, "<Version>([^<]+)</Version>").Groups[1].Value;
+        Assert.Equal(version, AquariusLang.AquariusVersion.Current);
+        Assert.Equal(version, result.GetProperty("serverInfo").GetProperty("version").GetString());
         var triggers = result.GetProperty("capabilities").GetProperty("signatureHelpProvider").GetProperty("triggerCharacters");
         Assert.Equal(new[] { "(", "," }, triggers.EnumerateArray().Select(t => t.GetString()!));
         // The extension ships the same version.
         var manifest = JsonDocument.Parse(File.ReadAllText(Path.Combine(AquariusInstallation.Require().Root, "editors", "vscode", "package.json")));
-        Assert.Equal("0.1.4", manifest.RootElement.GetProperty("version").GetString());
+        Assert.Equal(version, manifest.RootElement.GetProperty("version").GetString());
     }
 
     [Fact]

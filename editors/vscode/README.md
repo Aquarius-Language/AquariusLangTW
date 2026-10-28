@@ -79,7 +79,9 @@ For a custom server build, set these **user/machine** settings if needed:
 }
 ```
 
-Leave `aquarius.serverPath` empty to use the bundled server. On macOS/Linux use
+Leave `aquarius.serverPath` empty to use the bundled server. The extension and the server share the AquariusLang
+version ([versioning](../../docs/versioning.md)); a server of another release shows a warning, since it may not know
+this release's syntax. On macOS/Linux use
 absolute paths appropriate to that host. Paths may contain spaces.
 
 ## Run a program

@@ -49,6 +49,7 @@ entry = "main.aqua"
 sources = ["main.aqua"]
 platforms = ["windows", "linux", "web", "android"]
 libraries = ["sqlite"]   # optional: libraries imported by computed names (default libraries or dependencies)
+aquarius = ">= 0.1.4"    # optional: the AquariusLang versions it works with (docs/versioning.md); also in [library]
 
 [dependencies]
 sqlite = { path = "../sqlite", version = ">= 1.0, < 2.0" }

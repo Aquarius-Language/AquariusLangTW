@@ -130,6 +130,19 @@ public class BottleLibraryTest
     }
 
     [Fact]
+    public void ProjectsAndLibrariesMayRequireAnAquariusLangVersion()
+    {
+        ProjectManifest Parse(string text) => ProjectManifest.Parse(Path.GetFullPath("aqua.toml"), text);
+        var current = BottleVersion.Parse(AquariusLang.AquariusVersion.Current);
+        Assert.Equal($">= {current}", Parse($"manifest_version = 2\n[project]\nname='app'\naquarius='>= {current}'\n").Aquarius);
+        Assert.Equal($"{current.Major}.{current.Minor}", Parse($"manifest_version = 2\n[library]\nname='lib'\nversion='1.0.0'\nplatforms=['windows']\naquarius='>= {current.Major}.{current.Minor}'\n[native]\nmodules=['Lib']\n").Aquarius!.Split(" ")[1]);
+        Assert.Null(Parse("manifest_version = 2\n[project]\nname='app'\n").Aquarius);
+        var newer = Assert.Throws<ManifestException>(() => Parse($"manifest_version = 2\n[project]\nname='app'\naquarius='>= {current.Major + 1}.0'\n"));
+        Assert.Contains($"app needs AquariusLang >= {current.Major + 1}.0; this is {AquariusLang.AquariusVersion.Current}", newer.Message);
+        Assert.Contains("Invalid semantic version 'soon'", Assert.Throws<ManifestException>(() => Parse("manifest_version = 2\n[project]\nname='app'\naquarius='soon'\n")).Message);
+    }
+
+    [Fact]
     public void Version2LibraryManifestsDescribeNativeAndAquariusModules()
     {
         using var t = new BottleDirectory();
