@@ -149,6 +149,18 @@ Code quality details, all plain Wasm:
   are read again.
 - **Exact integer payloads.** Integer and Boolean payloads are always exact 32-bit integers, so typed loads convert
   them with `f64.add 1.5·2^52` and a reinterpretation instead of a saturating conversion and its branches.
+- **Strings.** 字串 / string values are a `Text*` in an i32 local, never null. `長度`, code-unit reads (`s[i]`, a
+  one-unit text) and `==` / `!=` run in place or through tiny helpers (`rt_nativeUnitText`, `rt_nativeTextEqual`);
+  `+` calls `rt_nativeConcat`. `s = s + t` on a string slot appends in place (`rt_nativeAppend`): the text it builds is
+  marked as owned by the slot in the pointer's low bit, and every other load of the slot and every frame it is written
+  to drops the mark, so no other value can see the text grow. A read past the end deoptimizes at that read (it starts a
+  generic block), where the generic code gives null. A function that allocates (strings, array literals, structs,
+  directly or through callees) also polls for a pending collection at its loop heads. Typed string work runs about 15×
+  faster than generically (`NativeStringTest` compares it with the unoptimized compiler).
+- **Core globals.** `長度` / `len` and the conversions are found in the host's builtin scope, never in a closure's scope
+  chain. So an entry adapter or region accepts them when no binding of that name exists, and checks a shadowing binding
+  for the very builtin. Before this round, any typed function or region that used them always fell back to the generic
+  body at run time.
 - **Tail calls.** A call whose result the function returns at once (`回傳 f(...)`, with the same result type) is a Wasm
   `return_call` (the tail-call proposal, on by default in Wasmtime and in current browsers): the callee takes over the
   activation and keeps its depth, so tail recursion runs natively at any depth. When the callee deoptimizes, its generic

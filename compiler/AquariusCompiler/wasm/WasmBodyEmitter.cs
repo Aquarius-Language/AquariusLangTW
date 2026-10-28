@@ -570,6 +570,19 @@ internal sealed class WasmBodyEmitter
                 outer[parameters[p]] = new NativeSignature.OuterName(0, null, false, true, null, clone.Parameters[p]);
             spans.Add((0, n, outer));
         }
+        // A read of a string the native tier may hold (a string-typed parameter or outer binding, or a value the dataflow
+        // proves a string) starts a block too: past the end it deoptimizes there.
+        var strings = new HashSet<string>(StringComparer.Ordinal);
+        if (body.Function is { Signature: var signature, Parameters: var names0 }) {
+            for (int p = 0; p < names0.Length && p < signature.Parameters.Length; p++) if (signature.Parameters[p] == StringTag) strings.Add(names0[p]);
+            foreach (var (name, outer) in signature.Outer) if (outer.Type == StringTag || outer.Type == 0 && outer.Guess == StringTag) strings.Add(name);
+        }
+        foreach (var loop in body.Loops) if (loop.Region != null) foreach (var (name, outer) in loop.Region.Outer) if (outer.Type == StringTag || outer.Type == 0 && outer.Guess == StringTag) strings.Add(name);
+        for (int i = 1; i < n; i++) {
+            if (code[i].Code != IrOperation.Index || plan.Depth[i] < 2 || plan.StackTags[i] is not { } at) continue;
+            int k = i - 1; while (k >= 0 && plan.Depth[k] != plan.Depth[i] - 2) k--;
+            if (at[plan.Depth[i] - 2] == StringTag || k >= 0 && code[k].Code == IrOperation.Load && WasmScopePlan.NameOf(body, code[k]) is string s && strings.Contains(s)) leaders.Add(i);
+        }
         foreach (var (enter, leave, names) in spans) {
             var guessed = names.Where(o => o.Value.Type == 0 && GuessedArray(o.Value.Guess)).Select(o => o.Key).ToHashSet(StringComparer.Ordinal);
             if (guessed.Count == 0) continue;

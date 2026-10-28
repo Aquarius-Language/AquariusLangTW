@@ -612,6 +612,18 @@ int rt_nativeFailure(Execution*e,int code) {
 }
 /* An array literal built by native code (an array of any values): it writes every element before anything can collect. */
 int rt_nativeArray(int n){return (int)address(array((u32)n));}
+/* Strings of native code (WasmNativeFunction.StringType): equality, concatenation and one-unit texts. */
+int rt_nativeTextEqual(int a,int b){return text_equal(pointer((u32)a),pointer((u32)b));}
+int rt_nativeConcat(int a,int b){return (int)address(concat(pointer((u32)a),pointer((u32)b)));}
+int rt_nativeUnitText(int c){return (int)address(unit_text((uint16_t)c));}
+/* s = s + t on a string slot of native code: a with its low bit set is a text the slot owns (no other value refers to it;
+   WasmNativeFunction.FindAppends), which grows in place while its block has room; the result is owned by the slot. */
+int rt_nativeAppend(int a,int b){
+    Text*x=pointer((u32)a&~1u),*y=pointer((u32)b);u32 n=x->length+y->length;
+    if(((u32)a&1u)&&((Block*)x-1)->size>=sizeof(Text)+n*2){memcpy(x->data+x->length,y->data,y->length*2);x->length=n;((Block*)x-1)->reserved=0;return a;}
+    u32 room=n<(1u<<28)?n+n/2+4:n;Text*t=allocate(sizeof(Text)+room*2,TEXT);t->length=n;
+    memcpy(t->data,x->data,x->length*2);memcpy(t->data+x->length,y->data,y->length*2);return (int)(address(t)|1u);
+}
 /* ---- Structs (結構 / struct) ---- */
 /* Whether v fits annotation code (widening numbers in place): 0 any value; a scalar tag; 16 | element a typed array
    (locking an untyped one whose elements all fit); 16 any array; 32 | id << 6 a struct of that type or null. */
