@@ -110,15 +110,33 @@ aqua_value gfx_pixel_array(aqua_runtime *rt, const uint8_t *bytes, int count) {
     return array;
 }
 
+/* Rewrites a published pixels array in place when it still has `count` elements (scripts keep their reference). */
+static bool refresh_pixel_array(aqua_runtime *rt, aqua_value array, const uint8_t *bytes, int count) {
+    if (array.type != AQUA_ARRAY || (int)aqua_array_length(rt, array) != count) return false;
+    double *values = malloc((size_t)(count ? count : 1) * sizeof *values);
+    for (int i = 0; i < count; i++) {
+        const uint8_t *p = bytes + (size_t)i * 4;
+        values[i] = (double)((uint32_t)p[3] << 24 | (uint32_t)p[0] << 16 | (uint32_t)p[1] << 8 | p[2]);
+    }
+    bool ok = count == 0 || aqua_array_write_f64(rt, array, 0, (uint32_t)count, values, AQUA_DOUBLE);
+    free(values);
+    return ok;
+}
+
 bool gfx_pixel_bytes(aqua_call *call, aqua_value array, int count, uint8_t *out) {
     aqua_runtime *rt = aqua_call_runtime(call);
     if ((int)aqua_array_length(rt, array) != count) { gfx_fail(call, "pixels must contain %d packed ARGB colors.", count); return false; }
+    /* One bulk read of the numbers; other elements (or a failed read) take the per-element path and its messages. */
+    double *numbers = malloc((size_t)(count ? count : 1) * sizeof *numbers);
+    bool bulk = count > 0 && aqua_array_read_f64(rt, array, 0, (uint32_t)count, numbers);
     for (int i = 0; i < count; i++) {
-        uint32_t c = gfx_packed_value(call, aqua_array_get(rt, array, (uint32_t)i));
-        if (aqua_failed(call)) return false;
+        double n = bulk ? numbers[i] : -1;
+        uint32_t c = n >= 0 && n <= 4294967295.0 && n == (double)(uint32_t)n ? (uint32_t)n : gfx_packed_value(call, aqua_array_get(rt, array, (uint32_t)i));
+        if (aqua_failed(call)) { free(numbers); return false; }
         uint8_t *p = out + (size_t)i * 4;
         p[0] = (uint8_t)(c >> 16); p[1] = (uint8_t)(c >> 8); p[2] = (uint8_t)c; p[3] = (uint8_t)(c >> 24);
     }
+    free(numbers);
     return true;
 }
 
@@ -129,25 +147,50 @@ void gfx_image_filter(uint8_t *bytes, int width, int height, int mode, float par
     if (mode == 5) {
         int radius = (int)ceilf(parameter);
         radius = radius < 1 ? 1 : radius > 32 ? 32 : radius;
-        uint8_t *source = malloc(n), *tmp = malloc(n);
-        memcpy(source, bytes, n);
+        /* Horizontal then vertical box sums over edge-clamped samples, as running sums (cost independent of radius). */
+        uint8_t *tmp = malloc(n);
+        int span = 2 * radius + 1;
         for (int pass = 0; pass < 2; pass++) {
-            const uint8_t *from = pass == 0 ? source : tmp;
+            const uint8_t *from = pass == 0 ? bytes : tmp;
             uint8_t *to = pass == 0 ? tmp : bytes;
-            for (int y = 0; y < height; y++)
-                for (int x = 0; x < width; x++)
-                    for (int ch = 0; ch < 4; ch++) {
-                        int sum = 0;
-                        for (int d = -radius; d <= radius; d++) {
-                            int yy = y + (pass == 1 ? d : 0), xx = x + (pass == 0 ? d : 0);
-                            yy = yy < 0 ? 0 : yy > height - 1 ? height - 1 : yy;
-                            xx = xx < 0 ? 0 : xx > width - 1 ? width - 1 : xx;
-                            sum += from[((size_t)yy * (size_t)width + (size_t)xx) * 4 + (size_t)ch];
-                        }
-                        to[((size_t)y * (size_t)width + (size_t)x) * 4 + (size_t)ch] = (uint8_t)(sum / (2 * radius + 1));
+            int lines = pass == 0 ? height : width, length = pass == 0 ? width : height;
+            size_t step = pass == 0 ? 4 : (size_t)width * 4, line_step = pass == 0 ? (size_t)width * 4 : 4;
+            for (int l = 0; l < lines; l++) {
+                const uint8_t *src = from + (size_t)l * line_step;
+                uint8_t *dst = to + (size_t)l * line_step;
+                for (int ch = 0; ch < 4; ch++) {
+                    int sum = 0;
+                    for (int d = -radius; d <= radius; d++) { int i = d < 0 ? 0 : d > length - 1 ? length - 1 : d; sum += src[(size_t)i * step + (size_t)ch]; }
+                    for (int i = 0; i < length; i++) {
+                        dst[(size_t)i * step + (size_t)ch] = (uint8_t)(sum / span);
+                        int out = i - radius < 0 ? 0 : i - radius, in = i + radius + 1 > length - 1 ? length - 1 : i + radius + 1;
+                        sum += src[(size_t)in * step + (size_t)ch] - src[(size_t)out * step + (size_t)ch];
                     }
+                }
+            }
         }
-        free(source); free(tmp);
+        free(tmp);
+        return;
+    }
+    if (mode == 6 || mode == 7) {
+        /* DILATE / ERODE: each pixel becomes the brightest / darkest (by luminance) of itself and its four neighbours. */
+        uint8_t *source = malloc(n);
+        memcpy(source, bytes, n);
+        for (int y = 0; y < height; y++)
+            for (int x = 0; x < width; x++) {
+                static const int dx[5] = {0, -1, 1, 0, 0}, dy[5] = {0, 0, 0, -1, 1};
+                const uint8_t *best = NULL;
+                int best_luma = 0;
+                for (int k = 0; k < 5; k++) {
+                    int xx = x + dx[k], yy = y + dy[k];
+                    if (xx < 0 || yy < 0 || xx >= width || yy >= height) continue;
+                    const uint8_t *q = source + ((size_t)yy * (size_t)width + (size_t)xx) * 4;
+                    int luma = 77 * q[0] + 151 * q[1] + 28 * q[2];
+                    if (!best || (mode == 6 ? luma > best_luma : luma < best_luma)) { best = q; best_luma = luma; }
+                }
+                memcpy(bytes + ((size_t)y * (size_t)width + (size_t)x) * 4, best, 4);
+            }
+        free(source);
         return;
     }
     double levels = floor((double)parameter) - 1;
@@ -161,8 +204,44 @@ void gfx_image_filter(uint8_t *bytes, int width, int height, int mode, float par
     }
 }
 
+/* blendColor(): Processing's PImage blend modes on straight ARGB. The source's alpha weighs the mode's result against
+   the destination; the result's alpha is the sum of both (at most 255), REPLACE takes the source as it is. */
+static float blend_channel(int mode, float a, float b) {
+    switch (mode) {
+    case 1: return fminf(a + b, 255);
+    case 6: return fmaxf(a - b, 0);
+    case 7: return fmaxf(a, b);
+    case 8: return fminf(a, b);
+    case 10: return fabsf(a - b);
+    case 9: return a + b - 2 * a * b / 255;
+    case 2: return a * b / 255;
+    case 3: return 255 - (255 - a) * (255 - b) / 255;
+    case 11: return a < 128 ? 2 * a * b / 255 : 255 - 2 * (255 - a) * (255 - b) / 255;
+    case 12: return b < 128 ? 2 * a * b / 255 : 255 - 2 * (255 - a) * (255 - b) / 255;
+    case 13: return a * b / 128 + a * a / 256 - a * a * b / 32768;
+    case 14: return b >= 255 ? 255 : fminf(255, a * 256 / (256 - b));
+    case 15: return 255 - fminf(255, (255 - a) * 256 / (b + 1));
+    default: return b;
+    }
+}
+
+uint32_t gfx_blend_color(uint32_t destination, uint32_t source, int mode) {
+    if (mode == 4) return source;
+    float f = (float)(source >> 24) / 255, alpha = fminf((float)(destination >> 24) + (float)(source >> 24), 255);
+    uint32_t result = (uint32_t)alpha << 24;
+    for (int shift = 16; shift >= 0; shift -= 8) {
+        float a = (float)(destination >> shift & 255), b = (float)(source >> shift & 255);
+        /* ADD, SUBTRACT and LIGHTEST weigh the source itself; the others mix towards the mode's result. */
+        float c = mode == 1 || mode == 6 || mode == 7 ? blend_channel(mode, a, b * f) : a + (blend_channel(mode, a, b) - a) * f;
+        result |= (uint32_t)clamp_byte((int)lrintf(c)) << shift;
+    }
+    return result;
+}
+
+static int blend_mode_argument(aqua_call *call, uint32_t index) { return GFX_CHOICE(call, index, 0, 1, 2, 3, 4, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15); }
+
 static bool filter_arguments(aqua_call *call, int *mode, float *parameter) {
-    *mode = GFX_CHOICE(call, 0, 0, 1, 2, 3, 4, 5);
+    *mode = GFX_CHOICE(call, 0, 0, 1, 2, 3, 4, 5, 6, 7);
     *parameter = aqua_argc(call) == 2 ? gfx_float(call, 1) : 0.5f;
     if (aqua_failed(call)) return false;
     if (*mode == 3 && (*parameter < 2 || *parameter > 255)) { gfx_fail(call, "POSTERIZE levels must be 2..255."); return false; }
@@ -208,9 +287,12 @@ pimage *gfx_image_load(aqua_call *call, processing *p, const char *path) {
     return image;
 }
 
-static void publish_pixels(aqua_runtime *rt, aqua_ref *slot, aqua_value array) {
+/* loadPixels() and friends: the published array is refreshed in place when its size still fits, as Processing keeps one
+   pixels[] per image (no new array per frame); otherwise a new one replaces it. */
+static void publish_pixels(aqua_runtime *rt, aqua_ref *slot, const uint8_t *bytes, int count) {
+    if (*slot && refresh_pixel_array(rt, aqua_ref_value(rt, *slot), bytes, count)) return;
     if (*slot) aqua_release(rt, *slot);
-    *slot = aqua_retain(rt, array);
+    *slot = aqua_retain(rt, gfx_pixel_array(rt, bytes, count));
 }
 
 /* ---- PImage members ---- */
@@ -218,7 +300,7 @@ static void publish_pixels(aqua_runtime *rt, aqua_ref *slot, aqua_value array) {
 static void p_image_loadPixels(aqua_call *call, processing *p, pimage *image) {
     (void)p;
     aqua_runtime *rt = aqua_call_runtime(call);
-    publish_pixels(rt, &image->pixels, gfx_pixel_array(rt, image->bytes, image->width * image->height));
+    publish_pixels(rt, &image->pixels, image->bytes, image->width * image->height);
 }
 
 static void p_image_updatePixels(aqua_call *call, processing *p, pimage *image) {
@@ -319,7 +401,7 @@ static void p_image_resize(aqua_call *call, processing *p, pimage *image) {
     image->width = w; image->height = h;
     image->dirty = true;
     aqua_runtime *rt = aqua_call_runtime(call);
-    publish_pixels(rt, &image->pixels, gfx_pixel_array(rt, image->bytes, w * h));
+    publish_pixels(rt, &image->pixels, image->bytes, w * h);
 }
 
 typedef struct copy_operation {
@@ -328,6 +410,7 @@ typedef struct copy_operation {
     aqua_ref source;
     int sx, sy, sw, sh, dx, dy, dw, dh;
     float fx, fy, fw, fh;
+    pimage self;            /* a canvas copying from itself reads its own pixels through this descriptor */
 } copy_operation;
 
 static void copied_into_image(void *data, const uint8_t *rgba, int width, int height, const char *error) {
@@ -356,8 +439,70 @@ static bool copy_arguments(aqua_call *call, processing *p, copy_operation *o) {
     return !aqua_failed(call);
 }
 
+/* copy(sx, sy, sw, sh, dx, dy, dw, dh) without a source image copies within the image itself. */
+static bool self_copy_arguments(aqua_call *call, pimage *image, copy_operation *o) {
+    o->source_image = image;
+    o->sx = gfx_int(call, 0); o->sy = gfx_int(call, 1); o->sw = gfx_dimension(call, 2); o->sh = gfx_dimension(call, 3);
+    return !aqua_failed(call);
+}
+
+/* Scales the source region onto the destination region of `bytes` (nearest samples), blending with `mode` (-1 copies). */
+static void blend_region(pimage *target, const pimage *source, const uint8_t *snapshot, const copy_operation *o, int mode) {
+    for (int y = 0; y < o->dh; y++)
+        for (int x = 0; x < o->dw; x++) {
+            int tx = o->dx + x, ty = o->dy + y;
+            uint32_t s = image_pixel_at(source, snapshot, o->sx + (int)((int64_t)x * o->sw / o->dw), o->sy + (int)((int64_t)y * o->sh / o->dh));
+            if (mode >= 0) s = gfx_blend_color(gfx_pixel_at(target->bytes, target->width, target->height, tx, ty), s, mode);
+            gfx_pixel_set(target->bytes, target->width, target->height, tx, ty, s);
+        }
+    target->dirty = true;
+}
+
+typedef struct blend_operation { copy_operation copy; int mode; } blend_operation;
+static void blended_into_image(void *data, const uint8_t *rgba, int width, int height, const char *error) {
+    gfx_async *a = data;
+    blend_operation *o = gfx_async_data(a);
+    if (o->copy.source) aqua_release(gfx_async_runtime(a), o->copy.source);
+    if (error) { gfx_async_fail(a, "%s", error); return; }
+    size_t bytes = (size_t)width * (size_t)height * 4;
+    uint8_t *snapshot = malloc(bytes ? bytes : 1);
+    memcpy(snapshot, rgba, bytes);
+    blend_region(o->copy.target_image, o->copy.source_image, snapshot, &o->copy, o->mode);
+    free(snapshot);
+    gfx_async_finish(a, aqua_void());
+}
+
+/* blend([source,] sx, sy, sw, sh, dx, dy, dw, dh, mode) on an image. */
+static void p_image_blend(aqua_call *call, processing *p, pimage *image) {
+    blend_operation o = {{0}, 0};
+    uint32_t n = aqua_argc(call), at = n == 10 ? 1 : 0;
+    if (n != 9 && n != 10) { gfx_fail(call, "blend() takes [source,] sx, sy, sw, sh, dx, dy, dw, dh, mode."); return; }
+    if (n == 10 ? !copy_arguments(call, p, &o.copy) : !self_copy_arguments(call, image, &o.copy)) return;
+    o.copy.dx = gfx_int(call, at + 4); o.copy.dy = gfx_int(call, at + 5); o.copy.dw = gfx_dimension(call, at + 6); o.copy.dh = gfx_dimension(call, at + 7);
+    o.mode = blend_mode_argument(call, at + 8);
+    if (aqua_failed(call)) return;
+    o.copy.target_image = image;
+    gfx_async *a = gfx_async_begin(call, sizeof o);
+    if (n == 10) o.copy.source = aqua_retain(aqua_call_runtime(call), aqua_arg(call, 0));
+    *(blend_operation *)gfx_async_data(a) = o;
+    gfx_image_pixels(o.copy.source_image, blended_into_image, a);
+    gfx_async_end(a);
+}
+
 static void p_image_copy(aqua_call *call, processing *p, pimage *image) {
     copy_operation o = {0};
+    uint32_t n = aqua_argc(call);
+    if (n != 8 && n != 9) { gfx_fail(call, "copy() takes [source,] sx, sy, sw, sh, dx, dy, dw, dh."); return; }
+    if (n == 8) {
+        if (!self_copy_arguments(call, image, &o)) return;
+        o.dx = gfx_int(call, 4); o.dy = gfx_int(call, 5); o.dw = gfx_dimension(call, 6); o.dh = gfx_dimension(call, 7);
+        if (aqua_failed(call)) return;
+        uint8_t *snapshot = malloc((size_t)image->width * (size_t)image->height * 4);
+        memcpy(snapshot, image->bytes, (size_t)image->width * (size_t)image->height * 4);
+        blend_region(image, image, snapshot, &o, -1);
+        free(snapshot);
+        return;
+    }
     if (!copy_arguments(call, p, &o)) return;
     o.dx = gfx_int(call, 5); o.dy = gfx_int(call, 6); o.dw = gfx_dimension(call, 7); o.dh = gfx_dimension(call, 8);
     if (aqua_failed(call)) return;
@@ -379,7 +524,7 @@ static void loaded(void *data, const uint8_t *rgba, int width, int height, const
     canvas *c = *(canvas **)gfx_async_data(a);
     if (error) { gfx_async_fail(a, "%s", error); return; }
     aqua_runtime *rt = gfx_async_runtime(a);
-    publish_pixels(rt, &c->pixels, gfx_pixel_array(rt, rgba, width * height));
+    publish_pixels(rt, &c->pixels, rgba, width * height);
     gfx_async_finish(a, aqua_void());
 }
 static void p_loadPixels(aqua_call *call, processing *p, canvas *c) {
@@ -435,20 +580,6 @@ static void p_get(aqua_call *call, processing *p, canvas *c) {
     gfx_async_end(a);
 }
 
-typedef struct set_operation { canvas *canvas; int x, y; uint32_t color; } set_operation;
-static void set_read(void *data, const uint8_t *rgba, int width, int height, const char *error) {
-    gfx_async *a = data;
-    set_operation *o = gfx_async_data(a);
-    if (error) { gfx_async_fail(a, "%s", error); return; }
-    canvas *c = o->canvas;
-    size_t n = (size_t)width * (size_t)height * 4;
-    uint8_t *bytes = malloc(n);
-    memcpy(bytes, rgba, n);
-    gfx_pixel_set(bytes, c->pixel_width, c->pixel_height, (int)((int64_t)o->x * c->pixel_width / c->width), (int)((int64_t)o->y * c->pixel_height / c->height), o->color);
-    bool ok = gfx_canvas_write_pixels(gfx_async_call(a), c, bytes);
-    free(bytes);
-    gfx_async_settle(a, ok, aqua_void());
-}
 static void p_set(aqua_call *call, processing *p, canvas *c) {
     if (!pixel_draw_checks(call, p, c)) return;
     if (aqua_arg(call, 2).type == AQUA_NATIVE) {
@@ -457,12 +588,10 @@ static void p_set(aqua_call *call, processing *p, canvas *c) {
         if (image && !aqua_failed(call)) gfx_canvas_image(call, c, image, x, y, NULL, NULL);
         return;
     }
-    set_operation o = {c, gfx_int(call, 0), gfx_int(call, 1), gfx_packed(call, 2)};
-    if (aqua_failed(call)) return;
-    gfx_async *a = gfx_async_begin(call, sizeof o);
-    *(set_operation *)gfx_async_data(a) = o;
-    gfx_canvas_read_pixels(c, set_read, a);
-    gfx_async_end(a);
+    int x = gfx_int(call, 0), y = gfx_int(call, 1);
+    uint32_t color = gfx_packed(call, 2);
+    if (aqua_failed(call) || x < 0 || y < 0 || x >= c->width || y >= c->height) return;
+    gfx_canvas_set_pixel(call, c, (int)((int64_t)x * c->pixel_width / c->width), (int)((int64_t)y * c->pixel_height / c->height), color);
 }
 
 typedef struct save_operation { char path[1024]; } save_operation;
@@ -487,7 +616,7 @@ static void p_save(aqua_call *call, processing *p, canvas *c) {
 }
 static void p_saveFrame(aqua_call *call, processing *p, canvas *c) {
     if (!pixel_read_checks(call, p, c)) return;
-    aqua_str path = gfx_text(call, 0);
+    aqua_str path = aqua_argc(call) ? gfx_text(call, 0) : (aqua_str){"screen-####.png", 15};
     if (aqua_failed(call)) return;
     char resolved[1100];
     const char *hash = strchr(path.data, '#');
@@ -525,7 +654,7 @@ static void p_filter(aqua_call *call, processing *p, canvas *c) {
 static void copied_into_canvas(void *data, const uint8_t *rgba, int width, int height, const char *error) {
     gfx_async *a = data;
     copy_operation *o = gfx_async_data(a);
-    aqua_release(gfx_async_runtime(a), o->source);
+    if (o->source) aqua_release(gfx_async_runtime(a), o->source);
     if (error) { gfx_async_fail(a, "%s", error); return; }
     (void)width; (void)height;
     processing *p = o->target_canvas->owner;
@@ -537,18 +666,110 @@ static void copied_into_canvas(void *data, const uint8_t *rgba, int width, int h
     gfx_image_free(cropped);
     gfx_async_settle(a, ok, aqua_void());
 }
+/* The source of a canvas's copy()/blend(): the image argument, or (without one) the canvas itself. */
+static bool canvas_source(aqua_call *call, processing *p, canvas *c, uint32_t n, uint32_t self_count, copy_operation *o) {
+    if (n == self_count) {
+        o->self = (pimage){.owner = p, .width = c->pixel_width, .height = c->pixel_height, .canvas = c};
+        o->sx = gfx_int(call, 0); o->sy = gfx_int(call, 1); o->sw = gfx_dimension(call, 2); o->sh = gfx_dimension(call, 3);
+        return !aqua_failed(call);
+    }
+    return copy_arguments(call, p, o);
+}
+/* Reads the source of an operation stored in its call's data (where `self` stays put). */
+static void read_source(copy_operation *o, pixels_done done, gfx_async *a) {
+    if (o->self.canvas) { o->source_image = &o->self; gfx_canvas_read_pixels(o->target_canvas, done, a); }
+    else gfx_image_pixels(o->source_image, done, a);
+}
+
 static void p_copy(aqua_call *call, processing *p, canvas *c) {
     if (!pixel_draw_checks(call, p, c)) return;
+    uint32_t n = aqua_argc(call), at = n == 9 ? 1 : 0;
+    if (n != 8 && n != 9) { gfx_fail(call, "copy() takes [source,] sx, sy, sw, sh, dx, dy, dw, dh."); return; }
     copy_operation o = {0};
-    if (!copy_arguments(call, p, &o)) return;
-    o.fx = gfx_float(call, 5); o.fy = gfx_float(call, 6); o.fw = gfx_float(call, 7); o.fh = gfx_float(call, 8);
+    if (!canvas_source(call, p, c, n, 8, &o)) return;
+    o.fx = gfx_float(call, at + 4); o.fy = gfx_float(call, at + 5); o.fw = gfx_float(call, at + 6); o.fh = gfx_float(call, at + 7);
     if (aqua_failed(call)) return;
     o.target_canvas = c;
     gfx_async *a = gfx_async_begin(call, sizeof o);
-    o.source = aqua_retain(aqua_call_runtime(call), aqua_arg(call, 0));
-    *(copy_operation *)gfx_async_data(a) = o;
-    gfx_image_pixels(o.source_image, copied_into_canvas, a);
+    if (n == 9) o.source = aqua_retain(aqua_call_runtime(call), aqua_arg(call, 0));
+    copy_operation *stored = gfx_async_data(a);
+    *stored = o;
+    read_source(stored, copied_into_canvas, a);
     gfx_async_end(a);
+}
+
+/* A canvas's blend(): the source's pixels, then the canvas's own, blended on the CPU and written back as a region. */
+typedef struct canvas_blend { copy_operation copy; int mode; uint8_t *source; int source_width, source_height; } canvas_blend;
+static void blend_target_read(void *data, const uint8_t *rgba, int width, int height, const char *error) {
+    gfx_async *a = data;
+    canvas_blend *o = gfx_async_data(a);
+    canvas *c = o->copy.target_canvas;
+    if (o->copy.source) aqua_release(gfx_async_runtime(a), o->copy.source);
+    o->copy.source = 0;
+    if (error) { free(o->source); gfx_async_fail(a, "%s", error); return; }
+    /* The destination region in device pixels, clipped to the canvas. */
+    int x0 = (int)((int64_t)o->copy.dx * c->pixel_width / c->width), y0 = (int)((int64_t)o->copy.dy * c->pixel_height / c->height);
+    int x1 = (int)((int64_t)(o->copy.dx + o->copy.dw) * c->pixel_width / c->width), y1 = (int)((int64_t)(o->copy.dy + o->copy.dh) * c->pixel_height / c->height);
+    if (x0 < 0) x0 = 0;
+    if (y0 < 0) y0 = 0;
+    if (x1 > width) x1 = width;
+    if (y1 > height) y1 = height;
+    if (x1 <= x0 || y1 <= y0) { free(o->source); gfx_async_finish(a, aqua_void()); return; }
+    int w = x1 - x0, h = y1 - y0;
+    uint8_t *region = malloc((size_t)w * (size_t)h * 4);
+    float to_logical_x = (float)c->width / (float)c->pixel_width, to_logical_y = (float)c->height / (float)c->pixel_height;
+    const pimage *source = o->copy.source_image;
+    for (int y = 0; y < h; y++)
+        for (int x = 0; x < w; x++) {
+            /* Logical destination coordinates map onto the logical source region. */
+            float lx = ((float)(x0 + x) + 0.5f) * to_logical_x - (float)o->copy.dx, ly = ((float)(y0 + y) + 0.5f) * to_logical_y - (float)o->copy.dy;
+            int sx = o->copy.sx + (int)(lx * (float)o->copy.sw / (float)o->copy.dw), sy = o->copy.sy + (int)(ly * (float)o->copy.sh / (float)o->copy.dh);
+            uint32_t s = image_pixel_at(source, o->source, sx, sy);
+            uint32_t d = gfx_pixel_at(rgba, width, height, x0 + x, y0 + y);
+            gfx_pixel_set(region, w, h, x, y, gfx_blend_color(d, s, o->mode));
+        }
+    free(o->source);
+    bool ok = gfx_canvas_write_region(gfx_async_call(a), c, region, x0, y0, w, h);
+    free(region);
+    gfx_async_settle(a, ok, aqua_void());
+}
+static void blend_source_read(void *data, const uint8_t *rgba, int width, int height, const char *error) {
+    gfx_async *a = data;
+    canvas_blend *o = gfx_async_data(a);
+    if (error) {
+        if (o->copy.source) aqua_release(gfx_async_runtime(a), o->copy.source);
+        gfx_async_fail(a, "%s", error);
+        return;
+    }
+    size_t n = (size_t)width * (size_t)height * 4;
+    o->source = malloc(n ? n : 1);
+    memcpy(o->source, rgba, n);
+    o->source_width = width; o->source_height = height;
+    gfx_canvas_read_pixels(o->copy.target_canvas, blend_target_read, a);
+}
+static void p_blend(aqua_call *call, processing *p, canvas *c) {
+    if (!pixel_draw_checks(call, p, c)) return;
+    uint32_t n = aqua_argc(call), at = n == 10 ? 1 : 0;
+    if (n != 9 && n != 10) { gfx_fail(call, "blend() takes [source,] sx, sy, sw, sh, dx, dy, dw, dh, mode."); return; }
+    canvas_blend o = {{0}, 0, NULL, 0, 0};
+    if (!canvas_source(call, p, c, n, 9, &o.copy)) return;
+    o.copy.dx = gfx_int(call, at + 4); o.copy.dy = gfx_int(call, at + 5); o.copy.dw = gfx_dimension(call, at + 6); o.copy.dh = gfx_dimension(call, at + 7);
+    o.mode = blend_mode_argument(call, at + 8);
+    if (aqua_failed(call)) return;
+    o.copy.target_canvas = c;
+    gfx_async *a = gfx_async_begin(call, sizeof o);
+    if (n == 10) o.copy.source = aqua_retain(aqua_call_runtime(call), aqua_arg(call, 0));
+    canvas_blend *stored = gfx_async_data(a);
+    *stored = o;
+    read_source(&stored->copy, blend_source_read, a);
+    gfx_async_end(a);
+}
+
+static void p_blendColor(aqua_call *call, processing *p) {
+    (void)p;
+    uint32_t a = gfx_packed(call, 0), b = gfx_packed(call, 1);
+    int mode = blend_mode_argument(call, 2);
+    if (!aqua_failed(call)) aqua_return_double(call, gfx_blend_color(a, b, mode));
 }
 
 /* ---- Module members ---- */
@@ -583,17 +804,20 @@ static void image_pixels_property(aqua_call *call) {
 #define IMAGE_MEMBERS(X) \
     X(image_loadPixels, "loadPixels|載入像素", 0, 0) X(image_updatePixels, "updatePixels|更新像素", 0, 0) X(image_get, "get|取得", 0, 4) \
     X(image_set, "set|設定", 3, 3) X(image_save, "save|儲存", 1, 1) X(image_filter, "filter|濾鏡", 1, 2) X(image_mask, "mask|遮罩", 1, 1) \
-    X(image_resize, "resize|調整尺寸", 2, 2) X(image_copy, "copy|複製", 9, 9)
+    X(image_resize, "resize|調整尺寸", 2, 2) X(image_copy, "copy|複製", 8, 9) X(image_blend, "blend|混合", 9, 10)
 #define IMAGE_WRAPPER(name, names, minimum, maximum) OBJECT_WRAPPER(pimage, name, names, minimum, maximum)
 #define IMAGE_DEFINE(name, names, minimum, maximum) OBJECT_DEFINE(image, name, names, minimum, maximum)
 IMAGE_MEMBERS(IMAGE_WRAPPER)
 
 #define CANVAS_PIXELS(X) \
     X(loadPixels, "loadPixels|載入像素", 0, 0) X(updatePixels, "updatePixels|更新像素", 0, 0) X(get, "get|取得", 0, 4) X(set, "set|設定", 3, 3) \
-    X(save, "save|儲存", 1, 1) X(saveFrame, "saveFrame|儲存影格", 1, 1) X(filter, "filter|濾鏡", 1, 2) X(copy, "copy|複製", 9, 9)
+    X(save, "save|儲存", 1, 1) X(saveFrame, "saveFrame|儲存影格", 0, 1) X(filter, "filter|濾鏡", 1, 2) X(copy, "copy|複製", 8, 9) \
+    X(blend, "blend|混合", 9, 10)
 CANVAS_PIXELS(CANVAS_WRAPPERS)
 
-#define IMAGE_MODULE(X) X(createImage, "createImage|建立圖片", 2, 3) X(loadImage, "loadImage|載入圖片", 1, 1)
+#define IMAGE_MODULE(X) \
+    X(createImage, "createImage|建立圖片", 2, 3) X(loadImage, "loadImage|載入圖片|requestImage|請求圖片", 1, 1) \
+    X(blendColor, "blendColor|混合顏色", 3, 3)
 IMAGE_MODULE(MODULE_WRAPPER)
 
 void gfx_image_register(aqua_class *module, aqua_class *canvas, aqua_class *image) {

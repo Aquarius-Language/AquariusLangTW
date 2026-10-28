@@ -36,7 +36,7 @@ struct gpu_device {
     WGPUShaderModule blit_module;
     blit_pipeline blits[8];
     int blit_count;
-    WGPUSampler sampler;
+    WGPUSampler sampler, samplers[4]; /* samplers[0] is `sampler` */
     gpu_texture *white;
     WGPUBuffer identity_buffer;
     WGPUBindGroup identity_group;
@@ -77,6 +77,7 @@ WGPUQueue gpu_device_queue(gpu_device *d) { return d->queue; }
 WGPUBindGroupLayout gpu_device_drawing_layout(gpu_device *d) { return d->drawing_layout; }
 WGPUBindGroupLayout gpu_device_user_layout(gpu_device *d) { return d->user_layout; }
 WGPUSampler gpu_device_sampler(gpu_device *d) { return d->sampler; }
+WGPUSampler gpu_device_sampler_for(gpu_device *d, int sampling) { return d->samplers[sampling & 3] ? d->samplers[sampling & 3] : d->sampler; }
 gpu_texture *gpu_device_white(gpu_device *d) { return d->white; }
 
 void gpu_device_link(gpu_device *d, gpu_resource *r, gpu_kind kind) {
@@ -258,6 +259,13 @@ static bool create_shared(gpu_device *d) {
     sampler.lodMaxClamp = 32;
     sampler.maxAnisotropy = 1;
     d->sampler = wgpuDeviceCreateSampler(d->device, &sampler);
+    /* Processing's textureWrap(REPEAT) and noSmooth() images: GPU_SAMPLE_REPEAT | GPU_SAMPLE_NEAREST variants. */
+    d->samplers[0] = d->sampler;
+    for (int i = 1; i < 4; i++) {
+        sampler.addressModeU = sampler.addressModeV = sampler.addressModeW = i & GPU_SAMPLE_REPEAT ? WGPUAddressMode_Repeat : WGPUAddressMode_ClampToEdge;
+        sampler.magFilter = sampler.minFilter = i & GPU_SAMPLE_NEAREST ? WGPUFilterMode_Nearest : WGPUFilterMode_Linear;
+        d->samplers[i] = wgpuDeviceCreateSampler(d->device, &sampler);
+    }
     d->blit_module = gpu_device_shader_module(d, gpu_wgsl_blit, strlen(gpu_wgsl_blit));
     d->white = gpu_texture_rgba(d, 1, 1);
     static const uint8_t white[4] = {255, 255, 255, 255};
@@ -603,6 +611,8 @@ void gpu_device_dispose(gpu_device *d) {
     if (d->surface) { if (d->configured) wgpuSurfaceUnconfigure(d->surface); wgpuSurfaceRelease(d->surface); d->surface = NULL; }
     if (d->blit_module) wgpuShaderModuleRelease(d->blit_module);
     if (d->sampler) wgpuSamplerRelease(d->sampler);
+    for (int i = 1; i < 4; i++) if (d->samplers[i]) { wgpuSamplerRelease(d->samplers[i]); d->samplers[i] = NULL; }
+    d->samplers[0] = NULL;
     if (d->blit_pipeline_layout) wgpuPipelineLayoutRelease(d->blit_pipeline_layout);
     if (d->drawing_layout) wgpuBindGroupLayoutRelease(d->drawing_layout);
     if (d->user_layout) wgpuBindGroupLayoutRelease(d->user_layout);

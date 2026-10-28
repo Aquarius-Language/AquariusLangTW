@@ -6,6 +6,7 @@
  *   image.c      PImage, pixels, filters, files                   shapes.c     PShape, loadMesh
  *   shaders.c    PShader, loadShader/createShader/loadTexture     text.c       text, fonts, the raster cache
  *   math.c       math, random, noise                              vector.c     PVector
+ *   data.c       time and date, number formatting, text helpers
  * Semantics follow the earlier desktop implementation (System.Numerics matrices, its validation and messages). */
 #ifndef GRAPHICS_PROCESSING_H
 #define GRAPHICS_PROCESSING_H
@@ -29,7 +30,7 @@ typedef struct style {
     vec4 fill, stroke, tint;
     bool has_fill, has_stroke, lit;
     float weight, text_size, leading, shininess;
-    int rect_mode, ellipse_mode, image_mode, color_mode, text_align, text_vertical, cap, join;
+    int rect_mode, ellipse_mode, image_mode, color_mode, text_align, text_vertical, cap, join, pshape_mode;
     vec4 color_max;
     vec3 ambient, material_ambient, specular, emissive, falloff, light_specular;
     light lights[8];
@@ -70,6 +71,7 @@ void gfx_pixel_set(uint8_t *bytes, int width, int height, int x, int y, uint32_t
 aqua_value gfx_pixel_array(aqua_runtime *rt, const uint8_t *bytes, int count);
 bool gfx_pixel_bytes(aqua_call *call, aqua_value array, int count, uint8_t *out); /* "pixels must contain N packed ARGB colors." */
 void gfx_image_filter(uint8_t *bytes, int width, int height, int mode, float parameter);
+uint32_t gfx_blend_color(uint32_t destination, uint32_t source, int mode); /* blendColor(), PImage.blend() */
 bool gfx_image_write_file(const char *path, int width, int height, const uint8_t *rgba, char *error, size_t size);
 pimage *gfx_image_load(aqua_call *call, processing *p, const char *path);
 
@@ -85,7 +87,8 @@ struct canvas {
     mat4 *matrices; size_t matrix_count, matrix_capacity;
     style *styles; size_t style_count, style_capacity;
     pshader *custom; aqua_ref custom_ref;
-    int detail, sphere_u, sphere_v, shape_mode, texture_mode, blend_mode;
+    int bezier_detail, curve_detail, sphere_u, sphere_v, shape_mode, texture_mode, texture_wrap, blend_mode;
+    bool depth_test, depth_mask, in_camera;  /* hint(DISABLE_DEPTH_TEST / DISABLE_DEPTH_MASK), beginCamera() */
     float tightness;
     pvertex *vertices; size_t vertex_count, vertex_capacity;
     pvertex *contour_vertices; size_t contour_vertex_count, contour_vertex_capacity;
@@ -98,6 +101,9 @@ struct canvas {
     bool has_clip;
     float clip[4];
     aqua_ref pixels;
+    /* Drawing bumps `generation`; the last readback (straight RGBA) serves reads until the next draw. */
+    uint64_t generation, read_generation;
+    uint8_t *read_bytes; int read_width, read_height;
     canvas *previous, *next;  /* the owner's offscreen canvases */
 };
 
@@ -139,6 +145,9 @@ bool gfx_canvas_end_shape(aqua_call *call, canvas *c, bool close);
 void gfx_canvas_read_pixels(canvas *c, pixels_done done, void *data);
 /* Replaces the canvas's pixels with `bytes` (pixel_width x pixel_height), drawn as an unlit REPLACE quad. */
 bool gfx_canvas_write_pixels(aqua_call *call, canvas *c, const uint8_t *bytes);
+/* Replaces the device-pixel rectangle (x, y, width, height) with `bytes` (width x height straight RGBA). */
+bool gfx_canvas_write_region(aqua_call *call, canvas *c, const uint8_t *bytes, int x, int y, int width, int height);
+bool gfx_canvas_set_pixel(aqua_call *call, canvas *c, int x, int y, uint32_t argb); /* one device pixel */
 pvertex gfx_canvas_vertex(const canvas *c, vec3 position, vec4 color, vec2 uv);
 void gfx_canvas_vertices_clear(canvas *c);
 void gfx_canvas_push_vertex(canvas *c, pvertex v);           /* into the active contour or the shape */
@@ -195,8 +204,9 @@ struct processing {
     bool running, looping, redraw, exiting, close_requested;
     double redraw_at;         /* ms (aqua_now_ms), < 0 for none */
     double target_fps, actual_frame_rate, frame_start, clock_start, clock_stop;
+    int pixel_density;        /* pixelDensity(); 0 follows the display */
     bool clock_running, has_frame_rate;
-    int frame_count, frame_limit;
+    int frame_count, frame_limit, recorded_frame;
     aqua_ref setup, draw;
     aqua_ref events[EVENT_COUNT];
     gfx_async *run_call;
@@ -255,6 +265,7 @@ void gfx_shapes_register(aqua_class *module, aqua_class *canvas, aqua_class *sha
 void gfx_shaders_register(aqua_class *module, aqua_class *canvas, aqua_class *shader);
 void gfx_text_register(aqua_class *module, aqua_class *canvas, aqua_class *font);
 void gfx_math_register(aqua_class *module);
+void gfx_data_register(aqua_class *module);
 void gfx_vector_register(aqua_class *module, aqua_class *vector);
 void gfx_lifecycle_register(aqua_class *module, aqua_class *canvas);
 void gfx_input_register(aqua_class *module);

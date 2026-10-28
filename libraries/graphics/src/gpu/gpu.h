@@ -62,6 +62,8 @@ void gpu_device_unlink(gpu_resource *resource);
 WGPUBindGroupLayout gpu_device_drawing_layout(gpu_device *device);
 WGPUBindGroupLayout gpu_device_user_layout(gpu_device *device);
 WGPUSampler gpu_device_sampler(gpu_device *device);
+enum { GPU_SAMPLE_REPEAT = 1, GPU_SAMPLE_NEAREST = 2 };
+WGPUSampler gpu_device_sampler_for(gpu_device *device, int sampling); /* GPU_SAMPLE_* flags */
 gpu_texture *gpu_device_white(gpu_device *device);
 void **gpu_device_kernel_slot(gpu_device *device);
 WGPUInstance gpu_device_instance(gpu_device *device);
@@ -116,7 +118,8 @@ void gpu_texture_release_handles(gpu_texture *texture);
 
 /* ---- Render targets (target.c) ------------------------------------------------------------------------------ */
 /* WGPU-module draw state codes: depth 0 none 1 less 2 read; blend 0 alpha 1 add 2 multiply 3 screen 4 replace
-   5 premultiplied (Processing's BLEND..REPLACE are 0..4); cull 0 none 1 back 2 front. */
+   5 premultiplied 6 subtract 7 lightest 8 darkest 9 exclusion (Processing's blend constants are the same codes);
+   cull 0 none 1 back 2 front. */
 typedef struct gpu_state { int depth, blend, cull; } gpu_state;
 typedef struct gpu_rect { int x, y, width, height; } gpu_rect;
 gpu_target *gpu_target_create(gpu_device *device, int width, int height, WGPUTextureFormat format);
@@ -133,11 +136,13 @@ void gpu_target_clear_stencil(gpu_target *target);
 void gpu_target_flush(gpu_target *target);                       /* submits the open pass */
 void gpu_target_set_state(gpu_target *target, gpu_state state);
 gpu_state gpu_target_state(const gpu_target *target);
-/* Processing draws: `floats` vertex floats (12 per vertex), one uniform block snapshot, topology `mode` (0 points,
-   1 lines, 5 strip, else triangles), Processing blend 0..5, depth test for 3D, a scissor in pixels (NULL for the whole
-   target), an image texture (NULL for white) and stencil mode (0 none, 1 write outer, 2 cut holes, 3 test). */
-bool gpu_target_draw(gpu_target *target, gpu_shader *shader, const float *vertices, size_t floats, const float *uniforms,
-                     int mode, int blend, int depth_mode, int cull, const gpu_rect *scissor, gpu_texture *texture, int stencil,
+/* Processing draws: `floats` vertex floats (12 per vertex), one uniform block snapshot, an optional row-vector model
+   matrix applied to the vertices on the CPU (16 floats, NULL for none), topology `mode` (0 points, 1 lines, 5 strip,
+   else triangles), a blend code, a depth mode, a scissor in pixels (NULL for the whole target), an image texture (NULL
+   for white) with its GPU_SAMPLE_* sampling, and stencil mode (0 none, 1 write outer, 2 cut holes, 3 test).
+   Consecutive draws with equal state are merged into one GPU draw. */
+bool gpu_target_draw(gpu_target *target, gpu_shader *shader, const float *vertices, size_t floats, const float *uniforms, const float *model,
+                     int mode, int blend, int depth_mode, int cull, const gpu_rect *scissor, gpu_texture *texture, int sampling, int stencil,
                      char *error, size_t error_size);
 /* WGPU-module draws with the target's state and identity Processing uniforms: retained vertices or procedural. */
 bool gpu_target_draw_retained(gpu_target *target, gpu_shader *shader, gpu_buffer *vertices, int first, int count,

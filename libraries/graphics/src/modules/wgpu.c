@@ -389,12 +389,12 @@ static void target_Draw(aqua_call *call) {
     if (identity[0] == 0) for (int m = 0; m < 4; m++) for (int i = 0; i < 4; i++) identity[m * 16 + i * 5] = 1;
     gpu_state state = gpu_target_state(t->target);
     char error[1024];
-    if (!gpu_target_draw(t->target, s->shader, vertices, n, identity, 4, state.blend, state.depth, state.cull, NULL, NULL, 0, error, sizeof error))
+    if (!gpu_target_draw(t->target, s->shader, vertices, n, identity, NULL, 4, state.blend, state.depth, state.cull, NULL, NULL, 0, 0, error, sizeof error))
         gfx_fail(call, "%s", error);
 }
 
 static const char *const depth_modes[] = {"none", "less", "read"};
-static const char *const blend_modes[] = {"alpha", "add", "multiply", "screen", "replace", "premultiplied"};
+static const char *const blend_modes[] = {"alpha", "add", "multiply", "screen", "replace", "premultiplied", "subtract", "lightest", "darkest", "exclusion"};
 static const char *const cull_modes[] = {"none", "back", "front"};
 
 static int mode_code(aqua_call *call, const char *const *modes, int count, const char *value, const char *name) {
@@ -430,7 +430,7 @@ static void target_SetState(aqua_call *call) {
     if (!ok) return;
     gpu_state state = {0, 0, 0};
     if (depth && (state.depth = mode_code(call, depth_modes, 3, depth, "depth")) < 0) return;
-    if (blend && (state.blend = mode_code(call, blend_modes, 6, blend, "blend")) < 0) return;
+    if (blend && (state.blend = mode_code(call, blend_modes, 10, blend, "blend")) < 0) return;
     if (cull && (state.cull = mode_code(call, cull_modes, 3, cull, "cull")) < 0) return;
     gpu_target_set_state(t->target, state);
 }

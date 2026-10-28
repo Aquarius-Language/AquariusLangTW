@@ -232,19 +232,17 @@ static void p_noise(aqua_call *call, processing *p) {
 
 static float bezier(float a, float b, float c, float d, float t) { float s = 1 - t; return s * s * s * a + 3 * s * s * t * b + 3 * s * t * t * c + t * t * t * d; }
 static float bezier_tangent(float a, float b, float c, float d, float t) { float s = 1 - t; return 3 * s * s * (b - a) + 6 * s * t * (c - b) + 3 * t * t * (d - c); }
-static float curve(float a, float b, float c, float d, float t) { float s = (1 - 0.0f) / 2; return bezier(b, b + s * (c - a) / 3, c - s * (d - b) / 3, c, t); }
+/* Catmull-Rom with curveTightness() (the main canvas's), as curve() draws it. */
+static float curve(float a, float b, float c, float d, float t, float tightness) { float s = (1 - tightness) / 2; return bezier(b, b + s * (c - a) / 3, c - s * (d - b) / 3, c, t); }
+static float curve_tangent(float a, float b, float c, float d, float t, float tightness) {
+    float s = (1 - tightness) / 2;
+    return bezier_tangent(b, b + s * (c - a) / 3, c - s * (d - b) / 3, c, t);
+}
 static void read5(aqua_call *call, float *v) { for (uint32_t i = 0; i < 5; i++) v[i] = gfx_float(call, i); }
 static void p_bezierPoint(aqua_call *call, processing *p) { (void)p; float v[5]; read5(call, v); if (!aqua_failed(call)) aqua_return_double(call, bezier(v[0], v[1], v[2], v[3], v[4])); }
 static void p_bezierTangent(aqua_call *call, processing *p) { (void)p; float v[5]; read5(call, v); if (!aqua_failed(call)) aqua_return_double(call, bezier_tangent(v[0], v[1], v[2], v[3], v[4])); }
-static void p_curvePoint(aqua_call *call, processing *p) { (void)p; float v[5]; read5(call, v); if (!aqua_failed(call)) aqua_return_double(call, curve(v[0], v[1], v[2], v[3], v[4])); }
-static void p_curveTangent(aqua_call *call, processing *p) {
-    (void)p;
-    float v[5];
-    read5(call, v);
-    if (aqua_failed(call)) return;
-    float e = .0001f;
-    aqua_return_double(call, (curve(v[0], v[1], v[2], v[3], v[4] + e) - curve(v[0], v[1], v[2], v[3], v[4] - e)) / (2 * e));
-}
+static void p_curvePoint(aqua_call *call, processing *p) { float v[5]; read5(call, v); if (!aqua_failed(call)) aqua_return_double(call, curve(v[0], v[1], v[2], v[3], v[4], p->screen->tightness)); }
+static void p_curveTangent(aqua_call *call, processing *p) { float v[5]; read5(call, v); if (!aqua_failed(call)) aqua_return_double(call, curve_tangent(v[0], v[1], v[2], v[3], v[4], p->screen->tightness)); }
 
 #define MATH(X) \
     X(abs, "abs|絕對值", 1, 1) X(ceil, "ceil|向上取整", 1, 1) X(floor, "floor|向下取整", 1, 1) X(round, "round|四捨五入", 1, 1) \

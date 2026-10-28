@@ -1,0 +1,23 @@
+# Processing text helpers, time, blendColor, new constants and PVector additions without a window.
+var p = import("Processing");
+print(p.nf(7, 3), p.nf(-42, 5), p.nf(3.14159d, 2, 2), p.nf(0.5d), p.nf(12.0d, 0, 3), p.nfs(5, 2), p.nfp(5, 2), p.nfp(-5, 2));
+print(p.nfc(1234567), p.nfc(1234.5d, 2), p.nfc(-9876543.25d, 1), p.nf(1234.5678d, 6, 1));
+print(p.hex(255), p.hex(255, 2), p.hex(-1), p.binary(10), p.binary(5, 8), p.unhex("FF"), p.unbinary("1010"));
+print(p.str(42), p.str(1.5d), p.str(true), "[" + p.trim("  padded  ") + "]");
+print(p.split("a,b,,c", ","), p.splitTokens("  one two
+three  "), p.splitTokens("a;b, c", ";, "), p.join(["x", 1, true], "-"));
+print(p.year() > 2000, p.month() >= 1 && p.month() <= 12, p.day() >= 1, p.hour() >= 0, p.minute() < 60, p.second() < 61);
+var red = p.color(255, 0, 0);
+var blue = p.color(0, 0, 255);
+var gray = p.color(128);
+var half = p.color(255, 255, 255, 128);
+print(p.blendColor(red, blue, p.BLEND), p.blendColor(red, blue, p.ADD), p.blendColor(gray, gray, p.MULTIPLY), p.blendColor(gray, gray, p.SCREEN));
+print(p.blendColor(gray, red, p.DIFFERENCE), p.blendColor(gray, red, p.EXCLUSION), p.blendColor(red, half, p.SUBTRACT), p.blendColor(gray, half, p.LIGHTEST));
+print(p.blendColor(gray, red, p.DARKEST), p.blendColor(gray, red, p.REPLACE), p.blendColor(gray, gray, p.OVERLAY), p.blendColor(gray, gray, p.DODGE), p.blendColor(gray, gray, p.BURN));
+print(p.SUBTRACT, p.LIGHTEST, p.DARKEST, p.EXCLUSION, p.DILATE, p.ERODE, p.REPEAT, p.GROUP, p.RECT, p.ELLIPSE, p.BOX, p.UP, p.LEFT_ARROW, p.SHIFT, p.HAND);
+var v = p.fromAngle(p.HALF_PI, 2);
+print(p.round(v.x * 1000) / 1000.0d, v.y, v.copy().setHeading(0).x, v.copy().setX(9).x, p.createVector(1, 2, 3).setZ(7).z);
+p.randomSeed(3);
+var r2 = p.random2D();
+var r3 = p.random3D();
+print(p.round(r2.mag() * 1000), p.round(r3.mag() * 1000), r2.z);

@@ -57,7 +57,41 @@ Every global symbol carries the `gfx_` (or `gpu_`) prefix, since default librari
 `Processing.run()` is a frame driver on `aqua_schedule` (aligned with animation frames on the web): it dispatches the
 frame's events (callbacks may wait for asynchronous results), calls `draw`, presents and paces to `frameRate()`.
 `AQUARIUS_GRAPHICS_FRAMES=N` ends `run()` after N drawn frames and `AQUARIUS_GRAPHICS_CAPTURE=file.png` saves the last
-one, as before. Tests: `tests/*.aqua`; a first-line comment says when a case needs a window or a GPU device.
+one, as before. `AQUARIUS_GRAPHICS_RECORD=frames/####.png` saves every drawn frame (the `#`s become the zero-padded
+frame number) and makes `millis()` advance exactly one frame period per frame, so a recording plays back smoothly at the
+sketch's `frameRate()` however long each frame took to save. Tests: `tests/*.aqua`; a first-line comment says when a
+case needs a window or a GPU device.
+
+## Speed
+
+Processing draws are batched: consecutive draws with the same pipeline, texture, sampler, scissor and uniform snapshot
+become one GPU draw (`src/gpu/target.c`). With the default shader the model matrix is applied to the vertices on the
+CPU, so `push()`/`translate()`/`rotate()`/`pop()` around each shape no longer breaks a batch; scripts' shaders keep
+receiving `processing.model`. Ellipses and arcs take 20..200 segments from their size on screen (as Processing's OpenGL
+renderers do). Canvas `set()` draws one device-pixel quad (a loop of `set()` calls is one draw), reads (`get()`,
+`loadPixels()`, `filter()`, `copy()`) reuse the last readback until something is drawn, `loadPixels()` refreshes its
+array in place and `updatePixels()` reads it in bulk.
+
+## Processing API coverage
+
+Beyond the earlier implementation, the module has: blend modes `SUBTRACT`, `LIGHTEST`, `DARKEST`, `EXCLUSION` (in
+`blendMode()`; `blend()` and `blendColor()` also take `DIFFERENCE`, `OVERLAY`, `HARD_LIGHT`, `SOFT_LIGHT`, `DODGE`,
+`BURN`), `blend()` on images and canvases, filters `DILATE` and `ERODE`, `copy()` within an image or canvas,
+`background(image)`, `textureWrap(CLAMP | REPEAT)` (and nearest sampling under `noSmooth()`), `rotate(angle, x, y, z)`,
+`applyMatrix()` with 6 or 16 numbers, `frustum()`, `beginCamera()`/`endCamera()`, `hint()` (`DISABLE_DEPTH_TEST`,
+`DISABLE_DEPTH_MASK` and their `ENABLE_` forms act; the other hints are accepted), `createShape(GROUP)` and
+`createShape(POINT | LINE | TRIANGLE | QUAD | RECT | ELLIPSE | ARC | SPHERE | BOX, ...)` taking the canvas's style,
+`shapeMode()`, `shape(s, x, y, w, h)`, PShape `beginContour`/`endContour`, `getChild`/`getChildCount`,
+`setStroke`/`setStrokeWeight`, `rotateX/Y/Z`, `scale(x, y[, z])`, `setVisible`/`isVisible`,
+`disableStyle`/`enableStyle`, `getWidth`/`getHeight`, `loadShape()` for `.obj` models, PVector `fromAngle()`,
+`random2D()`, `random3D()` (module functions), `setHeading()` and `setX/setY/setZ()` (the runtime has no property
+setters), `year()`..`second()`, `nf`, `nfs`, `nfp`, `nfc`, `hex`, `unhex`, `binary`, `unbinary`, `str`, `trim`,
+`split`, `splitTokens`, `join`, `cursor(ARROW | CROSS | HAND | MOVE | TEXT | WAIT)` and `cursor(image[, x, y])`,
+`windowTitle()`, `pixelDensity()`, `focused`, `requestImage()`, `saveFrame()` without a name, and the key constants
+`UP`, `DOWN`, `LEFT_ARROW`, `RIGHT_ARROW`, `SHIFT`, `CONTROL`, `ALT`, `ENTER`, `RETURN`, `BACKSPACE`, `TAB`, `DELETE`
+(GLFW key codes, like `keyCode`; `LEFT` and `RIGHT` stay the alignment and mouse-button constants). Not provided:
+SVG in `loadShape()`, PDF recording, `textMode()`, `loadFont()` (`.vlw`; use `createFont()`), `delay()`, and the
+data classes (`Table`, `JSONObject`, `IntList`, ...), which the language's own arrays and hashes cover.
 
 ## Differences from the earlier implementation
 
