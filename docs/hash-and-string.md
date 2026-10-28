@@ -116,3 +116,12 @@ later pairs down to keep the order. Inserting and looking up 100k keys takes abo
 
 雜湊表的配對依插入順序緊密存放；超過八個配對時另建開放定址索引，讀寫、`包含鍵`、`取得` 與 `刪除鍵` 的查找為常數期望時間，
 字串會快取其雜湊值。
+
+Strings are immutable values, but building one piece by piece in a function is linear: `s = s + t` and `s += t` on a local
+variable extend the variable's own text in place while nothing else refers to it (100k appends: about 2 ms instead of
+900 ms). Any other use of the variable (reading, storing, passing or returning it) ends that ownership, so the copies it
+made never change; variables of a module's top level, or captured by a function, use the ordinary copying `+`. Indexing a
+string (`s[i]`), `字元碼`-sized results and one-character slices share one text per UTF-16 code unit instead of allocating.
+
+字串是不可變的值，但在函式中以 `s = s + t` 或 `s += t` 逐段建立區域變數的字串時，只要沒有其他值參照該文字，就直接在原處
+延伸，因此是線性時間；讀取、儲存、傳遞或回傳該變數後，它先前產生的值都不會再改變。字串索引與單一字元的結果共用同一份文字，不再配置記憶體。

@@ -15,7 +15,7 @@ static void tb_ascii(TextBuilder*b,const char*s) { while(*s)tb_unit(b,(unsigned 
 static void tb_text(TextBuilder*b,Text*t) { tb_units(b,t->data,t->length); }
 static Text *tb_finish(TextBuilder*b) { Text*t=pointer(aqua_text(b->length));if(b->length)memcpy(t->data,b->data,b->length*2);release(b->data);b->data=0;b->length=b->capacity=0;return t; }
 static Value text_value(Text*t) { return value(STRING,address(t),0); }
-static Text *text_slice(Text*t,u32 start,u32 end) { Text*s=pointer(aqua_text(end-start));memcpy(s->data,t->data+start,(end-start)*2);return s; }
+static Text *text_slice(Text*t,u32 start,u32 end) { if(end-start==1)return unit_text(t->data[start]);Text*s=pointer(aqua_text(end-start));memcpy(s->data,t->data+start,(end-start)*2);return s; }
 static int text_at(Text*t,u32 at,Text*needle) {
     if(at+needle->length>t->length)return 0;
     for(u32 i=0;i<needle->length;i++)if(t->data[at+i]!=needle->data[i])return 0;return 1;
@@ -174,7 +174,7 @@ static Value text_call(Frame*f,u32 id,Value*args,u32 n) {
         Value c=args[0];
         if(c.tag!=INT||c.number<0||c.number>0x10FFFF){failure(f,"String.FromCode requires a code point 0..0x10FFFF.");return empty;}
         u32 cp=(u32)c.number;
-        if(cp<0x10000){Text*t=pointer(aqua_text(1));t->data[0]=(uint16_t)cp;return text_value(t);}
+        if(cp<0x10000)return text_value(unit_text((uint16_t)cp));
         Text*t=pointer(aqua_text(2));cp-=0x10000;t->data[0]=(uint16_t)(0xD800+(cp>>10));t->data[1]=(uint16_t)(0xDC00+(cp&0x3FF));return text_value(t);
     }
     if(args[0].tag!=STRING){failure(f,"String function requires a string.");return empty;}

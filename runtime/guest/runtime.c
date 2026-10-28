@@ -181,6 +181,10 @@ static Text *ascii(const char *s) {
         t->data[o++]=(uint16_t)c;}
     return t;
 }
+/* One-unit texts (string indexing, 字元碼 results, splitting into characters) are shared: one static text per UTF-16 code
+   unit, filled on first use. They live below the heap, so they are never collected and never cache a hash. */
+static struct { u32 length; uint16_t data[2]; } unit_texts[65536];
+static Text *unit_text(uint16_t c) { if(!unit_texts[c].length){unit_texts[c].length=1;unit_texts[c].data[0]=c;}return (Text*)&unit_texts[c]; }
 static Text *concat(Text *a,Text *b) { Text*t=pointer(aqua_text(a->length+b->length));memcpy(t->data,a->data,a->length*2);memcpy(t->data+a->length,b->data,b->length*2);return t; }
 static int text_equal(Text *a,Text*b) { if(a==b)return 1;if(!a||!b||a->length!=b->length)return 0;for(u32 i=0;i<a->length;i++)if(a->data[i]!=b->data[i])return 0;return 1; }
 static const char *type_name(u32 tag) { static const char *names[]={"NULL","INTEGER","FLOAT","DOUBLE","BOOLEAN","STRING","ARRAY","HASH","FUNCTION","MODULE","NATIVE","NULL","BREAK_OBJ","ERROR","BUILTIN","STRUCT","STRUCT_TYPE"};return tag<=STRUCT_TYPE?names[tag]:"UNKNOWN"; }
@@ -487,6 +491,20 @@ static int increment(Frame*f,int n,int prefix) { Binding*b=cached_binding(f,n);i
 /* Promoted locals are frame slots rather than named bindings; these helpers receive the slot address. */
 int rt_incrementAt(Frame*f,int prefix,Value*b) { Value old=*b;if(!numeric(old)){failure(f,"Increment requires a number.");return 0;}*b=successor(old);push(f,prefix?*b:old);return 0; }
 int rt_compoundAt(Frame*f,int n,Value*b) { Value c=constant(f,n),r=pop(f);pop(f);*b=binary(f,(int)c.number,*b,r,1);push(f,empty);return 0; }
+/* s = s + t and s += t on a promoted frame slot the compiler marks (WasmBodyEmitter.appendAt): the text built is allocated
+   with room to grow and tagged with its slot (Value.number = slot + 1; strings otherwise leave it 0). The compiler clears
+   the tag in the slot and in the copy at every other load of the slot, so while the slot holds its tagged text nothing
+   else refers to that text, and the next append extends it in place: building a string piece by piece is linear. */
+static Value append_text(Frame*f,Value a,Value b,u32 slot,int compound) {
+    if(a.tag!=STRING||b.tag!=STRING)return binary(f,0,a,b,compound);
+    Text*x=pointer(a.ref),*y=pointer(b.ref);u32 n=x->length+y->length,tag=slot+1;Value*cell=f->values+slot;
+    if(a.number==tag&&cell->tag==STRING&&cell->ref==a.ref&&cell->number==tag&&((Block*)x-1)->size>=sizeof(Text)+n*2){
+        memcpy(x->data+x->length,y->data,y->length*2);x->length=n;((Block*)x-1)->reserved=0;return a;}
+    u32 room=n<(1u<<28)?n+n/2+4:n;Text*t=allocate(sizeof(Text)+room*2,TEXT);t->length=n;
+    memcpy(t->data,x->data,x->length*2);memcpy(t->data+x->length,y->data,y->length*2);return value(STRING,address(t),tag);
+}
+int rt_append(Frame*f,int slot) { Value b=pop(f),a=pop(f);push(f,append_text(f,a,b,(u32)slot,0));return 0; }
+int rt_compoundAppend(Frame*f,int slot) { Value r=pop(f);pop(f);Value*cell=f->values+slot;Value v=append_text(f,*cell,r,(u32)slot,1);if(!f->execution->status)*cell=v;push(f,empty);return 0; }
 int rt_incrementPrefix(Frame*f,int n){return increment(f,n,1);}int rt_incrementPostfix(Frame*f,int n){return increment(f,n,0);}
 int rt_truth(Frame*f,int n) { Value v=pop(f);return v.tag==BOOL?v.number!=0:v.tag!=NULL_VALUE; }
 int rt_isBreak(Frame*f,int n) { return peek(f,1).tag==BREAK_VALUE; }
@@ -701,7 +719,7 @@ int rt_checkType(Frame*f,int n){
 }
 int rt_checkHashKey(Frame*f,int n){Value v=peek(f,1);if(!numeric(v)&&v.tag!=STRING&&v.tag!=BOOL)named_failure(f,"Unusable as hash key: ",ascii(type_name(v.tag)));return 0;}
 int rt_hash(Frame*f,int n){Hash*h=pointer(aqua_hash(n));u32 base=f->sp-n*2;h->count=0;for(int i=0;i<n;i++){Value k=f->values[base+i*2],v=f->values[base+i*2+1];u32 j=hash_find(h,k);if(j==h->count)h->count++;h->pairs[j]=(Pair){k,v};}f->sp=base;push(f,value(HASH,address(h),0));return 0;}
-int rt_index(Frame*f,int n){Value i=pop(f),v=pop(f),out=value(NULL_VALUE,0,0);if(v.tag==ARRAY&&i.tag==INT){Array*a=pointer(v.ref);if(i.number>=0&&i.number<a->count)out=a->values[(u32)i.number];else if(a->element){failure(f,"Array index is out of bounds / 陣列索引超出範圍。");return 0;}}else if(v.tag==STRING&&i.tag==INT){Text*t=pointer(v.ref);if(i.number>=0&&i.number<t->length){Text*c=pointer(aqua_text(1));c->data[0]=t->data[(u32)i.number];out=value(STRING,address(c),0);}}else if(v.tag==HASH){if(!numeric(i)&&i.tag!=BOOL&&i.tag!=STRING){named_failure(f,"Unusable as hash key: ",ascii(type_name(i.tag)));return 0;}Hash*h=pointer(v.ref);u32 j=hash_find(h,i);if(j<h->count)out=h->pairs[j].value;}else {named_failure(f,"Index operator not supported: ",ascii(type_name(v.tag)));return 0;}push(f,out);return 0;}
+int rt_index(Frame*f,int n){Value i=pop(f),v=pop(f),out=value(NULL_VALUE,0,0);if(v.tag==ARRAY&&i.tag==INT){Array*a=pointer(v.ref);if(i.number>=0&&i.number<a->count)out=a->values[(u32)i.number];else if(a->element){failure(f,"Array index is out of bounds / 陣列索引超出範圍。");return 0;}}else if(v.tag==STRING&&i.tag==INT){Text*t=pointer(v.ref);if(i.number>=0&&i.number<t->length)out=value(STRING,address(unit_text(t->data[(u32)i.number])),0);}else if(v.tag==HASH){if(!numeric(i)&&i.tag!=BOOL&&i.tag!=STRING){named_failure(f,"Unusable as hash key: ",ascii(type_name(i.tag)));return 0;}Hash*h=pointer(v.ref);u32 j=hash_find(h,i);if(j<h->count)out=h->pairs[j].value;}else {named_failure(f,"Index operator not supported: ",ascii(type_name(v.tag)));return 0;}push(f,out);return 0;}
 int rt_checkArrayWrite(Frame*f,int n){Value i=peek(f,1),a=peek(f,2);if(a.tag==HASH){if(!numeric(i)&&i.tag!=STRING&&i.tag!=BOOL)named_failure(f,"Unusable as hash key: ",ascii(type_name(i.tag)));}else if(a.tag!=ARRAY)failure(f,"Indexed assignment requires an array or hash.");else if(i.tag!=INT)failure(f,"Array assignment index must be an integer.");else if(i.number<0||i.number>=((Array*)pointer(a.ref))->count)failure(f,"Array assignment index is out of bounds.");return 0;}
 int rt_writeIndex(Frame*f,int n){Value v=pop(f);rt_checkArrayWrite(f,0);Value i=pop(f),a=pop(f);if(!f->execution->status){
     if(a.tag==HASH){Hash*h=pointer(a.ref);u32 j=hash_find(h,i);if(j==h->count)aqua_hash_resize(a.ref,h->count+1);h->pairs[j]=(Pair){i,v};if(h->exposed&&!h->dirty){h->dirty=1;h->dirty_next=pending.dirty_hashes;pending.dirty_hashes=h;}}

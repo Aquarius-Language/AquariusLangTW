@@ -53,6 +53,12 @@ internal sealed class WasmBodyEmitter
     // number, the head's site, its globals (the installed table index, 0 while cold, -1 when none applies; the count of
     // cold iterations) and the region type for call_indirect.
     private readonly Dictionary<int, (int Loop, int Site, int Slot, int Counter, int Type)> jitAt = new();
+    /// <summary>Appends to a promoted slot that may hold a string (`s = s + x`, `s += x`): the Add or CompoundAssign
+    /// position and its slot. Their helpers (rt_append, rt_compoundAppend) tag the text they build with its slot so the
+    /// next append can extend it in place; every other load of the slot clears the tag (<see cref="appendReads"/> are
+    /// the loads of the sites themselves), so a tagged text is never referenced from anywhere but its slot.</summary>
+    private readonly Dictionary<int, int> appendAt = new();
+    private readonly HashSet<int> appendReads = new(), appendSlots = new();
     /// <summary>Cold iterations of a loop head before it asks the runtime JIT for native code.</summary>
     internal const int JitThreshold = 1000;
 
@@ -86,6 +92,48 @@ internal sealed class WasmBodyEmitter
         foreach (int constant in readOnly) readShadows[constant] = readShadows[constant] with { Number = next++ };
         foreach (var (slot, tag) in registers) if (tag != IntTag) slotRegisters.Add(slot, next++);
         f64Count = next - x;
+        if (shadowBindings) FindAppends();
+    }
+
+    private void FindAppends()
+    {
+        var code = body.Code;
+        int SlotAt(int i) {
+            if (i < 0 || plan.Depth[i] < 0 || plan.Accesses[i] is not { } access) return -1;
+            var decl = plan.SlotDecl[i]!;
+            foreach (int slot in access.Slots) { if (decl[slot] == WasmScopePlan.Yes) return slot; if (decl[slot] == WasmScopePlan.Maybe) return -1; }
+            return -1;
+        }
+        // The instruction that pushed the operand at depth `depth` of the instruction at `at`: the last one before it
+        // that starts at that depth (the operands above it belong to one expression).
+        int Pusher(int at, int depth) { for (int k = at - 1; k >= 0; k--) if (plan.Depth[k] == depth) return k; return -1; }
+        bool LoadOf(int i, int slot) => i >= 0 && code[i].Code == IrOperation.Load && SlotAt(i) == slot;
+        bool MayBeString(int tag) => tag == Unknown || tag == StringTag;
+        for (int i = 0; i < code.Length; i++) {
+            if (plan.Depth[i] < 0) continue;
+            int slot = SlotAt(i);
+            if (slot < 0 || plan.RegisterSlots.ContainsKey(slot) || !MayBeString(plan.SlotTags[i]![slot])) continue;
+            if (code[i].Code == IrOperation.Assign) {
+                int add = i - 1; if (add >= 0 && code[add].Code == IrOperation.CheckType) add--;
+                if (add < 0 || code[add].Code != IrOperation.Add || plan.Depth[add] < 3) continue;
+                int depth = plan.Depth[add], left = Pusher(add, depth - 2), dummy = left - 1;
+                if (!LoadOf(left, slot) || !LoadOf(dummy, slot) || plan.Depth[dummy] != depth - 3 || !MayBeString(plan.StackTags[add]![depth - 2])) continue;
+                appendAt[add] = slot; appendReads.Add(left); appendReads.Add(dummy); appendSlots.Add(slot);
+            } else if (code[i].Code == IrOperation.CompoundAssign && ((Assignment)body.Pool[code[i].Operand]).Operation == IrOperation.Add) {
+                int depth = plan.Depth[i], dummy = Pusher(i, depth - 2);
+                if (depth < 2 || !LoadOf(dummy, slot)) continue;
+                appendAt[i] = slot; appendReads.Add(dummy); appendSlots.Add(slot);
+            }
+        }
+    }
+    /// <summary>After a load of an append slot that is not part of an append: clears the text's slot tag in the copy and
+    /// in the slot.</summary>
+    private void ClearAppendTag(int slot, int d, int tag)
+    {
+        if (!appendSlots.Contains(slot) || appendReads.Contains(pc) || tag != Unknown && tag != StringTag) return;
+        if (tag == Unknown) { Get(T(d)); I32(StringTag); Op(0x46); If(); }
+        F64(0); Set(N(d)); Get(F); F64(0); StoreF64(SlotOffset(slot) + ValueNumber);
+        if (tag == Unknown) End();
     }
 
 
@@ -469,11 +517,12 @@ internal sealed class WasmBodyEmitter
                     if (resultTag != plan.RegisterSlots[slot]) throw new InvalidOperationException("Register slot tag mismatch.");
                     Get(register); Set(resultTag == IntTag ? I(d) : N(d)); loc[d] = Loc.Reg; return;
                 }
-                LoadValue(d, F, SlotOffset(slot), resultTag == Unknown ? Unknown : slotTags[slot]); loc[d] = Loc.Reg; return;
+                LoadValue(d, F, SlotOffset(slot), resultTag == Unknown ? Unknown : slotTags[slot]); loc[d] = Loc.Reg;
+                ClearAppendTag(slot, d, resultTag == Unknown ? Unknown : slotTags[slot]); return;
             }
             if (resultTag != Unknown) throw new InvalidOperationException("Uncertain loads have unknown tags.");
             Get(F); LoadI32(SlotOffset(slot)); I32(-1); Op(0x47);
-            Branch(() => { LoadValue(d, F, SlotOffset(slot), Unknown); loc[d] = Loc.Reg; return false; }, () => { Chain(index + 1); return false; });
+            Branch(() => { LoadValue(d, F, SlotOffset(slot), Unknown); loc[d] = Loc.Reg; ClearAppendTag(slot, d, Unknown); return false; }, () => { Chain(index + 1); return false; });
         }
         Chain(0);
     }
@@ -802,7 +851,8 @@ internal sealed class WasmBodyEmitter
         Ensure(a, ta); Ensure(b, tb);
         bool comparison = op is IrOperation.Less or IrOperation.Greater or IrOperation.LessEqual or IrOperation.GreaterEqual or IrOperation.Equal or IrOperation.NotEqual;
         void Slow() {
-            Helper(HelperName(op), 0, d, 2);
+            if (appendAt.TryGetValue(pc, out int appendSlot)) Helper("append", appendSlot, d, 2);
+            else Helper(HelperName(op), 0, d, 2);
             LoadValue(a, F, StackOffset(a), result); loc[a] = Loc.Both;
         }
         if (op is IrOperation.And or IrOperation.Or) {
@@ -952,7 +1002,7 @@ internal sealed class WasmBodyEmitter
     private void CompoundMemory(int constant, int d, WasmScopePlan.Access access, int rhs, int rt, IrOperation operation, int slot)
     {
         if (slot >= 0) { Get(F); I32(SlotOffset(slot)); Op(0x6a); Set(A); WriteBack(slot); } else TargetAddress(access, constant);
-        void Slow() { Helper("compoundAt", constant, d, 2, true, A); }
+        void Slow() { if (appendAt.TryGetValue(pc, out int appendSlot)) Helper("compoundAppend", appendSlot, d, 2); else Helper("compoundAt", constant, d, 2, true, A); }
         if (operation == IrOperation.Modulo || rt != Unknown && !IsNumeric(rt)) { Slow(); if (slot >= 0) Reload(slot); return; }
         Get(A); LoadI32(ValueTag); Set(B);
         NumericTagTest(B); if (rt == Unknown) { NumericTagTest(T(rhs)); Op(0x71); }
