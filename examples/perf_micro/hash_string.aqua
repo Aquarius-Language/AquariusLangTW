@@ -1,0 +1,12 @@
+# 100k string keys: insert, then look every key up.
+變數 n = 100000;
+變數 keys = 陣列.建立(n, "");
+迴圈 (變數 i = 0; i < n; i++) { keys[i] = "k" + 字串.轉文字(i * 7); }
+變數 start = 目前時間();
+變數 h = {};
+迴圈 (變數 i = 0; i < n; i++) { h[keys[i]] = i; }
+變數 total = 0;
+迴圈 (變數 i = 0; i < n; i++) { total += h[keys[i]]; }
+變數 elapsed = 目前時間() - start;
+印出("RESULT", total, 長度(h));
+印出("ELAPSED_MS", elapsed);

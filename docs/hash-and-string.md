@@ -106,3 +106,13 @@ hashes use the same nested form as `印出`.
 Out-of-range indexes, wrong argument types and invalid counts return a language error
 before any mutation. Tests: `tests/hash-library.json`, `tests/string-library.json` and
 `tests/modulo-operator.json`, run by `compiler/AquariusTests/compiler/PortableModulesTest.cs`.
+
+## 效能 / Performance
+
+A hash keeps its pairs dense and in insertion order (what `鍵列表`, iteration, printing and native libraries read). Above
+eight pairs it also keeps an open-addressing index of them, so reading, writing, `包含鍵`, `取得` and `刪除鍵` find a key in
+constant expected time instead of scanning; a text caches its hash, so string keys are hashed once. `刪除鍵` still moves the
+later pairs down to keep the order. Inserting and looking up 100k keys takes about 20 ms on desktop (previously 20–40 s).
+
+雜湊表的配對依插入順序緊密存放；超過八個配對時另建開放定址索引，讀寫、`包含鍵`、`取得` 與 `刪除鍵` 的查找為常數期望時間，
+字串會快取其雜湊值。

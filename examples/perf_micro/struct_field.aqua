@@ -1,0 +1,8 @@
+# Struct field reads and writes in an untyped loop.
+結構 點 { x; y }
+變數 p = 點(0, 0);
+變數 start = 目前時間();
+迴圈 (變數 i = 0; i < 2000000; i++) { p.x = p.x + 1; p.y = p.y + p.x % 3; }
+變數 elapsed = 目前時間() - start;
+印出("RESULT", p.x, p.y);
+印出("ELAPSED_MS", elapsed);

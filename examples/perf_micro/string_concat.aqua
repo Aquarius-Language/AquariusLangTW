@@ -1,0 +1,8 @@
+# Build a string from 100k pieces with s = s + t.
+變數 n = 100000;
+變數 start = 目前時間();
+變數 s = "";
+迴圈 (變數 i = 0; i < n; i++) { s = s + "ab"; }
+變數 elapsed = 目前時間() - start;
+印出("RESULT", 長度(s));
+印出("ELAPSED_MS", elapsed);

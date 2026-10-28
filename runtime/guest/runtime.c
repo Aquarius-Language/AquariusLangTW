@@ -23,7 +23,10 @@ typedef struct { Text *name; u32 code; Text *type; u32 pad; } ShapeField;
 typedef struct { u32 id, count; Text *name; u32 pad; ShapeField fields[]; } Shape;
 /* A struct value: its type and one value per field, in one block. */
 typedef struct { Shape *shape; u32 count, pad0, pad1; Value fields[]; } Struct;
-typedef struct Hash { u32 count,capacity; Pair *pairs; struct Hash *dirty_next; u32 dirty,exposed; } Hash;
+/* pairs[0..count) are dense in insertion order (hosts read them directly). Above HASH_INDEX_MIN pairs, index is an
+   open-addressing table over the first `indexed` pairs (see hashes.h); pairs appended past it (by the host, or since the
+   last lookup) are indexed lazily by the next lookup. */
+typedef struct Hash { u32 count,capacity; Pair *pairs; struct Hash *dirty_next; u32 dirty,exposed; u32 *index,indexed; } Hash;
 typedef struct { u32 table, arity, capacity, wrap_return; Text **parameters; Value *constants; u32 numeric_table; Text *recursive_name; u32 locals, flags; } Function;
 /* Function flags. PROMOTED_SCOPE: parameters and function-level locals live in frame slots 0..locals-1;
    the frame's scope is the closure scope itself. Only closure-free bodies are promoted, so no other
@@ -131,7 +134,7 @@ static __attribute__((noinline)) void *allocate_slow(u32 n,u32 bucket,u32 kind) 
     if(carving&&carving->size>=n){
         Block*b=carving;u32 rest=b->size-n;carving=0;
         if(rest>=sizeof(Block)+16){Block*r=(Block*)((char*)(b+1)+n);r->size=rest-sizeof(Block);r->reserved=0;r->kind=FREE;r->marked=0;carving=r;b->size=n;}
-        b->kind=kind;b->marked=0;initialize_allocation(b+1,b->size,kind);return b+1;
+        b->reserved=0;b->kind=kind;b->marked=0;initialize_allocation(b+1,b->size,kind);return b+1;
     }
     own_memory();
     if(n>HEAP_LIMIT-heap_end-sizeof(Block))__builtin_trap();
@@ -146,7 +149,7 @@ static inline __attribute__((always_inline)) void *allocate(u32 n,u32 kind) {
     bytes_since_collection+=n;
     // Compiled checkpoints poll Execution.poll instead of calling into the runtime every block.
     if(bytes_since_collection>=gc_threshold)arm_collection();
-    if(free_mask>>bucket&1){Block*b=pop_free(bucket);b->kind=kind;b->marked=0;initialize_allocation(b+1,b->size,kind);return b+1;}
+    if(free_mask>>bucket&1){Block*b=pop_free(bucket);b->reserved=0;b->kind=kind;b->marked=0;initialize_allocation(b+1,b->size,kind);return b+1;}
     // Bump directly while no free run could serve the request and the heap has room.
     if(!carving&&!(free_mask>>bucket)){u32 end=heap_end+sizeof(Block)+n;
         if(end+sizeof(Block)<=heap_limit&&n<=HEAP_LIMIT-heap_end-sizeof(Block)){if(end>heap_high){heap_growth+=end-(heap_high>heap_end?heap_high:heap_end);heap_high=end;if(heap_growth/2>=gc_threshold)arm_collection();}
@@ -191,7 +194,12 @@ static Text *decimal(u32 n) { char b[11];u32 count=0;do{b[count++]=(char)('0'+n%
 static Scope *scope(Scope *outer) { Scope*s=allocate(sizeof(Scope),ENV);s->outer=outer;return s; }
 static void invalidate_scopes(void) { if(++scope_epoch)return;scope_epoch=1;epoch_era++;for(Execution*e=executions;e;e=e->next)for(Frame*f=e->current;f;f=f->parent)if(f->binding_cache)memset(f->binding_cache,0,(f->function->wrap_return>>1)*8); }
 u32 aqua_scope(u32 outer) { Scope*s=scope(pointer(outer));s->captured=1;return address(s); }
-static u32 text_hash(Text*n) { u32 h=2166136261u;for(u32 i=0;i<n->length;i++)h=(h^n->data[i])*16777619u;return h; }
+/* FNV-1a over the code units, never 0. A heap text's hash is cached in its block header (Block.reserved, cleared by every
+   allocation): texts are not changed after they are first used as names or keys. */
+static u32 text_hash(Text*n) {
+    Block*b=address(n)>=heap_start&&address(n)<heap_end?(Block*)n-1:0;if(b&&b->kind!=TEXT)b=0;if(b&&b->reserved)return b->reserved;
+    u32 h=2166136261u;for(u32 i=0;i<n->length;i++)h=(h^n->data[i])*16777619u;h+=!h;if(b)b->reserved=h;return h;
+}
 static Binding *find_small_scope(Scope*s,Text*n) { for(u32 i=0;i<s->count;i++)if(text_equal(s->bindings[i].name,n))return s->bindings+i;return 0; }
 static Binding *find_owned_hash(Scope*s,Text*n,u32 hash) { if(!s->index)return find_small_scope(s,n);u32 i=hash&(s->index_capacity-1);while(s->index[i]){Binding*b=s->bindings+s->index[i]-1;if(b->hash==hash&&text_equal(b->name,n))return b;i=(i+1)&(s->index_capacity-1);}return 0; }
 static Binding *find_owned(Scope*s,Text*n) { return s->index?find_owned_hash(s,n,text_hash(n)):find_small_scope(s,n); }
@@ -298,7 +306,7 @@ u32 aqua_stale(u32 tag,u32 p) { return tag==ARRAY?((Array*)pointer(p))->dirty:ta
 u32 aqua_hash(u32 n) { Hash*h=allocate(sizeof(Hash),HASHES);h->count=n;h->pairs=allocate(n*sizeof(Pair),RAW);h->capacity=((Block*)h->pairs-1)->size/sizeof(Pair);return address(h); }
 u32 aqua_hash_pairs(u32 p) { return address(((Hash*)pointer(p))->pairs); }
 u32 aqua_hash_count(u32 p) { return ((Hash*)pointer(p))->count; }
-u32 aqua_hash_resize(u32 p,u32 n) { Hash*h=pointer(p);if(n>h->capacity){Pair*next=allocate(n*sizeof(Pair),RAW);memcpy(next,h->pairs,h->count*sizeof(Pair));release(h->pairs);h->pairs=next;h->capacity=((Block*)next-1)->size/sizeof(Pair);}if(n>h->count)memset(h->pairs+h->count,0,(n-h->count)*sizeof(Pair));h->count=n;return 0; }
+u32 aqua_hash_resize(u32 p,u32 n) { Hash*h=pointer(p);if(n<h->indexed){release(h->index);h->index=0;h->indexed=0;}if(n>h->capacity){Pair*next=allocate(n*sizeof(Pair),RAW);memcpy(next,h->pairs,h->count*sizeof(Pair));release(h->pairs);h->pairs=next;h->capacity=((Block*)next-1)->size/sizeof(Pair);}if(n>h->count)memset(h->pairs+h->count,0,(n-h->count)*sizeof(Pair));h->count=n;return 0; }
 u32 aqua_hash_write_support(void) { return 1; }
 u32 aqua_hash_expose(u32 p) { Hash*h=pointer(p);if(h->exposed!=2)h->exposed=1;return 0; }
 u32 aqua_take_dirty_hash(void) { Hash*h=pending.dirty_hashes;if(!h)return 0;pending.dirty_hashes=h->dirty_next;h->dirty_next=0;h->dirty=0;return address(h); }
@@ -689,11 +697,11 @@ int rt_checkType(Frame*f,int n){
     t=concat(t,ascii(", got "));fail(f,concat(t,ascii(type_name(v->tag))));return 0;
 }
 int rt_checkHashKey(Frame*f,int n){Value v=peek(f,1);if(!numeric(v)&&v.tag!=STRING&&v.tag!=BOOL)named_failure(f,"Unusable as hash key: ",ascii(type_name(v.tag)));return 0;}
-int rt_hash(Frame*f,int n){Hash*h=pointer(aqua_hash(n));u32 count=0,base=f->sp-n*2;for(int i=0;i<n;i++){Value k=f->values[base+i*2],v=f->values[base+i*2+1];u32 j=0;while(j<count&&!equal(h->pairs[j].key,k,1))j++;h->pairs[j]=(Pair){k,v};if(j==count)count++;}h->count=count;f->sp=base;push(f,value(HASH,address(h),0));return 0;}
-int rt_index(Frame*f,int n){Value i=pop(f),v=pop(f),out=value(NULL_VALUE,0,0);if(v.tag==ARRAY&&i.tag==INT){Array*a=pointer(v.ref);if(i.number>=0&&i.number<a->count)out=a->values[(u32)i.number];else if(a->element){failure(f,"Array index is out of bounds / 陣列索引超出範圍。");return 0;}}else if(v.tag==STRING&&i.tag==INT){Text*t=pointer(v.ref);if(i.number>=0&&i.number<t->length){Text*c=pointer(aqua_text(1));c->data[0]=t->data[(u32)i.number];out=value(STRING,address(c),0);}}else if(v.tag==HASH){if(!numeric(i)&&i.tag!=BOOL&&i.tag!=STRING){named_failure(f,"Unusable as hash key: ",ascii(type_name(i.tag)));return 0;}Hash*h=pointer(v.ref);for(u32 j=0;j<h->count;j++)if(equal(i,h->pairs[j].key,1)){out=h->pairs[j].value;break;}}else {named_failure(f,"Index operator not supported: ",ascii(type_name(v.tag)));return 0;}push(f,out);return 0;}
+int rt_hash(Frame*f,int n){Hash*h=pointer(aqua_hash(n));u32 base=f->sp-n*2;h->count=0;for(int i=0;i<n;i++){Value k=f->values[base+i*2],v=f->values[base+i*2+1];u32 j=hash_find(h,k);if(j==h->count)h->count++;h->pairs[j]=(Pair){k,v};}f->sp=base;push(f,value(HASH,address(h),0));return 0;}
+int rt_index(Frame*f,int n){Value i=pop(f),v=pop(f),out=value(NULL_VALUE,0,0);if(v.tag==ARRAY&&i.tag==INT){Array*a=pointer(v.ref);if(i.number>=0&&i.number<a->count)out=a->values[(u32)i.number];else if(a->element){failure(f,"Array index is out of bounds / 陣列索引超出範圍。");return 0;}}else if(v.tag==STRING&&i.tag==INT){Text*t=pointer(v.ref);if(i.number>=0&&i.number<t->length){Text*c=pointer(aqua_text(1));c->data[0]=t->data[(u32)i.number];out=value(STRING,address(c),0);}}else if(v.tag==HASH){if(!numeric(i)&&i.tag!=BOOL&&i.tag!=STRING){named_failure(f,"Unusable as hash key: ",ascii(type_name(i.tag)));return 0;}Hash*h=pointer(v.ref);u32 j=hash_find(h,i);if(j<h->count)out=h->pairs[j].value;}else {named_failure(f,"Index operator not supported: ",ascii(type_name(v.tag)));return 0;}push(f,out);return 0;}
 int rt_checkArrayWrite(Frame*f,int n){Value i=peek(f,1),a=peek(f,2);if(a.tag==HASH){if(!numeric(i)&&i.tag!=STRING&&i.tag!=BOOL)named_failure(f,"Unusable as hash key: ",ascii(type_name(i.tag)));}else if(a.tag!=ARRAY)failure(f,"Indexed assignment requires an array or hash.");else if(i.tag!=INT)failure(f,"Array assignment index must be an integer.");else if(i.number<0||i.number>=((Array*)pointer(a.ref))->count)failure(f,"Array assignment index is out of bounds.");return 0;}
 int rt_writeIndex(Frame*f,int n){Value v=pop(f);rt_checkArrayWrite(f,0);Value i=pop(f),a=pop(f);if(!f->execution->status){
-    if(a.tag==HASH){Hash*h=pointer(a.ref);u32 j=0;while(j<h->count&&!equal(i,h->pairs[j].key,1))j++;if(j==h->count)aqua_hash_resize(a.ref,h->count+1);h->pairs[j]=(Pair){i,v};if(h->exposed&&!h->dirty){h->dirty=1;h->dirty_next=pending.dirty_hashes;pending.dirty_hashes=h;}}
+    if(a.tag==HASH){Hash*h=pointer(a.ref);u32 j=hash_find(h,i);if(j==h->count)aqua_hash_resize(a.ref,h->count+1);h->pairs[j]=(Pair){i,v};if(h->exposed&&!h->dirty){h->dirty=1;h->dirty_next=pending.dirty_hashes;pending.dirty_hashes=h;}}
     else{Array*x=pointer(a.ref);if(!element_fits(f,x,v)){push(f,v);return 0;}writable_array(x,x->count);x->values[(u32)i.number]=v;if(x->exposed&&!x->dirty){x->dirty=1;x->dirty_next=pending.dirty_arrays;pending.dirty_arrays=x;}}
 }push(f,v);return 0;}
 int rt_member(Frame*f,int n){Value m=pop(f),out=empty;Text*t=name(f,n);
@@ -724,7 +732,7 @@ u32 aqua_collect(void){memset(member_cache,0,sizeof member_cache);
             if(!storage->marked){a->storage->references=0;a->storage->used=0;}
             a->storage->references++;if(a->count>a->storage->used)a->storage->used=a->count;
             mark_ref(a->storage);for(u32 i=0;i<a->count;i++)mark_value(a->values[i]);break;}
-        case HASHES:{Hash*h=p;mark_ref(h->pairs);for(u32 i=0;i<h->count;i++){mark_value(h->pairs[i].key);mark_value(h->pairs[i].value);}break;}
+        case HASHES:{Hash*h=p;mark_ref(h->pairs);mark_ref(h->index);for(u32 i=0;i<h->count;i++){mark_value(h->pairs[i].key);mark_value(h->pairs[i].value);}break;}
         case FRAMES:{Frame*f=p;mark_ref(f->parent);mark_ref(f->scope);mark_ref(f->loops);mark_ref(f->binding_cache);for(u32 i=0;i<f->sp;i++)mark_value(f->values[i]);for(u32 i=0;i<f->pending_count;i++)mark_value(f->values[f->pending_base+i]);break;}
         case LOOPS:{Loop*l=p;mark_ref(l->previous);mark_ref(l->outer);break;}
         case EXECUTIONS:{Execution*e=p;mark_ref(e->current);mark_value(e->result);break;}

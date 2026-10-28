@@ -1,0 +1,21 @@
+# Sort 1M integers with a quicksort written in Aquarius.
+變數 n = 1000000;
+變數 sort = 函式(a, lo, hi) {
+    變數 i = lo; 變數 j = hi;
+    變數 pivot = a[(lo + hi) / 2];
+    迴圈 (變數 g = 0; i <= j; 0) {
+        迴圈 (變數 l = 0; a[i] < pivot; i++) { }
+        迴圈 (變數 r = 0; a[j] > pivot; j -= 1) { }
+        如果 (i <= j) { 變數 t = a[i]; a[i] = a[j]; a[j] = t; i++; j -= 1; }
+    }
+    如果 (lo < j) { sort(a, lo, j); }
+    如果 (i < hi) { sort(a, i, hi); }
+};
+變數 values = 陣列.建立(n, 0);
+變數 seed = 42;
+迴圈 (變數 i = 0; i < n; i++) { seed = (seed * 1103515 + 12345) % 1000003; values[i] = seed; }
+變數 start = 目前時間();
+sort(values, 0, n - 1);
+變數 elapsed = 目前時間() - start;
+印出("RESULT", values[0], values[n / 2], values[n - 1]);
+印出("ELAPSED_MS", elapsed);

@@ -24,7 +24,7 @@ public class PortableModulesTest {
         using var modulo = ArrayLibraryTest.Vectors("modulo-operator");
         foreach (var item in modulo.RootElement.GetProperty("valid").EnumerateArray())
             cases.Add((item[1].GetString()!, ArrayLibraryTest.TypeOf(item[2].GetString()!), item[2].GetString()!));
-        Assert.Equal(2 * (12 + 15) + 7, cases.Count);
+        Assert.Equal(2 * (16 + 15) + 7, cases.Count);
         Assert.Contains(cases, c => c.Item1.Contains("雜湊.項目列表(") );
         Assert.Contains(cases, c => c.Item1.Contains("字串.解析整數("));
         LanguageCases.Expect(cases.ToArray());
