@@ -333,7 +333,8 @@ public class ArchitectureRulesTest
     public void AquariusSourcesLiveInExamplesLibrariesAndTests()
     {
         static bool Allowed(string f) => f.StartsWith("examples/", StringComparison.Ordinal) || f.StartsWith("compiler/AquariusTests/", StringComparison.Ordinal) ||
-            f.StartsWith("libraries/", StringComparison.Ordinal) || f.StartsWith("tests/", StringComparison.Ordinal) || f.Contains("/tests/", StringComparison.Ordinal);
+            f.StartsWith("libraries/", StringComparison.Ordinal) || f.StartsWith("tests/", StringComparison.Ordinal) || f.Contains("/tests/", StringComparison.Ordinal) ||
+            f == "runtime/guest/prelude.aqua";
         var offenders = FilesWith(".aqua").Where(f => !Allowed(f)).Select(f => f[..(f.LastIndexOf('/') + 1)]).Distinct().ToList();
         Assert.True(offenders.Count == 0, "Rule 'One example tree': Aquarius sources are examples (examples/), library modules and tests " +
             "(libraries/<name>/), or test fixtures. Move these: " + string.Join(", ", offenders));

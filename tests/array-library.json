@@ -1,5 +1,9 @@
 {
   "valid": [
+    ["Sort orders integers, numbers and strings in place", "變數 a=[5,3,9,1,3];[Array.Sort(a)==a,a,Array.Sort([2.5d,1,0.0d/0.0d,-3]),Array.Sort([\"pear\",\"apple\",\"\",\"apples\"])];", "[真, [1, 3, 3, 5, 9], [-3, 1, 2.5, NaN], [, apple, apples, pear]]"],
+    ["Sort with a comparison is stable", "變數 a=[[2,\"a\"],[1,\"b\"],[2,\"c\"],[1,\"d\"]];Array.Sort(a,函式(x,y){回傳 x[0]-y[0];});Array.Map(a,函式(p){回傳 p[1];});", "[b, d, a, c]"],
+    ["Sum, Min and Max follow the number rules", "[Array.Sum([1,2,3]),Array.Sum([1,2.5d]),Array.Sum([]),Array.Min([4,2,8]),Array.Max([\"b\",\"c\",\"a\"]),Array.Min([]),Array.Sum([2147483647,1])];", "[6, 3.5, 0, 2, c, null, -2147483648]"],
+    ["Map, Filter and Reduce call functions", "[Array.Map([1,2,3],函式(x){回傳 x*10;}),Array.Filter([1,2,3,4,5],函式(x){回傳 x%2==1;}),Array.Reduce([1,2,3,4],函式(s,x){回傳 s+x;},100),Array.Map([],函式(x){回傳 x;})];", "[[10, 20, 30], [1, 3, 5], 110, []]"],
     ["Module aliases share identity", "Array==陣列;", "真"],
     ["Computed members retain module scope", "Array.([Make][0])(2,7);Array.Make(2,7);", "[7, 7]"],
     ["Make fills and reserves", "變數 a=Array.Make(3,7,20);[a,Array.Len(a),Array.Cap(a)>=20];", "[[7, 7, 7], 3, 真]"],
@@ -35,6 +39,7 @@
     "Array.Copy(a,a,0,3);", "Array.Copy(a,a,0,0,-1);", "Array.Copy(a,a,0.0d);",
     "Array.Clone();", "Array.Slice(a,1,0);", "Array.Slice(a,0,3);", "Array.Slice(a,-1,1);",
     "Array.Fill(a);", "Array.Delete(a,1,0);", "Array.Delete(a,0,3);", "Array.Reverse(1);",
-    "Array.Index(a);", "Array.Contains(a,1,2);"
+    "Array.Index(a);", "Array.Contains(a,1,2);",
+    "Array.Sort([1,\"a\"]);", "Array.Sort(a,1);", "Array.Sum([\"x\"]);", "Array.Max([1,\"a\"]);", "Array.Map(a);", "Array.Filter(1,函式(x){回傳 x;});", "Array.Reduce(a,函式(s,x){回傳 s;});"
   ]
 }

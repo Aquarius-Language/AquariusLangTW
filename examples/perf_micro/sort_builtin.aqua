@@ -1,0 +1,10 @@
+# Sort 1M integers with 陣列.排序 (the same data as sort_aqua.aqua).
+變數 n = 1000000;
+變數 values = 陣列.建立(n, 0);
+變數 seed = 42;
+迴圈 (變數 i = 0; i < n; i++) { seed = (seed * 1103515 + 12345) % 1000003; values[i] = seed; }
+變數 start = 目前時間();
+陣列.排序(values);
+變數 elapsed = 目前時間() - start;
+印出("RESULT", values[0], values[n / 2], values[n - 1]);
+印出("ELAPSED_MS", elapsed);

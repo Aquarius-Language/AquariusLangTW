@@ -397,9 +397,10 @@ public class LanguageServerTest
         foreach (string header in new[] { "threads.h", "arrays.h", "hashes.h", "texts.h" }) {
             string text = File.ReadAllText(Path.Combine(installation!.Root, "runtime", "guest", header), Encoding.UTF8);
             var module = Regex.Match(text, @"\w+_module_names\[2\]\s*=\s*\{\s*u""([^""]*)""\s*,\s*u""([^""]*)""\s*\}");
-            var names = Regex.Match(text, @"\w+_names\[\w+\]\[2\]\s*=\s*\{(.*?)\};", RegexOptions.Singleline);
-            Assert.True(module.Success && names.Success, header);
-            var members = Regex.Matches(names.Groups[1].Value, @"\{\s*u""([^""]*)""\s*,\s*u""([^""]*)""\s*\}").Select(m => new[] { m.Groups[1].Value, m.Groups[2].Value }).ToArray();
+            // A module may declare its functions in several tables (arrays.h: the array functions, then the kernels).
+            var names = Regex.Matches(text, @"\w+_names\[\w+\]\[2\]\s*=\s*\{(.*?)\};", RegexOptions.Singleline);
+            Assert.True(module.Success && names.Count > 0, header);
+            var members = names.SelectMany(n => Regex.Matches(n.Groups[1].Value, @"\{\s*u""([^""]*)""\s*,\s*u""([^""]*)""\s*\}")).Select(m => new[] { m.Groups[1].Value, m.Groups[2].Value }).ToArray();
             Assert.NotEmpty(members);
             tables.Add(([module.Groups[1].Value, module.Groups[2].Value], members));
         }

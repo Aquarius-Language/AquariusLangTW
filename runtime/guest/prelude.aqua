@@ -1,0 +1,59 @@
+# The guest prelude: array kernels that call back into Aquarius (runtime/guest/arrays.h checks their arguments, then
+# continues the call here). The compiler adds these functions to programs that name 陣列.映射 / Array.Map, 篩選 / Filter,
+# 歸約 / Reduce or 排序 / Sort, marked with their kernel number in this order; their bodies never see user bindings.
+
+# 1: 排序(陣列, 比較) / Sort(array, compare): stable bottom-up merge sort in place; compare(x, y) returns a negative
+# number when x belongs before y, and equal elements keep their order.
+變數 排序 = 函式(a, compare) {
+    變數 n = 長度(a);
+    變數 from = 陣列.克隆(a);
+    變數 to = 陣列.建立(n, 0);
+    迴圈 (變數 width = 1; width < n; width = width * 2) {
+        迴圈 (變數 lo = 0; lo < n; lo = lo + width * 2) {
+            變數 mid = lo + width;
+            如果 (mid > n) { mid = n; }
+            變數 hi = mid + width;
+            如果 (hi > n) { hi = n; }
+            變數 i = lo;
+            變數 j = mid;
+            迴圈 (變數 k = lo; k < hi; k++) {
+                如果 (i >= mid) { to[k] = from[j]; j++; }
+                否則如果 (j >= hi) { to[k] = from[i]; i++; }
+                否則如果 (compare(from[j], from[i]) < 0) { to[k] = from[j]; j++; }
+                否則 { to[k] = from[i]; i++; }
+            }
+        }
+        變數 swap = from;
+        from = to;
+        to = swap;
+    }
+    陣列.複製(a, from);
+    回傳 a;
+};
+
+# 2: 映射(陣列, 函式) / Map(array, function): a new array of function(element).
+變數 映射 = 函式(a, transform) {
+    變數 n = 長度(a);
+    變數 result = 陣列.建立(n, 0);
+    迴圈 (變數 i = 0; i < n; i++) { result[i] = transform(a[i]); }
+    回傳 result;
+};
+
+# 3: 篩選(陣列, 函式) / Filter(array, function): a new array of the elements for which function returns a true value.
+變數 篩選 = 函式(a, keep) {
+    變數 n = 長度(a);
+    變數 result = 陣列.建立(0, 0, n);
+    迴圈 (變數 i = 0; i < n; i++) {
+        變數 item = a[i];
+        如果 (keep(item)) { 陣列.追加(result, item); }
+    }
+    回傳 result;
+};
+
+# 4: 歸約(陣列, 函式, 初值) / Reduce(array, function, initial): function(accumulator, element) from left to right.
+變數 歸約 = 函式(a, combine, initial) {
+    變數 accumulator = initial;
+    變數 n = 長度(a);
+    迴圈 (變數 i = 0; i < n; i++) { accumulator = combine(accumulator, a[i]); }
+    回傳 accumulator;
+};

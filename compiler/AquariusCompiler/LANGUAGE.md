@@ -129,8 +129,10 @@ Default value inspection still prints booleans as `真` / `假` and null as `nul
   Out-of-range array reads and missing hash entries return `NullObj`; invalid
   array writes return a language error.
 - The built-in `陣列` / `Array` module provides capacity-aware creation and in-place
-  array manipulation. `加入` / `push` still preserves the input; mutating library
-  operations preserve Aquarius reference aliases. See [array semantics](../../docs/arrays.md).
+  array manipulation, and the kernels `排序` / `Sort`, `總和` / `Sum`, `最小值` / `Min`, `最大值` / `Max`,
+  `映射` / `Map`, `篩選` / `Filter` and `歸約` / `Reduce`. `加入` / `push` still preserves the input; mutating library
+  operations preserve Aquarius reference aliases. Kernels that call functions continue in the guest prelude
+  (`runtime/guest/prelude.aqua`), which `WasmCompiler` adds to programs naming them. See [array semantics](../../docs/arrays.md).
 - The built-in `雜湊` / `Hash` module enumerates and edits hashes (keys, values,
   entries, has, get with default, delete, clone, clear, merge), and `字串` / `String`
   provides portable text operations (`轉文字` / `From`, slicing, searching, splitting,
