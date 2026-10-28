@@ -616,11 +616,17 @@ int rt_nativeFrame(Execution*e,int closure,int pc,int depth) {
 int rt_nativeFailure(Execution*e,int code) {
     static const char *const messages[]={"Integer division by zero / 整數不能除以零。","Integer remainder by zero / 整數不能對零取餘數。",
         "Array index is out of bounds / 陣列索引超出範圍。","Array assignment index is out of bounds.",
-        "Cannot access member of NULL","Cannot assign a member of NULL"};
+        "Cannot access member of NULL","Cannot assign a member of NULL","Array length exceeds the Wasm array limit."};
     e->result=value(ERROR,address(ascii(messages[code])),0);e->status=3;return 5;
 }
 /* An array literal built by native code (an array of any values): it writes every element before anything can collect. */
 int rt_nativeArray(int n){return (int)address(array((u32)n));}
+/* Array.Append (陣列.追加) of native code, like array_call's: the element already has the array's element type (widened
+   by the caller), so it always fits; the caller raises the length-limit error before calling. */
+int rt_nativeArrayAppend(int array,int tag,double n){
+    Array*a=pointer((u32)array);u32 start=a->count;writable_array(a,start+1);a->values[start]=value((u32)tag,0,n);
+    if(a->kind!=(u32)tag)a->kind=0;a->count=start+1;a->storage->used=a->count;array_changed(a);return 0;
+}
 /* Strings of native code (WasmNativeFunction.StringType): equality, concatenation and one-unit texts. */
 int rt_nativeTextEqual(int a,int b){return text_equal(pointer((u32)a),pointer((u32)b));}
 int rt_nativeConcat(int a,int b){return (int)address(concat(pointer((u32)a),pointer((u32)b)));}
