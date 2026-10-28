@@ -30,6 +30,14 @@ async function activate(context) {
     });
     try {
       await client.start();
+      // The extension and the language server share the AquariusLang version (docs/versioning.md); a server set by
+      // aquarius.serverPath from another release may not know this release's syntax.
+      const serverVersion = client.initializeResult?.serverInfo?.version;
+      const extensionVersion = context.extension.packageJSON.version;
+      if (serverVersion !== extensionVersion) {
+        output.appendLine(`Language server ${serverVersion ?? "(unknown)"} differs from the extension ${extensionVersion}.`);
+        vscode.window.showWarningMessage(`The Aquarius language server is version ${serverVersion ?? "unknown"}, but the extension is ${extensionVersion}. Use the bundled server or set aquarius.serverPath to the server of the same AquariusLang release.`);
+      }
     } catch (error) {
       output.appendLine(String(error));
       client = undefined;

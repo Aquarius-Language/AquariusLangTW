@@ -26,6 +26,8 @@ public sealed class Library
     public string Version { get; }
     public string? Description { get; }
     public string? License { get; }
+    /// <summary>The AquariusLang versions the library works with (<c>aquarius = "&gt;= 0.1.4"</c>), checked by Bottle; null for any.</summary>
+    public string? Aquarius { get; private init; }
     public string Root { get; }
     public string ManifestPath { get; }
     public IReadOnlyList<string> Platforms { get; }
@@ -112,10 +114,11 @@ public sealed class Library
         if (!model.TryGetValue("manifest_version", out var version) || version is not 2L) Fail("manifest_version", "Library manifests need manifest_version = 2.");
         if (!model.TryGetValue("library", out var libraryValue) || libraryValue is not TomlTable library) { Fail("library", "Missing [library] table."); return null!; }
         section = "library";
-        Keys(library, "library", "name", "version", "description", "license", "platforms");
+        Keys(library, "library", "name", "version", "description", "license", "platforms", "aquarius");
         string name = Text(library, "name", true)!;
         if (!ValidName(name)) Fail("name", "Library names start with a letter or digit and contain only letters, digits, underscores or hyphens.");
         string libraryVersion = Text(library, "version", true)!;
+        string? aquarius = Text(library, "aquarius");
         if (!Regex.IsMatch(libraryVersion, @"^\d+\.\d+\.\d+([-+][0-9A-Za-z.-]+)?$")) Fail("version", "Library versions are semantic versions such as 1.2.0.");
         string[] platforms = Texts(library, "platforms").Select(p => p.ToLowerInvariant()).ToArray();
         if (platforms.Length == 0 || platforms.Distinct().Count() != platforms.Length || platforms.Any(p => !KnownPlatforms.Contains(p)))
@@ -168,7 +171,7 @@ public sealed class Library
             if (permissions.Any(p => !Regex.IsMatch(p, @"^[A-Za-z][A-Za-z0-9_]*(\.[A-Za-z0-9_]+)+$"))) Fail("permissions", "Android permissions are names such as android.permission.INTERNET.");
         }
         return new Library(file, name, libraryVersion, Text(library, "description"), Text(library, "license"), platforms,
-            nativeName, nativeModules, nativeSource, modules.ToArray(), permissions, external);
+            nativeName, nativeModules, nativeSource, modules.ToArray(), permissions, external) { Aquarius = aquarius };
     }
 }
 

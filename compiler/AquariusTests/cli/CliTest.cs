@@ -229,6 +229,11 @@ public class CliTest
         foreach (string usage in new[] { "aqua build", "aqua run", "aqua repl", "aqua new", "--target web", "--hide-terminal", "aqua library build" }) Assert.Contains(usage, help.Output);
         Assert.Equal(help.Output, Aqua(t).Output);
         Assert.Equal(help.Output, Aqua(t, "build", "--help").Output);
+        foreach (string flag in new[] { "--version", "-v", "version" }) {
+            var version = Aqua(t, flag);
+            Assert.Equal(0, version.Code); Assert.Equal($"AquariusLang {AquariusLang.AquariusVersion.Current}\n", version.Output.Replace("\r\n", "\n"));
+        }
+        Assert.Contains("aqua --version", help.Output);
         var repl = AquaCommand.RunWithInput(t.Path, "40 + 2;\n", "repl");
         Assert.Equal(0, repl.Code); Assert.Contains("AquariusLang REPL", repl.Output); Assert.Contains(">> 42\n", repl.Output);
         Assert.Equal(0, Aqua(t, "build", "--target", "wasm", "--", "-main.aqua").Code);

@@ -15,7 +15,7 @@ public static class CompilerCommandLine {
         "aqua build (main.aqua ... | app.wasm) --target android -o app.apk [--entry main.aqua] [--application-id org.example.app] [--app-name Name] [--keystore file --key-alias name]\n" +
         "aqua build [aqua.toml|project-directory] [--target PLATFORM] [--platform PLATFORM] [-o output] [--locked] [--offline]\n" +
         "aqua run (app.wasm | main.aqua | project-directory) [--entry main.aqua] [argument ...]\n" +
-        "aqua repl\n" + BottleCommandLine.Usage + "\n" + LibraryBuilder.Usage + "\n" +
+        "aqua repl\n" + "aqua --version\n" + BottleCommandLine.Usage + "\n" + LibraryBuilder.Usage + "\n" +
         "--hide-terminal true builds a Windows GUI executable without a console ([desktop] hide_terminal = true in aqua.toml).\n" +
         "--onnx-cuda true uses the runtime pack built with ONNX Runtime's CUDA providers ([onnx] cuda = true in aqua.toml).\n" +
         "Android signing: --keystore/--key-alias with AQUARIUS_KEYSTORE_PASSWORD (and AQUARIUS_KEY_PASSWORD); a debug key otherwise.\n" +
@@ -26,6 +26,7 @@ public static class CompilerCommandLine {
     public static int Run(string[] args) {
         try {
             if (args.Length == 0 || args is ["--help"] or ["-h"] || args is [_, "--help"]) { Console.WriteLine(Usage); return 0; }
+            if (args is ["--version"] or ["-v"] or ["version"]) { Console.WriteLine("AquariusLang " + AquariusVersion.Current); return 0; }
             switch (args[0]) {
                 case "bottle": return BottleCommandLine.Run(args[1..]);
                 case "new": return BottleCommandLine.Run(args);

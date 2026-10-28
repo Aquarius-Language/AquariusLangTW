@@ -40,8 +40,9 @@ C# 只作為編譯器，執行時不需要 .NET。
 取得發佈套件。完整解壓縮後，在含有 **`aqua.exe`** 的 `aqua` 資料夾開啟 PowerShell：
 
 ```powershell
-# 查看指令
+# 查看指令與版本
 .\aqua.exe --help
+.\aqua.exe --version
 
 # 編譯隨附範例，再執行
 .\aqua.exe build .\examples\increment.aqua -o app.wasm
@@ -309,6 +310,7 @@ dotnet run --project compiler/AquariusCli -- repl
 提供語法上色、片段、即時診斷、雙語補全、懸停說明、定義跳轉與符號列表。
 安裝、設定、VSIX 打包及執行階段需求見 [VS Code 操作指南](editors/vscode/README.md)。
 其他 LSP 編輯器可參考 [語言伺服器說明](compiler/AquariusLanguageServer/README.md)；伺服器分析語法，不執行程式。
+語言、編譯器、語言伺服器與擴充套件共用同一個版本號（`aqua --version`），規則見 [版本](docs/versioning.md)，各版變更見 [CHANGELOG](CHANGELOG.md)。
 
 [星泉介紹網站](https://aquarius-language.github.io/AquariusLangTW/) 的原始碼與本機操作位於
 [website](website/README.md)，GitHub Pages 設定見 [網站部署指南](website/docs/github-pages.md)。

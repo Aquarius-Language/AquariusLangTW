@@ -43,6 +43,8 @@ public sealed class ProjectManifest {
     /// <summary>"executable" or "library".</summary>
     public string Type { get; }
     public string? Version { get; }
+    /// <summary>The AquariusLang versions the project or library works with (<c>aquarius = "&gt;= 0.1.4"</c>); null for any.</summary>
+    public string? Aquarius { get; }
     public string Entry { get; }
     public IReadOnlyList<string> Sources { get; }
     public IReadOnlyList<string> Platforms { get; }
@@ -92,15 +94,16 @@ public sealed class ProjectManifest {
             // A library: its tables follow the default libraries' manifest rules.
             try { Library = Library.FromModel(file, model, true, "dependencies", "assets", "tool"); }
             catch (LibraryManifestException e) { throw new ManifestException(file, [Locate(text, e.Key, e.Reason, e.Section)]); }
-            Name = Library!.Name; Type = "library"; Version = Library.Version; Platforms = Library.Platforms;
+            Name = Library!.Name; Type = "library"; Version = Library.Version; Platforms = Library.Platforms; Aquarius = Library.Aquarius;
             Entry = Library.Modules.FirstOrDefault()?.Source ?? "";
             Sources = Library.Modules.Select(m => m.Source).ToArray();
         } else {
             Keys(model, "manifest", [.. shared, "project", "onnx", "desktop"]);
             if (!model.TryGetValue("project", out var projectValue) || projectValue is not TomlTable) Fail("project", ManifestVersion == 2 ? "Missing [project] or [library] table." : "Missing [project] table.");
             var project = (TomlTable)model["project"];
-            if (ManifestVersion == 1) Keys(project, "project", "name", "type", "version", "entry", "sources", "platforms", "description", "license", "libraries");
-            else Keys(project, "project", "name", "version", "entry", "sources", "platforms", "description", "license", "libraries");
+            if (ManifestVersion == 1) Keys(project, "project", "name", "type", "version", "entry", "sources", "platforms", "description", "license", "libraries", "aquarius");
+            else Keys(project, "project", "name", "version", "entry", "sources", "platforms", "description", "license", "libraries", "aquarius");
+            Aquarius = String(project, "aquarius");
             Name = String(project, "name", true)!;
             if (!ValidName(Name)) Fail("name", "Project names must start with a letter or digit and contain only letters, digits, underscores or hyphens; whitespace is forbidden.");
             Type = ManifestVersion == 1 ? String(project, "type", true)! : "executable";
@@ -115,6 +118,13 @@ public sealed class ProjectManifest {
             Libraries = Strings(project, "libraries", []);
             if (Libraries.Any(l => !ValidName(l)) || Libraries.Distinct(StringComparer.OrdinalIgnoreCase).Count() != Libraries.Count)
                 Fail("libraries", "'libraries' lists default library names or dependency names, each once.");
+        }
+        // aquarius = ">= 0.1.4": the language versions this project or library works with; any other compiler rejects it.
+        if (Aquarius != null) {
+            VersionRequirement? requirement = null;
+            try { requirement = new VersionRequirement(Aquarius); } catch (InvalidDataException e) { Fail("aquarius", e.Message); }
+            if (!requirement!.Matches(BottleVersion.Parse(AquariusVersion.Current)))
+                Fail("aquarius", $"{Name} 需要 AquariusLang {Aquarius}，目前為 {AquariusVersion.Current} / {Name} needs AquariusLang {Aquarius}; this is {AquariusVersion.Current}.");
         }
         var dependencies = new Dictionary<string, BottleDependency>(StringComparer.OrdinalIgnoreCase);
         if (model.TryGetValue("dependencies", out var dependencyValue)) {

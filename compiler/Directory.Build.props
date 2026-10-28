@@ -1,6 +1,10 @@
 <Project>
   <!-- Every project of the compiler: one framework and language level. -->
   <PropertyGroup>
+    <!-- The AquariusLang version (docs/versioning.md): the compiler, CLI and language server all report it, and the
+         VS Code extension's package.json must match it. -->
+    <Version>0.1.4</Version>
+    <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
     <TargetFramework>net8.0</TargetFramework>
     <LangVersion>12</LangVersion>
     <Nullable>enable</Nullable>

@@ -72,3 +72,11 @@ test('highlighting covers the core globals, conversions, portable modules and an
   const result = new RegExp(patterns.find(pattern => pattern.comment?.startsWith("A function's result")).match, 'gu');
   assert.deepEqual([...'函式(t: 節點): 整數 { } function(): Point { } f(x): 陣列'.matchAll(result)].map(m => m[3] ?? m[5]), ['整數', 'Point', '陣列']);
 });
+
+test('the extension has the AquariusLang version of compiler/Directory.Build.props', () => {
+  const props = fs.readFileSync(path.join(root, '..', '..', 'compiler', 'Directory.Build.props'), 'utf8');
+  const version = /<Version>([^<]+)<\/Version>/.exec(props)[1];
+  assert.equal(read('package.json').version, version);
+  assert.equal(read('package-lock.json').version, version);
+  assert.ok(read('package.json').scripts.package.includes(`aquariuslang-tw-${version}.vsix`));
+});
