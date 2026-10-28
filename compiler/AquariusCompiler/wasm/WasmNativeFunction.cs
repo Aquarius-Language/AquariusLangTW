@@ -579,7 +579,8 @@ internal sealed class WasmNativeFunction
                         // An element of an array of any values passes to an 陣列 parameter after a tag check at the call. A
                         // clone takes exactly its parameters' types (any array of that element), as its entry would.
                         for (int i = 0; i < count; i++)
-                            if (target.Clone ? !(arguments[i] == target.Parameters[i] || IsArray(arguments[i]) && IsArray(target.Parameters[i]) && (arguments[i] & 15) == (target.Parameters[i] & 15))
+                            if (target.Clone ? !(arguments[i] == target.Parameters[i] || IsArray(arguments[i]) && IsArray(target.Parameters[i]) && (arguments[i] & 15) == (target.Parameters[i] & 15)
+                                    || target.Parameters[i] == AnyArrayType && (IsRef(arguments[i]) || arguments[i] == AnyValueType))
                                 : !Widens(arguments[i], target.Parameters[i]) && !(arguments[i] == AnyValueType && target.Parameters[i] == AnyArrayType)) return Reject(pc);
                         result = target.Result;
                     } else return Reject(pc);

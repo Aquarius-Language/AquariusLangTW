@@ -58,8 +58,10 @@ public sealed class TypeChecker {
         internal const int Conflict = -2;
         internal void Observe(int value) {
             if (value == Conflict) Guess = Conflict;
-            else if (value > 0 && Guess != Conflict) Guess = Guess == 0 || Guess == value ? value : Conflict;
+            // Arrays of different element types are arrays of any values.
+            else if (value > 0 && Guess != Conflict) Guess = Guess == 0 || Guess == value ? value : IsArrayGuess(Guess) && IsArrayGuess(value) ? ArrayFlag : Conflict;
         }
+        private static bool IsArrayGuess(int type) => type > 0 && type < StructFlag && (type & ArrayFlag) != 0;
     }
     private sealed class Scope {
         internal readonly Scope? Outer;
@@ -77,6 +79,9 @@ public sealed class TypeChecker {
     private readonly List<ParseError> errors = new();
     // Guesses for untyped parameters: the static argument types of every direct call, merged like Declaration.Observe.
     private readonly Dictionary<FunctionLiteral, Declaration[]> parameterDeclarations = new(ReferenceEqualityComparer.Instance);
+    // Guesses for the results of untyped functions: the values of their return statements, merged the same way.
+    private readonly Dictionary<FunctionLiteral, Declaration> resultDeclarations = new(ReferenceEqualityComparer.Instance);
+    private readonly Stack<Declaration?> results = new();
     private readonly List<(FunctionLiteral Function, int Index, int Type)> arguments = new();
     // Guesses that copy another untyped variable's guess (or its array's element type), known only once every
     // parameter's guess is: a target declaration or a parameter (function, index), the source and whether it is an element.
@@ -114,7 +119,8 @@ public sealed class TypeChecker {
         foreach (var (function, native) in checker.Natives)
             if (native.Clone && checker.parameterDeclarations.TryGetValue(function, out var guessed))
                 for (int i = 0; i < guessed.Length; i++)
-                    native.Parameters[i] = (guessed[i].Guess & ~ArrayFlag) is Int or Float or Double or Bool && guessed[i].Guess is > 0 and < StructFlag ? guessed[i].Guess : Dynamic;
+                    native.Parameters[i] = guessed[i].Guess is > 0 and < StructFlag && ((guessed[i].Guess & ~ArrayFlag) is Int or Float or Double or Bool || guessed[i].Guess == ArrayFlag)
+                        ? guessed[i].Guess : Dynamic;
         return checker;
     }
 
@@ -219,6 +225,7 @@ public sealed class TypeChecker {
             }
             case ReturnStatement returned: {
                 int value = Expression(returned.ReturnValue);
+                if (results.Count > 0 && results.Peek() is { } result) Guess(result, null, 0, value, returned.ReturnValue);
                 if (returns.Count > 0 && returns.Peek() is { } type) Require(type.Code, value, returned, "回傳值 return value", returned.Token);
                 break;
             }
@@ -434,14 +441,20 @@ public sealed class TypeChecker {
     private (Declaration Declaration, bool Element)? Source(IExpression? expression) => expression switch {
         Identifier name when Resolve(name.Value) is { Type: null, Count: 1 } d => (d, false),
         IndexExpression { Left: Identifier array } when Resolve(array.Value) is { Type: null, Count: 1 } d => (d, true),
+        CallExpression { Function: Identifier callee } when Resolve(callee.Value) is { Function: { ReturnType: null } function, Assigned: false, Count: 1 }
+            => (ResultGuess(function), false),
         _ => null };
+    private Declaration ResultGuess(FunctionLiteral function) {
+        if (!resultDeclarations.TryGetValue(function, out var result)) resultDeclarations[function] = result = new Declaration();
+        return result;
+    }
     private int GuessOf(IExpression? expression) {
         switch (expression) {
             case Identifier name: return Resolve(name.Value) is { Type: null, Count: 1 } d && d.Guess > 0 ? d.Guess : 0;
             case IndexExpression index: { int array = GuessOf(index.Left); return (array & ArrayFlag) != 0 ? array & 15 : 0; }
             case ArrayLiteral { Elements: { Length: > 0 } elements }: {
                 int first = ScalarOf(elements[0]);
-                return first != 0 && elements.All(e => ScalarOf(e) == first) ? first | ArrayFlag : 0;
+                return first != 0 && elements.All(e => ScalarOf(e) == first) ? first | ArrayFlag : ArrayFlag;
             }
             case InfixExpression { Operator: ".", Left: Identifier module, Right: CallExpression { Function: Identifier make, Arguments: { Length: >= 2 } arguments } }
                 when module.Value is "陣列" or "Array" && make.Value is "建立" or "Make" && Resolve(module.Value) == null: {
@@ -481,6 +494,7 @@ public sealed class TypeChecker {
         var statements = function.Body?.Statements ?? System.Array.Empty<IStatement>();
         Declare(statements);
         returns.Push(function.ReturnType);
+        results.Push(function.ReturnType == null ? ResultGuess(function) : null);
         for (int i = 0; i < statements.Length; i++) {
             if (i == statements.Length - 1 && function.ReturnType is { } type && statements[i] is ExpressionStatement last)
                 Require(type.Code, Expression(last.Expression), function, "回傳值 return value", function.ReturnType.Token);
@@ -488,7 +502,7 @@ public sealed class TypeChecker {
         }
         if (function.ReturnType is { } result && (statements.Length == 0 || statements[^1] is LetStatement or BreakStatement))
             Error($"函式必須回傳 {Name(result.Code)} / The function must return {Name(result.Code)}.", result.Token);
-        returns.Pop();
+        returns.Pop(); results.Pop();
         functions.Pop();
         scope = outer;
     }

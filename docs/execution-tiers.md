@@ -175,8 +175,10 @@ its types (an integer is not widened to a double parameter) and arrays of only i
 call between native functions passes a clone exactly those types, so its generic semantics never change; any other call
 runs the generic body. Untyped outer bindings it uses are speculated on their guesses and checked by the entry adapter,
 guessed arrays are loose arrays, and a read outside one deoptimizes to the generic frame at that read (which starts a
-generic block). A clone takes precedence over the integer tier and over regions of its loops. The untyped Ackermann
-benchmark runs 5× faster and the spectral norm 12×, on every target. `CloneTest` compares clones with the unoptimized
+generic block). A clone takes precedence over the integer tier and over regions of its loops. Results of untyped functions are guessed too (the
+values of their return statements), so `變數 樹 = 建立(n)` passes an array to `檢查(樹, n)`; arrays of different element
+types merge to an array of any values. The untyped Ackermann benchmark runs 5× faster, the spectral norm 12× and the binary
+trees 2×, on every target. `CloneTest` compares clones with the unoptimized
 compiler: guesses that fail, every result type, outer writes, reads past the end, errors, arity, rebinding and tiny quanta.
 
 ## Native regions in untyped code
