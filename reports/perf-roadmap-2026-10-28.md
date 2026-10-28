@@ -96,9 +96,9 @@ All outputs of every warm-up and measured sample, in every mode and language, ma
 
 Raw data: `AquariusLang_PerformanceBenchmark/results/perf-roadmap-before/20261028-093428-316173/` and
 `.../perf-roadmap-after/20261028-112703-641684/` (results.json, samples.csv, summary.csv, README.md). The baseline is
-`main` at `fb80753`, built and frozen in `C:\OfficialProjects\aqua-perf-baseline`. The final build is frozen in
-`C:\OfficialProjects\aqua-perf-after`. Both are full layouts with the compiler, libraries, web glue and the windows-x64
-runtime pack.
+`main` at `fb80753`, built and frozen in a folder beside the repository (`../aqua-perf-baseline`); the final build is
+frozen the same way (`../aqua-perf-after`). Both are full layouts with the compiler, libraries, web glue and the
+windows-x64 runtime pack.
 
 ## Micro-benchmarks (`examples/perf_micro`, median of 5 runs, untyped code)
 
