@@ -113,13 +113,16 @@ static engine *instantiate(wasm_engine_t *wasm, wasmtime_module_t *module, engin
    Wasmtime rejects code compiled by another version or configuration, which then recompiles. The cache lives in the
    user's (or the app's) own directory: its contents are trusted like the runtime's own files. */
 #define CACHE_SLOTS 32 /* an entry is a few megabytes (each application carries the guest runtime) */
+/* JIT modules are a few kilobytes and a program installs several, which must not keep evicting each other. */
+#define JIT_CACHE_SLOTS 1024
 /* Kinds of cached code: applications ("wasmtime") and the runtime JIT's modules ("wasmtime-jit"), in separate slots. */
 static char *cache_slot(const uint8_t digest[32], char **directory, const char *kind) {
     *directory = platform_cache_directory();
     if (!*directory) return NULL;
     size_t n = strlen(*directory) + strlen(kind) + 32;
     char *path = malloc(n);
-    snprintf(path, n, "%s/%s-%02x.bin", *directory, kind, digest[0] % CACHE_SLOTS);
+    if (strcmp(kind, "wasmtime-jit") == 0) snprintf(path, n, "%s/%s-%03x.bin", *directory, kind, (digest[0] | digest[1] << 8) % JIT_CACHE_SLOTS);
+    else snprintf(path, n, "%s/%s-%02x.bin", *directory, kind, digest[0] % CACHE_SLOTS);
     return path;
 }
 static wasmtime_module_t *cached_module(wasm_engine_t *wasm, const char *slot, const uint8_t digest[32]) {

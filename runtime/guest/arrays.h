@@ -34,7 +34,7 @@ static Value array_call(Frame*f,u32 id,Value*args,u32 n) {
         u32 capacity;if(!array_size(f,args[0],&count))return empty;capacity=count;
         if(n==3&&!array_size(f,args[2],&capacity))return empty;
         if(capacity<count){failure(f,"Array capacity must be at least its length.");return empty;}
-        Array*a=array(capacity);a->count=count;a->storage->used=count;
+        Array*a=array(capacity);a->count=count;a->storage->used=count;a->kind=(uint16_t)args[1].tag;
         for(u32 i=0;i<count;i++)a->values[i]=args[1];return value(ARRAY,address(a),0);
     }
     if(args[0].tag!=ARRAY){failure(f,"Array function requires an array.");return empty;}
@@ -54,6 +54,7 @@ static Value array_call(Frame*f,u32 id,Value*args,u32 n) {
         if(count>ARRAY_LIMIT-a->count){failure(f,"Array length exceeds the Wasm array limit.");return empty;}
         if(!count)return args[0];start=a->count;writable_array(a,start+count);
         if(b)memmove(a->values+start,b->values,count*sizeof(Value));else a->values[start]=args[1];
+        if(a->kind!=(b?b->kind:args[1].tag))a->kind=0;
         a->count=start+count;a->storage->used=a->count;array_changed(a);return args[0];
     }
     if(id==12){
@@ -65,17 +66,17 @@ static Value array_call(Frame*f,u32 id,Value*args,u32 n) {
         count=a->count-start;if(count>b->count-end)count=b->count-end;
         if(a->element)for(u32 i=0;i<count&&i<b->count-end;i++)if(!element_fits(f,a,b->values[end+i]))return empty;
         if(n==5){u32 requested;if(!array_size(f,args[4],&requested))return empty;if(requested<count)count=requested;}
-        if(count){writable_array(a,a->count);memmove(a->values+start,b->values+end,count*sizeof(Value));array_changed(a);}return number(count,INT);
+        if(count){writable_array(a,a->count);memmove(a->values+start,b->values+end,count*sizeof(Value));if(a->kind!=b->kind)a->kind=0;array_changed(a);}return number(count,INT);
     }
     if(id==13||id==14){
         end=a->count;
         if(id==14&&(!array_size(f,args[1],&start)||!array_size(f,args[2],&end)))return empty;
         if(start>end||end>a->count){failure(f,"Array slice range is out of bounds.");return empty;}
-        Array*b=array(end-start);memcpy(b->values,a->values+start,b->count*sizeof(Value));return value(ARRAY,address(b),0);
+        Array*b=array(end-start);memcpy(b->values,a->values+start,b->count*sizeof(Value));b->kind=a->kind;return value(ARRAY,address(b),0);
     }
     if(id==15){
         if(!element_fits(f,a,args[1]))return empty;
-        if(a->count){writable_array(a,a->count);for(u32 i=0;i<a->count;i++)a->values[i]=args[1];array_changed(a);}return args[0];
+        if(a->count){writable_array(a,a->count);for(u32 i=0;i<a->count;i++)a->values[i]=args[1];array_changed(a);}a->kind=(uint16_t)args[1].tag;return args[0];
     }
     if(id==16){
         if(!array_size(f,args[1],&start)||!array_size(f,args[2],&end))return empty;

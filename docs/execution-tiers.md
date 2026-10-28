@@ -177,6 +177,24 @@ so speculation never changes a result (`SpeculationTest` compares it with the un
 variable changes type between entries and under tiny quanta). This is plain Wasm in the artifact, so web and Android
 gain too: the untyped mandelbrot benchmark runs as fast as the typed one.
 
+### Speculation on untyped arrays (every target)
+
+The TypeChecker also guesses arrays: `陣列.建立(n, 0)` / `Array.Make(n, 0.0d)` (a scalar fill), an array literal of scalars
+of one type, arithmetic of guessed numbers, and values copied from guessed variables or read from guessed arrays (`變數
+pivot = a[i]`, parameters from the arguments of direct calls; these derived guesses are resolved after the whole program,
+to a fixpoint). A region speculates that such an untyped array holds only elements of its guessed type (a *loose* array,
+`WasmNativeFunction.LooseFlag`): it reads and writes it like the typed array, and writes only values of exactly that type.
+
+Every untyped array keeps its element kind (`Array.kind`: the tag all its elements have, or 0 when unknown): writes of
+another tag, host access to its values and library functions that mix elements reset it, `建立`, `填入`, literals and
+copies set it. A region's entry calls `rt_arrayKind`, which accepts a typed array of that element, an untyped array of that
+kind, or (when the kind is unknown) scans it once and records the kind; host-exposed arrays are scanned at every entry.
+A read outside a loose array cannot be the typed tier's error (the generic code gives null): every such read starts a
+generic block (`WasmBodyEmitter.BlockStarts`), and the region leaves at it with its slots and operands written to the frame,
+so the generic code performs the read. The untyped matrix benchmark runs 9× faster, the sieve and quicksort about 2×, on
+desktop, web and Android alike. `LooseArrayTest` compares them with the unoptimized compiler: reads past the end, element
+types changing between entries, library changes and tiny quanta.
+
 ### Desktop runtime JIT
 
 Variables whose type no guess finds (values from untyped calls, parameters of callbacks) are left to the desktop

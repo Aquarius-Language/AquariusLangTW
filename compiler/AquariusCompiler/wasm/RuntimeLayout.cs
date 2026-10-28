@@ -32,7 +32,7 @@ internal static class RuntimeLayout
     internal static readonly int ArrayStorageReferences = Get(nameof(ArrayStorageReferences)), ArrayStorageCapacity = Get(nameof(ArrayStorageCapacity)),
         ArrayStorageUsed = Get(nameof(ArrayStorageUsed)), ArrayStorageValues = Get(nameof(ArrayStorageValues)), ArrayStorageSize = Get(nameof(ArrayStorageSize));
     internal static readonly int ArrayCount = Get(nameof(ArrayCount)), ArrayCapacity = Get(nameof(ArrayCapacity)), ArrayValues = Get(nameof(ArrayValues)), ArrayDirtyNext = Get(nameof(ArrayDirtyNext)),
-        ArrayDirty = Get(nameof(ArrayDirty)), ArrayExposed = Get(nameof(ArrayExposed)), ArrayStorage = Get(nameof(ArrayStorage)), ArrayElement = Get(nameof(ArrayElement)),
+        ArrayDirty = Get(nameof(ArrayDirty)), ArrayExposed = Get(nameof(ArrayExposed)), ArrayStorage = Get(nameof(ArrayStorage)), ArrayElement = Get(nameof(ArrayElement)), ArrayKind = Get(nameof(ArrayKind)),
         ArraySize = Get(nameof(ArraySize));
     internal static readonly int PairKey = Get(nameof(PairKey)), PairValue = Get(nameof(PairValue)), PairSize = Get(nameof(PairSize));
     internal static readonly int HashCount = Get(nameof(HashCount)), HashCapacity = Get(nameof(HashCapacity)), HashPairs = Get(nameof(HashPairs));

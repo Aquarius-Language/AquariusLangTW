@@ -14,8 +14,10 @@ typedef struct { u32 length; uint16_t data[]; } Text;
 typedef struct { Text *name; u32 hash; Value value; } Binding;
 typedef struct Scope { struct Scope *outer; Binding *bindings; u32 count, capacity, captured; u32 *index,index_capacity; } Scope;
 typedef struct { u32 references,capacity,used,padding; Value values[]; } ArrayStorage;
-/* element: 0, or the one value tag a typed array (整數[] / int[] ...) holds; set when an annotation check accepts it. */
-typedef struct Array { u32 count, capacity; Value *values; struct Array *dirty_next; u32 dirty, exposed; ArrayStorage *storage; u32 element; } Array;
+/* element: 0, or the one value tag a typed array (整數[] / int[] ...) holds; set when an annotation check accepts it.
+   kind: the tag every element of an untyped array has, or 0 when unknown. Writes of another tag (and host writes) reset it;
+   native regions speculating on an untyped array check it at entry (rt_arrayKind), scanning only when it is unknown. */
+typedef struct Array { u32 count, capacity; Value *values; struct Array *dirty_next; uint16_t dirty, kind; u32 exposed; ArrayStorage *storage; u32 element; } Array;
 typedef struct { Value key, value; } Pair;
 /* A struct type (結構 / struct), made when its declaration runs: its program-wide id (the annotation code is
    32 | id << 6), name and fields, each with its annotation code (0: any value) and type name (for messages). */
@@ -264,11 +266,11 @@ static ArrayStorage *array_storage(u32 n) { ArrayStorage*s=allocate(sizeof(Array
 static void attach_storage(Array*a,ArrayStorage*s) { a->storage=s;a->capacity=s->capacity;a->values=s->values; }
 static Array *array(u32 n) { Array*a=allocate(sizeof(Array),ARRAYS);a->count=n;attach_storage(a,array_storage(n));return a; }
 static void writable_array(Array*a,u32 count) { if(a->storage->references==1&&count<=a->capacity)return;u32 capacity=count>a->count?count:a->count;if(capacity<a->capacity)capacity=a->capacity;ArrayStorage*old=a->storage,*next=array_storage(capacity);memcpy(next->values,a->values,a->count*sizeof(Value));next->used=a->count;if(!--old->references)release(old);attach_storage(a,next); }
-static Array *append_array(Array*a,Value v) { Array*b=allocate(sizeof(Array),ARRAYS);b->count=a->count+1;if(a->count==a->storage->used&&b->count<=a->capacity){a->storage->references++;attach_storage(b,a->storage);}else{attach_storage(b,array_storage(b->count));memcpy(b->values,a->values,a->count*sizeof(Value));}b->values[a->count]=v;b->storage->used=b->count;return b; }
+static Array *append_array(Array*a,Value v) { Array*b=allocate(sizeof(Array),ARRAYS);b->count=a->count+1;if(a->count==a->storage->used&&b->count<=a->capacity){a->storage->references++;attach_storage(b,a->storage);}else{attach_storage(b,array_storage(b->count));memcpy(b->values,a->values,a->count*sizeof(Value));}b->values[a->count]=v;b->storage->used=b->count;b->kind=a->kind==v.tag?a->kind:0;return b; }
 u32 aqua_array(u32 n) { return address(array(n)); }
-u32 aqua_array_values(u32 p) { Array*a=pointer(p);writable_array(a,a->count);return address(a->values); }
+u32 aqua_array_values(u32 p) { Array*a=pointer(p);writable_array(a,a->count);a->kind=0;return address(a->values); }
 u32 aqua_array_count(u32 p) { return ((Array*)pointer(p))->count; }
-u32 aqua_array_resize(u32 p,u32 n) { Array*a=pointer(p);writable_array(a,n);if(n>a->count)memset(a->values+a->count,0,(n-a->count)*sizeof(Value));a->count=n;a->storage->used=n;return 0; }
+u32 aqua_array_resize(u32 p,u32 n) { Array*a=pointer(p);writable_array(a,n);a->kind=0;if(n>a->count)memset(a->values+a->count,0,(n-a->count)*sizeof(Value));a->count=n;a->storage->used=n;return 0; }
 u32 aqua_array_expose(u32 p) { Array*a=pointer(p);if(a->exposed!=2)a->exposed=1;return 0; }
 /* Host-visible work lists: arrays and hashes changed since the host took them, and exposed ones the guest dropped
    (weak mirrors). Hosts read this block (aqua_pending) after a run slice or before a service call and call the take_*
@@ -305,7 +307,7 @@ static int keep_released(Block*b) {
     if(b->kind==HASHES){Hash*h=(Hash*)(b+1);if(h->exposed==1){h->exposed=2;h->dirty_next=pending.released_hashes;pending.released_hashes=h;}return h->exposed==2;}
     return 0;
 }
-u32 aqua_array_items(u32 p) { return address(((Array*)pointer(p))->values); }
+u32 aqua_array_items(u32 p) { Array*a=pointer(p);a->kind=0;return address(a->values); }
 u32 aqua_stale(u32 tag,u32 p) { return tag==ARRAY?((Array*)pointer(p))->dirty:tag==HASH?((Hash*)pointer(p))->dirty:1; }
 u32 aqua_hash(u32 n) { Hash*h=allocate(sizeof(Hash),HASHES);h->count=n;h->pairs=allocate(n*sizeof(Pair),RAW);h->capacity=((Block*)h->pairs-1)->size/sizeof(Pair);return address(h); }
 u32 aqua_hash_pairs(u32 p) { return address(((Hash*)pointer(p))->pairs); }
@@ -521,7 +523,7 @@ static Value flood_fill(Frame*f,Value*args) {
     for(u32 i=0;i<a->count;i++)if(!numeric(a->values[i])){failure(f,"floodFill requires a numeric array.");return empty;}
     u32 width=(u32)wd,height=(u32)hd,x=(u32)xd,y=(u32)yd;Value original=a->values[y*width+x],replacement=args[5];
     if(equal(original,replacement,0)||!equal(original,original,0))return number(0,INT);
-    writable_array(a,a->count);u32 capacity=64,count=0,changed=0;FillSpan*stack=allocate(capacity*sizeof(FillSpan),RAW);
+    writable_array(a,a->count);if(a->kind!=replacement.tag)a->kind=0;u32 capacity=64,count=0,changed=0;FillSpan*stack=allocate(capacity*sizeof(FillSpan),RAW);
     u32 left=x,right=x;while(left&&equal(a->values[y*width+left-1],original,0))left--;while(right+1<width&&equal(a->values[y*width+right+1],original,0))right++;
     for(u32 i=left;i<=right;i++){a->values[y*width+i]=replacement;changed++;}stack[count++]=(FillSpan){y,left,right};
     while(count){FillSpan span=stack[--count];for(u32 side=0;side<2;side++){
@@ -555,7 +557,7 @@ int rt_call(Frame*f,int n) {
         if(callee.ref==5)out=flood_fill(f,args);
         else if(callee.ref==1){if(a.tag==STRING)out=number(((Text*)pointer(a.ref))->length,INT);else if(a.tag==ARRAY)out=number(((Array*)pointer(a.ref))->count,INT);else if(a.tag==HASH)out=number(((Hash*)pointer(a.ref))->count,INT);else failure(f,"Length requires string, array or hash.");}
         else if(a.tag!=ARRAY)failure(f,"Builtin requires an array.");else{Array*x=pointer(a.ref);if(callee.ref==2)out=x->count?x->values[x->count-1]:value(NULL_VALUE,0,0);
-            else if(callee.ref==3){if(!x->count)out=value(NULL_VALUE,0,0);else{Array*y=array(x->count-1);memcpy(y->values,x->values+1,y->count*sizeof(Value));out=value(ARRAY,address(y),0);}}
+            else if(callee.ref==3){if(!x->count)out=value(NULL_VALUE,0,0);else{Array*y=array(x->count-1);memcpy(y->values,x->values+1,y->count*sizeof(Value));y->kind=x->kind;out=value(ARRAY,address(y),0);}}
             else{Array*y=append_array(x,args[1]);out=value(ARRAY,address(y),0);}}
         f->sp=base;push(f,out);}
     else if(callee.tag==STRUCT_TYPE){Value out=struct_new(f,pointer(callee.ref),args,(u32)n,0);f->sp=base;if(!f->execution->status)push(f,out);}
@@ -703,7 +705,12 @@ int rt_nativeStruct(int shape) {
     Shape*s=pointer((u32)shape);Struct*x=allocate(sizeof(Struct)+s->count*sizeof(Value),STRUCTS);x->shape=s;x->count=s->count;
     for(u32 i=0;i<s->count;i++)x->fields[i]=value(NULL_VALUE,0,0);return (int)address(x);
 }
-int rt_array(Frame*f,int n){Array*a=array(n);for(int i=n-1;i>=0;i--)a->values[i]=pop(f);push(f,value(ARRAY,address(a),0));return 0;}
+int rt_array(Frame*f,int n){Array*a=array(n);u32 kind=n?f->values[f->sp-1].tag:0;for(int i=n-1;i>=0;i--){a->values[i]=pop(f);if(a->values[i].tag!=kind)kind=0;}a->kind=(uint16_t)kind;push(f,value(ARRAY,address(a),0));return 0;}
+/* A native region speculating that an untyped array holds only elements of one tag checks it at entry: a typed array
+   must hold that tag, an untyped one must have that kind (Array.kind), found by a scan when unknown. Host-exposed arrays
+   are scanned every time, since the host may write them directly. */
+int rt_arrayKind(int array,int tag){Array*a=pointer((u32)array);if(a->element)return a->element==(u32)tag;if(a->kind==(u32)tag&&!a->exposed)return 1;
+    for(u32 i=0;i<a->count;i++)if(a->values[i].tag!=(u32)tag)return 0;if(!a->exposed)a->kind=(uint16_t)tag;return 1;}
 /* An annotation check on the top operand: n = (subject constant << 5) | type code (element tag, +16 for arrays).
    Integers widen to float or double and floats to double; any other mismatch is a language error. */
 int rt_checkType(Frame*f,int n){
@@ -723,7 +730,7 @@ int rt_index(Frame*f,int n){Value i=pop(f),v=pop(f),out=value(NULL_VALUE,0,0);if
 int rt_checkArrayWrite(Frame*f,int n){Value i=peek(f,1),a=peek(f,2);if(a.tag==HASH){if(!numeric(i)&&i.tag!=STRING&&i.tag!=BOOL)named_failure(f,"Unusable as hash key: ",ascii(type_name(i.tag)));}else if(a.tag!=ARRAY)failure(f,"Indexed assignment requires an array or hash.");else if(i.tag!=INT)failure(f,"Array assignment index must be an integer.");else if(i.number<0||i.number>=((Array*)pointer(a.ref))->count)failure(f,"Array assignment index is out of bounds.");return 0;}
 int rt_writeIndex(Frame*f,int n){Value v=pop(f);rt_checkArrayWrite(f,0);Value i=pop(f),a=pop(f);if(!f->execution->status){
     if(a.tag==HASH){Hash*h=pointer(a.ref);u32 j=hash_find(h,i);if(j==h->count)aqua_hash_resize(a.ref,h->count+1);h->pairs[j]=(Pair){i,v};if(h->exposed&&!h->dirty){h->dirty=1;h->dirty_next=pending.dirty_hashes;pending.dirty_hashes=h;}}
-    else{Array*x=pointer(a.ref);if(!element_fits(f,x,v)){push(f,v);return 0;}writable_array(x,x->count);x->values[(u32)i.number]=v;if(x->exposed&&!x->dirty){x->dirty=1;x->dirty_next=pending.dirty_arrays;pending.dirty_arrays=x;}}
+    else{Array*x=pointer(a.ref);if(!element_fits(f,x,v)){push(f,v);return 0;}writable_array(x,x->count);x->values[(u32)i.number]=v;if(x->kind!=v.tag)x->kind=0;if(x->exposed&&!x->dirty){x->dirty=1;x->dirty_next=pending.dirty_arrays;pending.dirty_arrays=x;}}
 }push(f,v);return 0;}
 int rt_member(Frame*f,int n){Value m=pop(f),out=empty;Text*t=name(f,n);
     if(m.tag==STRUCT){Struct*x=pointer(m.ref);int k=field_index(x->shape,t);if(k<0)unknown_field(f,x->shape,t);else out=x->fields[k];push(f,out);return 0;}

@@ -556,6 +556,19 @@ internal sealed class WasmBodyEmitter
         var code = body.Code; int n = code.Length;
         var leaders = new SortedSet<int> { 0, n };
         foreach (int position in WasmFuel.Checkpoints(body).Keys) leaders.Add(position);
+        // A read of an untyped array a native region may speculate on (an array guess) starts a block: a read outside the
+        // array leaves the region there, with its operands in the frame (WasmNativeFunction loose arrays).
+        foreach (var (enter, _, leave, region) in body.Loops) {
+            if (region == null) continue;
+            var guessed = region.Outer.Where(o => o.Value.Type == 0 && (o.Value.Guess & 16) != 0 && (o.Value.Guess & 15) is >= 1 and <= 4)
+                .Select(o => o.Key).ToHashSet(StringComparer.Ordinal);
+            if (guessed.Count == 0) continue;
+            for (int i = Math.Max(enter, 1); i < leave && i < n; i++) {
+                if (code[i].Code != IrOperation.Index || plan.Depth[i] < 2) continue;
+                int k = i - 1; while (k >= 0 && plan.Depth[k] != plan.Depth[i] - 2) k--;
+                if (k >= 0 && code[k].Code == IrOperation.Load && WasmScopePlan.NameOf(body, code[k]) is string name && guessed.Contains(name)) leaders.Add(i);
+            }
+        }
         for (int i = 0; i < n; i++) {
             if (plan.Depth[i] < 0) continue;
             var op = code[i];
@@ -1118,6 +1131,9 @@ internal sealed class WasmBodyEmitter
         Branch(() => {
             Get(R(a)); LoadI32(ArrayValues); IndexOf(i, ti); I32(4); Op(0x74); Op(0x6a); Set(B);
             StoreValue(v, B, 0, tv);
+            // An untyped array's element kind (Array.kind): a write of another tag makes it unknown.
+            Get(R(a)); Op(0x2f, 0x01); U(ArrayKind); if (tv == Unknown) Get(T(v)); else I32(tv); Op(0x47);
+            If(); Get(R(a)); I32(0); Op(0x3b, 0x01); U(ArrayKind); End();
             if (tv == Unknown) { Get(T(v)); Set(T(a)); }
             if (HasRef(tv)) { Get(R(v)); Set(R(a)); }
             if (tv == IntTag) { Get(I(v)); Set(I(a)); } else { Get(N(v)); Set(N(a)); }
