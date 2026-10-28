@@ -412,6 +412,100 @@ public class LanguageServerTest
     }
 
     [Fact]
+    public void PortableFunctionParametersMatchTheGuestRuntimeArities()
+    {
+        // Every function's parameters (optional ones end in ?) agree with the guest runtime's minimum and maximum arities.
+        var installation = AquariusInstallation.Current;
+        Assert.True(installation is { IsRepository: true }, "Needs the repository checkout (runtime/guest).");
+        var arities = new List<(string Name, int Minimum, int Maximum)>();
+        foreach (string header in new[] { "threads.h", "arrays.h", "hashes.h", "texts.h" }) {
+            string text = File.ReadAllText(Path.Combine(installation!.Root, "runtime", "guest", header), Encoding.UTF8);
+            foreach (Match table in Regex.Matches(text, @"(\w+)_names\[\w+\]\[2\]\s*=\s*\{(.*?)\};", RegexOptions.Singleline)) {
+                int[] Counts(string suffix) => Regex.Match(text, table.Groups[1].Value + @"_" + suffix + @"\[\w+\]\s*=\s*\{([^}]*)\}").Groups[1].Value
+                    .Split(',').Select(int.Parse).ToArray();
+                var names = Regex.Matches(table.Groups[2].Value, @"\{\s*u""([^""]*)""").Select(m => m.Groups[1].Value).ToArray();
+                int[] minimum = Counts("minimum"), maximum = Counts("maximum");
+                Assert.Equal(names.Length, minimum.Length);
+                arities.AddRange(names.Select((n, i) => (n, minimum[i], maximum[i])));
+            }
+        }
+        var members = LanguageFacts.PortableModules.SelectMany(m => m.Members.Select(f => (Module: m.Names[0], Name: f.Names[0]))).ToArray();
+        Assert.Equal(arities.Count, members.Length);
+        foreach (var ((name, minimum, maximum), member) in arities.Zip(members)) {
+            Assert.Equal(name, member.Name);
+            var parameters = LanguageFacts.PortableParameters(member.Module, member.Name);
+            Assert.True(parameters.Count == maximum && parameters.Count(p => !p.EndsWith('?')) == minimum,
+                $"{member.Module}.{name}: ({string.Join(", ", parameters)}) vs arity {minimum}..{maximum}");
+        }
+    }
+
+    [Fact]
+    public void ArrayKernelsAndPortableFunctionsDescribeTheirParametersInBothLanguages()
+    {
+        using var s = Launch();
+        s.Open("變數 a=[3,1,2];\n陣列.排序(a);\nArray.Reduce(a,函式(t,x){回傳 t+x;},0);\n雜湊.取得({},1,0);\n字串.分割(\"a,b\",\",\");\n陣列.");
+        Assert.Matches(@"陣列\.排序\(陣列, 比較\?\) / Array\.Sort\(array, compare\?\) — .*stable", HoverText(s.Feature("hover", 1, 4)));
+        Assert.Matches(@"Array\.Reduce\(array, function, initial\)", HoverText(s.Feature("hover", 2, 8)));
+        Assert.Matches(@"雜湊\.取得\(雜湊, 鍵, 預設\)", HoverText(s.Feature("hover", 3, 4)));
+        Assert.Matches(@"字串\.分割\(文字, 分隔\)", HoverText(s.Feature("hover", 4, 4)));
+        var completion = s.Feature("completion", 5, 3);
+        foreach (string name in new[] { "排序", "Sort", "總和", "Sum", "最小值", "Min", "最大值", "Max", "映射", "Map", "篩選", "Filter", "歸約", "Reduce" })
+            Assert.True(HasItem(completion, name, 3), name);
+        Assert.Contains(completion.EnumerateArray(), item => item.GetProperty("label").GetString() == "映射"
+            && item.GetProperty("detail").GetString()!.StartsWith("陣列.映射(陣列, 函式)", StringComparison.Ordinal));
+        // The conversions are functions where they are called and types after a colon.
+        s.Open("變數 n: 整數 = 整數(2.5d);");
+        Assert.Matches("型別 整數", HoverText(s.Feature("hover", 0, 6)));
+        Assert.Matches(@"整數\(值\) — Convert a number to a 32-bit integer", HoverText(s.Feature("hover", 0, 11)));
+    }
+
+    [Fact]
+    public void SignatureHelpShowsTheParametersOfTheCallAtThePosition()
+    {
+        using var t = Launch();
+        string text = "結構 節點 { 左: 節點; 值: 整數 }\n變數 加 = 函式(甲: 整數, 乙) { 回傳 甲 + 乙; };\n" +
+            "加(1, 陣列.歸約([1], 函式(a, b) { 回傳 a; }, 0));\nArray.Sort([2, 1], 0);\n節點(值: 1);\n長度([1]); 整數(1.5d); \"加(\";";
+        NoDiagnostics(t.Open(text));
+        static (string Label, int Active, string[] Parameters) Read(JsonElement help) {
+            var signature = help.GetProperty("signatures")[0];
+            string label = signature.GetProperty("label").GetString()!;
+            var parameters = signature.GetProperty("parameters").EnumerateArray().Select(p => {
+                var range = p.GetProperty("label"); return label[range[0].GetInt32()..range[1].GetInt32()]; }).ToArray();
+            return (label, help.GetProperty("activeParameter").GetInt32(), parameters);
+        }
+        // A declared function, then the portable kernel nested in its second argument.
+        var outer = Read(t.Feature("signatureHelp", 2, 2));
+        Assert.Equal(("加(甲: 整數, 乙)", 0), (outer.Label, outer.Active)); Assert.Equal(new[] { "甲: 整數", "乙" }, outer.Parameters);
+        Assert.Equal(1, Read(t.Feature("signatureHelp", 2, 5)).Active);
+        var kernel = Read(t.Feature("signatureHelp", 2, 34));
+        Assert.Equal(("陣列.歸約(陣列, 函式, 初值)", 1), (kernel.Label, kernel.Active));
+        Assert.Equal(new[] { "陣列", "函式", "初值" }, kernel.Parameters);
+        Assert.Equal(2, Read(t.Feature("signatureHelp", 2, 36)).Active);
+        // The language the call is written in, a struct construction, a core global and a conversion.
+        var english = Read(t.Feature("signatureHelp", 3, 19));
+        Assert.Equal(("Array.Sort(array, compare?)", 1), (english.Label, english.Active));
+        Assert.Equal("節點(左: 節點, 值: 整數)", Read(t.Feature("signatureHelp", 4, 3)).Label);
+        Assert.Equal("長度(值)", Read(t.Feature("signatureHelp", 5, 3)).Label);
+        Assert.Equal("整數(值)", Read(t.Feature("signatureHelp", 5, 12)).Label);
+        // Outside any call, and inside a string, there is no signature.
+        Assert.Equal(JsonValueKind.Null, t.Feature("signatureHelp", 0, 3).ValueKind);
+        Assert.Equal(JsonValueKind.Null, t.Feature("signatureHelp", 5, 21).ValueKind);
+    }
+
+    [Fact]
+    public void InitializeAdvertisesSignatureHelpAndTheServerVersion()
+    {
+        using var session = new LanguageServerSession();
+        var result = session.Initialize();
+        Assert.Equal("0.1.3", result.GetProperty("serverInfo").GetProperty("version").GetString());
+        var triggers = result.GetProperty("capabilities").GetProperty("signatureHelpProvider").GetProperty("triggerCharacters");
+        Assert.Equal(new[] { "(", "," }, triggers.EnumerateArray().Select(t => t.GetString()!));
+        // The extension ships the same version.
+        var manifest = JsonDocument.Parse(File.ReadAllText(Path.Combine(AquariusInstallation.Require().Root, "editors", "vscode", "package.json")));
+        Assert.Equal("0.1.3", manifest.RootElement.GetProperty("version").GetString());
+    }
+
+    [Fact]
     public void ScriptLibraryAliasesResolveFromDiskAndUnsavedBuffersWithoutExecutingTheLibrary()
     {
         using var t = new BottleDirectory();

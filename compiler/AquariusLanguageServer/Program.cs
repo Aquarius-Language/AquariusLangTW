@@ -50,9 +50,10 @@ static async Task<int> RunAsync()
                                     positionEncoding = "utf-16",
                                     textDocumentSync = new { openClose = true, change = 2 },
                                     completionProvider = new { resolveProvider = false, triggerCharacters = new[] { "." } },
-                                    hoverProvider = true, definitionProvider = true, documentSymbolProvider = true
+                                    hoverProvider = true, definitionProvider = true, documentSymbolProvider = true,
+                                    signatureHelpProvider = new { triggerCharacters = new[] { "(", "," } }
                                 },
-                                serverInfo = new { name = "Aquarius Language Server", version = "0.1.0" }
+                                serverInfo = new { name = "Aquarius Language Server", version = "0.1.3" }
                             };
                             break;
                         case "initialized": case "$/cancelRequest": case "$/setTrace":
@@ -106,6 +107,7 @@ static async Task<int> RunAsync()
                         case "textDocument/hover": result = GetDocument(parameters).Hover(ReadPosition(parameters.GetProperty("position"))); break;
                         case "textDocument/definition": result = GetDocument(parameters).Definition(ReadPosition(parameters.GetProperty("position"))); break;
                         case "textDocument/documentSymbol": result = GetDocument(parameters).Symbols(); break;
+                        case "textDocument/signatureHelp": result = GetDocument(parameters).SignatureHelp(ReadPosition(parameters.GetProperty("position"))); break;
                         default:
                             if (request) await protocol.ErrorAsync(id, -32601, $"Unknown method: {method}");
                             continue;

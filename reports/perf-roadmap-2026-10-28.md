@@ -137,6 +137,38 @@ New tests:
 
 Codegen goldens were regenerated after each intended emitter or guest-runtime change.
 
+## Language server and VS Code extension 0.1.3
+
+The language server (`compiler/AquariusLanguageServer`) and the extension (`editors/vscode`) now cover the current
+language. Both are version **0.1.3** (server `serverInfo`, `package.json`, `package-lock.json`, the VSIX name, the READMEs).
+`build-release.ps1` reads the version from `package.json`, so it needed no change.
+
+- **Portable modules.** Every function of 陣列/Array (including the new kernels 排序/Sort, 總和/Sum, 最小值/Min,
+  最大值/Max, 映射/Map, 篩選/Filter, 歸約/Reduce), 雜湊/Hash, 字串/String and 執行緒/Thread has a bilingual signature and
+  description in hover and completion (`陣列.排序(陣列, 比較?) / Array.Sort(array, compare?) — …`). Before, hover showed
+  only the two names. A new test reads the guest runtime's name and arity tables and checks every parameter list
+  against them (optional parameters end in `?`).
+- **Signature help** (new: `textDocument/signatureHelp`, triggered by `(` and `,`). It covers declared functions with
+  their annotations, struct constructions (the fields with their types), portable and native module members in the
+  language the call is written in, core globals and conversions. Nested calls and the active argument are handled;
+  nothing is shown inside strings or comments.
+- **Core globals.** 整數/int, 浮點數/float and 雙精度/double are described as conversions where they are called (and
+  stay type names after a colon). 區域填色/floodFill now documents its six parameters.
+- **TextMate grammar.** It now highlights:
+  - every core global (型別, 目前時間, 目前日期, 是Android, 是網頁, 區域填色 and their English names);
+  - conversions, as calls only;
+  - the portable modules with their members;
+  - struct types in annotated declarations (`變數 根: 節點`) and function results (`): 節點`).
+- **Already covered and checked.** Structs, the 陣列/array annotation, typed annotations and their compile-time
+  diagnostics, document symbols for structs and fields, and module completion.
+- **Tests.**
+  - LanguageServerTest gained four cases: rich kernel and module docs plus conversions, arities against the runtime
+    tables, signature help, and capabilities/version. 34 language-server tests now pass.
+  - `editors/vscode/test/manifest.test.js` gained a grammar test for the new patterns (5/5 pass).
+  - `npm run check` and `npm run package` built `aquariuslang-tw-0.1.3.vsix`, and the release script's language-server
+    initialize check passes on the bundled server.
+- **Full suite after this step:** 782 passed, 0 failed, 1 skipped.
+
 ## Notes for reviewers
 
 - Layout: `Hash` gained `index` and `indexed` (same 32-byte allocation class). In `Array`, `dirty` became a `uint16_t` next to the new `uint16_t kind`, so every existing offset is unchanged; `layout.def` lists both. Hosts and SDK readers see no change: pairs stay dense and in order, and `aqua_array_values` / `aqua_array_items` reset the element kind.
