@@ -214,7 +214,7 @@ Micro-benchmarks on the final build (median of 5, ms), compared with `main`:
 | array_sum | 55.9 | 8.6 |
 | typed_strings (new) | 34.2 | 2.0 |
 
-Tests after round 2: Windows `dotnet test` **785 passed**, 0 failed, 1 skipped. New tests: `NativeStringTest` (13
+Tests after round 2: Windows `dotnet test` **786 passed**, 0 failed, 1 skipped (including `JitCacheTest`, below). New tests: `NativeStringTest` (13
 differential programs, native-tier acceptance, collections in string loops under tiny quanta and with the JIT off).
 
 ## Language server and VS Code extension 0.1.3
@@ -254,4 +254,11 @@ language. Both are version **0.1.3** (server `serverInfo`, `package.json`, `pack
 - Layout: `Hash` gained `index` and `indexed` (same 32-byte allocation class). In `Array`, `dirty` became a `uint16_t` next to the new `uint16_t kind`, so every existing offset is unchanged; `layout.def` lists both. Hosts and SDK readers see no change: pairs stay dense and in order, and `aqua_array_values` / `aqua_array_items` reset the element kind.
 - `runtime/guest/prelude.aqua` is AquariusLang code shipped inside the guest runtime and embedded in the compiler. The architecture rule for `.aqua` locations allows exactly that file.
 - The guest runtime has a 512 KB static table of one-unit texts. Static data still ends near 2.4 MB, below the 4 MB program address.
+- **`JitCacheTest`** covers the JIT code cache, running the runtime with a private cache directory:
+  - each installed module gets its own `wasmtime-jit-SSS.bin`, with SSS = `(digest[0] | digest[1] << 8) % 1024`, kept apart from the applications' two-hex-digit slots;
+  - a warm run reads every entry and rewrites none (same bytes and timestamps);
+  - another module's entry in a slot is recompiled and the slot taken back;
+  - an entry with a corrupt or truncated body is recompiled and repaired;
+  - with the JIT off, the JIT cache is never written;
+  - the program prints the same output in every case.
 - The runtime JIT's code cache now has 1024 slots for JIT modules. Before, several loops of one program kept evicting each other from the 32 direct-mapped slots and recompiling on every run.
