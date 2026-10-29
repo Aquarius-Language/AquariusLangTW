@@ -26,14 +26,16 @@ Session members: `On(type, handler)` / `註冊` returns an id (type `"*"` takes 
 `Feed(raw)` / `輸入事件`, `Dispatch()` / `派送`, `SafeArea()` / `安全區域` (`left`, `top`, `right`, `bottom`,
 `keyboardVisible`), `SetCursor(name)` / `設定游標` (`arrow`, `text`, `crosshair`, `hand`, `resizeHorizontal`,
 `resizeVertical`, `resizeDiagonal`, `resizeAntiDiagonal`, `move`, `notAllowed`; false where there is no cursor),
-`Detach()` / `解除`, property `attached`.
+`Detach()` / `解除`, `TextInput(enabled)` / `文字輸入` (typed text and input-method composition arrive as
+`text` and `composition` events), `TextRect(x, y, width, height)` / `文字位置` (where input-method windows open),
+property `attached`.
 
 Handlers receive one event and run newest first until one returns `true`. They run at the runtime's next turn after
 the window system delivered the input; `Dispatch()` runs them at once (hand-driven frame loops, tests). A `"back"` from
 the system that no handler takes closes the activity on Android and leaves the page on the web.
 
 Event types: `press`, `release`, `click`, `move`, `dragStart`, `drag`, `dragEnd`, `longPress`, `pinch`,
-`contextMenu`, `scroll`, `zoom`, `key`, `command`, `back`, `forward`, `resize`, `focus`, `visibility`, `pause`,
+`contextMenu`, `scroll`, `zoom`, `key`, `text`, `composition`, `command`, `back`, `forward`, `resize`, `focus`, `visibility`, `pause`,
 `resume`. Fields (null when they do not apply): `type`, `time`, `x`, `y`, `startX`, `startY`, `dx`, `dy`,
 `velocityX`, `velocityY`, `scale`, `width`, `height`, `button`, `count`, `pointerId`, `pointerType`, `modifiers`,
 `shift`, `alt`, `primary`, `key`, `text`, `action`, `command`, `source`, `phase`, `state`. The full table is in the
@@ -41,7 +43,7 @@ doc.
 
 `Feed(raw)` takes the events of a graphics library that does not use the SDK's windows, in `aqua/window.h` terms:
 `{"type": "pointer" | "button" | "scroll" | "key" | "back" | "resize" | "focus" | "visible" | "lifecycle" |
-"captureLost" | "tick", "time": seconds, "x", "y", "pointer", "pointerType": "mouse" | "touch" | "pen", "button",
+"captureLost" | "text" | "composition" | "tick", "time": seconds, "x", "y", "pointer", "pointerType": "mouse" | "touch" | "pen", "button",
 "action" (0 release, 1 press, 2 repeat), "mods" (GLFW bits), "key" (GLFW key code)}`.
 
 ## How it works

@@ -33,6 +33,8 @@ Libraries:
   scrolling, zooming and keyboard commands, reports the platform's conventions (double-click time, touch slop,
   scrollbar style, dark mode, reduced motion, ...) and works with any graphics library (`Attach` a shared window or
   `Feed` raw events). `ScrollView`, `Navigation`, `ContextMenu` and `Focus` are written in AquariusLang on top of it.
+- Interaction: `text` and `composition` events (typed text and input-method composition) with session
+  `TextInput(enabled)` and `TextRect(x, y, width, height)`, for text editors drawn by any graphics library.
 - Processing's `platformWindow` and WGPU windows' `PlatformWindow` give other libraries the shared window object.
 - Web glue domains `history` (the browser's back button) and `mediaquery` (`matchMedia`).
 

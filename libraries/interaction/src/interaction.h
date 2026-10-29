@@ -25,7 +25,7 @@ typedef struct conventions {
 /* A semantic event. Absent numbers are NaN, absent integers INT32_MIN, absent strings NULL. */
 typedef struct ievent {
     const char *type, *source, *command, *pointer_type, *action, *phase;
-    char text[16];
+    char text[512];               /* a key's name, or typed / composed text */
     double time, x, y, start_x, start_y, dx, dy, velocity_x, velocity_y, scale, width, height;
     int32_t button, count, pointer_id, modifiers, key, state;
 } ievent;

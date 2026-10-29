@@ -417,6 +417,18 @@ void recognizer_input(recognizer *r, const aqua_window_event *in) {
         emit(r, &e);
         break;
     case AQUA_EVENT_CAPTURE_LOST: recognizer_cancel(r, in->time); break;
+    /* Typed text and input-method composition, while the window takes text input. */
+    case AQUA_EVENT_TEXT:
+        e = event_new("text", in->time);
+        if (in->text) snprintf(e.text, sizeof e.text, "%s", in->text);
+        emit(r, &e);
+        break;
+    case AQUA_EVENT_COMPOSITION_START: case AQUA_EVENT_COMPOSITION_UPDATE: case AQUA_EVENT_COMPOSITION_END:
+        e = event_new("composition", in->time);
+        e.phase = in->type == AQUA_EVENT_COMPOSITION_START ? "start" : in->type == AQUA_EVENT_COMPOSITION_END ? "end" : "update";
+        if (in->text) snprintf(e.text, sizeof e.text, "%s", in->text);
+        emit(r, &e);
+        break;
     default: break;
     }
 }

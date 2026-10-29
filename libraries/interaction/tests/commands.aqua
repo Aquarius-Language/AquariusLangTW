@@ -37,4 +37,12 @@ t.Feed({"type": "key", "key": 65, "action": 1, "mods": 1});
 t.Feed({"type": "key", "key": 65, "action": 2, "mods": 1});
 t.Feed({"type": "key", "key": 65, "action": 0, "mods": 1});
 t.Dispatch();
+# Typed text and input-method composition (while text input is on) arrive as their own events.
+var w = ix.Create();
+w.On("text", function(e) { print("text", e.text); return true; });
+w.On("composition", function(e) { print("composition", e.phase, e.text); return true; });
+w.Feed({"type": "text", "text": "星泉 é"});
+w.Feed({"type": "composition", "text": "ㄒㄧㄥ"});
+w.Dispatch();
+print(w.TextInput(true), w.TextRect(1, 2, 3, 4));
 t.Feed({"type": "dance"});

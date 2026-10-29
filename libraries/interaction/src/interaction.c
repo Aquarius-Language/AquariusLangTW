@@ -417,7 +417,8 @@ static bool number_field(aqua_runtime *rt, aqua_value hash, const char *name, do
 static const struct { const char *name; int32_t type; } raw_types[] = {
     {"pointer", AQUA_EVENT_POINTER}, {"button", AQUA_EVENT_BUTTON}, {"scroll", AQUA_EVENT_SCROLL}, {"key", AQUA_EVENT_KEY},
     {"back", AQUA_EVENT_BACK}, {"resize", AQUA_EVENT_RESIZE}, {"focus", AQUA_EVENT_FOCUS}, {"visible", AQUA_EVENT_VISIBLE},
-    {"lifecycle", AQUA_EVENT_LIFECYCLE}, {"captureLost", AQUA_EVENT_CAPTURE_LOST}, {"tick", 0}};
+    {"lifecycle", AQUA_EVENT_LIFECYCLE}, {"captureLost", AQUA_EVENT_CAPTURE_LOST}, {"text", AQUA_EVENT_TEXT},
+    {"composition", AQUA_EVENT_COMPOSITION_UPDATE}, {"tick", 0}};
 
 /* A raw event of a graphics library with windows of its own, in aqua/window.h's terms:
    {"type": "pointer" | "button" | "scroll" | "key" | "back" | "resize" | "focus" | "visible" | "lifecycle" | "captureLost"
@@ -442,6 +443,7 @@ static void session_feed(aqua_call *call) {
     if (number_field(rt, hash, "action", &n)) e.action = (int32_t)n;
     if (number_field(rt, hash, "mods", &n)) e.mods = (int32_t)n;
     if (number_field(rt, hash, "key", &n)) e.key = (int32_t)n;
+    if (aqua_hash_field(rt, hash, "text", &v) && v.type == AQUA_STRING) e.text = aqua_str_of(call, v).data;
     if (aqua_hash_field(rt, hash, "pointerType", &v) && v.type == AQUA_STRING) {
         aqua_str name = aqua_str_of(call, v);
         e.pointer_type = strcmp(name.data, "touch") == 0 ? 1 : strcmp(name.data, "pen") == 0 ? 2 : 0;
@@ -484,6 +486,19 @@ static void session_set_cursor(aqua_call *call) {
     aqua_return_bool(call, s->window && platform()->hover && aqua_window_set_cursor_shape(s->window, shape ? 0x36001 + shape : 0));
 }
 
+/* TextInput(enabled): typed text and input-method composition arrive as "text" and "composition" events.
+   TextRect(x, y, width, height): where the text being typed is, so input-method windows open beside it. */
+static void session_text_input(aqua_call *call) {
+    session *s = aqua_self(call);
+    if (s->window) aqua_window_text_input(s->window, aqua_arg_bool(call, 0));
+    aqua_return_bool(call, s->window != NULL);
+}
+static void session_text_rect(aqua_call *call) {
+    session *s = aqua_self(call);
+    if (s->window) aqua_window_text_rect(s->window, aqua_arg_int(call, 0), aqua_arg_int(call, 1), aqua_arg_int(call, 2), aqua_arg_int(call, 3));
+    aqua_return_bool(call, s->window != NULL);
+}
+
 static void session_detach(aqua_call *call) {
     session *s = aqua_self(call);
     if (s->window) aqua_window_unlisten(s->window, on_window, s);
@@ -511,6 +526,8 @@ AQUA_LIBRARY(interaction) {
     aqua_define_function(session_class, "SafeArea|安全區域", session_safe_area, "");
     aqua_define_function(session_class, "SetCursor|設定游標", session_set_cursor, "s");
     aqua_define_function(session_class, "Detach|解除", session_detach, "");
+    aqua_define_function(session_class, "TextInput|文字輸入", session_text_input, "b");
+    aqua_define_function(session_class, "TextRect|文字位置", session_text_rect, "nnnn");
     aqua_define_property(session_class, "attached", session_attached);
 
     event_class = aqua_define_class(library, "Interaction.Event", event_finalize);
