@@ -188,6 +188,87 @@ HTTPS 使用 Mbed TLS，憑證可為 PKCS#12（PBES2 或 3DES）或 PEM：
 `網路.監聽("https://127.0.0.1:8443", {"憑證":"server.pfx", "憑證密碼":"..."})`。
 憑證由應用程式部署，函式庫不關閉驗證，也不自動產生受信任憑證。
 
+## 非同步 / Async variants
+
+會等待的函式都有立即回傳承諾（`承諾` / `Promise`）的版本：英文名稱加 `Async`，中文名稱前加 `非同步`，例如
+`GetAsync` / `非同步取得`。同步版本照常運作（等待時其他工作仍繼續執行）；承諾版本適合同時發出多個請求再用
+`承諾.全部` 收集，或在 `非同步` 函式中 `等待`。
+
+Every function that waits has a variant that returns a promise at once: `RequestAsync`, `GetAsync`, `PostAsync`
+(module and client), `ResolveAsync`, `ConnectTCPAsync`, `ConnectTLSAsync`, `ConnectWebSocketAsync`, the operations'
+`WaitAsync`, the streams' `ReadAsync` / `ReadTextAsync` / `WriteAsync` / `WriteTextAsync`, `AcceptAsync`,
+`ReceiveAsync` (UDP and WebSocket), `SendTextAsync` / `SendBytesAsync`, and the server's `PollAsync`, `ServeAsync`,
+`ShutdownAsync` and `ListenAndServeAsync`. Chinese names put `非同步` first: `非同步請求`, `非同步取得`, `非同步服務`, ...
+
+```text
+var net = import("Network");
+var pages = await Promise.All([net.GetAsync("https://example.com/a"), net.GetAsync("https://example.com/b")]);
+var server = net.Listen(":8080");
+server.Handle("GET /hello/{name}", function(request, writer) { writer.Text("hello " + request.Param("name")); });
+var serving = server.ServeAsync();   # serves while the script goes on
+```
+
+A failure the waiting function reports as an error rejects the promise instead (`Catch`, `Promise.AllSettled`); an
+HTTP response, including 4xx/5xx and connection errors with status 0, fulfills it as before.
+
+## Go 風格伺服器 / Go-style server
+
+伺服器的介面參考 Go 的 `net/http`：模式含方法、最明確的路由優先、群組、包裝式中介、`http.Error` 等輔助函式，
+以及優雅關閉。原本的寫法全部照常可用。
+
+The server follows Go's `net/http`; every earlier form keeps working.
+
+```text
+var net = import("Network");
+var server = net.Listen(":8080");                         # "host:port", ":port" (every interface) or "http(s)://..."
+server.Use(function(request, writer, next) {              # wrapping middleware: work before and after next()
+    var start = currentTime();
+    next();
+    print(request.Method, request.Path, currentTime() - start);
+});
+server.Handle("GET /items/{id}", function(request, writer) { writer.JSON({"id": request.Param("id")}); });
+server.Handle("GET /items/new", function(request, writer) { writer.Text("form"); });  # more specific: wins for /items/new
+server.Handle("/health", function(request, writer) { writer.Text("ok"); });            # any method
+server.Handle("GET /files/{path...}", function(request, writer) { writer.File("public/" + request.Param("path")); });
+var api = server.Group("/api");
+api.Use(function(request, writer) { if (request.Header("X-Key") != "secret") { writer.Error(401); return false; } });
+api.Handle("POST /upload", function(request, writer) { writer.JSON({"files": len(request.Files())}); });
+server.Serve();
+```
+
+```text
+變數 網路 = 匯入("網路");
+網路.監聽並服務(":8080", {
+    "GET /": 函式(請求, 回應) { 回應.文字("首頁"); },
+    "GET /使用者/{名稱}": 非同步 函式(請求, 回應) { 等待 承諾.延遲(10); 回應.回傳JSON({"名稱": 請求.路由參數("名稱")}); }
+});
+```
+
+| English | 繁體中文 | 說明 / Description |
+| --- | --- | --- |
+| `Network.ListenAndServe(address, routes?, options?)` | `網路.監聽並服務(位址, 路由?, 選項?)` | Listen, Handle each `"METHOD /path": handler`, Serve. / 監聽、註冊路由並服務。 |
+| `Network.StatusText(code)` | `網路.狀態說明(代碼)` | `"Not Found"` for 404, `""` for unknown codes (Go's `http.StatusText`). |
+| `server.Handle(pattern, handler)` | `伺服器.處理(模式, 函式)` | Pattern `"METHOD /path"` or `"/path"` (any method); `Handle(method, path, handler)` still works. |
+| `server.Group(prefix)` / `router.Group(prefix)` | `伺服器.群組(前綴)` | A router: `Handle`, `Use` and `Group` under the prefix; its middleware runs only for its routes. |
+| `server.Use(function(request, writer, next))` | `伺服器.使用中介(函式(請求, 回應, 下一步))` | With a third parameter the middleware wraps the rest: `next()` runs it and returns once it finished. Without it, returning false stops the chain, as before. |
+| `server.Shutdown(timeout?)` | `伺服器.優雅關閉(逾時?)` | Stop accepting, let requests in progress finish (idle keep-alive connections close), then close; true when everything finished within the timeout (default 30000 ms). |
+| `writer.Error(status, message?)` | `回應.錯誤(狀態碼, 訊息?)` | 4xx/5xx with a plain-text body (the status text by default). |
+| `writer.NotFound()` | `回應.找不到()` | 404. |
+| `writer.Write(textOrBytes)` | `回應.寫入(文字或位元組)` | A piece of the body, sent at once (chunked). |
+| `writer.AddHeader(name, value)` | `回應.加入標頭(名稱, 值)` | Adds a header line (`Header` / `設定標頭` replaces). |
+| `writer.File(path)` | `回應.傳送檔案(路徑)` | A file or packaged asset with Content-Type, ETag, Last-Modified, `If-None-Match` and single `Range` requests (206 / 416). |
+| `request.Host`, `request.Proto` | `請求.主機`, `請求.協定版本` | The Host header and `HTTP/1.1` / `HTTP/1.0`. |
+| `request.FormValue(name)` | `請求.表單值(名稱)` | A URL-encoded or multipart form field, else the query parameter; `""` when absent. |
+| `request.Files()` | `請求.上傳檔案()` | Multipart uploads: `[{"field", "filename", "contentType", "size", "data"}]`; `Form()` reads multipart text fields too. |
+| `request.BasicAuth()` | `請求.基本認證()` | `{"user", "password"}` of `Authorization: Basic`, or null. |
+
+Routing: among the routes whose method and pattern match, the most specific wins, as in Go 1.22: compared segment by
+segment a literal beats a `{parameter}`, which beats a wildcard (`*` or `{name...}`, the rest of the path), a pattern
+that ends beats a wildcard that goes on, and a route for the method beats one for any method; registration order breaks
+ties. `{name...}` also matches the empty rest (`/files/{path...}` matches `/files`). Handlers and middleware may be
+async functions: the request finishes when their promise settles. Server options add `readTimeout` / `讀取逾時` (a
+request's head, default 15000 ms) and `idleTimeout` / `閒置逾時` (an idle keep-alive connection, default 30000 ms).
+
 ## 實作 / Implementation
 
 同一份 C 原始碼（`src/`）在 Windows、Linux、Android 使用原生 socket 與 Mbed TLS，

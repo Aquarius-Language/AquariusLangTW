@@ -147,6 +147,24 @@ void resource_close(network_state *s, resource *r) {
     r->close(s, r);
 }
 
+/* ---- Status texts (RFC 9110 and the IANA registry, as Go's http.StatusText) ---- */
+
+#define NET_STATUS_TEXTS(X)     X(100, "Continue") X(101, "Switching Protocols") X(102, "Processing") X(103, "Early Hints")     X(200, "OK") X(201, "Created") X(202, "Accepted") X(203, "Non-Authoritative Information") X(204, "No Content")     X(205, "Reset Content") X(206, "Partial Content") X(207, "Multi-Status") X(208, "Already Reported") X(226, "IM Used")     X(300, "Multiple Choices") X(301, "Moved Permanently") X(302, "Found") X(303, "See Other") X(304, "Not Modified")     X(305, "Use Proxy") X(307, "Temporary Redirect") X(308, "Permanent Redirect")     X(400, "Bad Request") X(401, "Unauthorized") X(402, "Payment Required") X(403, "Forbidden") X(404, "Not Found")     X(405, "Method Not Allowed") X(406, "Not Acceptable") X(407, "Proxy Authentication Required") X(408, "Request Timeout")     X(409, "Conflict") X(410, "Gone") X(411, "Length Required") X(412, "Precondition Failed") X(413, "Payload Too Large")     X(414, "URI Too Long") X(415, "Unsupported Media Type") X(416, "Range Not Satisfiable") X(417, "Expectation Failed")     X(418, "I'm a teapot") X(421, "Misdirected Request") X(422, "Unprocessable Entity") X(423, "Locked")     X(424, "Failed Dependency") X(425, "Too Early") X(426, "Upgrade Required") X(428, "Precondition Required")     X(429, "Too Many Requests") X(431, "Request Header Fields Too Large") X(451, "Unavailable For Legal Reasons")     X(500, "Internal Server Error") X(501, "Not Implemented") X(502, "Bad Gateway") X(503, "Service Unavailable")     X(504, "Gateway Timeout") X(505, "HTTP Version Not Supported") X(506, "Variant Also Negotiates")     X(507, "Insufficient Storage") X(508, "Loop Detected") X(510, "Not Extended") X(511, "Network Authentication Required")
+
+const char *net_status_text(int status) {
+    switch (status) {
+#define X(code, text) case code: return text;
+        NET_STATUS_TEXTS(X)
+#undef X
+    default: return "";
+    }
+}
+
+static void net_status(aqua_call *call, const char *name) {
+    (void)name;
+    aqua_return_cstring(call, net_status_text(aqua_arg_int(call, 0)));
+}
+
 /* ---- Options (NetworkOptions) ---- */
 
 void options_default(net_options *o) {
@@ -154,6 +172,8 @@ void options_default(net_options *o) {
     o->timeout_ms = 10000;
     o->max_body = NET_MAX_BODY;
     o->max_redirects = 10;
+    o->read_timeout_ms = 15000;
+    o->idle_timeout_ms = 30000;
     o->follow_redirects = true;
     o->credentials = CREDENTIALS_SAME_ORIGIN;
 }
@@ -178,7 +198,8 @@ bool port_valid(int32_t port, bool allow_zero, net_error *e) {
     return true;
 }
 bool options_validate(const net_options *o, net_error *e) {
-    if (o->timeout_ms < 1 || o->timeout_ms > 300000 || o->max_body < 1 || o->max_body > NET_MAX_BODY || o->max_redirects < 0 || o->max_redirects > 20)
+    if (o->timeout_ms < 1 || o->timeout_ms > 300000 || o->read_timeout_ms < 1 || o->read_timeout_ms > 300000
+        || o->idle_timeout_ms < 1 || o->idle_timeout_ms > 300000 || o->max_body < 1 || o->max_body > NET_MAX_BODY || o->max_redirects < 0 || o->max_redirects > 20)
         return net_error_set(e, NET_INVALID, false, MSG_OPTIONS);
     if (o->has_body && o->body.length > (size_t)o->max_body)
         return net_error_set(e, NET_INVALID, false, "LimitExceeded / 超過上限：請求本文過大。");
@@ -262,6 +283,8 @@ bool options_read(aqua_call *call, uint32_t index, const net_options *defaults, 
     }
     if (!read_integer(rt, hash, "timeout|逾時", &out->timeout_ms, e)) return false;
     if (!read_integer(rt, hash, "maxBodyBytes|本文上限", &out->max_body, e)) return false;
+    if (!read_integer(rt, hash, "readTimeout|讀取逾時", &out->read_timeout_ms, e)) return false;
+    if (!read_integer(rt, hash, "idleTimeout|閒置逾時", &out->idle_timeout_ms, e)) return false;
     if (!read_integer(rt, hash, "maxRedirects|重新導向上限", &out->max_redirects, e)) return false;
     if (option_field(rt, hash, "followRedirects|跟隨重新導向", &v) && !value_boolean(v, &out->follow_redirects, e)) return false;
     char *credentials = NULL;
@@ -489,12 +512,18 @@ AQUA_LIBRARY(network) {
     if (!entry_names[ENTRY_##owner##_##fn]) entry_names[ENTRY_##owner##_##fn] = qualified(class_names[CLASS_##owner], en); \
     aqua_define_function(net_classes[CLASS_##owner], en "|" zh, call_##owner##_##fn, signature);
 #define NATIVE(owner, fn, en, zh, signature, feature) FUNCTION(owner, fn, en, zh, signature)
+/* The promise variant shares the function: "GetAsync|非同步取得". */
+#define FUNCTION_ASYNC(owner, fn, en, zh, signature) FUNCTION(owner, fn, en, zh, signature) \
+    aqua_define_async(net_classes[CLASS_##owner], en "Async|非同步" zh, call_##owner##_##fn, signature);
+#define NATIVE_ASYNC(owner, fn, en, zh, signature, feature) FUNCTION_ASYNC(owner, fn, en, zh, signature)
 #define FIELD(owner, field, en, zh) aqua_define_property(net_classes[CLASS_##owner], en "|" zh, get_##owner##_##field);
 #include "api.def"
 #undef CLASS
 #undef NATIVE_CLASS
 #undef NATIVE
 #undef FUNCTION
+#undef FUNCTION_ASYNC
+#undef NATIVE_ASYNC
 #undef FIELD
     aqua_define_string(module, "Platform|平台", AQUA_PLATFORM_NAME);
     aqua_define_int(module, "ContractVersion|契約版本", 1);

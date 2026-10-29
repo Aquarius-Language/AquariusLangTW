@@ -1,0 +1,23 @@
+# Concurrent HTTP requests with the network library's promise variants, against a small local server (Windows, Linux,
+# Android; the server part needs sockets). Each request waits 100 ms on the server, yet all five finish in about
+# 100 ms because they run at the same time.
+var net = import("Network");
+var String = import("String");
+
+# ListenAndServeAsync starts the server and returns a promise, so the script goes on.
+var serving = net.ListenAndServeAsync("127.0.0.1:18799", {
+    "GET /slow/{n}": async function(request, writer) {
+        await Promise.Delay(100);
+        writer.JSON({"page": request.Param("n")});
+    }
+});
+
+var fetchPage = async function(n) {
+    var response = await net.GetAsync("http://127.0.0.1:18799/slow/" + String.From(n));
+    return response.JSON()["page"];
+};
+
+var started = currentTime();
+var pages = await Promise.All([fetchPage(1), fetchPage(2), fetchPage(3), fetchPage(4), fetchPage(5)]);
+print(pages);
+print("about 100 ms, not 500:", currentTime() - started < 400);

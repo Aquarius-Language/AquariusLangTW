@@ -133,6 +133,28 @@ static void resolve_with(aqua_runtime *rt, promise *p, aqua_value value) {
     add_reaction(rt, q, NULL, adopt, p);
 }
 
+/* ---- Callbacks that return promises -------------------------------------------------------------------------------- */
+
+typedef struct follow { aqua_done done; void *data; } follow;
+static void follow_react(aqua_runtime *rt, promise *p, void *data) {
+    follow *f = data;
+    aqua_value value = aqua_ref_value(rt, p->value);
+    if (p->state == REJECTED) value = reason_error(rt, value);
+    f->done(rt, p->state == FULFILLED, value, f->data);
+    free(f);
+}
+
+/* A function a library started with aqua_invoke_async that returned a promise (an async function, a handler returning
+   Then(...)) is done when the promise settles: `done` then gets its value or its rejection. */
+bool promise_follow(aqua_runtime *rt, aqua_value value, aqua_done done, void *data) {
+    promise *p = aqua_object_data(rt, value, promise_class);
+    if (!p || !done) return false;
+    follow *f = malloc(sizeof *f);
+    f->done = done; f->data = data;
+    add_reaction(rt, p, NULL, follow_react, f);
+    return true;
+}
+
 /* ---- Library functions defined with aqua_define_async --------------------------------------------------------------- */
 
 aqua_value promise_of_call(aqua_runtime *rt, aqua_call *call) {

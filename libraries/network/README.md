@@ -2,7 +2,9 @@
 
 `匯入("Network")` and `匯入("網路")` load one module: HTTP(S) clients with streamed responses, WebSocket, raw TCP and
 TLS streams, UDP datagrams, DNS, and an HTTP(S) server with routes, middleware, static files, CORS, cookies, sessions,
-Server-Sent Events and WebSocket upgrades. Every function, class and field keeps the names, Traditional Chinese
+Server-Sent Events and WebSocket upgrades, with a Go-style layer (`"GET /items/{id}"` patterns, the most specific
+route, groups, wrapping middleware, `Error` / `File` / `Write` helpers, multipart uploads, `ListenAndServe`, graceful
+`Shutdown`). Every waiting function has a promise variant (`GetAsync` / `非同步取得`) for `await` and `Promise.All`. Every function, class and field keeps the names, Traditional Chinese
 aliases, argument counts, results and error messages of the previous implementation; `src/api.def` is the whole API in
 one table, and [the API guide](docs/networking.md) describes it in Traditional Chinese.
 
@@ -65,6 +67,7 @@ and `public/`):
 | Case | Targets | Covers |
 | --- | --- | --- |
 | `basics` | all | aliases, capabilities, URLs, query encoding, option validation, `Try`, closed clients |
+| `go_server` | sockets | the Go-style layer and the promise variants: patterns, specificity, groups, wrapping middleware, writer helpers, ranges, multipart forms, `ListenAndServeAsync`, `Shutdown` |
 | `http_server` | sockets | server and client round trips: routes, middleware, JSON, forms, cookies, sessions, redirects, errors, limits, timeouts, cancellation, CORS, static files, gzip/deflate, SSE |
 | `websocket` | sockets | client and server WebSocket, limits, closing, failed handshakes (handlers run concurrently under `Serve`) |
 | `tcp_udp` | sockets | TCP streams, listeners, UDP, multicast, DNS |

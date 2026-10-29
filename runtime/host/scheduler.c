@@ -23,7 +23,7 @@ void task_finish(aqua_runtime *rt, task *t, bool ok, aqua_value result) {
     aqua_ref keep = aqua_retain(rt, result);
     if (t->execution) guest(rt, GUEST_release_execution, t->execution, 0, 0, 0);
     t->execution = 0;
-    if (t->done) t->done(rt, ok, result, t->data);
+    if (t->done && !(t->follow && ok && promise_follow(rt, result, t->done, t->data))) t->done(rt, ok, result, t->data);
     else if (!ok && !rt->finished) {
         /* A failing callback nobody waits for ends the application, like a failing script. */
         char *text = format_value(rt, result);
@@ -138,7 +138,7 @@ void aqua_invoke_async(aqua_runtime *rt, aqua_value function, const aqua_value *
     if (function.type == AQUA_FUNCTION) {
         task *t = calloc(1, sizeof *t);
         t->execution = start_execution(rt, function, arguments, count);
-        t->done = done; t->data = data; t->loop = true;
+        t->done = done; t->data = data; t->loop = true; t->follow = true;
         /* Run the first slice now, so callbacks that need no waiting complete before this returns. */
         uint32_t status = run_slice(rt, t);
         if (t->finished) { free(t); return; }
@@ -149,9 +149,11 @@ void aqua_invoke_async(aqua_runtime *rt, aqua_value function, const aqua_value *
     if (function.type != AQUA_NATIVE) { if (done) done(rt, false, host_error(rt, "Not a function: %s", aqua_type_name(function)), data); return; }
     aqua_pending *pending = NULL;
     aqua_value result = call_native(rt, function.ref, arguments, count, 0, &pending);
-    if (!pending) { if (done) done(rt, result.type != AQUA_ERROR, result, data); return; }
+    if (pending && pending->settled) { result = pending->result; aqua_release(rt, pending->result_ref); free(pending); pending = NULL; }
+    bool ok = result.type != AQUA_ERROR;
+    if (!pending) { if (done && !(ok && promise_follow(rt, result, done, data))) done(rt, ok, result, data); return; }
     task *t = calloc(1, sizeof *t);
-    t->pending = pending; t->done = done; t->data = data;
+    t->pending = pending; t->done = done; t->data = data; t->follow = true;
     pending->task = t;
     t->next = rt->tasks; rt->tasks = t;
 }
@@ -177,7 +179,8 @@ void aqua_resolve(aqua_pending *pending, aqua_value result) {
     } else {
         /* A native function called through aqua_invoke_async. */
         unlink_task(rt, t);
-        if (t->done) t->done(rt, result.type != AQUA_ERROR, result, t->data);
+        bool ok = result.type != AQUA_ERROR;
+        if (t->done && !(ok && promise_follow(rt, result, t->done, t->data))) t->done(rt, ok, result, t->data);
         free(t);
     }
     free(pending);

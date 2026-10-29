@@ -1,0 +1,93 @@
+# needs: sockets (Windows, Linux, Android); run from libraries/network/tests (sends public/index.html)
+# The Go-style server layer with async clients on loopback: "METHOD /path" patterns, {name...}, the most specific
+# route, groups with their middleware, wrapping middleware with next(), Error/NotFound/Write/AddHeader/File with byte
+# ranges, FormValue/Files/BasicAuth on multipart forms, Host/Proto, StatusText, ServeAsync, ListenAndServeAsync,
+# GetAsync with Promise.All and a graceful Shutdown.
+var net = import("Network");
+var Array = import("Array");
+var String = import("String");
+var log = [];
+
+var server = net.Listen("127.0.0.1:0");
+var base = server.Address;
+server.Use(function(request, writer, next) {
+    Array.Append(log, "outer before " + request.Path);
+    next();
+    Array.Append(log, "outer after");
+});
+server.Handle("GET /items/{id}", function(request, writer) { writer.Text("item " + request.Param("id")); });
+server.Handle("GET /items/new", function(request, writer) { writer.Text("new item form"); });
+server.Handle("/any", function(request, writer) { writer.Text("any " + request.Method); });
+server.Handle("GET /files/{path...}", function(request, writer) { writer.Text("file [" + request.Param("path") + "]"); });
+server.Handle("GET", "/legacy", function(request, writer) { writer.Text("three arguments"); });
+var api = server.Group("/api");
+api.Use(function(request, writer) { writer.AddHeader("X-Api", "1"); writer.AddHeader("X-Api", "2"); });
+api.Handle("GET /users/{name}", function(request, writer) { writer.JSON({"user": request.Param("name"), "host": request.Host == String.Slice(base, 7, len(base)), "proto": request.Proto}); });
+var admin = api.Group("/admin");
+admin.Use(function(request, writer) {
+    var auth = request.BasicAuth();
+    if (typeOf(auth) == "null" || auth["password"] != "secret") { writer.Error(401); return false; }
+});
+admin.Handle("GET /", function(request, writer) { writer.Text("welcome " + request.BasicAuth()["user"]); });
+server.Handle("GET /missing", function(request, writer) { writer.NotFound(); });
+server.Handle("GET /teapot", function(request, writer) { writer.Error(418, "short and stout"); });
+server.Handle("GET /stream", function(request, writer) { writer.Write("a"); writer.Write("b"); writer.Write([99]); });
+server.Handle("GET /page", function(request, writer) { writer.File("public/index.html"); });
+server.Handle("POST /upload", function(request, writer) {
+    var files = request.Files();
+    writer.JSON({"title": request.FormValue("title"), "q": request.FormValue("q"), "form": request.Form(),
+                 "files": len(files), "name": files[0]["filename"], "type": files[0]["contentType"], "size": files[0]["size"],
+                 "text": String.Join(Array.Map(files[0]["data"], function(b) { return String.FromCode(b); }), "")});
+});
+var serving = server.ServeAsync();
+
+var get = async function(path, options) { return await net.GetAsync(base + path, options); };
+var show = function(label, response) { print(label, response.Status, response.Body); };
+
+show("specific", await get("/items/new", null));
+show("param", await get("/items/42", null));
+show("any method", await net.RequestAsync("DELETE", base + "/any", null));
+show("rest", await get("/files/a/b/c.txt", null));
+show("rest empty", await get("/files", null));
+show("legacy", await get("/legacy", null));
+var user = await get("/api/users/星泉", null);
+print("group", user.Status, user.JSON(), user.Header("X-Api"));
+show("unauthorized", await get("/api/admin", null));
+show("authorized", await get("/api/admin", {"headers": {"Authorization": "Basic YWRhOnNlY3JldA=="}}));
+show("not found", await get("/missing", null));
+show("error", await get("/teapot", null));
+show("write", await get("/stream", null));
+var page = await get("/page", null);
+print("file", page.Status, page.Header("Accept-Ranges"), len(page.Body) > 0, page.Header("Content-Type"));
+var part = await get("/page", {"headers": {"Range": "bytes=0-2"}});
+print("range", part.Status, part.Body, String.StartsWith(part.Header("Content-Range"), "bytes 0-2/"));
+show("bad range", await get("/page", {"headers": {"Range": "bytes=99999-"}}));
+var cached = await get("/page", {"headers": {"If-None-Match": page.Header("ETag")}});
+print("etag", cached.Status);
+var crlf = String.FromCode(13) + String.FromCode(10);
+var body = "--XyZ" + crlf + "Content-Disposition: form-data; name=\"title\"" + crlf + crlf + "Hello" + crlf
+    + "--XyZ" + crlf + "Content-Disposition: form-data; name=\"doc\"; filename=\"note.txt\"" + crlf + "Content-Type: text/plain" + crlf + crlf + "file body" + crlf
+    + "--XyZ--" + crlf;
+var upload = await net.PostAsync(base + "/upload?q=from+query", body, {"headers": {"Content-Type": "multipart/form-data; boundary=XyZ"}});
+print("multipart", upload.Status, upload.JSON());
+
+# Concurrent requests: started together, collected with Promise.All.
+var many = await Promise.All([get("/items/1", null), get("/items/2", null), get("/items/3", null)]);
+print("all", Array.Map(many, function(r) { return r.Body; }));
+print("middleware", log[0], log[1], len(log));
+print("status text", net.StatusText(404), net.狀態說明(503), net.StatusText(299) == "");
+
+# One call: ListenAndServe with a routes table; its promise variant runs alongside this script.
+var quick = net.ListenAndServeAsync("127.0.0.1:18797", {"GET /": function(request, writer) { writer.Text("quick"); }});
+show("listen and serve", await net.GetAsync("http://127.0.0.1:18797/", null));
+
+# Graceful shutdown: the request in progress finishes, then the server closes.
+server.Handle("GET /slow", async function(request, writer) { await Promise.Delay(100); writer.Text("finished"); });
+var slow = get("/slow", null);
+await Promise.Delay(30);
+var started = currentTime();
+var drained = await server.ShutdownAsync(5000);
+show("slow", await slow);
+print("shutdown", drained, currentTime() - started < 2000, (await net.GetAsync(base + "/items/1", {"timeout": 1000})).Status);
+await serving;
+print("served");

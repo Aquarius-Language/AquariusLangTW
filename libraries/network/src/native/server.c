@@ -21,8 +21,6 @@
 
 #define QUEUE_LIMIT 128
 #define CONNECTION_LIMIT 256
-#define HEADERS_TIMEOUT_MS 15000
-#define KEEP_ALIVE_MS 30000
 #define SESSION_LIMIT 10000
 #define SESSION_FIELDS 128
 #define SESSION_IDLE_SECONDS (30 * 60)
@@ -32,7 +30,10 @@ typedef struct server server;
 typedef struct connection connection;
 typedef struct exchange exchange;
 
-typedef struct route { char *method, *pattern; aqua_ref handler; } route;
+typedef struct route { char *method, *pattern; aqua_ref handler; uint32_t group; } route;
+/* Groups (Group / 群組): a path prefix and middleware that run, outermost first, before the handlers of their routes.
+   Group 0 is the server itself, without middleware of its own (server middleware runs before routing). */
+typedef struct route_group { char *prefix; uint32_t parent; aqua_ref *middleware; uint32_t middleware_count; } route_group;
 typedef struct public_folder { char *prefix, *root; } public_folder;
 typedef struct session_entry { char token[65]; net_headers values; int64_t expires; } session_entry;
 typedef struct poll_wait { aqua_pending *pending; net_timer *timer; server *server; struct poll_wait *next; } poll_wait;
@@ -48,9 +49,12 @@ struct server {
     char *address;
     bool secure;
     atomic_bool stopping;
+    atomic_bool draining;     /* Shutdown: no new connections, keep-alive connections end after their request */
     atomic_int connections;
+    atomic_int sockets;       /* connections whose worker still runs (Shutdown waits for them) */
     /* Registration (runtime thread). */
     route *routes; uint32_t route_count;
+    route_group *groups; uint32_t group_count;
     aqua_ref *middleware; uint32_t middleware_count;
     public_folder *folders; uint32_t folder_count;
     char **origins; uint32_t origin_count;
@@ -64,6 +68,9 @@ struct server {
     poll_wait *polls;
     uint32_t active;
     bool closed, shut;
+    aqua_pending *shutdown;   /* a Shutdown waiting for the last request */
+    net_timer *shutdown_timer;
+    int64_t shutdown_deadline;
 };
 
 struct connection {
@@ -79,7 +86,7 @@ struct exchange {
     connection *connection;
     server *server;
     /* The request, fixed once queued. */
-    char *method, *path, *target, *query, *url, *remote, *origin_self;
+    char *method, *path, *target, *query, *url, *remote, *origin_self, *host;
     bool secure, keep_alive, head;
     int minor;
     net_headers headers;
@@ -92,7 +99,10 @@ struct exchange {
     net_headers params;
     char *session;
     aqua_ref request_object, writer_object;
-    uint32_t step;
+    /* The functions this request runs: the server's middleware, then (once routed) its route's group middleware and
+       the handler. */
+    aqua_ref *chain; uint32_t chain_count;
+    bool routed, stopped;
     aqua_pending *poll;
     aqua_pending *drain;          /* UpgradeWebSocket or a writer waiting for output to flush */
     aqua_value drain_result;
@@ -112,20 +122,7 @@ static void dispatch(server *sv);
 
 /* ---- Small helpers ---- */
 
-static const char *reason_phrase(int status) {
-    switch (status) {
-    case 100: return "Continue"; case 101: return "Switching Protocols"; case 200: return "OK"; case 201: return "Created";
-    case 202: return "Accepted"; case 204: return "No Content"; case 206: return "Partial Content";
-    case 301: return "Moved Permanently"; case 302: return "Found"; case 303: return "See Other"; case 304: return "Not Modified";
-    case 307: return "Temporary Redirect"; case 308: return "Permanent Redirect"; case 400: return "Bad Request";
-    case 401: return "Unauthorized"; case 403: return "Forbidden"; case 404: return "Not Found"; case 405: return "Method Not Allowed";
-    case 408: return "Request Timeout"; case 409: return "Conflict"; case 410: return "Gone"; case 413: return "Payload Too Large";
-    case 415: return "Unsupported Media Type"; case 422: return "Unprocessable Entity"; case 429: return "Too Many Requests";
-    case 431: return "Request Header Fields Too Large"; case 500: return "Internal Server Error"; case 501: return "Not Implemented";
-    case 502: return "Bad Gateway"; case 503: return "Service Unavailable"; case 504: return "Gateway Timeout";
-    default: return "";
-    }
-}
+static const char *reason_phrase(int status) { return net_status_text(status); }
 
 /* name=value pairs of a query string or form body: '+' is a space, the last value of a name wins. */
 static void parse_pairs(const char *text, size_t length, net_headers *out) {
@@ -190,7 +187,7 @@ static void exchange_unref(exchange *x) {
     free(x->method); free(x->path); free(x->target); free(x->query); free(x->url); free(x->remote); free(x->origin_self);
     headers_free(&x->headers); headers_free(&x->response); headers_free(&x->params);
     buffer_free(&x->body); buffer_free(&x->out); buffer_free(&x->leftover);
-    free(x->session);
+    free(x->session); free(x->chain); free(x->host);
     net_mutex_destroy(&x->lock);
     pthread_cond_destroy(&x->wake);
     if (x->connection) connection_unref(x->connection);
@@ -334,16 +331,18 @@ static void connection_run(net_job *job) {
     connection *c = ((connection_job *)job)->connection;
     connection_serve(c, job->engine);
     connection_end(c);
+    atomic_fetch_sub(&c->server->sockets, 1);
 }
 static void connection_serve(connection *c, engine *eng) {
     server *sv = c->server;
     net_error e;
     if (sv->tls) {
-        net_io io = io_make(HEADERS_TIMEOUT_MS, &sv->stopping, NET_CLOSED, eng);
+        net_io io = io_make(sv->options.read_timeout_ms, &sv->stopping, NET_CLOSED, eng);
         if (!conn_tls_server(c->conn, sv->tls, &io, &e)) return;
     }
     for (bool first = true;; first = false) {
-        net_io io = io_make(first ? HEADERS_TIMEOUT_MS : KEEP_ALIVE_MS, &sv->stopping, NET_CLOSED, eng);
+        /* An idle keep-alive connection ends when the server drains (Shutdown). */
+        net_io io = io_make(first ? sv->options.read_timeout_ms : sv->options.idle_timeout_ms, first ? &sv->stopping : &sv->draining, NET_CLOSED, eng);
         http_head head;
         int got = http_read_head(c->conn, &c->in, true, &head, &io, &e);
         if (got <= 0) {
@@ -396,6 +395,8 @@ static void connection_serve(connection *c, engine *eng) {
         x->head = !strcmp(x->method, "HEAD");
         const char *connection_header = headers_get(&head.headers, "Connection");
         x->keep_alive = head.minor >= 1 ? !(connection_header && net_itoken(connection_header, "close")) : false;
+        if (atomic_load(&sv->draining)) x->keep_alive = false;
+        x->host = net_strdup(host ? host : "");
         x->headers = head.headers;
         memset(&head.headers, 0, sizeof head.headers);
         net_buffer url = {0};
@@ -433,7 +434,7 @@ static void connection_serve(connection *c, engine *eng) {
         aqua_post(sv->state->rt, arrived, sv);
         bool keep = serve_exchange(c, x, eng);
         exchange_unref(x);
-        if (!keep || atomic_load(&sv->stopping)) return;
+        if (!keep || atomic_load(&sv->stopping) || atomic_load(&sv->draining)) return;
     }
 }
 
@@ -456,7 +457,8 @@ typedef struct listener_job { net_job job; server *server; net_fd fd; } listener
 static void listener_run(net_job *job) {
     listener_job *l = (listener_job *)job;
     server *sv = l->server;
-    net_io io = io_make(0, &sv->stopping, NET_CLOSED, job->engine);
+    /* Draining (Shutdown) or stopping ends accepting at once. */
+    net_io io = io_make(0, &sv->draining, NET_CLOSED, job->engine);
     net_error e;
     for (;;) {
         if (!net_wait(l->fd, WAIT_READ, &io, &e)) return;
@@ -470,6 +472,7 @@ static void listener_run(net_job *job) {
         atomic_init(&c->refs, 1);
         atomic_fetch_add(&sv->refs, 1);
         atomic_fetch_add(&sv->connections, 1);
+        atomic_fetch_add(&sv->sockets, 1);
         c->server = sv;
         c->conn = conn_new(fd);
         connection_job *cj = calloc(1, sizeof *cj);
@@ -499,6 +502,8 @@ static void server_unref(server *sv) {
     for (uint32_t i = 0; i < sv->route_count; i++) { free(sv->routes[i].method); free(sv->routes[i].pattern); }
     free(sv->routes);
     free(sv->middleware);
+    for (uint32_t i = 0; i < sv->group_count; i++) { free(sv->groups[i].prefix); free(sv->groups[i].middleware); }
+    free(sv->groups);
     for (uint32_t i = 0; i < sv->folder_count; i++) { free(sv->folders[i].prefix); free(sv->folders[i].root); }
     free(sv->folders);
     for (uint32_t i = 0; i < sv->origin_count; i++) free(sv->origins[i]);
@@ -517,6 +522,8 @@ static void release_handlers(server *sv) {
     aqua_runtime *rt = sv->state->rt;
     for (uint32_t i = 0; i < sv->route_count; i++) { aqua_release(rt, sv->routes[i].handler); sv->routes[i].handler = 0; }
     for (uint32_t i = 0; i < sv->middleware_count; i++) { aqua_release(rt, sv->middleware[i]); sv->middleware[i] = 0; }
+    for (uint32_t g = 0; g < sv->group_count; g++)
+        for (uint32_t i = 0; i < sv->groups[g].middleware_count; i++) { aqua_release(rt, sv->groups[g].middleware[i]); sv->groups[g].middleware[i] = 0; }
 }
 
 /* Stops accepting and serving; waiting Poll calls return false and Serve returns. */
@@ -526,6 +533,16 @@ static void server_shutdown(network_state *s, resource *r) {
     sv->shut = true;
     sv->closed = true;
     atomic_store(&sv->stopping, true);
+    atomic_store(&sv->draining, true);
+    if (sv->shutdown_timer) {
+        /* Closed while a Shutdown waited: it did not drain. */
+        timer_cancel(s, sv->shutdown_timer);
+        sv->shutdown_timer = NULL;
+        aqua_pending *p = sv->shutdown;
+        sv->shutdown = NULL;
+        if (p && !s->closing) aqua_resolve(p, aqua_bool(false));
+        server_unref(sv);
+    }
     for (int i = 0; i < sv->listener_count; i++) {
 #if defined(AQUA_OS_WINDOWS)
         shutdown(sv->listeners[i], SD_BOTH);
@@ -610,24 +627,40 @@ static bool bind_listeners(server *sv, const char *host, int port, net_error *e)
     return true;
 }
 
-void net_listen(aqua_call *call, const char *name) {
+/* "http://host:port", or Go's "host:port" and ":port" (every interface) for plain HTTP. */
+static char *listen_origin(const char *text) {
+    if (strstr(text, "://")) return net_strdup(text);
+    net_buffer origin = {0};
+    buffer_format(&origin, "http://%s%s", text[0] == ':' ? "0.0.0.0" : "", text);
+    char *result = buffer_take(&origin, NULL);
+    buffer_free(&origin);
+    return result;
+}
+
+/* A listening server for argument 0 with the options at `options_index`, or NULL after failing the call. */
+static server *listen_open(aqua_call *call, const char *name, uint32_t options_index) {
     network_state *s = aqua_state(call);
     aqua_runtime *rt = aqua_call_runtime(call);
     net_error e;
     net_options o;
-    if (!options_read(call, 1, NULL, &o, &e)) { options_free(&o); net_raise(call, name, &e); return; }
+    if (!options_read(call, options_index, NULL, &o, &e)) { options_free(&o); net_raise(call, name, &e); return NULL; }
+    char *origin = listen_origin(aqua_arg_str(call, 0).data);
     net_url url;
-    if (!url_parse(aqua_arg_str(call, 0).data, &url) || (strcmp(url.scheme, "http") && strcmp(url.scheme, "https"))
+    bool parsed = url_parse(origin, &url);
+    free(origin);
+    if (!parsed || (strcmp(url.scheme, "http") && strcmp(url.scheme, "https"))
         || strcmp(url.path, "/") || url.query[0] || url.userinfo[0]) {
-        url_free(&url);
+        if (parsed) url_free(&url);
         options_free(&o);
         net_raise_kind(call, name, NET_INVALID, "Expected HTTP(S) listener origin / 需要 HTTP(S) 監聽來源。");
-        return;
+        return NULL;
     }
     server *sv = calloc(1, sizeof *sv);
     atomic_init(&sv->refs, 1);
     atomic_init(&sv->stopping, false);
+    atomic_init(&sv->draining, false);
     atomic_init(&sv->connections, 0);
+    atomic_init(&sv->sockets, 0);
     net_mutex_init(&sv->lock);
     sv->base.close = server_shutdown;
     sv->state = s;
@@ -644,8 +677,8 @@ void net_listen(aqua_call *call, const char *name) {
     }
     if (ok) ok = bind_listeners(sv, url.host, url.port, &e);
     url_free(&url);
-    if (!ok) { server_unref(sv); net_raise(call, name, &e); return; }
-    if (!resource_own(s, &sv->base, &e)) { server_unref(sv); net_raise(call, name, &e); return; }
+    if (!ok) { server_unref(sv); net_raise(call, name, &e); return NULL; }
+    if (!resource_own(s, &sv->base, &e)) { server_unref(sv); net_raise(call, name, &e); return NULL; }
     for (int i = 0; i < sv->listener_count; i++) {
         listener_job *l = calloc(1, sizeof *l);
         atomic_fetch_add(&sv->refs, 1);
@@ -656,6 +689,13 @@ void net_listen(aqua_call *call, const char *name) {
         l->job.discard = listener_discard;
         job_start(s->engine, &l->job);
     }
+    return sv;
+}
+
+void net_listen(aqua_call *call, const char *name) {
+    aqua_runtime *rt = aqua_call_runtime(call);
+    server *sv = listen_open(call, name, 1);
+    if (!sv) return;
     net_object *object = object_create(CLASS_server, sv);
     object_field(rt, object, FIELD_OF(server, address), aqua_cstring(rt, sv->address));
     aqua_return(call, object_wrap(rt, object));
@@ -671,19 +711,56 @@ static bool server_live(aqua_call *call, const char *name, server *sv) {
     return false;
 }
 
-void server_handle(aqua_call *call, const char *name) {
-    server *sv = SELF_SERVER(call);
-    if (!server_live(call, name, sv)) return;
-    const char *pattern = aqua_arg_str(call, 1).data;
-    if (pattern[0] != '/' || strchr(pattern, '?')) { net_raise_kind(call, name, NET_INVALID, "Invalid route / 路由須以 / 開頭。"); return; }
+/* Adds a route from Go's "METHOD /path" pattern (the method is optional) or from a method and a path; `group` adds
+   its prefix and middleware. False for an invalid method or pattern. */
+static bool route_insert(aqua_runtime *rt, server *sv, uint32_t group, const char *method_text, const char *text, aqua_value handler) {
+    char *method, *pattern;
+    if (method_text) { method = net_strdup(method_text); pattern = net_strdup(text); }
+    else {
+        const char *space = strchr(text, ' ');
+        method = space ? net_strndup(text, (size_t)(space - text)) : net_strdup("*");
+        while (space && *space == ' ') space++;
+        pattern = net_strdup(space ? space : text);
+    }
+    bool valid = method[0] != 0;
+    for (char *p = method; *p; p++) {
+        if (*p >= 'a' && *p <= 'z') *p -= 32;
+        if (!((*p >= 'A' && *p <= 'Z') || *p == '*' || *p == '-')) valid = false;
+    }
+    if (!valid || pattern[0] != '/' || strchr(pattern, '?') || strchr(pattern, ' ')) { free(method); free(pattern); return false; }
+    if (group) {
+        /* The group's prefix before the pattern; "/" under "/api" is "/api". */
+        net_buffer full = {0};
+        buffer_text(&full, sv->groups[group].prefix);
+        if (strcmp(pattern, "/") || !full.length) buffer_text(&full, pattern);
+        free(pattern);
+        pattern = buffer_take(&full, NULL);
+        buffer_free(&full);
+    }
     route *routes = realloc(sv->routes, (sv->route_count + 1) * sizeof *routes);
     sv->routes = routes;
     route *r = &routes[sv->route_count++];
-    r->method = net_strdup(aqua_arg_str(call, 0).data);
-    for (char *p = r->method; *p; p++) if (*p >= 'a' && *p <= 'z') *p -= 32;
-    r->pattern = net_strdup(pattern);
-    r->handler = aqua_retain(aqua_call_runtime(call), aqua_arg(call, 2));
+    r->method = method;
+    r->pattern = pattern;
+    r->handler = aqua_retain(rt, handler);
+    r->group = group;
+    return true;
+}
+
+/* Handle(pattern, handler) or Handle(method, path, handler). */
+static void route_add(aqua_call *call, const char *name, server *sv, uint32_t group) {
+    bool three = aqua_argc(call) == 3;
+    aqua_value handler = aqua_arg(call, three ? 2 : 1);
+    if (!aqua_is_callable(handler) || (three && aqua_arg(call, 1).type != AQUA_STRING)) { net_raise_kind(call, name, NET_INVALID, "Expected Handle(pattern, handler) or Handle(method, path, handler) / 需要 處理(模式, 函式) 或 處理(方法, 路徑, 函式)。"); return; }
+    const char *method = three ? aqua_arg_str(call, 0).data : NULL;
+    const char *pattern = aqua_arg_str(call, three ? 1 : 0).data;
+    if (!route_insert(aqua_call_runtime(call), sv, group, method, pattern, handler)) { net_raise_kind(call, name, NET_INVALID, "Invalid route / 路由須以 / 開頭。"); return; }
     aqua_return(call, aqua_self_value(call));
+}
+
+void server_handle(aqua_call *call, const char *name) {
+    server *sv = SELF_SERVER(call);
+    if (server_live(call, name, sv)) route_add(call, name, sv, 0);
 }
 
 void server_use(aqua_call *call, const char *name) {
@@ -691,6 +768,58 @@ void server_use(aqua_call *call, const char *name) {
     if (!server_live(call, name, sv)) return;
     sv->middleware = realloc(sv->middleware, (sv->middleware_count + 1) * sizeof *sv->middleware);
     sv->middleware[sv->middleware_count++] = aqua_retain(aqua_call_runtime(call), aqua_arg(call, 0));
+    aqua_return(call, aqua_self_value(call));
+}
+
+/* ---- Groups (routers) ---- */
+
+typedef struct router { server *server; uint32_t group; } router;
+
+void router_release(aqua_runtime *rt, void *payload) {
+    (void)rt;
+    router *r = payload;
+    server_unref(r->server);
+    free(r);
+}
+
+static void group_add(aqua_call *call, const char *name, server *sv, uint32_t parent) {
+    const char *prefix = aqua_arg_str(call, 0).data;
+    if (prefix[0] != '/' || strchr(prefix, '?') || strchr(prefix, '{') || strchr(prefix, '*')) { net_raise_kind(call, name, NET_INVALID, "Invalid group prefix / 群組前綴須以 / 開頭，不含參數。"); return; }
+    if (!sv->group_count) { sv->groups = calloc(1, sizeof *sv->groups); sv->groups[0].prefix = net_strdup(""); sv->group_count = 1; }
+    net_buffer full = {0};
+    buffer_text(&full, sv->groups[parent].prefix);
+    buffer_text(&full, prefix);
+    while (full.length && full.data[full.length - 1] == '/') full.length--;
+    sv->groups = realloc(sv->groups, (sv->group_count + 1) * sizeof *sv->groups);
+    route_group *g = &sv->groups[sv->group_count];
+    memset(g, 0, sizeof *g);
+    g->prefix = net_strndup(full.length ? (const char *)full.data : "", full.length);
+    g->parent = parent;
+    buffer_free(&full);
+    router *r = calloc(1, sizeof *r);
+    r->server = sv;
+    r->group = sv->group_count++;
+    atomic_fetch_add(&sv->refs, 1);
+    aqua_return(call, object_wrap(aqua_call_runtime(call), object_create(CLASS_router, r)));
+}
+
+void server_group(aqua_call *call, const char *name) {
+    server *sv = SELF_SERVER(call);
+    if (server_live(call, name, sv)) group_add(call, name, sv, 0);
+}
+
+static router *live_router(aqua_call *call, const char *name) {
+    router *r = self_payload(call);
+    return server_live(call, name, r->server) ? r : NULL;
+}
+void router_handle(aqua_call *call, const char *name) { router *r = live_router(call, name); if (r) route_add(call, name, r->server, r->group); }
+void router_group(aqua_call *call, const char *name) { router *r = live_router(call, name); if (r) group_add(call, name, r->server, r->group); }
+void router_use(aqua_call *call, const char *name) {
+    router *r = live_router(call, name);
+    if (!r) return;
+    route_group *g = &r->server->groups[r->group];
+    g->middleware = realloc(g->middleware, (g->middleware_count + 1) * sizeof *g->middleware);
+    g->middleware[g->middleware_count++] = aqua_retain(aqua_call_runtime(call), aqua_arg(call, 0));
     aqua_return(call, aqua_self_value(call));
 }
 
@@ -837,6 +966,15 @@ static bool route_match(const char *pattern, const char *path, net_headers *para
         size_t pn = p_end ? (size_t)(p_end - p) : strlen(p);
         size_t qn = q_end ? (size_t)(q_end - q) : strlen(q);
         if (pn == 1 && p[0] == '*') { headers_add(params, "*", q); return true; }
+        /* {name...} takes the rest of the path, as in Go's patterns. */
+        if (pn > 5 && p[0] == '{' && !strncmp(p + pn - 4, "...}", 4)) {
+            char *key = net_strndup(p + 1, pn - 5), *value = url_unescape(q, strlen(q), false);
+            headers_add(params, key, value);
+            headers_add(params, "*", q);
+            free(key);
+            free(value);
+            return true;
+        }
         if (!q) return false;
         if (pn >= 2 && p[0] == '{' && p[pn - 1] == '}') {
             char *key = net_strndup(p + 1, pn - 2), *value = url_unescape(q, qn, false);
@@ -848,6 +986,14 @@ static bool route_match(const char *pattern, const char *path, net_headers *para
         if (!p_end || !q_end) {
             /* A pattern ending in a star segment also matches the path without it. */
             if (p_end && !strcmp(p_end, "/*")) { headers_add(params, "*", ""); return true; }
+            size_t rest = p_end ? strlen(p_end + 1) : 0;
+            if (rest > 5 && p_end[1] == '{' && !strchr(p_end + 1, '/') && !strcmp(p_end + 1 + rest - 4, "...}")) {
+                char *key = net_strndup(p_end + 2, rest - 5);
+                headers_add(params, key, "");
+                headers_add(params, "*", "");
+                free(key);
+                return true;
+            }
             return false;
         }
         p = p_end + 1;
@@ -994,6 +1140,78 @@ static void respond_text(exchange *x, int status, const char *text) {
     exchange_write(x, text, strlen(text));
 }
 
+/* A Range header of one range: 1 with [*start, *end) set, 0 to send the whole file (no or an unusable header, or
+   several ranges), -1 when it cannot be satisfied. */
+static int byte_range(const char *range, size_t length, size_t *start, size_t *end) {
+    if (!range || strncmp(range, "bytes=", 6) || strchr(range, ',')) return 0;
+    const char *p = range + 6;
+    char *stop;
+    if (*p == '-') {
+        unsigned long long suffix = strtoull(p + 1, &stop, 10);
+        if (stop == p + 1 || *stop) return 0;
+        if (suffix == 0 || length == 0) return -1;
+        *start = suffix >= length ? 0 : length - (size_t)suffix;
+        *end = length;
+        return 1;
+    }
+    unsigned long long first = strtoull(p, &stop, 10);
+    if (stop == p || *stop != '-') return 0;
+    const char *second = stop + 1;
+    unsigned long long last = length ? length - 1 : 0;
+    if (*second) {
+        last = strtoull(second, &stop, 10);
+        if (stop == second || *stop) return 0;
+        if (last < first) return 0;
+    }
+    if (first >= length) return -1;
+    if (last >= length) last = length - 1;
+    *start = (size_t)first;
+    *end = (size_t)last + 1;
+    return 1;
+}
+
+/* A whole file or one range of it, with ETag, Accept-Ranges, Last-Modified (when known) and If-None-Match. */
+static void send_file(exchange *x, const net_buffer *bytes, const char *type, int64_t modified) {
+    uint8_t digest[32];
+    net_sha256(bytes->data, bytes->length, digest);
+    char etag[68];
+    etag[0] = '"';
+    for (int k = 0; k < 32; k++) snprintf(etag + 1 + k * 2, 3, "%02x", digest[k]);
+    etag[65] = '"';
+    etag[66] = 0;
+    headers_set(&x->response, "ETag", etag);
+    headers_set(&x->response, "Content-Type", type);
+    headers_set(&x->response, "Accept-Ranges", "bytes");
+    char date[32];
+    if (modified > 0) { http_date(date, modified); headers_set(&x->response, "Last-Modified", date); }
+    const char *match = headers_get(&x->headers, "If-None-Match");
+    if (match && !strcmp(match, etag)) { x->status = 304; return; }
+    size_t start = 0, end = bytes->length;
+    char content_range[96];
+    int range = x->status == 200 ? byte_range(headers_get(&x->headers, "Range"), bytes->length, &start, &end) : 0;
+    if (range < 0) {
+        snprintf(content_range, sizeof content_range, "bytes */%zu", bytes->length);
+        headers_set(&x->response, "Content-Range", content_range);
+        respond_text(x, 416, "Range Not Satisfiable / 範圍無法滿足");
+        return;
+    }
+    if (range > 0) {
+        x->status = 206;
+        snprintf(content_range, sizeof content_range, "bytes %zu-%zu/%zu", start, end - 1, bytes->length);
+        headers_set(&x->response, "Content-Range", content_range);
+    }
+    /* The whole body is known: sent with its length. */
+    x->started = true;
+    net_buffer h = {0};
+    http_date(date, (int64_t)time(NULL));
+    buffer_format(&h, "HTTP/1.1 %d %s\r\nDate: %s\r\n", x->status, reason_phrase(x->status), date);
+    for (uint32_t k = 0; k < x->response.count; k++) buffer_format(&h, "%s: %s\r\n", x->response.items[k].name, x->response.items[k].value);
+    buffer_format(&h, "Content-Length: %zu\r\n%s\r\n", end - start, x->keep_alive ? "" : "Connection: close\r\n");
+    exchange_send(x, h.data, h.length);
+    if (!x->head) exchange_send(x, bytes->data + start, end - start);
+    buffer_free(&h);
+}
+
 /* After middleware and routes: static files, then 404 or 405. */
 static void respond_rest(exchange *x) {
     server *sv = x->server;
@@ -1006,30 +1224,7 @@ static void respond_rest(exchange *x) {
         int found = public_file(sv, f->root, x->path + strlen(f->prefix), &bytes, &type);
         if (found < 0) { buffer_free(&bytes); handler_failed(x, aqua_cstring(sv->state->rt, "LimitExceeded / 靜態檔案過大。")); return; }
         if (!found) { buffer_free(&bytes); continue; }
-        uint8_t digest[32];
-        net_sha256(bytes.data, bytes.length, digest);
-        char etag[68];
-        etag[0] = '"';
-        for (int k = 0; k < 32; k++) snprintf(etag + 1 + k * 2, 3, "%02x", digest[k]);
-        etag[65] = '"';
-        etag[66] = 0;
-        headers_set(&x->response, "ETag", etag);
-        headers_set(&x->response, "Content-Type", type);
-        const char *match = headers_get(&x->headers, "If-None-Match");
-        if (match && !strcmp(match, etag)) x->status = 304;
-        else {
-            /* Whole files are sent with their length. */
-            x->started = true;
-            net_buffer h = {0};
-            char date[32];
-            http_date(date, (int64_t)time(NULL));
-            buffer_format(&h, "HTTP/1.1 %d %s\r\nDate: %s\r\n", x->status, reason_phrase(x->status), date);
-            for (uint32_t k = 0; k < x->response.count; k++) buffer_format(&h, "%s: %s\r\n", x->response.items[k].name, x->response.items[k].value);
-            buffer_format(&h, "Content-Length: %zu\r\n%s\r\n", bytes.length, x->keep_alive ? "" : "Connection: close\r\n");
-            exchange_send(x, h.data, h.length);
-            if (!x->head) exchange_send(x, bytes.data, bytes.length);
-            buffer_free(&h);
-        }
+        send_file(x, &bytes, type, 0);
         buffer_free(&bytes);
         return;
     }
@@ -1052,48 +1247,143 @@ static void respond_rest(exchange *x) {
     buffer_free(&allow);
 }
 
-static void handler_done(aqua_runtime *rt, bool ok, aqua_value result, void *data);
-static void run_middleware(exchange *x);
+/* Running a request's chain. Each function runs in a level: a plain middleware (request, writer) that does not return
+   false lets the next level run after it; a wrapping middleware (request, writer, next) runs the rest when it calls
+   next() and may work before and after it; the handler is the last level. A level completes when its function has
+   returned and the levels it started have completed; the first level's completion finishes the request. */
+typedef struct next_link next_link;
+typedef struct level {
+    exchange *x;
+    uint32_t index;
+    struct level *parent;
+    bool wraps, own_done, inner_started, inner_done;
+    aqua_pending *next_wait;  /* a next() waiting for the rest of the chain */
+    next_link *link;
+} level;
+struct next_link { level *level; bool used; };
 
-static void invoke(exchange *x, aqua_ref function) {
-    aqua_runtime *rt = x->server->state->rt;
-    aqua_value arguments[2] = {aqua_ref_value(rt, x->request_object), aqua_ref_value(rt, x->writer_object)};
-    aqua_invoke_async(rt, aqua_ref_value(rt, function), arguments, 2, handler_done, x);
+static void start_level(exchange *x, uint32_t index, level *parent);
+
+static void level_complete(level *l);
+static void inner_complete(level *l) {
+    l->inner_done = true;
+    if (l->next_wait) { aqua_pending *p = l->next_wait; l->next_wait = NULL; aqua_resolve(p, aqua_null()); }
+    if (l->own_done) level_complete(l);
+}
+static void complete_into(level *parent, exchange *x) { if (parent) inner_complete(parent); else finish(x); }
+static void level_complete(level *l) {
+    level *parent = l->parent;
+    exchange *x = l->x;
+    if (l->link) l->link->level = NULL;
+    free(l);
+    complete_into(parent, x);
 }
 
-static void run_route(exchange *x) {
+static void level_done(aqua_runtime *rt, bool ok, aqua_value result, void *data) {
+    (void)rt;
+    level *l = data;
+    exchange *x = l->x;
+    l->own_done = true;
+    if (!ok) { handler_failed(x, result); x->stopped = true; }
+    if (l->wraps) { if (!l->inner_started || l->inner_done) level_complete(l); return; }
+    bool handler = x->routed && l->index + 1 == x->chain_count;
+    if (ok && !handler && !x->stopped && !(result.type == AQUA_BOOL && result.number == 0)) {
+        l->inner_started = true;
+        start_level(x, l->index + 1, l);
+        return;
+    }
+    level_complete(l);
+}
+
+/* The route for the request: the most specific pattern that matches (see route_specificity), then its group
+   middleware outermost first and its handler join the chain. */
+static int segment_kind(const char *segment, size_t n) {
+    if (n == 0) return 3;
+    if ((n == 1 && segment[0] == '*') || (n > 5 && segment[0] == '{' && !strncmp(segment + n - 4, "...}", 4))) return 0;
+    if (n >= 2 && segment[0] == '{' && segment[n - 1] == '}') return 1;
+    return 2;
+}
+/* > 0 when pattern a is more specific than b: compared segment by segment, a literal beats a {parameter}, which beats
+   a wildcard (* or {name...}), and a pattern that ended beats a wildcard still going. */
+static int route_specificity(const route *a, const route *b) {
+    const char *p = a->pattern, *q = b->pattern;
+    for (;;) {
+        const char *p_end = p ? strchr(p, '/') : NULL, *q_end = q ? strchr(q, '/') : NULL;
+        int ka = p ? segment_kind(p, p_end ? (size_t)(p_end - p) : strlen(p)) : 3;
+        int kb = q ? segment_kind(q, q_end ? (size_t)(q_end - q) : strlen(q)) : 3;
+        if (ka != kb) return ka - kb;
+        if (!p && !q) break;
+        if (ka == 0) break;
+        p = p && p_end ? p_end + 1 : NULL;
+        q = q && q_end ? q_end + 1 : NULL;
+    }
+    /* A route for the method beats one for any method. */
+    return (strcmp(a->method, "*") != 0) - (strcmp(b->method, "*") != 0);
+}
+
+static bool select_route(exchange *x) {
     server *sv = x->server;
+    const route *best = NULL;
+    net_headers params = {0};
     for (uint32_t i = 0; i < sv->route_count; i++) {
         route *r = &sv->routes[i];
         if (strcmp(r->method, x->method) && strcmp(r->method, "*") && !(x->head && !strcmp(r->method, "GET"))) continue;
-        if (!route_match(r->pattern, x->path, &x->params)) continue;
-        x->step = sv->middleware_count + 1;
-        invoke(x, r->handler);
-        return;
+        if (!route_match(r->pattern, x->path, &params)) continue;
+        /* HEAD prefers a HEAD route over the GET one. */
+        if (!best || route_specificity(r, best) > 0 || (x->head && !strcmp(r->method, "HEAD") && !strcmp(best->method, "GET") && route_specificity(r, best) == 0)) best = r;
     }
-    headers_free(&x->params);
-    respond_rest(x);
-    finish(x);
+    headers_free(&params);
+    if (!best) return false;
+    route_match(best->pattern, x->path, &x->params);
+    uint32_t depth = 0;
+    for (uint32_t g = best->group; g; g = sv->groups[g].parent) depth += sv->groups[g].middleware_count;
+    x->chain = realloc(x->chain, (x->chain_count + depth + 1) * sizeof *x->chain);
+    uint32_t at = x->chain_count + depth;
+    x->chain[at] = best->handler;
+    for (uint32_t g = best->group; g; g = sv->groups[g].parent)
+        for (uint32_t k = sv->groups[g].middleware_count; k-- > 0;) x->chain[--at] = sv->groups[g].middleware[k];
+    x->chain_count += depth + 1;
+    return true;
 }
 
-static void run_middleware(exchange *x) {
-    server *sv = x->server;
-    if (x->step < sv->middleware_count && sv->middleware[x->step]) { invoke(x, sv->middleware[x->step]); return; }
-    run_route(x);
+static void start_level(exchange *x, uint32_t index, level *parent) {
+    aqua_runtime *rt = x->server->state->rt;
+    if (index == x->chain_count && !x->routed) {
+        x->routed = true;
+        if (!select_route(x)) { respond_rest(x); complete_into(parent, x); return; }
+    }
+    if (index >= x->chain_count || x->stopped || x->server->shut) { complete_into(parent, x); return; }
+    level *l = calloc(1, sizeof *l);
+    l->x = x; l->index = index; l->parent = parent;
+    aqua_value function = aqua_ref_value(rt, x->chain[index]);
+    bool handler = x->routed && index + 1 == x->chain_count;
+    l->wraps = !handler && aqua_function_arity(rt, function) == 3;
+    aqua_value arguments[3] = {aqua_ref_value(rt, x->request_object), aqua_ref_value(rt, x->writer_object), aqua_null()};
+    if (l->wraps) {
+        next_link *link = calloc(1, sizeof *link);
+        link->level = l;
+        l->link = link;
+        arguments[2] = aqua_object_member(rt, object_wrap(rt, object_create(CLASS_next, link)), "Next");
+    }
+    aqua_invoke_async(rt, function, arguments, l->wraps ? 3 : 2, level_done, l);
 }
 
-static void handler_done(aqua_runtime *rt, bool ok, aqua_value result, void *data) {
+void next_release(aqua_runtime *rt, void *payload) {
     (void)rt;
-    exchange *x = data;
-    server *sv = x->server;
-    if (!ok) { handler_failed(x, result); finish(x); return; }
-    if (x->step < sv->middleware_count) {
-        if (result.type == AQUA_BOOL && result.number == 0) { finish(x); return; }
-        x->step++;
-        run_middleware(x);
-        return;
-    }
-    finish(x);
+    next_link *link = payload;
+    if (link->level) link->level->link = NULL;
+    free(link);
+}
+
+/* next() of a wrapping middleware: runs the rest of the chain and returns once it completed. */
+void next_call(aqua_call *call, const char *name) {
+    next_link *link = self_payload(call);
+    if (!link->level || link->used) { net_raise_kind(call, name, NET_INVALID, "next() runs the rest of the chain once / next() 只能呼叫一次。"); return; }
+    link->used = true;
+    level *l = link->level;
+    l->inner_started = true;
+    l->next_wait = aqua_defer(call);
+    start_level(l->x, l->index + 1, l);
 }
 
 static aqua_value request_object(server *sv, exchange *x) {
@@ -1107,6 +1397,8 @@ static aqua_value request_object(server *sv, exchange *x) {
     object_field(rt, o, FIELD_OF(request, body), aqua_text(rt, x->body.length ? (const char *)x->body.data : "", x->body.length));
     object_field(rt, o, FIELD_OF(request, headers), headers_hash(rt, &x->headers, ","));
     object_field(rt, o, FIELD_OF(request, is_secure), aqua_bool(x->secure));
+    object_field(rt, o, FIELD_OF(request, host), aqua_cstring(rt, x->host ? x->host : ""));
+    object_field(rt, o, FIELD_OF(request, proto), aqua_cstring(rt, x->minor >= 1 ? "HTTP/1.1" : "HTTP/1.0"));
     return object_wrap(rt, o);
 }
 
@@ -1140,8 +1432,10 @@ static void process(server *sv, exchange *x) {
         finish(x);
         return;
     }
-    x->step = 0;
-    run_middleware(x);
+    x->chain = malloc((sv->middleware_count + 1) * sizeof *x->chain);
+    memcpy(x->chain, sv->middleware, sv->middleware_count * sizeof *x->chain);
+    x->chain_count = sv->middleware_count;
+    start_level(x, 0, NULL);
 }
 
 /* ---- Poll, Serve, Close ---- */
@@ -1186,6 +1480,37 @@ void server_close(aqua_call *call, const char *name) {
     server *sv = SELF_SERVER(call);
     sv->closed = true;
     if (sv->active == 0) resource_close(aqua_state(call), &sv->base);
+}
+
+/* Shutdown([timeout]): Go's graceful shutdown. Stops accepting at once, lets requests in progress (and queued ones)
+   finish while idle keep-alive connections close, then closes the server: true when everything finished in time, false
+   when the timeout (default 30000 ms) closed what was left. */
+static void shutdown_check(network_state *s, void *data) {
+    server *sv = data;
+    sv->shutdown_timer = NULL;
+    net_lock(&sv->lock);
+    bool idle = sv->active == 0 && sv->queued == 0 && atomic_load(&sv->sockets) == 0;
+    net_unlock(&sv->lock);
+    if (!idle && !sv->shut && net_clock_ms() < sv->shutdown_deadline) { sv->shutdown_timer = timer_start(s, 10, shutdown_check, sv); return; }
+    aqua_pending *p = sv->shutdown;
+    sv->shutdown = NULL;
+    sv->closed = true;
+    if (!sv->shut) resource_close(s, &sv->base);
+    if (p) aqua_resolve(p, aqua_bool(idle));
+    server_unref(sv);
+}
+
+void server_graceful(aqua_call *call, const char *name) {
+    server *sv = SELF_SERVER(call);
+    int32_t timeout = aqua_has_arg(call, 0) ? aqua_arg_int(call, 0) : 30000;
+    if (timeout < 0 || timeout > 300000) { net_raise_kind(call, name, NET_INVALID, MSG_WAIT); return; }
+    if (sv->shut) { aqua_return_bool(call, true); return; }
+    if (sv->shutdown) { net_raise_kind(call, name, NET_INVALID, "Shutdown is already running / 已在關閉中。"); return; }
+    atomic_store(&sv->draining, true);
+    sv->shutdown = aqua_defer(call);
+    sv->shutdown_deadline = net_clock_ms() + timeout;
+    atomic_fetch_add(&sv->refs, 1);
+    sv->shutdown_timer = timer_start(aqua_state(call), 0, shutdown_check, sv);
 }
 
 /* ---- Request ---- */
@@ -1269,17 +1594,6 @@ void request_json(aqua_call *call, const char *name) {
     net_error e;
     if (!json_decode(aqua_call_runtime(call), x->body.data, x->body.length, &value, &e)) net_raise(call, name, &e);
     else aqua_return(call, value);
-}
-
-void request_form(aqua_call *call, const char *name) {
-    exchange *x = live_exchange(call, name);
-    if (!x) return;
-    const char *type = headers_get(&x->headers, "Content-Type");
-    if (!type || !net_iprefix(type, "application/x-www-form-urlencoded")) { net_raise_kind(call, name, NET_INVALID, "Expected URL-encoded form / 需要網址編碼表單。"); return; }
-    net_headers pairs = {0};
-    parse_pairs(x->body.length ? (const char *)x->body.data : "", x->body.length, &pairs);
-    aqua_return(call, headers_hash(aqua_call_runtime(call), &pairs, ","));
-    headers_free(&pairs);
 }
 
 void request_bytes(aqua_call *call, const char *name) {
@@ -1637,4 +1951,293 @@ void session_destroy(aqua_call *call, const char *name) {
     o.has_max_age = true;
     o.max_age = 0;
     add_cookie(call, name, h->exchange, "aqua_session", "", &o);
+}
+
+/* ---- Go-style conveniences ---- */
+
+/* ListenAndServe(address, routes?, options?): Listen, Handle every "METHOD /path": handler pair, then Serve. It returns
+   (its promise variant settles) when the server closes, which for this server is the end of the runtime. */
+void net_listen_and_serve(aqua_call *call, const char *name) {
+    aqua_runtime *rt = aqua_call_runtime(call);
+    aqua_value routes = aqua_arg(call, 1);
+    uint32_t count = routes.type == AQUA_HASH ? aqua_hash_count(rt, routes) : 0;
+    for (uint32_t i = 0; i < count; i++) {
+        aqua_value key, handler;
+        aqua_hash_entry(rt, routes, i, &key, &handler);
+        if (key.type != AQUA_STRING || !aqua_is_callable(handler)) { net_raise_kind(call, name, NET_INVALID, "Routes map \"METHOD /path\" to handlers / 路由表須為 \"方法 /路徑\": 函式。"); return; }
+    }
+    server *sv = listen_open(call, name, 2);
+    if (!sv) return;
+    for (uint32_t i = 0; i < count; i++) {
+        aqua_value key, handler;
+        aqua_hash_entry(rt, routes, i, &key, &handler);
+        if (!route_insert(rt, sv, 0, NULL, aqua_str_of(call, key).data, handler)) {
+            resource_close(aqua_state(call), &sv->base);
+            net_raise_kind(call, name, NET_INVALID, "Invalid route / 路由須以 / 開頭。");
+            return;
+        }
+    }
+    sv->serve = aqua_defer(call);
+    atomic_fetch_add(&sv->refs, 1);
+    aqua_post(rt, dispatch_task, sv);
+}
+
+/* ---- Multipart forms (RFC 7578) ---- */
+
+typedef struct form_part { char *name, *filename, *type; const uint8_t *data; size_t length; } form_part;
+
+static const uint8_t *find_bytes(const uint8_t *data, size_t length, const char *needle, size_t n) {
+    if (n == 0 || length < n) return NULL;
+    for (size_t i = 0; i + n <= length; i++) if (data[i] == (uint8_t)needle[0] && !memcmp(data + i, needle, n)) return data + i;
+    return NULL;
+}
+
+/* The value of `key` in a header such as `form-data; name="a"; filename="b.txt"`, or NULL. */
+static char *header_parameter(const char *header, const char *key) {
+    size_t n = strlen(key);
+    for (const char *p = header; (p = strchr(p, ';')) != NULL;) {
+        p++;
+        while (*p == ' ' || *p == '\t') p++;
+        if (!net_iprefix(p, key) || p[n] != '=') continue;
+        p += n + 1;
+        if (*p == '"') {
+            const char *end = strchr(p + 1, '"');
+            return end ? net_strndup(p + 1, (size_t)(end - p - 1)) : NULL;
+        }
+        return net_strndup(p, strcspn(p, "; \t"));
+    }
+    return NULL;
+}
+
+static void parts_free(form_part *parts, int count) {
+    for (int i = 0; i < count; i++) { free(parts[i].name); free(parts[i].filename); free(parts[i].type); }
+    free(parts);
+}
+
+/* The parts of a multipart/form-data body; 0 when the request is no multipart form, -1 when it is malformed. */
+static int multipart_parts(exchange *x, form_part **out) {
+    *out = NULL;
+    const char *type = headers_get(&x->headers, "Content-Type");
+    if (!type || !net_iprefix(type, "multipart/form-data")) return 0;
+    char *boundary = header_parameter(type, "boundary");
+    if (!boundary || !*boundary || strlen(boundary) > 70) { free(boundary); return -1; }
+    char delimiter[80];
+    size_t dn = (size_t)snprintf(delimiter, sizeof delimiter, "\r\n--%s", boundary);
+    free(boundary);
+    const uint8_t *data = x->body.data, *end = data + x->body.length;
+    /* The body starts with the first delimiter (without the line break before it) or with a preamble. */
+    const uint8_t *p = NULL;
+    if (x->body.length >= dn - 2 && !memcmp(data, delimiter + 2, dn - 2)) p = data + dn - 2;
+    else { const uint8_t *at = find_bytes(data, x->body.length, delimiter, dn); if (at) p = at + dn; }
+    form_part *parts = NULL;
+    int count = 0;
+    while (p) {
+        if (p + 2 <= end && p[0] == '-' && p[1] == '-') { *out = parts; return count ? count : -1; }
+        if (p + 2 > end || p[0] != '\r' || p[1] != '\n') break;
+        p += 2;
+        const uint8_t *head_end = find_bytes(p, (size_t)(end - p), "\r\n\r\n", 4);
+        if (!head_end) break;
+        form_part part = {0};
+        for (const uint8_t *line = p; line < head_end;) {
+            const uint8_t *eol = find_bytes(line, (size_t)(head_end - line), "\r\n", 2);
+            if (!eol) eol = head_end;
+            char *text = net_strndup((const char *)line, (size_t)(eol - line));
+            if (net_iprefix(text, "Content-Disposition:")) { part.name = header_parameter(text, "name"); part.filename = header_parameter(text, "filename"); }
+            else if (net_iprefix(text, "Content-Type:")) { const char *v = text + 13; while (*v == ' ') v++; part.type = net_strdup(v); }
+            free(text);
+            line = eol + 2;
+        }
+        const uint8_t *content = head_end + 4;
+        const uint8_t *next = find_bytes(content, (size_t)(end - content), delimiter, dn);
+        if (!next || !part.name) { free(part.name); free(part.filename); free(part.type); break; }
+        part.data = content;
+        part.length = (size_t)(next - content);
+        parts = realloc(parts, (size_t)(count + 1) * sizeof *parts);
+        parts[count++] = part;
+        p = next + dn;
+    }
+    parts_free(parts, count);
+    return -1;
+}
+
+/* Form(): URL-encoded or multipart text fields (a repeated name joins with ','). */
+void request_form(aqua_call *call, const char *name) {
+    exchange *x = live_exchange(call, name);
+    if (!x) return;
+    aqua_runtime *rt = aqua_call_runtime(call);
+    form_part *parts;
+    int count = multipart_parts(x, &parts);
+    if (count < 0) { net_raise_kind(call, name, NET_INVALID, "Malformed multipart form / 多部分表單格式錯誤。"); return; }
+    net_headers pairs = {0};
+    if (count > 0) {
+        for (int i = 0; i < count; i++) {
+            if (parts[i].filename) continue;
+            char *value = net_strndup((const char *)parts[i].data, parts[i].length);
+            headers_add(&pairs, parts[i].name, value);
+            free(value);
+        }
+        parts_free(parts, count);
+    } else {
+        const char *type = headers_get(&x->headers, "Content-Type");
+        if (!type || !net_iprefix(type, "application/x-www-form-urlencoded")) { net_raise_kind(call, name, NET_INVALID, "Expected URL-encoded form / 需要網址編碼表單。"); return; }
+        parse_pairs(x->body.length ? (const char *)x->body.data : "", x->body.length, &pairs);
+    }
+    aqua_return(call, headers_hash(rt, &pairs, ","));
+    headers_free(&pairs);
+}
+
+/* FormValue(name): a form field (URL-encoded or multipart), else the query parameter; "" when absent. */
+void request_form_value(aqua_call *call, const char *name) {
+    exchange *x = live_exchange(call, name);
+    if (!x) return;
+    const char *wanted = aqua_arg_str(call, 0).data;
+    form_part *parts;
+    int count = multipart_parts(x, &parts);
+    for (int i = 0; i < count; i++) {
+        if (parts[i].filename || strcmp(parts[i].name, wanted)) continue;
+        aqua_return_text(call, (const char *)parts[i].data, parts[i].length);
+        parts_free(parts, count);
+        return;
+    }
+    if (count > 0) parts_free(parts, count);
+    const char *type = headers_get(&x->headers, "Content-Type");
+    net_headers pairs = {0};
+    if (type && net_iprefix(type, "application/x-www-form-urlencoded")) parse_pairs(x->body.length ? (const char *)x->body.data : "", x->body.length, &pairs);
+    const char *value = pair_value(&pairs, wanted);
+    if (!value) {
+        headers_free(&pairs);
+        const char *query = x->query[0] == '?' ? x->query + 1 : x->query;
+        parse_pairs(query, strlen(query), &pairs);
+        value = pair_value(&pairs, wanted);
+    }
+    aqua_return_cstring(call, value ? value : "");
+    headers_free(&pairs);
+}
+
+/* Files(): the files of a multipart form, [{"field", "filename", "contentType", "size", "data"}]. */
+void request_files(aqua_call *call, const char *name) {
+    exchange *x = live_exchange(call, name);
+    if (!x) return;
+    aqua_runtime *rt = aqua_call_runtime(call);
+    form_part *parts;
+    int count = multipart_parts(x, &parts);
+    if (count < 0) { net_raise_kind(call, name, NET_INVALID, "Malformed multipart form / 多部分表單格式錯誤。"); return; }
+    aqua_value files = aqua_array_new(rt, 0);
+    for (int i = 0; i < count; i++) {
+        if (!parts[i].filename) continue;
+        aqua_value file = aqua_hash_new(rt, 5);
+        aqua_hash_set_field(rt, file, "field", aqua_cstring(rt, parts[i].name));
+        aqua_hash_set_field(rt, file, "filename", aqua_cstring(rt, parts[i].filename));
+        aqua_hash_set_field(rt, file, "contentType", aqua_cstring(rt, parts[i].type ? parts[i].type : "application/octet-stream"));
+        aqua_hash_set_field(rt, file, "size", aqua_int((int32_t)parts[i].length));
+        aqua_hash_set_field(rt, file, "data", bytes_value(rt, parts[i].data, parts[i].length));
+        aqua_array_push(rt, files, file);
+    }
+    if (count > 0) parts_free(parts, count);
+    aqua_return(call, files);
+}
+
+/* BasicAuth(): {"user", "password"} of an Authorization: Basic header, or null. */
+void request_basic_auth(aqua_call *call, const char *name) {
+    exchange *x = live_exchange(call, name);
+    if (!x) return;
+    const char *header = headers_get(&x->headers, "Authorization");
+    if (!header || !net_iprefix(header, "Basic ")) { aqua_return_null(call); return; }
+    const char *encoded = header + 6;
+    while (*encoded == ' ') encoded++;
+    unsigned char decoded[1024];
+    size_t length = 0;
+    if (mbedtls_base64_decode(decoded, sizeof decoded - 1, &length, (const unsigned char *)encoded, strlen(encoded)) != 0) { aqua_return_null(call); return; }
+    decoded[length] = 0;
+    char *colon = memchr(decoded, ':', length);
+    if (!colon) { aqua_return_null(call); return; }
+    aqua_runtime *rt = aqua_call_runtime(call);
+    aqua_value result = aqua_hash_new(rt, 2);
+    aqua_hash_set_field(rt, result, "user", aqua_text(rt, (const char *)decoded, (size_t)(colon - (char *)decoded)));
+    aqua_hash_set_field(rt, result, "password", aqua_text(rt, colon + 1, length - (size_t)(colon + 1 - (char *)decoded)));
+    aqua_return(call, result);
+}
+
+/* ---- Writer conveniences (Go's http.Error, http.NotFound, http.ServeFile, Header().Add, Write) ---- */
+
+void writer_error(aqua_call *call, const char *name) {
+    exchange *x = live_exchange(call, name);
+    if (!x) return;
+    int32_t status = aqua_arg_int(call, 0);
+    if (status < 400 || status > 599) { net_raise_kind(call, name, NET_INVALID, "Error status must be 400..599 / 錯誤狀態碼須介於 400..599。"); return; }
+    if (x->started) { net_raise_kind(call, name, NET_NETWORK, "StatusCode cannot be set because the response has already started. / 回應已開始，無法設定狀態碼。"); return; }
+    x->status = status;
+    headers_set(&x->response, "Content-Type", "text/plain; charset=utf-8");
+    const char *text = aqua_has_arg(call, 1) ? aqua_arg_str(call, 1).data : reason_phrase(status);
+    write_body(call, name, x, text, strlen(text));
+}
+
+void writer_not_found(aqua_call *call, const char *name) {
+    exchange *x = live_exchange(call, name);
+    if (!x) return;
+    if (x->started) { net_raise_kind(call, name, NET_NETWORK, "StatusCode cannot be set because the response has already started. / 回應已開始，無法設定狀態碼。"); return; }
+    x->status = 404;
+    headers_set(&x->response, "Content-Type", "text/plain; charset=utf-8");
+    const char *text = "Not Found / 找不到資源";
+    write_body(call, name, x, text, strlen(text));
+}
+
+/* Write(text or bytes): a piece of the body, sent at once (chunked while the length is unknown). */
+void writer_write(aqua_call *call, const char *name) {
+    exchange *x = live_exchange(call, name);
+    if (!x) return;
+    aqua_value value = aqua_arg(call, 0);
+    if (value.type == AQUA_STRING) {
+        aqua_str text = aqua_arg_str(call, 0);
+        content_type(x, "text/plain; charset=utf-8");
+        write_body(call, name, x, text.data, text.length);
+        return;
+    }
+    net_buffer bytes = {0};
+    net_error e;
+    if (!value_bytes(aqua_call_runtime(call), value, &bytes, &e)) { buffer_free(&bytes); net_raise(call, name, &e); return; }
+    content_type(x, "application/octet-stream");
+    write_body(call, name, x, bytes.data, bytes.length);
+    buffer_free(&bytes);
+}
+
+void writer_add_header(aqua_call *call, const char *name) {
+    exchange *x = live_exchange(call, name);
+    if (x && set_header(call, name, x, aqua_arg_str(call, 0).data, aqua_arg_str(call, 1).data, true)) aqua_return(call, aqua_self_value(call));
+}
+
+/* File(path): a file of the file system or of the application's package with its type, ETag, Last-Modified and byte
+   ranges; 404 when there is none. */
+void writer_file(aqua_call *call, const char *name) {
+    exchange *x = live_exchange(call, name);
+    if (!x) return;
+    if (x->started) { net_raise_kind(call, name, NET_NETWORK, "The response has already started. / 回應已開始。"); return; }
+    const char *path = aqua_arg_str(call, 0).data;
+    net_buffer bytes = {0};
+    int64_t modified = 0;
+    bool found = false, large = false;
+    if (file_kind(path) == 1) {
+        FILE *f = open_utf8(path);
+        if (f) {
+            found = true;
+            uint8_t chunk[65536];
+            size_t n;
+            while ((n = fread(chunk, 1, sizeof chunk, f)) > 0) {
+                if (bytes.length + n > NET_MAX_BODY) { large = true; break; }
+                buffer_append(&bytes, chunk, n);
+            }
+            fclose(f);
+            struct stat info;
+            if (stat(path, &info) == 0) modified = (int64_t)info.st_mtime;
+        }
+    } else {
+        size_t length;
+        const uint8_t *data = aqua_asset(aqua_call_runtime(call), path, &length);
+        if (data) { found = true; if (length > NET_MAX_BODY) large = true; else buffer_append(&bytes, data, length); }
+    }
+    if (large) { buffer_free(&bytes); net_raise_kind(call, name, NET_INVALID, "LimitExceeded / 檔案過大。"); return; }
+    if (!found) respond_text(x, 404, "Not Found / 找不到資源");
+    else send_file(x, &bytes, mime_type(path), modified);
+    buffer_free(&bytes);
+    aqua_return(call, aqua_self_value(call));
 }

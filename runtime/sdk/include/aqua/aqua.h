@@ -250,6 +250,9 @@ aqua_value aqua_object_new(aqua_runtime *rt, aqua_class *cls, void *data);
 /* The data of an object of `cls`, or NULL when `value` is anything else. */
 void *aqua_object_data(aqua_runtime *rt, aqua_value value, aqua_class *cls);
 aqua_class *aqua_object_class(aqua_runtime *rt, aqua_value value);
+/* A member of a native object or module by any of its names: a method as a function value (to pass as a callback), a
+   property's current value, or null when there is no such member. */
+aqua_value aqua_object_member(aqua_runtime *rt, aqua_value object, const char *name);
 
 /* ---- References, callbacks and asynchronous results ------------------------------------------------------------- */
 
@@ -266,7 +269,8 @@ int32_t aqua_function_arity(aqua_runtime *rt, aqua_value function);
    if it fails, or if it waits for an asynchronous result, which a synchronous call cannot do on the web. */
 bool aqua_invoke(aqua_runtime *rt, aqua_value function, const aqua_value *arguments, uint32_t count, aqua_value *result);
 /* Calls a function that may wait for asynchronous results (frame callbacks, event handlers). `done` runs on the
-   runtime's thread once it finishes, possibly before aqua_invoke_async returns; `ok` is false on failure. */
+   runtime's thread once it finishes, possibly before aqua_invoke_async returns; `ok` is false on failure. A function
+   that returns a promise (an async function) finishes when the promise settles: `done` gets its value or rejection. */
 typedef void (*aqua_done)(aqua_runtime *rt, bool ok, aqua_value result, void *data);
 void aqua_invoke_async(aqua_runtime *rt, aqua_value function, const aqua_value *arguments, uint32_t count, aqua_done done, void *data);
 

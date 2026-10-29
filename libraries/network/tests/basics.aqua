@@ -48,3 +48,9 @@ Injected: yes"}}));
 } 否則 {
     印出("網頁限定", 網路.嘗試(函式() { 回傳 網路.連接傳輸控制("localhost", 80); }).錯誤.訊息 == "Network.ConnectTCP: Unsupported: Unsupported / 不支援：web / tcp");
 }
+# Promise variants (aqua_define_async) and status texts exist on every target.
+印出("非同步", 網路.GetAsync == 網路.非同步取得, 型別(net.RequestAsync), 網路.狀態說明(404), net.StatusText(201));
+變數 失敗 = 等待 網路.非同步取得("http://127.0.0.1:1/", {"逾時":3000});
+印出("非同步回應", 失敗.狀態碼, 失敗.成功);
+變數 拒絕 = 等待 承諾.全部結算([net.ConnectWebSocketAsync("http://example.com")]);
+印出("非同步拒絕", 拒絕[0]["status"]);

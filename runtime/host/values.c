@@ -351,3 +351,13 @@ aqua_value host_error(aqua_runtime *rt, const char *format, ...) {
     v.type = AQUA_ERROR;
     return v;
 }
+
+aqua_value aqua_object_member(aqua_runtime *rt, aqua_value object, const char *name) {
+    if (object.type != AQUA_NATIVE) return aqua_null();
+    handle *h = handle_get(rt, object.ref);
+    if (!h || h->kind == HANDLE_BOUND) return aqua_null();
+    int32_t index = class_member(h->cls, name);
+    if (index < 0) return aqua_null();
+    bool cacheable;
+    return member_value(rt, object.ref, (uint32_t)index, &cacheable);
+}

@@ -17,6 +17,14 @@ Language:
 
 Libraries:
 
+- Network: a Go-style server layer (`net/http`): `Handle("GET /items/{id}", handler)` patterns with optional methods,
+  `{name...}` wildcards, the most specific route winning (literal over parameter over wildcard), `Group(prefix)` routers
+  with their own middleware, wrapping middleware `function(request, writer, next)`, `ListenAndServe(":8080", routes)`,
+  graceful `Shutdown(timeout)`, `StatusText`, `readTimeout` / `idleTimeout` options, writer `Error`, `NotFound`,
+  `Write`, `AddHeader` and `File` (ETag, Last-Modified, byte ranges), request `Host`, `Proto`, `FormValue`, `Files`
+  (multipart uploads) and `BasicAuth`. Listen accepts `host:port` and `:port`. Handlers and middleware may be async.
+- Network: every waiting function has a promise variant, `...Async` / `非同步...` (`GetAsync`, `ServeAsync`,
+  `AcceptAsync`, `ReceiveAsync`, ...), on every target that has the function.
 - New default library `interaction`: `Interaction` / `互動` turns window events into each platform's clicks (with
   click counts), drags with release velocity, long presses, pinches, context menu requests, back and forward,
   scrolling, zooming and keyboard commands, reports the platform's conventions (double-click time, touch slop,
@@ -24,6 +32,10 @@ Libraries:
   `Feed` raw events). `ScrollView`, `Navigation`, `ContextMenu` and `Focus` are written in AquariusLang on top of it.
 - Processing's `platformWindow` and WGPU windows' `PlatformWindow` give other libraries the shared window object.
 - Web glue domains `history` (the browser's back button) and `mediaquery` (`matchMedia`).
+
+SDK (API version 2): `aqua_define_async` registers a promise variant of a function; `aqua_object_member` gives a
+method of a native object as a function value; `aqua_invoke_async` waits for a promise a callback returns. A deferred
+call that settled before its function returned no longer leaves its caller waiting.
 
 Docs: [native-like applications](docs/native-like-apps.md), the rules and checklist for drawn interfaces on every
 platform.

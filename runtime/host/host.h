@@ -134,6 +134,7 @@ struct task {
     aqua_done done; void *data;
     bool finished, failed;
     bool loop;               /* on the runtime loop's list: it may wait (await), unlike an execution run to completion */
+    bool follow;             /* aqua_invoke_async: a promise result settles before done runs */
     aqua_value result;
     uint32_t result_pin;     /* keeps result alive until delivered */
     task *next;
@@ -219,6 +220,7 @@ void promises_finish(aqua_runtime *rt); /* reports unhandled rejections when the
    deferred result. */
 aqua_value promise_of_call(aqua_runtime *rt, aqua_call *call);
 void promise_settle_pending(aqua_runtime *rt, struct promise *p, aqua_value result);
+bool promise_follow(aqua_runtime *rt, aqua_value value, aqua_done done, void *data); /* done once a returned promise settles */
 char *format_value(aqua_runtime *rt, aqua_value v);
 void format_number(char *buffer, size_t size, double n, aqua_type type);
 

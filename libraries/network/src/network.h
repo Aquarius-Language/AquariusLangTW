@@ -53,6 +53,7 @@ typedef enum net_kind {
 } net_kind;
 typedef struct net_error { net_kind kind; bool retryable; char message[480]; } net_error;
 NET_SHARED const char *net_kind_name(net_kind kind);
+NET_SHARED const char *net_status_text(int status); /* "Not Found" for 404, "" for unknown codes */
 /* Sets the error and returns false, so validation reads `return net_error_set(e, ...);`. */
 NET_SHARED bool net_error_set(net_error *e, net_kind kind, bool retryable, const char *format, ...);
 /* Fails a call as the old runtime did: "<Library.Function>: <Kind>: <message>". */
@@ -181,7 +182,7 @@ enum {
 #undef FIELD
 };
 #define FIELD_OF(owner, field) (FIELD_##owner##_##field - FIELDS_START_##owner - 1)
-#define NET_FIELDS 8
+#define NET_FIELDS 10
 
 /* Every native object of this library: retained field values plus the class's C data (a resource for sockets,
    clients and servers; the response or request data for records with methods). */
@@ -237,6 +238,7 @@ NET_SHARED bool feature_require(const char *feature, net_error *e);
 enum { CREDENTIALS_OMIT, CREDENTIALS_SAME_ORIGIN, CREDENTIALS_INCLUDE };
 typedef struct net_options {
     int32_t timeout_ms, max_body, max_redirects;
+    int32_t read_timeout_ms, idle_timeout_ms; /* servers: a request's head, an idle keep-alive connection */
     bool follow_redirects;
     int credentials;
     net_headers headers;

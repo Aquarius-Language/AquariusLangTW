@@ -28,3 +28,6 @@ Network.StartRequest: InvalidArgument: Expected a byte array / 需要位元組�
 WebSocket網址 Network.ConnectWebSocket: InvalidArgument: Expected ws:// or wss:// / 需要 WebSocket 網址。
 已關閉用戶端 Closed Resource closed / 資源已關閉。
 網頁限定 真
+非同步 真 function Not Found Created
+非同步回應 0 假
+非同步拒絕 rejected

@@ -202,6 +202,8 @@ int32_t host_service(aqua_runtime *rt, int32_t operation, int32_t context, int32
         aqua_pending *pending = NULL;
         aqua_value result = call_native(rt, (uint32_t)subject, values, (uint32_t)count, (uint32_t)context, &pending);
         if (values != small) free(values);
+        /* A deferred call settled before it returned gives its result now. */
+        if (pending && pending->settled) { result = pending->result; aqua_release(rt, pending->result_ref); free(pending); pending = NULL; }
         if (pending && result.type != AQUA_ERROR) {
             pending->task = rt->current;
             if (rt->current) rt->current->pending = pending;
