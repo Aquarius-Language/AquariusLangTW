@@ -191,6 +191,7 @@ public sealed class LoweringCompiler {
             else Emit(IrOperation.CompoundIndex, Constant(new Assignment("", BinaryCode(op.Substring(0, 1)))));
             return;
         }
+        if (op is "&&" or "||") { ShortCircuit(expression, op == "&&"); return; }
         Node(expression.Left);
         if (op == ".") {
             // The parser rebuilds index chains on a member (`模組.表["鍵"]`) as indexing the member.
@@ -214,10 +215,26 @@ public sealed class LoweringCompiler {
         Emit(BinaryCode(op));
     }
 
+    // `a && b` skips b when a is false and `a || b` when a is true. Both paths still end in the Boolean operation (with
+    // the constant that cannot change the result where b is skipped), so a non-Boolean operand is reported as before.
+    private void ShortCircuit(InfixExpression expression, bool and) {
+        var operation = and ? IrOperation.And : IrOperation.Or;
+        Node(expression.Left);
+        Emit(IrOperation.Duplicate);
+        int skip = Emit(IrOperation.JumpIfFalse);
+        if (and) Node(expression.Right); else Value(RepeatedPrimitives.FALSE);
+        Emit(operation);
+        int end = Emit(IrOperation.Jump);
+        Patch(skip);
+        if (and) Value(RepeatedPrimitives.FALSE); else Node(expression.Right);
+        Emit(operation);
+        Patch(end);
+    }
+
     private static IrOperation BinaryCode(string op) => op switch {
         "+" => IrOperation.Add, "-" => IrOperation.Subtract, "*" => IrOperation.Multiply, "/" => IrOperation.Divide, "%" => IrOperation.Modulo,
         "<" => IrOperation.Less, ">" => IrOperation.Greater, "<=" => IrOperation.LessEqual, ">=" => IrOperation.GreaterEqual,
-        "==" => IrOperation.Equal, "!=" => IrOperation.NotEqual, "&&" => IrOperation.And, "||" => IrOperation.Or,
+        "==" => IrOperation.Equal, "!=" => IrOperation.NotEqual,
         _ => throw new CompilationException($"Unsupported operator: {op}")
     };
 

@@ -54,9 +54,7 @@ var SetBackHandler = function(page, onBack) { page.onBack = onBack; };
 # True when back was handled here; false on the first screen, which leaves the decision to the system.
 var HandleBack = function(stack) {
     var page = Current(stack);
-    if (page.onBack != null) {
-        if (page.onBack(page) == true) { return true; }
-    }
+    if (page.onBack != null && page.onBack(page) == true) { return true; }
     return Pop(stack) != null;
 };
 
