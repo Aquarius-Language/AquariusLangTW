@@ -1,0 +1,17 @@
+# (needs a window) Sessions attach to the window a graphics library hands over (Processing's platformWindow), one
+# session per window; cursors, safe areas, handlers and detaching.
+var p = import("Processing");
+var ix = import("Interaction");
+p.run(function() { p.size(320, 200, p.P2D, "interaction test"); }, function() {
+    var session = ix.Attach(p.platformWindow);
+    print(session.attached, session == ix.Attach(p.platformWindow), typeOf(session.SetCursor("hand")));
+    session.SetCursor("arrow");
+    var area = session.SafeArea();
+    print(area.left >= 0, area.top >= 0, typeOf(area.keyboardVisible));
+    var id = session.On("back", function(e) { return true; });
+    print(session.Off(id), session.Off(id));
+    session.Detach();
+    print(session.attached);
+    p.exit();
+});
+print("done");

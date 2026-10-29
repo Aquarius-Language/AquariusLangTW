@@ -18,6 +18,7 @@ C# 只作為編譯器，執行時不需要 .NET。
 - **多執行緒**：[Thread／執行緒](docs/threading.md)以函式啟動獨立工作，提供逾時等待、結果、取消與安全關閉，支援桌面、網頁及 Android；見[雙語範例](examples/threading/README.md)。
 - **跨平台網路**：[Network／網路](libraries/network/docs/networking.md)提供雙語 HTTP(S)、Cookie、可取消請求、串流回應、WebSocket、原生 TCP／TLS／UDP，以及 Windows、Linux、Android 的 HTTP(S) 伺服器（路由、靜態檔案、SSE、工作階段）；見[繁體中文前後端範例](examples/network_lab/README.md)。
 - **圖學**：[WebGPU、Processing 繪圖、文字輸入與 GPU 數學](libraries/graphics/README.md)使用 wgpu-native 或瀏覽器的 WebGPU；桌面另有 [OpenGL](libraries/opengl/README.md)。
+- **原生感介面**：[互動／Interaction](libraries/interaction/README.md)讓任何繪圖函式庫繪製的介面具備各平台的點擊、拖曳、長按、右鍵選單、返回、快捷鍵與捲動行為；[原生感應用程式指南](docs/native-like-apps.md)是建置時的檢查清單。
 - **PBR 與模型匯入**：[Models／PBR](libraries/graphics/docs/pbr-models.md)在 Wasm 解析 OBJ／MTL，並以共用 WGSL 提供金屬度／粗糙度即時渲染；另有[具名 shader 紋理、cube mip chains 與線性浮點 render targets](libraries/graphics/docs/wgpu-textures.md)。
 - **跨平台音訊**：[音訊函式庫](libraries/audio/README.md)以 miniaudio 解碼與混音，支援音檔、音調、循環、聲像、音高及無硬體的離線樣本輸出。
 - **模型推論**：[ONNX Runtime 與 MediaPipe 姿態追蹤](libraries/onnx/README.md)依平台排序執行提供者，可選用 CUDA／TensorRT（於 `aqua.toml` 設定 `[onnx] cuda = true`），網頁使用以 C++ 原始碼建置的 ONNX Runtime；附 [繁體中文姿態範例](examples/mediapipe/README.md)。
@@ -265,6 +266,7 @@ var flags: bool[] = Array.Make(10, true);
 | [onnx](libraries/onnx/README.md) | 推論引擎／ONNX、姿態追蹤／MediaPipe | [姿態](examples/mediapipe/README.md) |
 | [terminal](libraries/terminal/README.md) | 終端機／Terminal | |
 | [input](libraries/input/README.md) | Android輸入／AndroidInput | |
+| [interaction](libraries/interaction/README.md) | 互動／Interaction、捲動檢視／ScrollView、導覽／Navigation、右鍵選單／ContextMenu、焦點／Focus | [原生感應用程式](docs/native-like-apps.md) |
 
 語言本身內建可攜的[陣列](docs/arrays.md)、[雜湊與字串](docs/hash-and-string.md)及[執行緒](docs/threading.md)模組。
 [星艦遠征](examples/starship_expedition/README.md)與[雙語函式庫](examples/bilingual_library/README.md)示範語言功能。

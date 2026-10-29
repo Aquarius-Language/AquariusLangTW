@@ -1,0 +1,26 @@
+max 0 900
+wheel down moved 真
+end 900
+into view 真 100
+thumb 真 24 28.444444444444443
+no horizontal bar 假
+clamped 真 0 真 900
+thumb dragged to 900
+panned 440 flinging 真
+fling went further 真 and stopped 真 真
+navigation push list
+navigation push editor
+asks to discard changes
+navigation pop list
+navigation pop home
+depth 1 home 假
+shortcut Ctrl+C 真
+flipped inside 真 真
+highlighted 1 lifting the finger chose nothing 真 0
+clicked copy 假
+keyboard opens on 1
+arrow skips the separator selectAll
+back closes 假
+tab email 真
+shift+tab wraps ok
+a click hides the ring 假

@@ -900,6 +900,12 @@ WINDOW_FIELD(Focused, bool, w->state.focused)
 WINDOW_FIELD(PointerLocked, bool, w->state.pointer_locked)
 WINDOW_FIELD(ShouldClose, bool, w->state.should_close)
 WINDOW_FIELD(Resized, bool, w->state.resized)
+/* The shared window object, for libraries that work with any window (Interaction, TextInput); null once disposed. */
+static void window_get_PlatformWindow(aqua_call *call) {
+    wgpu_window *w = window_self(call);
+    if (w->window) aqua_return(call, aqua_window_object(w->window));
+    else aqua_return_null(call);
+}
 
 aqua_window *gfx_wgpu_window_of(aqua_runtime *rt, aqua_value value) {
     wgpu_window *w = aqua_object_data(rt, value, window_class_w);
@@ -994,5 +1000,5 @@ void gfx_wgpu_register(aqua_library *library) {
     WINDOW_PROPERTY(Width) WINDOW_PROPERTY(Height) WINDOW_PROPERTY(PixelWidth) WINDOW_PROPERTY(PixelHeight)
     WINDOW_PROPERTY(MouseX) WINDOW_PROPERTY(MouseY) WINDOW_PROPERTY(MouseDeltaX) WINDOW_PROPERTY(MouseDeltaY)
     WINDOW_PROPERTY(Wheel) WINDOW_PROPERTY(Focused) WINDOW_PROPERTY(PointerLocked) WINDOW_PROPERTY(ShouldClose)
-    WINDOW_PROPERTY(Resized)
+    WINDOW_PROPERTY(Resized) WINDOW_PROPERTY(PlatformWindow)
 }

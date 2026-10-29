@@ -1,0 +1,70 @@
+# Fed events (the adapter any graphics library can use): clicks with counts, drags, the right button, wheel and zoom,
+# long presses, pinches and handler order. Thresholds come from the platform, so the moves are well past them.
+var ix = import("Interaction");
+var s = ix.Create();
+var log = function(e) {
+    var line = e.type;
+    if (e.count != null) { line = line + " count=" + import("String").From(e.count); }
+    if (e.source != null) { line = line + " source=" + e.source; }
+    if (e.phase != null) { line = line + " phase=" + e.phase; }
+    print(line);
+    return false;
+};
+var id = s.On("*", log);
+print(typeOf(id), s.attached);
+
+# A double click: two presses close in time and place.
+s.Feed({"type": "button", "time": 10.0d, "button": 0, "action": 1, "x": 50, "y": 50});
+s.Feed({"type": "button", "time": 10.05d, "button": 0, "action": 0, "x": 50, "y": 50});
+s.Feed({"type": "button", "time": 10.15d, "button": 0, "action": 1, "x": 51, "y": 50});
+s.Feed({"type": "button", "time": 10.2d, "button": 0, "action": 0, "x": 51, "y": 50});
+s.Dispatch();
+
+# A drag: press, move far, release.
+s.Feed({"type": "button", "time": 20.0d, "button": 0, "action": 1, "x": 10, "y": 10});
+s.Feed({"type": "pointer", "time": 20.02d, "x": 60, "y": 10});
+s.Feed({"type": "pointer", "time": 20.04d, "x": 110, "y": 10});
+s.Feed({"type": "button", "time": 20.05d, "button": 0, "action": 0, "x": 110, "y": 10});
+s.Dispatch();
+s.Off(id);
+
+# Drag details, then the right button and the wheel.
+s.On("dragEnd", function(e) { print("dragEnd from", e.startX, e.startY, "fast to the right:", e.velocityX > 1000, e.velocityY == 0); return true; });
+s.On("contextMenu", function(e) { print("context menu at", e.x, e.y, "from", e.source); return true; });
+s.On("scroll", function(e) { print("scroll", e.dx == 0, e.dy > 0); return true; });
+s.On("zoom", function(e) { print("zoom in", e.scale > 1); return true; });
+s.Feed({"type": "button", "time": 30.0d, "button": 0, "action": 1, "x": 10, "y": 10});
+s.Feed({"type": "pointer", "time": 30.02d, "x": 60, "y": 10});
+s.Feed({"type": "pointer", "time": 30.04d, "x": 110, "y": 10});
+s.Feed({"type": "button", "time": 30.05d, "button": 0, "action": 0, "x": 110, "y": 10});
+s.Feed({"type": "button", "time": 31.0d, "button": 1, "action": 1, "x": 20, "y": 30});
+s.Feed({"type": "button", "time": 31.1d, "button": 1, "action": 0, "x": 20, "y": 30});
+s.Feed({"type": "scroll", "time": 32.0d, "x": 0, "y": -1});
+s.Feed({"type": "key", "time": 33.0d, "key": 341, "action": 1});
+s.Feed({"type": "key", "time": 33.0d, "key": 343, "action": 1});
+s.Feed({"type": "scroll", "time": 33.1d, "x": 0, "y": 1});
+s.Feed({"type": "key", "time": 33.2d, "key": 341, "action": 0});
+s.Feed({"type": "key", "time": 33.2d, "key": 343, "action": 0});
+s.Dispatch();
+
+# Touch: a long press opens the context menu; two fingers pinch.
+s.On("longPress", function(e) { print("long press", e.pointerType); return true; });
+s.On("pinch", function(e) { print("pinch", e.phase, e.scale > 1); return true; });
+s.Feed({"type": "button", "time": 40.0d, "pointer": 7, "pointerType": "touch", "button": 0, "action": 1, "x": 100, "y": 100});
+s.Feed({"type": "tick", "time": 42.0d});
+s.Feed({"type": "button", "time": 42.1d, "pointer": 7, "pointerType": "touch", "button": 0, "action": 0, "x": 100, "y": 100});
+s.Feed({"type": "button", "time": 50.0d, "pointer": 1, "pointerType": "touch", "button": 0, "action": 1, "x": 100, "y": 100});
+s.Feed({"type": "button", "time": 50.01d, "pointer": 2, "pointerType": "touch", "button": 0, "action": 1, "x": 200, "y": 100});
+s.Feed({"type": "pointer", "time": 50.05d, "pointer": 2, "pointerType": "touch", "x": 300, "y": 100});
+s.Feed({"type": "button", "time": 50.1d, "pointer": 2, "pointerType": "touch", "button": 0, "action": 0, "x": 300, "y": 100});
+s.Feed({"type": "button", "time": 50.11d, "pointer": 1, "pointerType": "touch", "button": 0, "action": 0, "x": 100, "y": 100});
+s.Dispatch();
+
+# Newest handlers run first; returning true stops the rest.
+s.On("back", function(e) { print("first handler"); return true; });
+var modal = s.On("back", function(e) { print("modal closes"); return true; });
+s.Feed({"type": "back"});
+s.Dispatch();
+s.Off(modal);
+s.Feed({"type": "back"});
+s.Dispatch();

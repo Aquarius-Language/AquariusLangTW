@@ -1,0 +1,64 @@
+# Navigation / 導覽: the back stack of an application's screens, for Android's back gesture, the browser's back button,
+# the mouse's back button and Alt+Left / Command+[. Back first asks the top screen (an unsaved form can keep itself
+# open), then returns to the previous screen; on the first screen it is not handled, so the system does what it does
+# for every application there (Android closes the activity, the browser leaves the page).
+#     var nav = Navigation.Create("home");
+#     session.On("back", Navigation.Handler(nav));
+#     Navigation.Push(nav, "settings", null);
+var Version = 1;
+var _array = import("Array");
+
+struct Stack { pages; onChange }
+struct Page { name; data; onBack }
+
+var Create = function(rootName) { return Stack([Page(rootName, null, null)], null); };
+
+var Current = function(stack) { return stack.pages[len(stack.pages) - 1]; };
+var Depth = function(stack) { return len(stack.pages); };
+var CanGoBack = function(stack) { return len(stack.pages) > 1; };
+
+var _changed = function(stack, action) {
+    if (stack.onChange != null) { stack.onChange(action, Current(stack)); }
+};
+
+# Calls `onChange(action, page)` after every Push ("push"), Pop ("pop") and Reset ("reset"), to redraw.
+var OnChange = function(stack, onChange) { stack.onChange = onChange; };
+
+var Push = function(stack, name, data) {
+    var page = Page(name, data, null);
+    _array.Append(stack.pages, page);
+    _changed(stack, "push");
+    return page;
+};
+
+# Leaves the top screen; the first screen always stays. Returns the page left, or null on the first screen.
+var Pop = function(stack) {
+    var count = len(stack.pages);
+    if (count < 2) { return null; }
+    var page = stack.pages[count - 1];
+    _array.Delete(stack.pages, count - 1, count);
+    _changed(stack, "pop");
+    return page;
+};
+
+# Back to the first screen (a tab bar's reselected tab, signing out).
+var Reset = function(stack) {
+    var count = len(stack.pages);
+    if (count > 1) { _array.Delete(stack.pages, 1, count); }
+    _changed(stack, "reset");
+};
+
+# `onBack(page)` runs when back reaches this page; returning true keeps the page (it showed "discard changes?").
+var SetBackHandler = function(page, onBack) { page.onBack = onBack; };
+
+# True when back was handled here; false on the first screen, which leaves the decision to the system.
+var HandleBack = function(stack) {
+    var page = Current(stack);
+    if (page.onBack != null) {
+        if (page.onBack(page) == true) { return true; }
+    }
+    return Pop(stack) != null;
+};
+
+# A handler for Interaction sessions: session.On("back", Navigation.Handler(stack)).
+var Handler = function(stack) { return function(e) { return HandleBack(stack); }; };

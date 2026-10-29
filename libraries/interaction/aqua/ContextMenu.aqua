@@ -1,0 +1,152 @@
+# ContextMenu / 右鍵選單: the behavior of a native context menu, drawn by any graphics library. Open it from an
+# Interaction "contextMenu" event (right button, long press, the Menu key or Shift+F10); it keeps inside the window
+# (flipping left or up near the edges), highlights under the pointer and with the arrow keys, skips separators and
+# disabled items, chooses with a click, Enter or Space, and closes with Escape, back or a press outside it (which
+# that press does nothing else). Shortcut labels come from Interaction.ShortcutLabel, so they read "Ctrl+C" or "⌘C".
+#     var menu = ContextMenu.Create(function(command) { ... });
+#     ContextMenu.Add(menu, "copy", "Copy", true);
+#     session.On("contextMenu", function(e) { ContextMenu.Open(menu, e.x, e.y, width, height, e.time); return true; });
+#     session.On("*", function(e) { return ContextMenu.Handle(menu, e); });   # registered last: the open menu goes first
+var Version = 1;
+var _array = import("Array");
+var _interaction = import("Interaction");
+
+struct Menu { items; onChoose; open; x; y; width; itemHeight; separatorHeight; highlighted; openedAt; byKeyboard; pending }
+struct Item { command; label; shortcut; enabled; separator }
+
+var Create = function(onChoose) {
+    # Touch screens get taller rows: the platform's minimum touch target.
+    var row = 28.0d;
+    var c = _interaction.Conventions();
+    if (c.minimumTarget > row) { row = c.minimumTarget * 1.0d; }
+    return Menu([], onChoose, false, 0.0d, 0.0d, 220.0d, row, 9.0d, -1, 0.0d, false, false);
+};
+
+var Add = function(menu, command, label, enabled) {
+    var item = Item(command, label, _interaction.ShortcutLabel(command), enabled, false);
+    _array.Append(menu.items, item);
+    return item;
+};
+var AddSeparator = function(menu) { _array.Append(menu.items, Item(null, "", null, false, true)); };
+var Clear = function(menu) { menu.items = []; menu.highlighted = -1; };
+
+var Height = function(menu) {
+    var total = 0.0d;
+    for (var i = 0; i < len(menu.items); i++) {
+        if (menu.items[i].separator) { total = total + menu.separatorHeight; } else { total = total + menu.itemHeight; }
+    }
+    return total;
+};
+
+# The top of item `index` on the window, for drawing.
+var ItemTop = function(menu, index) {
+    var y = menu.y;
+    for (var i = 0; i < index; i++) {
+        if (menu.items[i].separator) { y = y + menu.separatorHeight; } else { y = y + menu.itemHeight; }
+    }
+    return y;
+};
+
+var ItemAt = function(menu, x, y) {
+    # && and || evaluate both sides, so null is checked on its own first.
+    if (!menu.open || x == null || y == null) { return -1; }
+    if (x < menu.x || x >= menu.x + menu.width) { return -1; }
+    var top = menu.y;
+    for (var i = 0; i < len(menu.items); i++) {
+        var height = menu.itemHeight;
+        if (menu.items[i].separator) { height = menu.separatorHeight; }
+        if (y >= top && y < top + height) { return i; }
+        top = top + height;
+    }
+    return -1;
+};
+
+var _selectable = function(menu, index) {
+    if (index < 0 || index >= len(menu.items)) { return false; }
+    var item = menu.items[index];
+    return !item.separator && item.enabled;
+};
+
+# Opens at (x, y) inside a window of the given size; `time` is the event's time. Opened from the keyboard (x null),
+# the first item is highlighted.
+var Open = function(menu, x, y, windowWidth, windowHeight, time) {
+    var height = Height(menu);
+    var left = x;
+    var top = y;
+    menu.byKeyboard = x == null;
+    if (left == null) { left = 0.0d; top = 0.0d; }
+    if (left + menu.width > windowWidth) { left = left - menu.width; }
+    if (top + height > windowHeight) { top = top - height; }
+    if (left + menu.width > windowWidth) { left = windowWidth - menu.width; }
+    if (top + height > windowHeight) { top = windowHeight - height; }
+    if (left < 0) { left = 0.0d; }
+    if (top < 0) { top = 0.0d; }
+    menu.x = left * 1.0d;
+    menu.y = top * 1.0d;
+    menu.open = true;
+    menu.openedAt = time;
+    menu.highlighted = -1;
+    menu.pending = !menu.byKeyboard;
+    if (menu.byKeyboard) {
+        for (var i = 0; i < len(menu.items) && menu.highlighted < 0; i++) { if (_selectable(menu, i)) { menu.highlighted = i; } }
+    }
+};
+
+var Close = function(menu) { menu.open = false; menu.highlighted = -1; };
+
+var _choose = function(menu, index) {
+    if (!_selectable(menu, index)) { return null; }
+    var command = menu.items[index].command;
+    Close(menu);
+    if (menu.onChoose != null) { menu.onChoose(command); }
+};
+
+var _step = function(menu, direction) {
+    var count = len(menu.items);
+    var index = menu.highlighted;
+    for (var tries = 0; tries < count; tries++) {
+        index = index + direction;
+        if (index < 0) { index = count - 1; }
+        if (index >= count) { index = 0; }
+        if (_selectable(menu, index)) { menu.highlighted = index; return null; }
+    }
+};
+
+# Takes an Interaction event while the menu is open; true when the menu used it.
+var Handle = function(menu, e) {
+    if (!menu.open) { return false; }
+    var t = e.type;
+    if (t == "move" || t == "drag" || t == "dragStart") {
+        var hovered = ItemAt(menu, e.x, e.y);
+        if (_selectable(menu, hovered)) { menu.highlighted = hovered; } else { menu.highlighted = -1; }
+        return true;
+    }
+    if (t == "press") {
+        if (ItemAt(menu, e.x, e.y) < 0) { Close(menu); }
+        return true;
+    }
+    if (t == "release") {
+        # The release of the press that opened the menu chooses only after the pointer was dragged onto an item
+        # with a mouse or pen (press, drag, release); lifting the finger after a long press chooses nothing.
+        var index = ItemAt(menu, e.x, e.y);
+        var opening = menu.pending;
+        menu.pending = false;
+        if (opening && (e.pointerType == "touch" || e.time - menu.openedAt < 0.25d)) { return true; }
+        _choose(menu, index);
+        return true;
+    }
+    if (t == "back" || (t == "command" && e.command == "cancel")) { Close(menu); return true; }
+    if (t == "command" && e.command == "activate") { _choose(menu, menu.highlighted); return true; }
+    if (t == "key") {
+        if (e.action == "release") { return true; }
+        if (e.key == 264) { _step(menu, 1); }
+        if (e.key == 265) { _step(menu, -1); }
+        if (e.key == 268) { menu.highlighted = -1; _step(menu, 1); }
+        if (e.key == 269) { menu.highlighted = len(menu.items); _step(menu, -1); }
+        if (e.key == 32) { _choose(menu, menu.highlighted); }
+        return true;
+    }
+    if (t == "click" || t == "dragEnd" || t == "longPress" || t == "scroll" || t == "contextMenu") { return true; }
+    if (t == "focus" || t == "resize" || t == "pause") { Close(menu); }
+    return false;
+};

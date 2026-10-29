@@ -1,0 +1,40 @@
+# Platform conventions and keyboard commands. The targets tested here use Control as the shortcut modifier (the web
+# also takes Command, for browsers on Apple computers); macOS and iOS will show Command labels.
+var ix = import("Interaction");
+var c = ix.Conventions();
+print(typeOf(c.platform), c.formFactor == "desktop" || c.formFactor == "mobile", c.primaryModifier != "Cmd");
+print(c.doubleClickTime > 0, c.longPressTime > 0, c.dragThreshold > 0, c.touchSlop > 0, c.wheelStep > 0, c.minimumTarget >= 24);
+print(c.scrollbars == "classic" || c.scrollbars == "overlay", typeOf(c.hover), typeOf(c.darkMode), typeOf(c.reducedMotion));
+print(ix.ShortcutLabel("copy"), ix.ShortcutLabel("redo"), ix.ShortcutLabel("back"), ix.ShortcutLabel("cancel"), ix.ShortcutLabel("nothing"));
+
+var s = ix.Create();
+s.On("command", function(e) { print("command", e.command, e.primary, e.shift); return true; });
+s.On("back", function(e) { print("back from", e.source); return true; });
+s.On("forward", function(e) { print("forward from", e.source); return true; });
+s.On("contextMenu", function(e) { print("context menu from", e.source, e.x); return true; });
+var key = function(code, mods) {
+    s.Feed({"type": "key", "key": code, "action": 1, "mods": mods});
+    s.Feed({"type": "key", "key": code, "action": 0, "mods": mods});
+};
+key(67, 2);        # Ctrl+C
+key(90, 3);        # Ctrl+Shift+Z
+key(89, 2);        # Ctrl+Y
+key(256, 0);       # Escape
+key(258, 1);       # Shift+Tab
+key(263, 4);       # Alt+Left
+key(299, 1);       # Shift+F10
+key(67, 0);        # C alone is no command
+s.Feed({"type": "button", "button": 3, "action": 1, "x": 5, "y": 5});
+s.Feed({"type": "button", "button": 3, "action": 0, "x": 5, "y": 5});
+s.Feed({"type": "button", "button": 4, "action": 1, "x": 5, "y": 5});
+s.Feed({"type": "button", "button": 4, "action": 0, "x": 5, "y": 5});
+s.Dispatch();
+
+# Key events carry the raw key for games and text fields.
+var t = ix.Create();
+t.On("key", function(e) { print(e.type, e.key, e.action, e.shift, e.alt); return true; });
+t.Feed({"type": "key", "key": 65, "action": 1, "mods": 1});
+t.Feed({"type": "key", "key": 65, "action": 2, "mods": 1});
+t.Feed({"type": "key", "key": 65, "action": 0, "mods": 1});
+t.Dispatch();
+t.Feed({"type": "dance"});

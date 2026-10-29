@@ -1,0 +1,17 @@
+string 真 真
+真 真 真 真 真 真
+真 boolean boolean boolean
+Ctrl+C Ctrl+Shift+Z Alt+Left Esc null
+command copy 真 假
+command redo 真 真
+command redo 真 假
+command cancel 假 假
+command focusPrevious 假 真
+back from keyboard
+context menu from keyboard null
+back from mouse
+forward from mouse
+key 65 press 真 假
+key 65 repeat 真 假
+key 65 release 真 假
+ERROR: Interaction.Feed: Unknown event type 'dance'.

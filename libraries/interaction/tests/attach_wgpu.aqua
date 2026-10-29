@@ -1,0 +1,8 @@
+# (needs a window) desktop and web: WGPU windows hand over their PlatformWindow too; it is null once disposed.
+var ix = import("Interaction");
+var wgpu = import("WGPU");
+var window = wgpu.CreateWindow(320, 200, "wgpu");
+var session = ix.Attach(window.PlatformWindow);
+print("wgpu", session.attached);
+window.Dispose();
+print("after dispose", session.attached, window.PlatformWindow);

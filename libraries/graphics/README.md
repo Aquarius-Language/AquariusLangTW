@@ -93,6 +93,10 @@ setters), `year()`..`second()`, `nf`, `nfs`, `nfp`, `nfc`, `hex`, `unhex`, `bina
 SVG in `loadShape()`, PDF recording, `textMode()`, `loadFont()` (`.vlw`; use `createFont()`), `delay()`, and the
 data classes (`Table`, `JSONObject`, `IntList`, ...), which the language's own arrays and hashes cover.
 
+Other libraries get the windows as shared window objects: `Processing.platformWindow` / `平台視窗` (null before
+`size()`) and `PlatformWindow` of a WGPU window (null once disposed), for example
+`Interaction.Attach(p.platformWindow)` for native-feeling input ([interaction](../interaction/README.md)).
+
 ## Differences from the earlier implementation
 
 Behavior, names, aliases, argument counts, results and messages follow the earlier desktop implementation (checked

@@ -1,0 +1,221 @@
+# ScrollView / 捲動檢視: the scrolling rules of native applications for content any graphics library draws.
+# A view is a rectangle of the window (left, top, width, height) showing a larger content. Handle(view, event) takes
+# Interaction events: the wheel and touchpad scroll it (and leave the event to an outer view at the edges), touch drags
+# pan it and fling it with momentum, scrollbar thumbs drag, a press on the track pages toward it, and keys scroll by
+# lines, pages and to the ends. Update(view, seconds) runs momentum and fades overlay scrollbars; VerticalBar and
+# HorizontalBar give the geometry to draw. Classic scrollbars (Windows, Linux, desktop browsers) are always shown when
+# the content is larger; overlay scrollbars (Android, iOS, macOS, touch browsers) are thin and show while scrolling.
+var Version = 1;
+var _interaction = import("Interaction");
+
+struct View {
+    left; top; width; height; contentWidth; contentHeight;
+    x; y; velocityX; velocityY;
+    overlay; reducedMotion; thickness; minimumThumb; lineStep;
+    shown; panning; thumbAxis; thumbGrab; hoverBar
+}
+struct Bar { visible; x; y; width; height; thumbX; thumbY; thumbWidth; thumbHeight; opacity; active }
+
+var _min = function(a, b) { if (a < b) { return a; } return b; };
+var _max = function(a, b) { if (a > b) { return a; } return b; };
+var _abs = function(a) { if (a < 0) { return -a; } return a; };
+var _clamp = function(v, low, high) { return _max(low, _min(v, high)); };
+
+var Create = function(left, top, width, height, contentWidth, contentHeight) {
+    var c = _interaction.Conventions();
+    var overlay = c.scrollbars == "overlay";
+    var thickness = 12.0d;
+    if (overlay) { thickness = 6.0d; }
+    return View(left * 1.0d, top * 1.0d, width * 1.0d, height * 1.0d, contentWidth * 1.0d, contentHeight * 1.0d,
+        0.0d, 0.0d, 0.0d, 0.0d, overlay, c.reducedMotion, thickness, 24.0d, 40.0d, 0.0d, false, null, 0.0d, false);
+};
+
+var MaxX = function(view) { return _max(0.0d, view.contentWidth - view.width); };
+var MaxY = function(view) { return _max(0.0d, view.contentHeight - view.height); };
+
+# Moves to (x, y) within the content; true when the offset changed.
+var ScrollTo = function(view, x, y) {
+    var nx = _clamp(x * 1.0d, 0.0d, MaxX(view));
+    var ny = _clamp(y * 1.0d, 0.0d, MaxY(view));
+    var changed = nx != view.x || ny != view.y;
+    view.x = nx;
+    view.y = ny;
+    if (changed) { view.shown = 1.2d; }
+    return changed;
+};
+var ScrollBy = function(view, dx, dy) { return ScrollTo(view, view.x + dx, view.y + dy); };
+
+# Places the view on the window and gives it a new size; the offset stays inside the content.
+var Place = function(view, left, top, width, height) {
+    view.left = left * 1.0d; view.top = top * 1.0d; view.width = width * 1.0d; view.height = height * 1.0d;
+    ScrollTo(view, view.x, view.y);
+};
+var SetContentSize = function(view, contentWidth, contentHeight) {
+    view.contentWidth = contentWidth * 1.0d;
+    view.contentHeight = contentHeight * 1.0d;
+    ScrollTo(view, view.x, view.y);
+};
+
+# The least scrolling that shows a content rectangle (the focused item, the caret, a search result).
+var ScrollIntoView = function(view, x, y, width, height) {
+    var nx = view.x;
+    var ny = view.y;
+    if (x + width > nx + view.width) { nx = x + width - view.width; }
+    if (x < nx) { nx = x; }
+    if (y + height > ny + view.height) { ny = y + height - view.height; }
+    if (y < ny) { ny = y; }
+    return ScrollTo(view, nx, ny);
+};
+
+var Contains = function(view, x, y) {
+    if (x == null || y == null) { return false; }
+    return x >= view.left && y >= view.top && x < view.left + view.width && y < view.top + view.height;
+};
+
+var _bar = function(view, vertical) {
+    var length = view.height;
+    var content = view.contentHeight;
+    var offset = view.y;
+    var limit = MaxY(view);
+    if (!vertical) { length = view.width; content = view.contentWidth; offset = view.x; limit = MaxX(view); }
+    var thickness = view.thickness;
+    var active = view.thumbAxis == "y";
+    if (!vertical) { active = view.thumbAxis == "x"; }
+    if (!view.overlay && (view.hoverBar || active)) { thickness = thickness + 4.0d; }
+    var opacity = 1.0d;
+    if (view.overlay) { opacity = _clamp(view.shown / 0.3d, 0.0d, 1.0d); }
+    if (active) { opacity = 1.0d; }
+    var visible = content > length && opacity > 0;
+    var thumb = _max(view.minimumThumb, length * length / _max(content, 1.0d));
+    var position = 0.0d;
+    if (limit > 0) { position = (length - thumb) * offset / limit; }
+    if (vertical) {
+        var x = view.left + view.width - thickness;
+        return Bar(visible, x, view.top, thickness, length, x, view.top + position, thickness, thumb, opacity, active);
+    }
+    var y = view.top + view.height - thickness;
+    return Bar(visible, view.left, y, length, thickness, view.left + position, y, thumb, thickness, opacity, active);
+};
+var VerticalBar = function(view) { return _bar(view, true); };
+var HorizontalBar = function(view) { return _bar(view, false); };
+
+var _inside = function(bar, x, y) { return bar.visible && x >= bar.x && y >= bar.y && x < bar.x + bar.width && y < bar.y + bar.height; };
+
+# Starts dragging a thumb, or pages toward the pointer on the track; true when the press was on a scrollbar.
+var _pressBar = function(view, e) {
+    if (view.overlay && e.pointerType == "touch") { return false; }
+    var bars = [VerticalBar(view), HorizontalBar(view)];
+    for (var i = 0; i < 2; i++) {
+        var bar = bars[i];
+        if (_inside(bar, e.x, e.y)) {
+            var vertical = i == 0;
+            var thumbStart = bar.thumbX;
+            var thumbLength = bar.thumbWidth;
+            var at = e.x;
+            if (vertical) { thumbStart = bar.thumbY; thumbLength = bar.thumbHeight; at = e.y; }
+            if (at >= thumbStart && at < thumbStart + thumbLength) {
+                view.thumbAxis = "x";
+                if (vertical) { view.thumbAxis = "y"; }
+                view.thumbGrab = at - thumbStart;
+            } else {
+                var page = view.width * 0.875d;
+                if (vertical) { page = view.height * 0.875d; }
+                if (at < thumbStart) { page = -page; }
+                if (vertical) { ScrollBy(view, 0, page); } else { ScrollBy(view, page, 0); }
+            }
+            view.velocityX = 0.0d; view.velocityY = 0.0d;
+            return true;
+        }
+    }
+    return false;
+};
+
+var _dragThumb = function(view, e) {
+    if (view.thumbAxis == "y") {
+        var vertical = VerticalBar(view);
+        var height = vertical.height - vertical.thumbHeight;
+        if (height > 0) { ScrollTo(view, view.x, (e.y - view.thumbGrab - vertical.y) * MaxY(view) / height); }
+    } else {
+        var horizontal = HorizontalBar(view);
+        var width = horizontal.width - horizontal.thumbWidth;
+        if (width > 0) { ScrollTo(view, (e.x - view.thumbGrab - horizontal.x) * MaxX(view) / width, view.y); }
+    }
+    view.shown = 1.2d;
+};
+
+var _key = function(view, e) {
+    if (e.action == "release") { return false; }
+    var page = view.height * 0.875d;
+    if (e.key == 264) { return ScrollBy(view, 0, view.lineStep); }       # Down
+    if (e.key == 265) { return ScrollBy(view, 0, -view.lineStep); }      # Up
+    if (e.key == 262) { return ScrollBy(view, view.lineStep, 0); }       # Right
+    if (e.key == 263) { return ScrollBy(view, -view.lineStep, 0); }      # Left
+    if (e.key == 267) { return ScrollBy(view, 0, page); }                # Page Down
+    if (e.key == 266) { return ScrollBy(view, 0, -page); }               # Page Up
+    if (e.key == 32 && e.shift) { return ScrollBy(view, 0, -page); }     # Shift+Space
+    if (e.key == 32) { return ScrollBy(view, 0, page); }                 # Space
+    if (e.key == 268 && e.primary) { return ScrollTo(view, view.x, 0); } # Ctrl/Cmd+Home
+    if (e.key == 269 && e.primary) { return ScrollTo(view, view.x, MaxY(view)); }
+    if (e.key == 268) { return ScrollTo(view, view.x, 0); }              # Home
+    if (e.key == 269) { return ScrollTo(view, view.x, MaxY(view)); }     # End
+    return false;
+};
+
+# Takes an Interaction event; true when the view used it (the caller then stops passing it on). Keys are taken only
+# when the caller passes them, so route "key" events to the view that has keyboard focus.
+var Handle = function(view, e) {
+    var t = e.type;
+    if (t == "scroll") {
+        if (e.x != null && !Contains(view, e.x, e.y)) { return false; }
+        view.velocityX = 0.0d; view.velocityY = 0.0d;
+        return ScrollBy(view, e.dx, e.dy);
+    }
+    if (t == "move") {
+        view.hoverBar = _inside(VerticalBar(view), e.x, e.y) || _inside(HorizontalBar(view), e.x, e.y);
+        return false;
+    }
+    if (t == "press") {
+        var flinging = _abs(view.velocityX) + _abs(view.velocityY) > 0;
+        view.velocityX = 0.0d; view.velocityY = 0.0d;
+        if (!Contains(view, e.x, e.y)) { return false; }
+        if (e.button == 0 && _pressBar(view, e)) { return true; }
+        return flinging;   # a touch that stops a fling selects nothing
+    }
+    if (t == "dragStart" || t == "drag") {
+        if (view.thumbAxis != null) { _dragThumb(view, e); return true; }
+        if (t == "dragStart") { view.panning = e.pointerType == "touch" && Contains(view, e.startX, e.startY); }
+        if (!view.panning) { return false; }
+        ScrollBy(view, -e.dx, -e.dy);
+        return true;
+    }
+    if (t == "dragEnd" || t == "release") {
+        if (view.thumbAxis != null) { view.thumbAxis = null; return true; }
+        if (t == "dragEnd" && view.panning) {
+            view.panning = false;
+            if (!view.reducedMotion && e.phase == "end") { view.velocityX = -e.velocityX; view.velocityY = -e.velocityY; }
+            return true;
+        }
+        return false;
+    }
+    if (t == "key") { return _key(view, e); }
+    return false;
+};
+
+# Advances momentum and the overlay scrollbars' fade by `seconds`; true while the view still changes (keep drawing).
+var Update = function(view, seconds) {
+    var moving = _abs(view.velocityX) + _abs(view.velocityY) > 0;
+    if (moving) {
+        var before = view.x + view.y;
+        ScrollBy(view, view.velocityX * seconds, view.velocityY * seconds);
+        # Friction close to the platforms' flings: the speed halves about every 0.35 s.
+        var keep = 1.0d / (1.0d + 3.0d * seconds);
+        view.velocityX = view.velocityX * keep;
+        view.velocityY = view.velocityY * keep;
+        if (_abs(view.velocityX) + _abs(view.velocityY) < 20 || view.x + view.y == before) {
+            view.velocityX = 0.0d; view.velocityY = 0.0d;
+        }
+    }
+    var fading = view.shown > 0;
+    if (fading && !view.panning && view.thumbAxis == null) { view.shown = _max(0.0d, view.shown - seconds); }
+    return moving || (view.overlay && fading);
+};

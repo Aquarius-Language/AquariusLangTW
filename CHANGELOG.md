@@ -3,6 +3,21 @@
 One version covers the language, the compiler, the CLI, the language server and the VS Code extension; see
 [versioning](docs/versioning.md).
 
+## Unreleased
+
+Libraries:
+
+- New default library `interaction`: `Interaction` / `互動` turns window events into each platform's clicks (with
+  click counts), drags with release velocity, long presses, pinches, context menu requests, back and forward,
+  scrolling, zooming and keyboard commands, reports the platform's conventions (double-click time, touch slop,
+  scrollbar style, dark mode, reduced motion, ...) and works with any graphics library (`Attach` a shared window or
+  `Feed` raw events). `ScrollView`, `Navigation`, `ContextMenu` and `Focus` are written in AquariusLang on top of it.
+- Processing's `platformWindow` and WGPU windows' `PlatformWindow` give other libraries the shared window object.
+- Web glue domains `history` (the browser's back button) and `mediaquery` (`matchMedia`).
+
+Docs: [native-like applications](docs/native-like-apps.md), the rules and checklist for drawn interfaces on every
+platform.
+
 ## 0.1.6
 
 Programs keep their meaning and output.

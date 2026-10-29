@@ -1,0 +1,63 @@
+# Focus / 焦點: keyboard focus among an application's controls. Tab and Shift+Tab move through them in order (wrapping
+# around), a click focuses the control under the pointer, and the focus ring is drawn only after the keyboard moved
+# focus (the platforms' "focus visible" rule: pointer users see no ring, keyboard users always know where they are).
+# Route "key" events to Focus.Current's control; Activate (Enter, Space) acts on it.
+#     var focus = Focus.Create();
+#     Focus.Add(focus, "name"); Focus.Add(focus, "ok");
+#     session.On("command", function(e) { return Focus.Handle(focus, e); });
+var Version = 1;
+var _array = import("Array");
+
+struct Ring { ids; current; ringVisible; onChange }
+
+var Create = function() { return Ring([], null, false, null); };
+
+# Calls `onChange(id)` whenever focus moves (to scroll it into view, show the soft keyboard for a text field, ...).
+var OnChange = function(ring, onChange) { ring.onChange = onChange; };
+
+var Add = function(ring, id) { if (!_array.Contains(ring.ids, id)) { _array.Append(ring.ids, id); } };
+var Remove = function(ring, id) {
+    var index = _array.Index(ring.ids, id);
+    if (index >= 0) { _array.Delete(ring.ids, index, index + 1); }
+    if (ring.current == id) { ring.current = null; }
+};
+var Clear = function(ring) { ring.ids = []; ring.current = null; };
+
+var Current = function(ring) { return ring.current; };
+var Has = function(ring, id) { return ring.current == id; };
+# Whether to draw the focus ring around Current.
+var RingVisible = function(ring) { return ring.ringVisible && ring.current != null; };
+
+# Focuses `id`; byKeyboard shows the ring.
+var Set = function(ring, id, byKeyboard) {
+    ring.ringVisible = byKeyboard;
+    if (ring.current == id) { return null; }
+    ring.current = id;
+    if (ring.onChange != null) { ring.onChange(id); }
+};
+
+var Move = function(ring, direction) {
+    var count = len(ring.ids);
+    if (count == 0) { return null; }
+    var index = _array.Index(ring.ids, ring.current);
+    if (index < 0) {
+        index = 0;
+        if (direction < 0) { index = count - 1; }
+    } else {
+        index = index + direction;
+        if (index < 0) { index = count - 1; }
+        if (index >= count) { index = 0; }
+    }
+    Set(ring, ring.ids[index], true);
+};
+var Next = function(ring) { Move(ring, 1); };
+var Previous = function(ring) { Move(ring, -1); };
+
+# Takes "command" events (focusNext, focusPrevious) and "press" events (which hide the ring); true when used.
+var Handle = function(ring, e) {
+    if (e.type == "press") { ring.ringVisible = false; return false; }
+    if (e.type != "command") { return false; }
+    if (e.command == "focusNext") { Next(ring); return true; }
+    if (e.command == "focusPrevious") { Previous(ring); return true; }
+    return false;
+};

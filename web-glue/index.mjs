@@ -15,5 +15,7 @@ import './print/print.mjs';
 import './accessibility/accessibility.mjs';
 import './canvas/canvas.mjs';
 import './thread/thread.mjs';
+import './history/history.mjs';
+import './mediaquery/mediaquery.mjs';
 
 export { startApplication } from './core/runtime.mjs';

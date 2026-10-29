@@ -30,6 +30,9 @@ Author: 林天牧 / Temple Lin.
   server (routes, static files, SSE, sessions) on Windows, Linux and Android.
 - **Graphics:** [WebGPU, Processing drawing, text input and GPUMath](libraries/graphics/README.md) on
   wgpu-native or the browser's WebGPU, plus desktop [OpenGL](libraries/opengl/README.md).
+- **Native-like interfaces:** [Interaction / 互動](libraries/interaction/README.md) gives drawn interfaces each
+  platform's clicks, drags, long presses, context menus, back, shortcuts and scrolling with any graphics library; the
+  [native-like applications guide](docs/native-like-apps.md) is the checklist for building them.
 - **Models and PBR:** [OBJ/MTL parsing and shared WGSL rendering](libraries/graphics/docs/pbr-models.md),
   plus [named shader textures, cube mip chains and floating render targets](libraries/graphics/docs/wgpu-textures.md).
 - **Audio:** [miniaudio decoding and mixing](libraries/audio/README.md),
@@ -280,6 +283,7 @@ release packages include it. Each default library is one folder of `libraries/` 
 | [onnx](libraries/onnx/README.md) | ONNX, MediaPipe | [Pose](examples/mediapipe/README.md) |
 | [terminal](libraries/terminal/README.md) | Terminal | |
 | [input](libraries/input/README.md) | AndroidInput | |
+| [interaction](libraries/interaction/README.md) | Interaction, ScrollView, Navigation, ContextMenu, Focus | [Native-like applications](docs/native-like-apps.md) |
 
 The language itself has the portable [Array](docs/arrays.md), [Hash and String](docs/hash-and-string.md) and
 [Thread](docs/threading.md) modules. [Starship](examples/starship_expedition/README.md),

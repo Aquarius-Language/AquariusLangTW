@@ -1,0 +1,27 @@
+manifest_version = 2
+
+[library]
+name = "interaction"
+version = "1.0.0"
+description = "Interaction/互動: native-feeling input for any graphics library (clicks and double clicks, drags, long presses, pinches, context menus, back, shortcuts, platform conventions) and the ScrollView, Navigation, ContextMenu and Focus modules built on it."
+license = "MIT"
+platforms = ["windows", "linux", "android", "web"]
+
+[native]
+modules = ["Interaction|互動"]
+
+[[modules]]
+names = "ScrollView|捲動檢視"
+source = "aqua/ScrollView.aqua"
+
+[[modules]]
+names = "Navigation|導覽"
+source = "aqua/Navigation.aqua"
+
+[[modules]]
+names = "ContextMenu|右鍵選單"
+source = "aqua/ContextMenu.aqua"
+
+[[modules]]
+names = "Focus|焦點"
+source = "aqua/Focus.aqua"

@@ -50,3 +50,7 @@ then add `import './network/network.mjs';` to `index.mjs`. Rules:
 `webrtc` exposes peer connections, SDP operations, ICE candidates and data channels. Its asynchronous operations
 return strings through C callbacks; peer/channel state, negotiation policy, JSON and event queues belong to the
 calling library. Both domains are available to external SDK side modules through `aqua_web` imports.
+
+`history` keeps a History API entry while an application handles back and reports the browser's back button;
+`mediaquery` answers `matchMedia` queries (pointer kind, hover, dark mode, reduced motion). Both serve
+[interaction](../libraries/interaction/README.md), which decides what they mean.

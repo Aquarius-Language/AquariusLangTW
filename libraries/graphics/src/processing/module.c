@@ -84,6 +84,12 @@ static void f_is_composing(aqua_call *call) { aqua_return_bool(call, P->is_compo
 static void f_error_event(aqua_call *call) { aqua_return_cstring(call, P->error_event); }
 static void f_error_message(aqua_call *call) { aqua_return_cstring(call, P->error_message ? P->error_message : ""); }
 static void f_focused(aqua_call *call) { processing *p = P; aqua_return_bool(call, p->window && aqua_window_focused(p->window)); }
+/* The sketch's window as the shared window object, for libraries that work with any window (Interaction, TextInput). */
+static void f_platform_window(aqua_call *call) {
+    processing *p = P;
+    if (p->window) aqua_return(call, aqua_window_object(p->window));
+    else aqua_return_null(call);
+}
 static void f_pixels(aqua_call *call) {
     processing *p = P;
     if (p->screen && p->screen->pixels) aqua_return(call, aqua_ref_value(p->rt, p->screen->pixels));
@@ -100,7 +106,8 @@ static void f_pixels(aqua_call *call) {
     X("keyTimestamp", f_key_timestamp) X("actualFrameRate", f_actual_frame_rate) \
     X("textInputEnabled", f_text_input_enabled) X("inputText", f_input_text) X("inputTimestamp", f_input_timestamp) \
     X("compositionText", f_composition_text) X("compositionCursor", f_composition_cursor) X("isComposing", f_is_composing) \
-    X("errorEvent", f_error_event) X("errorMessage", f_error_message) X("pixels", f_pixels) X("focused|已聚焦", f_focused)
+    X("errorEvent", f_error_event) X("errorMessage", f_error_message) X("pixels", f_pixels) X("focused|已聚焦", f_focused) \
+    X("platformWindow|平台視窗", f_platform_window)
 #define DEFINE_FIELD(names, getter) aqua_define_property(module, names, getter);
 
 /* PGraphics fields. */

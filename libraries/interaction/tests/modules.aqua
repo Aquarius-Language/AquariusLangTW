@@ -1,0 +1,126 @@
+# The Aquarius modules on fed events: a scroll view (wheel, keys, thumb dragging, a touch fling), the back stack, a
+# context menu and keyboard focus.
+var ix = import("Interaction");
+var sv = import("ScrollView");
+var nav = import("Navigation");
+var cm = import("ContextMenu");
+var focus = import("Focus");
+var s = ix.Create();
+
+# ---- ScrollView: a 200 x 100 view at (10, 20) over 200 x 1000 of content ----
+var view = sv.Create(10, 20, 200, 100, 200, 1000);
+s.On("*", function(e) { return sv.Handle(view, e); });
+print("max", sv.MaxX(view), sv.MaxY(view));
+s.Feed({"type": "pointer", "x": 50, "y": 50});
+s.Feed({"type": "scroll", "x": 0, "y": -1});
+s.Dispatch();
+print("wheel down moved", view.y > 0);
+sv.ScrollTo(view, 0, 0);
+s.Feed({"type": "key", "key": 267, "action": 1});   # Page Down: most of a page
+s.Feed({"type": "key", "key": 269, "action": 1});   # End
+s.Dispatch();
+print("end", view.y);
+print("into view", sv.ScrollIntoView(view, 0, 100, 10, 10), view.y);
+var bar = sv.VerticalBar(view);
+print("thumb", bar.visible, bar.thumbHeight, bar.thumbY);
+print("no horizontal bar", sv.HorizontalBar(view).visible);
+print("clamped", sv.ScrollTo(view, 0, -50), view.y, sv.ScrollBy(view, 0, 5000), view.y);
+
+# Dragging the thumb (pointer devices): down the whole track reaches the end.
+if (view.overlay == false) {
+    sv.ScrollTo(view, 0, 0);
+    bar = sv.VerticalBar(view);
+    var x = bar.thumbX + 2;
+    s.Feed({"type": "button", "time": 1.0d, "button": 0, "action": 1, "x": x, "y": bar.thumbY + 5});
+    s.Feed({"type": "pointer", "time": 1.1d, "x": x, "y": bar.thumbY + 50});
+    s.Feed({"type": "pointer", "time": 1.2d, "x": x, "y": bar.thumbY + 200});
+    s.Feed({"type": "button", "time": 1.3d, "button": 0, "action": 0, "x": x, "y": bar.thumbY + 200});
+    s.Dispatch();
+    print("thumb dragged to", view.y);
+} else {
+    print("thumb dragged to", 900.0d);
+}
+
+# A touch fling scrolls on after the finger lifts, then stops.
+sv.ScrollTo(view, 0, 400);
+s.Feed({"type": "button", "time": 2.0d, "pointer": 3, "pointerType": "touch", "button": 0, "action": 1, "x": 100, "y": 100});
+s.Feed({"type": "pointer", "time": 2.02d, "pointer": 3, "pointerType": "touch", "x": 100, "y": 80});
+s.Feed({"type": "pointer", "time": 2.04d, "pointer": 3, "pointerType": "touch", "x": 100, "y": 60});
+s.Feed({"type": "button", "time": 2.05d, "pointer": 3, "pointerType": "touch", "button": 0, "action": 0, "x": 100, "y": 60});
+s.Dispatch();
+var afterPan = view.y;
+print("panned", afterPan, "flinging", view.velocityY > 0);
+var frames = 0;
+for (var i = 0; i < 600 && sv.Update(view, 1.0d / 60); i++) { frames++; }
+print("fling went further", view.y > afterPan, "and stopped", view.velocityY == 0, frames < 600);
+
+# ---- Navigation: back pops screens, a screen can keep itself, the first screen leaves it to the system ----
+var s2 = ix.Create();
+var stack = nav.Create("home");
+nav.OnChange(stack, function(action, page) { print("navigation", action, page.name); });
+s2.On("back", nav.Handler(stack));
+nav.Push(stack, "list", null);
+var editor = nav.Push(stack, "editor", {"dirty": true});
+nav.SetBackHandler(editor, function(page) {
+    var data = page.data;
+    if (data["dirty"]) { print("asks to discard changes"); data["dirty"] = false; return true; }
+    return false;
+});
+var back = function() { s2.Feed({"type": "back"}); s2.Dispatch(); };
+back();
+back();
+back();
+print("depth", nav.Depth(stack), nav.Current(stack).name, nav.HandleBack(stack));
+
+# ---- ContextMenu ----
+var chosen = [];
+var menu = cm.Create(function(command) { import("Array").Append(chosen, command); });
+cm.Add(menu, "cut", "Cut", false);
+cm.Add(menu, "copy", "Copy", true);
+cm.AddSeparator(menu);
+cm.Add(menu, "selectAll", "Select All", true);
+print("shortcut", menu.items[1].shortcut, menu.items[2].separator);
+cm.Open(menu, 700, 590, 800, 600, 10.0d);
+print("flipped inside", menu.x == 480, menu.y + cm.Height(menu) <= 600);
+var s3 = ix.Create();
+s3.On("*", function(e) { return cm.Handle(menu, e); });
+var row = cm.ItemTop(menu, 1) + 2;
+s3.Feed({"type": "pointer", "time": 10.1d, "x": 500, "y": row});
+# The finger that long-pressed to open the menu lifts over an item: that chooses nothing.
+s3.Feed({"type": "button", "time": 10.2d, "pointer": 9, "pointerType": "touch", "button": 0, "action": 1, "x": 500, "y": row});
+s3.Feed({"type": "button", "time": 10.3d, "pointer": 9, "pointerType": "touch", "button": 0, "action": 0, "x": 500, "y": row});
+s3.Dispatch();
+print("highlighted", menu.highlighted, "lifting the finger chose nothing", menu.open, len(chosen));
+s3.Feed({"type": "button", "time": 11.0d, "button": 0, "action": 1, "x": 500, "y": row});
+s3.Feed({"type": "button", "time": 11.1d, "button": 0, "action": 0, "x": 500, "y": row});
+s3.Dispatch();
+print("clicked", chosen[0], menu.open);
+cm.Open(menu, null, null, 800, 600, 12.0d);
+print("keyboard opens on", menu.highlighted);
+s3.Feed({"type": "key", "time": 12.1d, "key": 264, "action": 1});
+s3.Feed({"type": "key", "time": 12.2d, "key": 257, "action": 1});
+s3.Dispatch();
+print("arrow skips the separator", chosen[1]);
+cm.Open(menu, 10, 10, 800, 600, 13.0d);
+s3.Feed({"type": "back"});
+s3.Dispatch();
+print("back closes", menu.open);
+
+# ---- Focus ----
+var ring = focus.Create();
+focus.Add(ring, "name");
+focus.Add(ring, "email");
+focus.Add(ring, "ok");
+var s4 = ix.Create();
+s4.On("*", function(e) { return focus.Handle(ring, e); });
+s4.Feed({"type": "key", "key": 258, "action": 1});
+s4.Feed({"type": "key", "key": 258, "action": 1});
+s4.Dispatch();
+print("tab", focus.Current(ring), focus.RingVisible(ring));
+s4.Feed({"type": "key", "key": 258, "action": 1, "mods": 1});
+s4.Feed({"type": "key", "key": 258, "action": 1, "mods": 1});
+s4.Dispatch();
+print("shift+tab wraps", focus.Current(ring));
+s4.Feed({"type": "button", "button": 0, "action": 1, "x": 1, "y": 1});
+s4.Dispatch();
+print("a click hides the ring", focus.RingVisible(ring));

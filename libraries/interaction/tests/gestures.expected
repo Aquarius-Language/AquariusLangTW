@@ -1,0 +1,23 @@
+integer 假
+press count=1
+release count=1
+click count=1
+press count=2
+release count=2
+click count=2
+press count=1
+dragStart count=1
+drag count=1
+release count=1
+dragEnd count=1 phase=end
+dragEnd from 10 10 fast to the right: 真 真
+context menu at 20 30 from mouse
+scroll 真 真
+zoom in 真
+long press touch
+context menu at 100 100 from touch
+pinch start 假
+pinch change 真
+pinch end 假
+modal closes
+first handler
