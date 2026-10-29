@@ -26,6 +26,8 @@ Libraries:
   (multipart uploads) and `BasicAuth`. Listen accepts `host:port` and `:port`. Handlers and middleware may be async.
 - Network: WebSocket subprotocols (`protocols` option, `UpgradeWebSocket([protocols])`, `Protocol` field) on native
   clients, servers and the browser; `RandomBytes(n)` (secure randomness) and `PageOrigin()` (the web page's origin).
+- Network: a WebSocket Receive waits as long as the next message takes (the timeout option limits connecting and
+  sending); server WebSockets no longer end when the upgrade request deadline passes.
 - Network: every waiting function has a promise variant, `...Async` / `非同步...` (`GetAsync`, `ServeAsync`,
   `AcceptAsync`, `ReceiveAsync`, ...), on every target that has the function.
 - New default library `interaction`: `Interaction` / `互動` turns window events into each platform's clicks (with
@@ -33,6 +35,8 @@ Libraries:
   scrolling, zooming and keyboard commands, reports the platform's conventions (double-click time, touch slop,
   scrollbar style, dark mode, reduced motion, ...) and works with any graphics library (`Attach` a shared window or
   `Feed` raw events). `ScrollView`, `Navigation`, `ContextMenu` and `Focus` are written in AquariusLang on top of it.
+- New default library `webframe`: `WebFrame` / `網頁框架` embeds other pages (iframes) in a web application's page,
+  placed in the application's coordinates (web glue domain `frame`); other targets report it unsupported.
 - Interaction: `text` and `composition` events (typed text and input-method composition) with session
   `TextInput(enabled)` and `TextRect(x, y, width, height)`, for text editors drawn by any graphics library.
 - Processing's `platformWindow` and WGPU windows' `PlatformWindow` give other libraries the shared window object.

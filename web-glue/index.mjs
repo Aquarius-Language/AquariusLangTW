@@ -17,5 +17,6 @@ import './canvas/canvas.mjs';
 import './thread/thread.mjs';
 import './history/history.mjs';
 import './mediaquery/mediaquery.mjs';
+import './frame/frame.mjs';
 
 export { startApplication } from './core/runtime.mjs';

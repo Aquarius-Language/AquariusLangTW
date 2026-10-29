@@ -1,0 +1,18 @@
+# WebFrame: on the web a frame is created, placed, navigated, hidden and closed; elsewhere Create is unsupported.
+var frames = import("WebFrame");
+var String = import("String");
+var net = import("Network");
+print(frames.Supported() == isWeb(), frames.Supported == import("網頁框架").支援);
+if (isWeb()) {
+    var frame = frames.Create("about:blank");
+    print(typeOf(frame) == "webframe.frame", frame.Place(10, 20, 300, 200) == frame, frame.Navigate("about:blank#2") == frame, frame.Show(false) == frame);
+    print(frame.Close(), frame.Close());
+    print(String.Contains(net.Try(function() { return frame.Reload(); }).Error.Message, "closed"));
+    print(String.Contains(net.Try(function() { return frames.Create("javascript:alert(1)"); }).Error.Message, "invalid"));
+} else {
+    var failed = net.Try(function() { return frames.Create("about:blank"); });
+    print(!failed.Success, String.Contains(failed.Error.Message, "Unsupported"), true, true);
+    print(true, true);
+    print(true);
+    print(true);
+}

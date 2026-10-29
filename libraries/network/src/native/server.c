@@ -312,6 +312,8 @@ static bool serve_exchange(connection *c, exchange *x, engine *eng) {
         }
         net_unlock(&x->lock);
         if (notify) { atomic_fetch_add(&x->refs, 1); aqua_post(sv->state->rt, drained, x); }
+        /* An upgraded connection belongs to its WebSocket, which lives past the request's deadline. */
+        if (upgraded_flushed) break;
         if (complete && !x->out.length && !upgrade) break;
     }
     buffer_free(&chunk);
@@ -2206,14 +2208,15 @@ void writer_write(aqua_call *call, const char *name) {
     aqua_value value = aqua_arg(call, 0);
     if (value.type == AQUA_STRING) {
         aqua_str text = aqua_arg_str(call, 0);
-        content_type(x, "text/plain; charset=utf-8");
+        /* Like Go's Write: a Content-Type set before stays. */
+        if (!headers_get(&x->response, "Content-Type")) content_type(x, "text/plain; charset=utf-8");
         write_body(call, name, x, text.data, text.length);
         return;
     }
     net_buffer bytes = {0};
     net_error e;
     if (!value_bytes(aqua_call_runtime(call), value, &bytes, &e)) { buffer_free(&bytes); net_raise(call, name, &e); return; }
-    content_type(x, "application/octet-stream");
+    if (!headers_get(&x->response, "Content-Type")) content_type(x, "application/octet-stream");
     write_body(call, name, x, bytes.data, bytes.length);
     buffer_free(&bytes);
 }

@@ -355,7 +355,9 @@ void engine_websocket_send(network_state *s, websocket *ws, net_buffer *message,
 
 static void receive_run(net_job *job) {
     ws_job *j = (ws_job *)job;
-    net_io io = ws_io(j->ws);
+    /* A WebSocket waits for its next message as long as it takes (as the browser's does); the timeout limits
+       connecting and sending. Promise.Timeout(socket.ReceiveAsync(), ms) limits one wait. */
+    net_io io = io_make(0, &ws_of(j->ws)->aborted, NET_CLOSED, ws_of(j->ws)->engine);
     j->failed = !receive_message(j->ws, j, &io);
 }
 static void receive_done(network_state *s, net_job *job) {

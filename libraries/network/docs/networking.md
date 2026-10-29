@@ -141,7 +141,7 @@ Data/資料、Text/文字、Address/位址、Port/連接埠；過大的資料報
 
 WebSocket 有 `SendText/傳送文字(text)`、`SendBytes/傳送位元組(bytes)`、
 `Receive/接收()`、`Close/關閉([code,reason])`。Receive 回傳 Data/資料、Text/文字、
-IsText/是文字、Closed/已關閉。引擎處理分片、ping/pong 與關閉握手；
+IsText/是文字、Closed/已關閉。Receive 等待下一則訊息沒有期限（逾時選項只限制連線與傳送；要限制一次等待請用 承諾.逾時(通訊端.非同步接收(), 毫秒)）。引擎處理分片、ping/pong 與關閉握手；
 接收與傳送佇列有大小限制。瀏覽器不能自訂握手標頭。
 
 ## 桌面伺服器 / Desktop server

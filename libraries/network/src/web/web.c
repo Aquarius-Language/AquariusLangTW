@@ -457,19 +457,6 @@ void engine_websocket_send(network_state *s, websocket *ws, net_buffer *message,
     settle_later(s, pending, name, NULL);
 }
 
-static void receive_timeout(network_state *s, void *data) {
-    (void)s;
-    web_socket *w = data;
-    w->timer = NULL;
-    if (!w->receiving) return;
-    aqua_pending *pending = w->receiving;
-    w->receiving = NULL;
-    w->socket->receiving = false;
-    net_error e;
-    net_error_set(&e, NET_TIMEOUT, true, MSG_TIMEOUT);
-    net_reject(pending, w->receive_name, &e);
-}
-
 typedef struct receive_task { websocket *socket; } receive_task;
 static void receive_now(aqua_runtime *rt, void *data) {
     (void)rt;
@@ -492,7 +479,7 @@ void engine_websocket_receive(network_state *s, websocket *ws, aqua_pending *pen
         aqua_post(s->rt, receive_now, task);
         return;
     }
-    w->timer = timer_start(s, ws->timeout_ms, receive_timeout, w);
+    /* No deadline: the next message may take as long as it takes (the timeout limits connecting and sending). */
 }
 
 void engine_websocket_close(network_state *s, websocket *ws, int code, const char *reason, aqua_pending *pending, const char *name) {
