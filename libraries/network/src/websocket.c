@@ -25,6 +25,7 @@ void websocket_unref(websocket *ws) {
     if (!ws || atomic_fetch_sub(&ws->refs, 1) != 1) return;
     engine_websocket_free(ws);
     free(ws->protocol);
+    free(ws->close_reason);
     free(ws);
 }
 
@@ -48,7 +49,17 @@ aqua_value message_record(aqua_runtime *rt, const uint8_t *data, size_t length, 
     object_field(rt, o, FIELD_OF(message, data), bytes_value(rt, data, length));
     object_field(rt, o, FIELD_OF(message, is_text), aqua_bool(is_text));
     object_field(rt, o, FIELD_OF(message, closed), aqua_bool(closed));
+    object_field(rt, o, FIELD_OF(message, close_code), aqua_int(0));
+    object_field(rt, o, FIELD_OF(message, close_reason), aqua_cstring(rt, ""));
     return object_wrap(rt, o);
+}
+
+aqua_value close_record(aqua_runtime *rt, const websocket *ws) {
+    aqua_value record = message_record(rt, NULL, 0, false, true);
+    net_object *o = aqua_object_data(rt, record, net_classes[CLASS_message]);
+    object_field(rt, o, FIELD_OF(message, close_code), aqua_int(ws->close_code ? ws->close_code : 1006));
+    object_field(rt, o, FIELD_OF(message, close_reason), aqua_cstring(rt, ws->close_reason ? ws->close_reason : ""));
+    return record;
 }
 
 void websocket_connected(network_state *s, websocket *ws, aqua_pending *pending, const char *name, const net_error *e) {

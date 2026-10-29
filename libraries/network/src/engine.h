@@ -77,6 +77,8 @@ typedef struct websocket {
     int32_t timeout_ms, max_message;
     bool receiving;               /* one Receive at a time */
     char *protocol;               /* the subprotocol the handshake chose, NULL for none */
+    int32_t close_code;           /* the peer's close: its code (1005 without one, 1006 when the connection dropped) */
+    char *close_reason;
     void *engine;
 } websocket;
 /* Secure random bytes from the operating system or the browser. */
@@ -87,6 +89,8 @@ static websocket *websocket_new(network_state *s, const net_options *o);
 static void websocket_unref(websocket *ws);
 /* A Message record (Network.Message). */
 static aqua_value message_record(aqua_runtime *rt, const uint8_t *data, size_t length, bool is_text, bool closed);
+/* The record of the peer's close, with its code and reason. */
+static aqua_value close_record(aqua_runtime *rt, const websocket *ws);
 /* Each settles `pending`: connect with the WebSocket object, send and close with null, receive with a Message. */
 static void engine_websocket_connect(network_state *s, websocket *ws, const net_url *url, const net_options *o, aqua_pending *pending, const char *name);
 /* The engine finished connecting (`e` NULL) or failed: tracks the socket and settles `pending`. */

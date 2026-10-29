@@ -111,6 +111,8 @@ FIELD(message, data, "Data", "資料")
 FIELD(message, text, "Text", "文字")
 FIELD(message, is_text, "IsText", "是文字")
 FIELD(message, closed, "Closed", "已關閉")
+FIELD(message, close_code, "CloseCode", "關閉代碼")
+FIELD(message, close_reason, "CloseReason", "關閉原因")
 
 NATIVE_CLASS(stream, "Network.Stream", stream_release)
 FIELD(stream, local_address, "LocalAddress", "本機位址")

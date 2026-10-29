@@ -20,6 +20,7 @@ middleware outer before /items/new outer after 40
 status text Not Found Service Unavailable 真
 random 16 真 
 subprotocol v2 v2:hello
+close code [4001 bye 真]
 listen and serve 200 quick
 slow 200 finished
 shutdown 真 真 0

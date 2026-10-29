@@ -310,10 +310,10 @@ static void deliver(web_socket *w) {
         free(q);
         return;
     }
-    aqua_resolve(pending, message_record(s->rt, NULL, 0, false, true));
+    aqua_resolve(pending, close_record(s->rt, w->socket));
 }
 
-typedef struct socket_event_task { web_socket *socket; int32_t kind; uint8_t *data; size_t length; } socket_event_task;
+typedef struct socket_event_task { web_socket *socket; int32_t kind; uint8_t *data; size_t length; int32_t code; } socket_event_task;
 
 static void socket_event_run(aqua_runtime *rt, void *data) {
     (void)rt;
@@ -355,6 +355,10 @@ static void socket_event_run(aqua_runtime *rt, void *data) {
         w->bytes += q->length;
         break;
     case SOCKET_CLOSE: case SOCKET_ERROR:
+        if (task->kind == SOCKET_CLOSE && !ws->close_code) {
+            ws->close_code = task->code ? task->code : 1005;
+            if (task->data && task->data[0]) ws->close_reason = net_strdup((const char *)task->data);
+        }
         if (task->kind == SOCKET_ERROR && w->error.kind == NET_OK) net_error_set(&w->error, NET_NETWORK, true, "Network / WebSocket 連線失敗。");
         w->closed = true;
         if (w->connecting) {
@@ -380,6 +384,8 @@ static void socket_event(void *data, int32_t kind, int32_t a, int32_t b) {
     task->socket = w;
     task->kind = kind;
     if (kind == SOCKET_TEXT || kind == SOCKET_BINARY) { task->data = (uint8_t *)(uintptr_t)a; task->length = (size_t)b; }
+    /* A close's code, and its reason in memory from malloc. */
+    if (kind == SOCKET_CLOSE) { task->code = a; task->data = (uint8_t *)(uintptr_t)b; }
     atomic_fetch_add(&w->socket->refs, 1);
     aqua_post(w->state->rt, socket_event_run, task);
 }
@@ -428,7 +434,7 @@ void engine_websocket_connect(network_state *s, websocket *ws, const net_url *ur
         }
         w->item.handle = web_socket_open_protocols(text, (const char *)list.data, (uint32_t)list.length, socket_event, w);
         buffer_free(&list);
-    } else w->item.handle = web_socket_open(text, socket_event, w);
+    } else w->item.handle = web_socket_open_protocols(text, "", 0, socket_event, w); /* reports close reasons */
     free(text);
     /* The connect operation's reference keeps the socket until websocket_connected takes it. */
     w->timer = timer_start(s, o->timeout_ms, connect_timeout, w);

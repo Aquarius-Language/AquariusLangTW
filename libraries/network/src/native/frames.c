@@ -154,7 +154,7 @@ static bool receive_message(websocket *ws, ws_job *j, const net_io *io) {
             if (!buffer_reserve(&w->in, 16384)) return net_error_set(e, NET_LIMIT, false, MSG_MESSAGE_LIMIT);
             long n = conn_read(w->conn, w->in.data + w->in.length, w->in.capacity - w->in.length - 1, io, e);
             if (n < 0) return false;
-            if (n == 0) { w->close_received = true; j->closed = true; return true; } /* closed without a close frame */
+            if (n == 0) { w->close_received = true; j->closed = true; ws->close_code = 1006; return true; } /* closed without a close frame */
             w->in.length += (size_t)n;
             continue;
         }
@@ -169,6 +169,14 @@ static bool receive_message(websocket *ws, ws_job *j, const net_io *io) {
             if (!fin || length > 125) return ws_protocol_error(e);
             if (opcode == 8) {
                 w->close_received = true;
+                ws->close_code = length >= 2 ? (int32_t)(payload[0] << 8 | payload[1]) : 1005;
+                if (length > 2) ws->close_reason = net_strndup((const char *)payload + 2, (size_t)length - 2);
+                /* RFC 6455 5.5.1: answer a close with a close echoing its status code. */
+                if (!w->close_sent && w->conn) {
+                    net_error ignored;
+                    w->close_sent = true;
+                    write_frame(ws, 8, payload, length >= 2 ? 2 : 0, io, &ignored);
+                }
                 buffer_consume(&w->in, need);
                 j->closed = true;
                 return true;
@@ -354,7 +362,7 @@ static void receive_done(network_state *s, net_job *job) {
     ws_job *j = (ws_job *)job;
     j->ws->receiving = false;
     if (j->failed) net_reject(j->pending, j->name, &j->error);
-    else aqua_resolve(j->pending, j->closed ? message_record(s->rt, NULL, 0, false, true)
+    else aqua_resolve(j->pending, j->closed ? close_record(s->rt, j->ws)
                                             : message_record(s->rt, j->data.data, j->data.length, j->is_text, false));
     if (j->failed && j->error.kind == NET_LIMIT) resource_close(s, &j->ws->base);
     ws_job_free(j);
