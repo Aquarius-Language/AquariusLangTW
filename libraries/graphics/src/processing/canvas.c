@@ -295,7 +295,6 @@ geo *gfx_canvas_geometry(canvas *c) {
 bool gfx_canvas_check(aqua_call *call, int result) {
     if (result >= 0) return true;
     switch (result) {
-    case GEO_ZERO_AREA: gfx_fail(call, "Polygon has zero area."); break;
     case GEO_NOT_SIMPLE: gfx_fail(call, "Polygon boundary must be simple and have nonzero area; use beginContour() for holes."); break;
     case GEO_OUT_OF_MEMORY: gfx_fail(call, "Geometry kernel memory exhausted."); break;
     default: gfx_fail(call, "Geometry kernel error %d.", result); break;

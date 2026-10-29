@@ -637,7 +637,8 @@ static void p_smooth(aqua_call *call, processing *p, canvas *c) {
 static void p_noSmooth(aqua_call *call, processing *p, canvas *c) { if (!draw(call, p, c)) return; c->smooth = false; gfx_canvas_bind(c); }
 static void p_clip(aqua_call *call, processing *p, canvas *c) {
     if (!draw(call, p, c)) return;
-    float x = gfx_float(call, 0), y = gfx_float(call, 1), w = gfx_positive(call, 2), h = gfx_positive(call, 3);
+    /* Any size: an empty area (a layout squeezed by a small window) clips everything; negative sizes extend left / up. */
+    float x = gfx_float(call, 0), y = gfx_float(call, 1), w = gfx_float(call, 2), h = gfx_float(call, 3);
     if (aqua_failed(call)) return;
     gfx_canvas_set_clip(c, x, y, w, h);
     gfx_canvas_bind(c);

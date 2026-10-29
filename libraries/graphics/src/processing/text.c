@@ -303,9 +303,10 @@ static void p_text(aqua_call *call, processing *p, canvas *c) {
     if (!c->style.has_fill) return;
     uint32_t n = aqua_argc(call);
     float x = gfx_float(call, 1), y = gfx_float(call, 2);
-    float box_w = n == 5 ? gfx_positive(call, 3) : 0, box_h = n == 5 ? gfx_positive(call, 4) : 0;
+    float box_w = n == 5 ? gfx_float(call, 3) : 0, box_h = n == 5 ? gfx_float(call, 4) : 0;
     float z = n == 4 ? gfx_float(call, 3) : 0;
     if (aqua_failed(call)) return;
+    if (n == 5 && (box_w <= 0 || box_h <= 0)) return;   /* an empty box (a squeezed layout) shows nothing */
     bool boxed = n == 5;
     aqua_value value = aqua_arg(call, 0);
     char *text = value.type == AQUA_STRING ? aqua_text_dup(p->rt, value, NULL) : aqua_display(p->rt, value);

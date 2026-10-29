@@ -82,7 +82,7 @@ typedef enum aqua_event_type {
     AQUA_EVENT_COMPOSITION_START = 13,
     AQUA_EVENT_COMPOSITION_UPDATE = 14, /* text = composition, cursor = caret in UTF-16 units */
     AQUA_EVENT_COMPOSITION_END = 15,
-    AQUA_EVENT_RESIZE = 16,      /* width/height in x, y (logical units) */
+    AQUA_EVENT_RESIZE = 16,      /* width/height in x, y (logical units); also when only the density (content scale) changed */
     AQUA_EVENT_BACK = 17,        /* Android back gesture */
     AQUA_EVENT_LIFECYCLE = 18,   /* action: 1 resumed, 0 paused */
 } aqua_event_type;

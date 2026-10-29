@@ -1,0 +1,18 @@
+# (needs a window) Layouts squeezed by a small window: empty and negative clips, boxes and shapes draw nothing and keep
+# the sketch running.
+var p = import("Processing");
+var setup = function() { p.size(40, 30, p.P2D, "empty sizes"); };
+var draw = function() {
+    p.background(0);
+    p.noStroke();
+    p.fill(255, 0, 0);
+    p.clip(0, 0, 0, 0); p.rect(0, 0, 40, 30); p.noClip();
+    p.rect(5, 5, 0, 10); p.ellipse(10, 10, 0, 0); p.quad(0, 0, 10, 0, 20, 0, 30, 0); p.text("hidden", 0, 0, 0, 20);
+    p.clip(30, 20, -20, -10); p.fill(0, 255, 0); p.rect(0, 0, 40, 30); p.noClip();
+    p.loadPixels();
+    print("cleared", p.get(2, 2) == p.color(0), p.get(5, 8) == p.color(0));
+    print("negative clip", p.get(20, 15) == p.color(0, 255, 0), p.get(5, 5) == p.color(0));
+    p.exit();
+};
+p.run(setup, draw);
+print("still running");

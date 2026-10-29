@@ -7,7 +7,7 @@
 #define GRAPHICS_GEOMETRY_H
 
 enum { GEO_FILL = 0, GEO_UNLIT_FILL = 1, GEO_STROKE = 2 };
-enum { GEO_ZERO_AREA = -1, GEO_NOT_SIMPLE = -2, GEO_OUT_OF_MEMORY = -3 };
+enum { GEO_NOT_SIMPLE = -2, GEO_OUT_OF_MEMORY = -3 };
 
 /* State block layout (floats; integer fields are stored as floats). */
 enum {

@@ -122,6 +122,13 @@ static void on_drop(GLFWwindow *g, int count, const char **paths) {
 }
 static void on_close(GLFWwindow *g) { aqua_window_event e = {AQUA_EVENT_CLOSE}; emit(of(g), &e); }
 static void on_resize(GLFWwindow *g, int width, int height) { aqua_window_event e = {AQUA_EVENT_RESIZE}; e.x = width; e.y = height; emit(of(g), &e); }
+/* A new content scale (another monitor, a display scaling change) is a resize too: listeners re-read the scale. */
+static void on_content_scale(GLFWwindow *g, float x, float y) {
+    (void)x; (void)y;
+    int width, height;
+    glfwGetWindowSize(g, &width, &height);
+    on_resize(g, width, height);
+}
 static void emit_text(aqua_window *w, int32_t type, const char *text, int32_t cursor) {
     aqua_window_event e = {type}; e.text = text; e.cursor = cursor;
     emit(w, &e);
@@ -287,6 +294,7 @@ aqua_window *aqua_window_create(aqua_runtime *rt, int32_t width, int32_t height,
     glfwSetDropCallback(g, on_drop);
     glfwSetWindowCloseCallback(g, on_close);
     glfwSetWindowSizeCallback(g, on_resize);
+    glfwSetWindowContentScaleCallback(g, on_content_scale);
     glfwSetCharCallback(g, on_character);
     glfwSetInputMode(g, GLFW_LOCK_KEY_MODS, GLFW_TRUE);
     /* A click shorter than a frame is still seen by polled button state. */

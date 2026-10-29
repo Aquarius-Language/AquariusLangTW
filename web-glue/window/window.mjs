@@ -149,10 +149,12 @@ registerGlue('window', (context) => {
                 text.value = '';
             }, { signal });
         }
+        // Size and density (a resolution or scaling change, another monitor, page zoom) are checked every poll.
         resized() {
-            const before = this.logical;
+            const before = this.logical, pixels = [this.canvas.width, this.canvas.height];
             this.applySize();
-            if (before[0] !== this.logical[0] || before[1] !== this.logical[1]) this.push(EVENT.RESIZE, { x: this.logical[0], y: this.logical[1] });
+            if (before[0] !== this.logical[0] || before[1] !== this.logical[1] || pixels[0] !== this.canvas.width || pixels[1] !== this.canvas.height)
+                this.push(EVENT.RESIZE, { x: this.logical[0], y: this.logical[1] });
         }
         dispatch() {
             const events = this.queue;

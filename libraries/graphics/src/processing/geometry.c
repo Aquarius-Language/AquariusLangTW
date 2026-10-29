@@ -264,8 +264,9 @@ static int ear_clip(geo *g, const V3 *v, int *ids, int n, int bridged) {
     }
     float area = 0;
     for (int i = 0; i < n; i++) { V3 a = v[ids[i]], b = v[ids[(i + 1) % n]]; area += a.x * b.y - b.x * a.y; }
+    /* Nothing to fill (a rectangle of zero width when a window gets small, a flat polygon): no triangles, no error. */
+    if (fabsf(area) < 1e-6f) return 0;
     int result = 0;
-    if (fabsf(area) < 1e-6f) result = GEO_ZERO_AREA;
     float sign = area >= 0 ? 1.0f : -1.0f;
     while (!result && n > 3) {
         int found = 0;

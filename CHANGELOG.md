@@ -55,6 +55,9 @@ Libraries:
 - Processing: text whose font renders wider at the screen's scale than at its measured size (細明體, which a `zh-Hant`
   page uses for `monospace`, rounds advances to whole pixels) is fitted to the box `textWidth()` reports, so full-width
   and Chinese text no longer runs into what follows it on high-density displays and editor carets stay on the text.
+- Resizing and resolution changes: windows send `resize` when only their density changes too (web every poll, desktop
+  on content-scale changes); Processing's `clip`, boxed `text` and filled shapes take empty and negative sizes (an empty
+  fill draws nothing instead of failing with "Polygon has zero area."); `ScrollView.Place` clamps negative sizes.
 - Exported web pages hide the empty output and error boxes, which covered the top of full-window canvases and took
   the pointer there.
 - Processing's `platformWindow` and WGPU windows' `PlatformWindow` give other libraries the shared window object.

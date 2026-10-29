@@ -46,7 +46,10 @@ var ScrollTo = function(view, x, y) {
 var ScrollBy = function(view, dx, dy) { return ScrollTo(view, view.x + dx, view.y + dy); };
 
 # Places the view on the window and gives it a new size; the offset stays inside the content.
+# A layout squeezed by a small window can ask for a negative size: the view is then empty, not inverted.
 var Place = function(view, left, top, width, height) {
+    if (width < 0) { width = 0; }
+    if (height < 0) { height = 0; }
     view.left = left * 1.0d; view.top = top * 1.0d; view.width = width * 1.0d; view.height = height * 1.0d;
     ScrollTo(view, view.x, view.y);
 };

@@ -249,7 +249,13 @@ apply those that fit the application. The libraries named do the platform-specif
 
 ### Windows, lifecycle and system settings
 
-- `resize` carries `width`, `height` (logical) and `scale` (pixels per unit): relayout and redraw.
+- `resize` carries `width`, `height` (logical) and `scale` (pixels per unit): relayout and redraw. It also comes when
+  only the scale changes (another monitor, a display resolution or scaling change, page zoom), so layouts and cached
+  text or images made for one density are redone there, never at startup only.
+- Layouts survive any size, down to nothing: clamp computed sizes at 0 (`max(0, height - toolbar)`), hide what does not
+  fit (hints, secondary panels) instead of overlapping it, and keep the application running; empty areas draw nothing.
+  Processing's `clip`, boxed `text` and shapes accept empty sizes, and `ScrollView.Place` and `WebFrame.Place` treat
+  negative sizes as empty.
 - `focus` false: stop key repeats, end drags (the recognizer does), dim selection highlights like native controls.
 - `visibility` false / `pause`: stop animations, audio and polling; save state. `resume`: refresh time-dependent
   content.
