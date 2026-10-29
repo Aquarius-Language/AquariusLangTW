@@ -46,8 +46,9 @@ registerGlue('window', (context) => {
             this.canvas.setAttribute('aria-label', title);
             this.fullscreen = (flags & 8) !== 0;
             this.width = width; this.height = height;
-            this.applySize();
+            // In the page first, so the first size is the laid-out one (a full-screen canvas is the viewport).
             if (!(flags & 2)) container().append(this.canvas);
+            this.applySize();
             if (title) document.title = title;
             this.abort = new AbortController();
             this.listen();

@@ -40,7 +40,8 @@ Libraries:
 - Interaction: `text` and `composition` events (typed text and input-method composition) with session
   `TextInput(enabled)` and `TextRect(x, y, width, height)`, for text editors drawn by any graphics library.
   On the web a click keeps typing in the text input, and a window inside a frame no longer takes focus from the page
-  around it when it opens.
+  around it when it opens. A full-screen canvas on a high-density display starts at the viewport's size instead of
+  the screen's device pixels times the density again (which exceeded the GPU's texture limit).
 - Processing's `platformWindow` and WGPU windows' `PlatformWindow` give other libraries the shared window object.
 - Web glue domains `history` (the browser's back button) and `mediaquery` (`matchMedia`).
 
