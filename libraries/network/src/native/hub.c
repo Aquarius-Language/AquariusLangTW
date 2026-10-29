@@ -229,3 +229,6 @@ void engine_destroy(engine *e) {
     pthread_mutex_destroy(&e->lock);
     free(e);
 }
+
+static bool engine_random(void *buffer, size_t length) { return platform_random(buffer, length); }
+static char *engine_page_origin(void) { return NULL; }

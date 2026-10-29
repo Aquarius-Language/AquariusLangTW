@@ -23,6 +23,8 @@ Libraries:
   graceful `Shutdown(timeout)`, `StatusText`, `readTimeout` / `idleTimeout` options, writer `Error`, `NotFound`,
   `Write`, `AddHeader` and `File` (ETag, Last-Modified, byte ranges), request `Host`, `Proto`, `FormValue`, `Files`
   (multipart uploads) and `BasicAuth`. Listen accepts `host:port` and `:port`. Handlers and middleware may be async.
+- Network: WebSocket subprotocols (`protocols` option, `UpgradeWebSocket([protocols])`, `Protocol` field) on native
+  clients, servers and the browser; `RandomBytes(n)` (secure randomness) and `PageOrigin()` (the web page's origin).
 - Network: every waiting function has a promise variant, `...Async` / `非同步...` (`GetAsync`, `ServeAsync`,
   `AcceptAsync`, `ReceiveAsync`, ...), on every target that has the function.
 - New default library `interaction`: `Interaction` / `互動` turns window events into each platform's clicks (with

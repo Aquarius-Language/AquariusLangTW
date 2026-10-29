@@ -244,6 +244,7 @@ typedef struct net_options {
     net_headers headers;
     net_buffer body; bool has_body;
     char *certificate, *certificate_password;
+    char *protocols;              /* WebSocket subprotocols offered, "a, b" (protocols / 子協定) */
 } net_options;
 NET_SHARED void options_default(net_options *o);
 NET_SHARED void options_copy(net_options *to, const net_options *from);

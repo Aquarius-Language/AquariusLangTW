@@ -31,3 +31,4 @@ WebSocket網址 Network.ConnectWebSocket: InvalidArgument: Expected ws:// or wss
 非同步 真 function Not Found Created
 非同步回應 0 假
 非同步拒絕 rejected
+亂數與來源 8 真 真

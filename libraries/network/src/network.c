@@ -165,6 +165,24 @@ static void net_status(aqua_call *call, const char *name) {
     aqua_return_cstring(call, net_status_text(aqua_arg_int(call, 0)));
 }
 
+/* RandomBytes(count): count (1..65536) bytes of the operating system's or the browser's secure randomness. */
+static void net_random_bytes(aqua_call *call, const char *name) {
+    int32_t count = aqua_arg_int(call, 0);
+    if (count < 1 || count > 65536) { net_raise_kind(call, name, NET_INVALID, "RandomBytes takes 1..65536 / 位元組數須介於 1..65536。"); return; }
+    uint8_t *bytes = malloc((size_t)count);
+    if (!engine_random(bytes, (size_t)count)) { free(bytes); net_raise_kind(call, name, NET_FAILED, "No secure randomness / 無法取得安全亂數。"); return; }
+    aqua_return(call, aqua_array_from_u8(aqua_call_runtime(call), bytes, (uint32_t)count));
+    free(bytes);
+}
+
+/* PageOrigin(): the origin of the web page running the application ("https://example.com:8443"), "" elsewhere. */
+static void net_page_origin(aqua_call *call, const char *name) {
+    (void)name;
+    char *origin = engine_page_origin();
+    aqua_return_cstring(call, origin ? origin : "");
+    free(origin);
+}
+
 /* ---- Options (NetworkOptions) ---- */
 
 void options_default(net_options *o) {
@@ -185,12 +203,14 @@ void options_copy(net_options *to, const net_options *from) {
     if (from->has_body) buffer_append(&to->body, from->body.data, from->body.length);
     to->certificate = net_strdup(from->certificate);
     to->certificate_password = net_strdup(from->certificate_password);
+    to->protocols = net_strdup(from->protocols);
 }
 void options_free(net_options *o) {
     headers_free(&o->headers);
     buffer_free(&o->body);
     free(o->certificate);
     free(o->certificate_password);
+    free(o->protocols);
     memset(o, 0, sizeof *o);
 }
 bool port_valid(int32_t port, bool allow_zero, net_error *e) {
@@ -301,6 +321,24 @@ bool options_read(aqua_call *call, uint32_t index, const net_options *defaults, 
     }
     if (!read_text(rt, hash, "certificate|憑證", &out->certificate, e)) return false;
     if (!read_text(rt, hash, "certificatePassword|憑證密碼", &out->certificate_password, e)) return false;
+    if (option_field(rt, hash, "protocols|子協定", &v)) {
+        /* RFC 6455 subprotocols: tokens, offered in order. */
+        if (v.type != AQUA_ARRAY) return net_error_set(e, NET_INVALID, false, MSG_OPTIONS);
+        net_buffer list = {0};
+        uint32_t n = aqua_array_length(rt, v);
+        for (uint32_t i = 0; i < n; i++) {
+            char *token = NULL;
+            if (!value_text(rt, aqua_array_get(rt, v, i), &token, e)) { buffer_free(&list); return false; }
+            bool valid = token[0] != 0;
+            for (const char *p = token; *p; p++) if (*p <= ' ' || *p >= 127 || strchr("()<>@,;:\\\"/[]?={}", *p)) valid = false;
+            if (valid) { if (list.length) buffer_text(&list, ", "); buffer_text(&list, token); }
+            aqua_free(token);
+            if (!valid) { buffer_free(&list); return net_error_set(e, NET_INVALID, false, "Invalid WebSocket subprotocol / 子協定名稱無效。"); }
+        }
+        free(out->protocols);
+        out->protocols = list.length ? buffer_take(&list, NULL) : NULL;
+        buffer_free(&list);
+    }
     return options_validate(out, e);
 }
 

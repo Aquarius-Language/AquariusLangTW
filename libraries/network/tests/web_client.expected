@@ -11,3 +11,4 @@ JSON 200 {收到: {訊息: 繁體, 數字: [1, 2.5]}, 方法: POST} application/
 位元組 [0, 255, 7] 假
 關閉後 Network.WebSocket.SendText: Closed: Resource closed / 資源已關閉。
 錯誤網址 Network.ConnectWebSocket: InvalidArgument: Expected ws:// or wss:// / 需要 WebSocket 網址。
+子協定 v2 子協定：v2

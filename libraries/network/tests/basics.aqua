@@ -54,3 +54,7 @@ Injected: yes"}}));
 印出("非同步回應", 失敗.狀態碼, 失敗.成功);
 變數 拒絕 = 等待 承諾.全部結算([net.ConnectWebSocketAsync("http://example.com")]);
 印出("非同步拒絕", 拒絕[0]["status"]);
+變數 頁面來源 = net.PageOrigin();
+變數 來源正確 = 頁面來源 == "";
+如果 (!原生) { 來源正確 = 匯入("字串").開頭是(頁面來源, "http"); }
+印出("亂數與來源", 長度(網路.隨機位元組(8)), 網路.RandomBytes(6) != 網路.RandomBytes(6), 來源正確);

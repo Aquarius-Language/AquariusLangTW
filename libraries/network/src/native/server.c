@@ -114,6 +114,7 @@ struct exchange {
     net_buffer out;
     bool complete, upgrade, failed, drain_wanted;
     net_buffer leftover;          /* bytes after an upgrade request, for the WebSocket */
+    char *protocol;               /* the subprotocol UpgradeWebSocket chose */
     int64_t deadline;
 };
 
@@ -187,7 +188,7 @@ static void exchange_unref(exchange *x) {
     free(x->method); free(x->path); free(x->target); free(x->query); free(x->url); free(x->remote); free(x->origin_self);
     headers_free(&x->headers); headers_free(&x->response); headers_free(&x->params);
     buffer_free(&x->body); buffer_free(&x->out); buffer_free(&x->leftover);
-    free(x->session); free(x->chain); free(x->host);
+    free(x->session); free(x->chain); free(x->host); free(x->protocol);
     net_mutex_destroy(&x->lock);
     pthread_cond_destroy(&x->wake);
     if (x->connection) connection_unref(x->connection);
@@ -1633,7 +1634,7 @@ static void drained(aqua_runtime *rt, void *data) {
             atomic_fetch_add(&x->connection->refs, 1);
             websocket *ws = websocket_server_new(s, x->connection->conn, &x->leftover, x->connection, connection_release, &x->server->options);
             if (!resource_own(s, &ws->base, &e)) { websocket_unref(ws); net_reject(p, x->drain_name, &e); }
-            else { x->socket = ws; aqua_resolve(p, websocket_object(s->rt, ws)); }
+            else { ws->protocol = net_strdup(x->protocol); x->socket = ws; aqua_resolve(p, websocket_object(s->rt, ws)); }
         } else aqua_resolve(p, x->drain_result);
     }
     exchange_unref(x);
@@ -1819,6 +1820,22 @@ void writer_upgrade(aqua_call *call, const char *name) {
     net_buffer h = {0};
     buffer_text(&h, "HTTP/1.1 101 Switching Protocols\r\nConnection: Upgrade\r\nUpgrade: websocket\r\n");
     buffer_format(&h, "Sec-WebSocket-Accept: %s\r\n", (char *)accept.data);
+    /* UpgradeWebSocket(protocols): the first subprotocol the client offers that the server supports. */
+    const char *offered = headers_get(&x->headers, "Sec-WebSocket-Protocol");
+    aqua_runtime *rt = aqua_call_runtime(call);
+    aqua_value supported = aqua_arg(call, 0);
+    for (const char *p = offered; p && *p && supported.type == AQUA_ARRAY && !x->protocol;) {
+        while (*p == ' ' || *p == ',') p++;
+        size_t n = strcspn(p, ", ");
+        for (uint32_t i = 0; n && i < aqua_array_length(rt, supported); i++) {
+            aqua_value item = aqua_array_get(rt, supported, i);
+            if (item.type != AQUA_STRING) continue;
+            aqua_str text = aqua_str_of(call, item);
+            if (text.length == n && !memcmp(text.data, p, n)) { x->protocol = net_strndup(p, n); break; }
+        }
+        p += n;
+    }
+    if (x->protocol) buffer_format(&h, "Sec-WebSocket-Protocol: %s\r\n", x->protocol);
     for (uint32_t i = 0; i < x->response.count; i++)
         if (!net_iprefix(x->response.items[i].name, "Content-")) buffer_format(&h, "%s: %s\r\n", x->response.items[i].name, x->response.items[i].value);
     buffer_text(&h, "\r\n");

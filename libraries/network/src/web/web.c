@@ -14,6 +14,11 @@ AQUA_WEB_IMPORT(network_fetch) int32_t web_fetch(const char *method, const char 
 AQUA_WEB_IMPORT(network_fetch_abort) void web_fetch_abort(int32_t handle);
 AQUA_WEB_IMPORT(network_release) void web_release(int32_t handle);
 AQUA_WEB_IMPORT(network_socket_open) int32_t web_socket_open(const char *url, web_event event, void *data);
+AQUA_WEB_IMPORT(network_socket_open_protocols) int32_t web_socket_open_protocols(const char *url, const char *protocols, uint32_t length, web_event event, void *data);
+AQUA_WEB_IMPORT(network_socket_protocol) char *web_socket_protocol(int32_t handle);
+AQUA_WEB_IMPORT(network_page_host) char *web_page_host(void);
+AQUA_WEB_IMPORT(network_page_port) char *web_page_port(void);
+AQUA_WEB_IMPORT(network_page_secure) int32_t web_page_secure(void);
 AQUA_WEB_IMPORT(network_socket_send) double web_socket_send(int32_t handle, const uint8_t *data, uint32_t length, int32_t text);
 AQUA_WEB_IMPORT(network_socket_buffered) double web_socket_buffered(int32_t handle);
 AQUA_WEB_IMPORT(network_socket_close) void web_socket_close(int32_t handle, int32_t code, const char *reason);
@@ -320,6 +325,11 @@ static void socket_event_run(aqua_runtime *rt, void *data) {
     switch (task->kind) {
     case SOCKET_OPEN:
         w->open = true;
+        if (!ws->protocol) {
+            char *chosen = web_socket_protocol(w->item.handle);
+            if (chosen && *chosen) ws->protocol = net_strdup(chosen);
+            free(chosen);
+        }
         if (w->timer) { timer_cancel(s, w->timer); w->timer = NULL; }
         if (w->connecting) {
             aqua_pending *pending = w->connecting;
@@ -406,7 +416,19 @@ void engine_websocket_connect(network_state *s, websocket *ws, const net_url *ur
     w->connect_name = name;
     char *text = url_format(url, false);
     item_add(s->engine, &w->item, 2, w);
-    w->item.handle = web_socket_open(text, socket_event, w);
+    if (o->protocols) {
+        /* "a, b" as the NUL-separated list the glue reads. */
+        net_buffer list = {0};
+        for (const char *p = o->protocols; *p;) {
+            size_t n = strcspn(p, ",");
+            buffer_append(&list, p, n);
+            buffer_append(&list, "", 1);
+            p += n;
+            while (*p == ',' || *p == ' ') p++;
+        }
+        w->item.handle = web_socket_open_protocols(text, (const char *)list.data, (uint32_t)list.length, socket_event, w);
+        buffer_free(&list);
+    } else w->item.handle = web_socket_open(text, socket_event, w);
     free(text);
     /* The connect operation's reference keeps the socket until websocket_connected takes it. */
     w->timer = timer_start(s, o->timeout_ms, connect_timeout, w);
@@ -512,4 +534,25 @@ void engine_destroy(engine *e) {
         }
     }
     free(e);
+}
+
+#include <unistd.h>
+/* The browser's crypto.getRandomValues through WASI (getentropy takes at most 256 bytes at a time). */
+static bool engine_random(void *buffer, size_t length) {
+    for (size_t done = 0; done < length;) {
+        size_t n = length - done > 256 ? 256 : length - done;
+        if (getentropy((uint8_t *)buffer + done, n) != 0) return false;
+        done += n;
+    }
+    return true;
+}
+static char *engine_page_origin(void) {
+    char *host = web_page_host(), *port = web_page_port();
+    net_buffer origin = {0};
+    if (host && *host) buffer_format(&origin, "%s://%s%s%s", web_page_secure() ? "https" : "http", host, port && *port ? ":" : "", port ? port : "");
+    free(host);
+    free(port);
+    char *text = origin.length ? buffer_take(&origin, NULL) : NULL;
+    buffer_free(&origin);
+    return text;
 }

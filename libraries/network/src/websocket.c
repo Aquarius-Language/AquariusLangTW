@@ -24,6 +24,7 @@ websocket *websocket_new(network_state *s, const net_options *o) {
 void websocket_unref(websocket *ws) {
     if (!ws || atomic_fetch_sub(&ws->refs, 1) != 1) return;
     engine_websocket_free(ws);
+    free(ws->protocol);
     free(ws);
 }
 
@@ -36,7 +37,9 @@ void websocket_release(aqua_runtime *rt, void *payload) {
 
 aqua_value websocket_object(aqua_runtime *rt, websocket *ws) {
     atomic_fetch_add(&ws->refs, 1);
-    return object_wrap(rt, object_create(CLASS_websocket, ws));
+    net_object *o = object_create(CLASS_websocket, ws);
+    object_field(rt, o, FIELD_OF(websocket, protocol), aqua_cstring(rt, ws->protocol ? ws->protocol : ""));
+    return object_wrap(rt, o);
 }
 
 aqua_value message_record(aqua_runtime *rt, const uint8_t *data, size_t length, bool is_text, bool closed) {

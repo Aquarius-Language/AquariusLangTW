@@ -76,8 +76,13 @@ typedef struct websocket {
     atomic_int refs;
     int32_t timeout_ms, max_message;
     bool receiving;               /* one Receive at a time */
+    char *protocol;               /* the subprotocol the handshake chose, NULL for none */
     void *engine;
 } websocket;
+/* Secure random bytes from the operating system or the browser. */
+static bool engine_random(void *buffer, size_t length);
+/* The page's origin ("https://host:port") on the web, NULL elsewhere; malloc'd. */
+static char *engine_page_origin(void);
 static websocket *websocket_new(network_state *s, const net_options *o);
 static void websocket_unref(websocket *ws);
 /* A Message record (Network.Message). */

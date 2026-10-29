@@ -136,6 +136,9 @@ UDP 有 `Send/傳送(host,port,bytesOrText)`、`Receive/接收([maxBytes])`、
 `SetBroadcast/設定廣播(bool)`、`Close/關閉()`。接收保留單一資料報邊界，回傳
 Data/資料、Text/文字、Address/位址、Port/連接埠；過大的資料報回報錯誤，不靜默截斷。
 
+連接時的 `protocols/子協定` 選項（字串陣列）依序提供 RFC 6455 子協定，伺服器以 `UpgradeWebSocket/升級網頁通訊端([子協定...])` 選擇用戶端提供的第一個支援者；雙方的 `Protocol/子協定` 欄位是選定結果（沒有則為空字串），瀏覽器也支援。
+`RandomBytes/隨機位元組(n)` 回傳作業系統或瀏覽器的密碼學亂數位元組（1..65536），`PageOrigin/頁面來源()` 在網頁回傳載入程式的頁面來源（例如 `https://example.com:8443`，可組成 `wss://` 網址），其他平台為空字串。
+
 WebSocket 有 `SendText/傳送文字(text)`、`SendBytes/傳送位元組(bytes)`、
 `Receive/接收()`、`Close/關閉([code,reason])`。Receive 回傳 Data/資料、Text/文字、
 IsText/是文字、Closed/已關閉。引擎處理分片、ping/pong 與關閉握手；

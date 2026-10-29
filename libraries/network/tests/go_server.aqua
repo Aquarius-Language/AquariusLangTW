@@ -76,6 +76,19 @@ var many = await Promise.All([get("/items/1", null), get("/items/2", null), get(
 print("all", Array.Map(many, function(r) { return r.Body; }));
 print("middleware", log[0], log[1], len(log));
 print("status text", net.StatusText(404), net.狀態說明(503), net.StatusText(299) == "");
+print("random", len(net.RandomBytes(16)), net.RandomBytes(4) != net.RandomBytes(4), net.PageOrigin());
+
+# WebSocket subprotocols: the server picks the first one the client offers that it supports.
+server.Handle("GET /ws", async function(request, writer) {
+    var socket = writer.UpgradeWebSocket(["chat", "v2"]);
+    var message = await socket.ReceiveAsync();
+    socket.SendText(socket.Protocol + ":" + message.Text);
+    await socket.ReceiveAsync();
+});
+var socket = await net.ConnectWebSocketAsync("ws" + String.Slice(base, 4, len(base)) + "/ws", {"protocols": ["x-old", "v2", "chat"]});
+socket.SendText("hello");
+print("subprotocol", socket.Protocol, (await socket.ReceiveAsync()).Text);
+socket.Close();
 
 # One call: ListenAndServe with a routes table; its promise variant runs alongside this script.
 var quick = net.ListenAndServeAsync("127.0.0.1:18797", {"GET /": function(request, writer) { writer.Text("quick"); }});

@@ -33,6 +33,7 @@ typedef struct ws_job {
     /* connect */
     net_url url;
     net_headers headers;
+    char *protocols;
     /* send, close */
     net_buffer data;
     int opcode;
@@ -216,6 +217,7 @@ static void ws_job_free(ws_job *j) {
     websocket_unref(j->ws);
     url_free(&j->url);
     headers_free(&j->headers);
+    free(j->protocols);
     buffer_free(&j->data);
     free(j);
 }
@@ -257,6 +259,7 @@ static void connect_run(net_job *job) {
     else buffer_format(&request, "Host: %s\r\n", j->url.host);
     buffer_format(&request, "Upgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: %s\r\nSec-WebSocket-Version: 13\r\n", (char *)key.data);
     for (uint32_t i = 0; i < j->headers.count; i++) buffer_format(&request, "%s: %s\r\n", j->headers.items[i].name, j->headers.items[i].value);
+    if (j->protocols) buffer_format(&request, "Sec-WebSocket-Protocol: %s\r\n", j->protocols);
     buffer_text(&request, "\r\n");
     if (!conn_write(w->conn, request.data, request.length, &io, e)) { buffer_free(&key); goto end; }
     int got = http_read_head(w->conn, &w->in, false, &response, &io, e);
@@ -282,6 +285,13 @@ static void connect_run(net_job *job) {
     buffer_free(&expected);
     buffer_free(&key);
     if (!valid) { net_error_set(e, NET_NETWORK, true, "The WebSocket handshake was invalid / WebSocket 交握無效。"); goto end; }
+    /* The server picks one of the offered subprotocols, or none. */
+    const char *chosen = headers_get(&response.headers, "Sec-WebSocket-Protocol");
+    if (chosen && (!j->protocols || !net_itoken(j->protocols, chosen))) {
+        net_error_set(e, NET_NETWORK, false, "The server chose a subprotocol the client did not offer / 伺服器選擇了未提供的子協定。");
+        goto end;
+    }
+    if (chosen) ws->protocol = net_strdup(chosen);
     j->failed = false;
 end:
     if (j->failed && (e->kind == NET_DNS)) e->kind = NET_NETWORK;
@@ -310,6 +320,7 @@ void engine_websocket_connect(network_state *s, websocket *ws, const net_url *ur
     url_parse(text, &j->url);
     free(text);
     headers_copy(&j->headers, &o->headers);
+    j->protocols = net_strdup(o->protocols);
     ws_start(s, j);
 }
 
