@@ -401,6 +401,7 @@ void aqua_window_text_input(aqua_window *w, bool enabled) {
     w->composing = false;
     w->text_enabled = enabled;
 }
+bool aqua_window_text_input_enabled(aqua_window *w) { return w && w->text_enabled; }
 void aqua_window_text_rect(aqua_window *w, int32_t x, int32_t y, int32_t width, int32_t height) {
 #if defined(_WIN32)
     w->caret.left = x; w->caret.top = y; w->caret.right = x + width; w->caret.bottom = y + height;

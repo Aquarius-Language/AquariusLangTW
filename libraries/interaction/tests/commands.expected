@@ -15,6 +15,9 @@ key 65 press 真 假
 key 65 repeat 真 假
 key 65 release 真 假
 text 星泉 é
-composition update ㄒㄧㄥ
+composition start null null
+composition update ㄒㄧㄥ 2
+composition end null null
 假 假
+真 假 假
 ERROR: Interaction.Feed: Unknown event type 'dance'.

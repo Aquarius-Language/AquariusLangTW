@@ -87,7 +87,7 @@ ievent event_new(const char *type, double time) {
     e.type = type;
     e.time = time;
     e.x = e.y = e.start_x = e.start_y = e.dx = e.dy = e.velocity_x = e.velocity_y = e.scale = e.width = e.height = NAN;
-    e.button = e.count = e.pointer_id = e.key = e.state = INT32_MIN;
+    e.button = e.count = e.pointer_id = e.key = e.state = e.cursor = INT32_MIN;
     return e;
 }
 
@@ -427,6 +427,7 @@ void recognizer_input(recognizer *r, const aqua_window_event *in) {
         e = event_new("composition", in->time);
         e.phase = in->type == AQUA_EVENT_COMPOSITION_START ? "start" : in->type == AQUA_EVENT_COMPOSITION_END ? "end" : "update";
         if (in->text) snprintf(e.text, sizeof e.text, "%s", in->text);
+        if (in->type == AQUA_EVENT_COMPOSITION_UPDATE) e.cursor = in->cursor;
         emit(r, &e);
         break;
     default: break;

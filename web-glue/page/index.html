@@ -11,6 +11,8 @@
   #surfaces canvas { max-width: 100%; max-height: 100%; outline: none; }
   #output { margin: 0; padding: 12px; white-space: pre-wrap; font-family: ui-monospace, monospace; position: relative; }
   #error { color: #ff8a80; padding: 0 12px; white-space: pre-wrap; position: relative; }
+  /* Empty, they take no room over the windows (which would lose the pointer there). */
+  #output:empty, #error:empty { display: none; }
 </style>
 </head>
 <body>

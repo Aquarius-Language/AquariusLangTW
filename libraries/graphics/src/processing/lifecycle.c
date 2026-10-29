@@ -428,7 +428,7 @@ static void finish_run(processing *p) {
     p->failure = NULL;
     if (a) {
         if (failure) gfx_async_fail_text(a, failure);
-        else gfx_async_finish(a, aqua_null());
+        else gfx_async_finish(a, aqua_void());
     }
     free(failure);
 }

@@ -26,9 +26,12 @@ Session members: `On(type, handler)` / `註冊` returns an id (type `"*"` takes 
 `Feed(raw)` / `輸入事件`, `Dispatch()` / `派送`, `SafeArea()` / `安全區域` (`left`, `top`, `right`, `bottom`,
 `keyboardVisible`), `SetCursor(name)` / `設定游標` (`arrow`, `text`, `crosshair`, `hand`, `resizeHorizontal`,
 `resizeVertical`, `resizeDiagonal`, `resizeAntiDiagonal`, `move`, `notAllowed`; false where there is no cursor),
-`Detach()` / `解除`, `TextInput(enabled)` / `文字輸入` (typed text and input-method composition arrive as
-`text` and `composition` events), `TextRect(x, y, width, height)` / `文字位置` (where input-method windows open),
-property `attached`.
+`CursorArea(name, x, y, width, height, cursor)` / `游標區域` (while the pointer hovers the rectangle the cursor is that
+shape, the arrow outside every area; setting a name again moves its area, later areas lie on top, and a handler's
+`SetCursor` for the same event still wins), `RemoveCursorArea(name)` / `移除游標區域`, `Detach()` / `解除`,
+`TextInput(enabled)` / `文字輸入` (typed text and input-method composition arrive as `text` and `composition` events;
+a composition's `phase` is `start`, `update` or `end`, its `text` the uncommitted text and its `cursor` the caret in
+it), `TextRect(x, y, width, height)` / `文字位置` (where input-method windows open), property `attached`.
 
 Handlers receive one event and run newest first until one returns `true`. They run at the runtime's next turn after
 the window system delivered the input; `Dispatch()` runs them at once (hand-driven frame loops, tests). A `"back"` from

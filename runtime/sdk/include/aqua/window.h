@@ -106,6 +106,8 @@ void aqua_window_unlisten(aqua_window *window, aqua_window_listener listener, vo
 /* Text input: while enabled, typed text and input-method composition arrive as TEXT and COMPOSITION events; the
    rectangle (logical units) places the input method's candidate window. On Android this shows the soft keyboard. */
 void aqua_window_text_input(aqua_window *window, bool enabled);
+/* Whether text input is on, whichever library turned it on (keys such as Escape then belong to the text). */
+bool aqua_window_text_input_enabled(aqua_window *window);
 void aqua_window_text_rect(aqua_window *window, int32_t x, int32_t y, int32_t width, int32_t height);
 bool aqua_window_composition_supported(aqua_window *window);
 

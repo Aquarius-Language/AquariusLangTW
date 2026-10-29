@@ -170,7 +170,11 @@ void gfx_input_collect(processing *p) {
     if (wheel != 0) queue(p, EVENT_MOUSE_WHEEL, &w, NULL, 0, 0);
     queue(p, EVENT_APPLY, &w, NULL, 0, 0);
 
-    if (p->keys[256] && !p->text_input_enabled) p->exiting = true;
+    /* Escape closes the sketch unless text input is on (Processing's own, or another library's such as an editor's).
+       A web page has no window to close, so there Escape stays an ordinary key. */
+#if !defined(AQUA_OS_WEB)
+    if (p->keys[256] && !p->text_input_enabled && !aqua_window_text_input_enabled(p->window)) p->exiting = true;
+#endif
     for (size_t i = 0; i < p->raw_count; i++) free(p->raw[i].text);
     p->raw_count = 0;
 }

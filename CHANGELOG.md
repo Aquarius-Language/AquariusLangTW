@@ -42,6 +42,14 @@ Libraries:
   On the web a click keeps typing in the text input, and a window inside a frame no longer takes focus from the page
   around it when it opens. A full-screen canvas on a high-density display starts at the viewport's size instead of
   the screen's device pixels times the density again (which exceeded the GPU's texture limit).
+- Interaction: `CursorArea(name, x, y, width, height, cursor)` / `RemoveCursorArea(name)` show a cursor shape (the
+  text cursor over editable text) while the pointer hovers a rectangle and the arrow elsewhere; `composition` events
+  carry the caret in the composed text (`cursor`), and `Feed` takes a composition's `phase`.
+- SDK: `aqua_window_text_input_enabled(window)`. Processing's Escape no longer closes a sketch while another library
+  (an editor) has text input on, nor on the web, where a page has no window to close; `run` ends without a value,
+  so a script ending with it no longer prints `null`.
+- Exported web pages hide the empty output and error boxes, which covered the top of full-window canvases and took
+  the pointer there.
 - Processing's `platformWindow` and WGPU windows' `PlatformWindow` give other libraries the shared window object.
 - Web glue domains `history` (the browser's back button) and `mediaquery` (`matchMedia`).
 

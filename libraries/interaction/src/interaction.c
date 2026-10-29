@@ -77,7 +77,7 @@ static void event_finalize(aqua_runtime *rt, void *data) { (void)rt; free(data);
     NUMBER("startX", start_x) NUMBER("startY", start_y) NUMBER("dx", dx) NUMBER("dy", dy) NUMBER("velocityX", velocity_x) \
     NUMBER("velocityY", velocity_y) NUMBER("scale", scale) NUMBER("width", width) NUMBER("height", height) \
     INTEGER("button", button) INTEGER("count", count) INTEGER("pointerId", pointer_id) INTEGER("modifiers", modifiers) \
-    INTEGER("key", key) BOOLEAN("state", state)
+    INTEGER("key", key) INTEGER("cursor", cursor) BOOLEAN("state", state)
 #define STRING_GETTER(name, field) static void event_##field(aqua_call *call) { \
         const ievent *e = aqua_self(call); if (e->field) aqua_return_cstring(call, e->field); else aqua_return_null(call); }
 #define NUMBER_GETTER(name, field) static void event_##field(aqua_call *call) { \
@@ -105,6 +105,9 @@ static void event_primary(aqua_call *call) {
 
 typedef struct handler { uint32_t id; char type[TYPE_LENGTH]; aqua_ref function; } handler;
 
+/* A named rectangle whose cursor shows while the pointer hovers it (later areas on top). */
+typedef struct cursor_area { char name[TYPE_LENGTH]; double x, y, width, height; int shape; } cursor_area;
+
 typedef struct session session;
 typedef struct state { session *list; } state;
 
@@ -122,6 +125,8 @@ struct session {
     aqua_ref current;             /* the event object being dispatched */
     ievent current_event;
     uint32_t cursor;              /* id of the handler called last for the current event */
+    cursor_area *areas; uint32_t area_count, area_capacity;
+    int shape;                    /* the cursor shape last set, -1 before any */
     session *next;
 };
 
@@ -133,6 +138,7 @@ static void session_free(session *s) {
     for (uint32_t i = 0; i < s->handler_count; i++) aqua_release(s->rt, s->handlers[i].function);
     if (s->current) aqua_release(s->rt, s->current);
     free(s->handlers);
+    free(s->areas);
     free(s->queue);
     free(s);
 }
@@ -212,6 +218,20 @@ static handler *next_handler(session *s) {
 }
 
 static void web_back(void *data);
+static void apply_cursor(session *s, int shape);
+
+/* Hovering: the topmost cursor area under the pointer gives the cursor, the arrow outside them all. Handlers that call
+   SetCursor for the same event still win (they run after). */
+static void hover_cursor(session *s) {
+    if (!s->area_count) return;
+    const ievent *e = &s->current_event;
+    int shape = 0;
+    for (uint32_t i = s->area_count; i-- > 0;) {
+        const cursor_area *a = &s->areas[i];
+        if (e->x >= a->x && e->y >= a->y && e->x < a->x + a->width && e->y < a->y + a->height) { shape = a->shape; break; }
+    }
+    apply_cursor(s, shape);
+}
 
 static void finish_event(session *s, bool consumed) {
     ievent *e = &s->current_event;
@@ -254,6 +274,7 @@ static void pump(session *s) {
             *copy = s->current_event;
             s->current = aqua_retain(s->rt, aqua_object_new(s->rt, event_class, copy));
             s->cursor = UINT32_MAX;
+            if (strcmp(s->current_event.type, "move") == 0) hover_cursor(s);
         }
         handler *h = next_handler(s);
         if (!h) { finish_event(s, false); continue; }
@@ -318,6 +339,7 @@ static session *session_new(aqua_call *call) {
     s->next = s->owner->list;
     s->owner->list = s;
     s->next_id = 1;
+    s->shape = -1;
     s->input_wall_ms = aqua_now_ms(s->rt);
     recognizer_init(&s->recognizer, platform(), emit_event, s);
     s->recognizer.time = s->input_wall_ms / 1000;
@@ -422,8 +444,9 @@ static const struct { const char *name; int32_t type; } raw_types[] = {
 
 /* A raw event of a graphics library with windows of its own, in aqua/window.h's terms:
    {"type": "pointer" | "button" | "scroll" | "key" | "back" | "resize" | "focus" | "visible" | "lifecycle" | "captureLost"
-    | "tick", "time": seconds, "x", "y", "pointer", "pointerType": "mouse" | "touch" | "pen", "button", "action",
-    "mods", "key"}. "tick" only advances the clock (long presses). */
+    | "text" | "composition" | "tick", "time": seconds, "x", "y", "pointer", "pointerType": "mouse" | "touch" | "pen",
+    "button", "action", "mods", "key", "text", "cursor", "phase" (a composition's "start" | "update" | "end")}.
+   "tick" only advances the clock (long presses). */
 static void session_feed(aqua_call *call) {
     session *s = aqua_self(call);
     aqua_runtime *rt = aqua_call_runtime(call);
@@ -443,6 +466,12 @@ static void session_feed(aqua_call *call) {
     if (number_field(rt, hash, "action", &n)) e.action = (int32_t)n;
     if (number_field(rt, hash, "mods", &n)) e.mods = (int32_t)n;
     if (number_field(rt, hash, "key", &n)) e.key = (int32_t)n;
+    if (number_field(rt, hash, "cursor", &n)) e.cursor = (int32_t)n;
+    if (kind == AQUA_EVENT_COMPOSITION_UPDATE && aqua_hash_field(rt, hash, "phase", &v) && v.type == AQUA_STRING) {
+        aqua_str phase = aqua_str_of(call, v);
+        if (strcmp(phase.data, "start") == 0) e.type = AQUA_EVENT_COMPOSITION_START;
+        if (strcmp(phase.data, "end") == 0) e.type = AQUA_EVENT_COMPOSITION_END;
+    }
     if (aqua_hash_field(rt, hash, "text", &v) && v.type == AQUA_STRING) e.text = aqua_str_of(call, v).data;
     if (aqua_hash_field(rt, hash, "pointerType", &v) && v.type == AQUA_STRING) {
         aqua_str name = aqua_str_of(call, v);
@@ -476,14 +505,63 @@ static void session_safe_area(aqua_call *call) {
 static const char *const cursor_names[] = {"arrow", "text", "crosshair", "hand", "resizeHorizontal", "resizeVertical",
                                            "resizeDiagonal", "resizeAntiDiagonal", "move", "notAllowed"};
 
+static int cursor_shape(aqua_call *call, const char *function, int index) {
+    aqua_str name = aqua_arg_str(call, index);
+    for (int i = 0; i < 10; i++) if (strcmp(name.data, cursor_names[i]) == 0) return i;
+    if (!aqua_failed(call)) aqua_fail(call, "Interaction.%s: Unknown cursor '%s'.", function, name.data);
+    return -1;
+}
+
+/* Touch screens have no cursor: false tells the caller nothing changed. */
+static bool set_shape(session *s, int shape) {
+    if (!s->window || !platform()->hover) return false;
+    if (shape == s->shape) return true;
+    if (!aqua_window_set_cursor_shape(s->window, shape ? 0x36001 + shape : 0)) return false;
+    s->shape = shape;
+    return true;
+}
+static void apply_cursor(session *s, int shape) { set_shape(s, shape); }
+
 static void session_set_cursor(aqua_call *call) {
     session *s = aqua_self(call);
+    int shape = cursor_shape(call, "SetCursor", 0);
+    if (shape >= 0) aqua_return_bool(call, set_shape(s, shape));
+}
+
+/* CursorArea(name, x, y, width, height, cursor): while the pointer hovers the rectangle, the cursor is that shape (the
+   text cursor over editable text, the hand over links); outside every area it is the arrow. Setting a name again
+   moves its area; later areas lie on top. RemoveCursorArea(name) removes one. */
+static void session_cursor_area(aqua_call *call) {
+    session *s = aqua_self(call);
     aqua_str name = aqua_arg_str(call, 0);
-    int shape = -1;
-    for (int i = 0; i < 10; i++) if (strcmp(name.data, cursor_names[i]) == 0) shape = i;
-    if (shape < 0) { aqua_fail(call, "Interaction.SetCursor: Unknown cursor '%s'.", name.data); return; }
-    /* Touch screens have no cursor: false tells the caller nothing changed. */
-    aqua_return_bool(call, s->window && platform()->hover && aqua_window_set_cursor_shape(s->window, shape ? 0x36001 + shape : 0));
+    int shape = cursor_shape(call, "CursorArea", 5);
+    if (shape < 0) return;
+    if (name.length == 0 || name.length >= TYPE_LENGTH) { fail(call, "CursorArea", "Expected a short area name."); return; }
+    cursor_area *a = NULL;
+    for (uint32_t i = 0; i < s->area_count; i++) if (strcmp(s->areas[i].name, name.data) == 0) a = &s->areas[i];
+    if (!a) {
+        if (s->area_count == s->area_capacity) {
+            s->area_capacity = s->area_capacity ? s->area_capacity * 2 : 8;
+            s->areas = realloc(s->areas, s->area_capacity * sizeof *s->areas);
+        }
+        a = &s->areas[s->area_count++];
+        memcpy(a->name, name.data, name.length + 1);
+    }
+    a->x = aqua_arg_number(call, 1); a->y = aqua_arg_number(call, 2);
+    a->width = aqua_arg_number(call, 3); a->height = aqua_arg_number(call, 4);
+    a->shape = shape;
+}
+static void session_remove_cursor_area(aqua_call *call) {
+    session *s = aqua_self(call);
+    aqua_str name = aqua_arg_str(call, 0);
+    for (uint32_t i = 0; i < s->area_count; i++) {
+        if (strcmp(s->areas[i].name, name.data) != 0) continue;
+        memmove(s->areas + i, s->areas + i + 1, (s->area_count - i - 1) * sizeof *s->areas);
+        s->area_count--;
+        aqua_return_bool(call, true);
+        return;
+    }
+    aqua_return_bool(call, false);
 }
 
 /* TextInput(enabled): typed text and input-method composition arrive as "text" and "composition" events.
@@ -525,6 +603,8 @@ AQUA_LIBRARY(interaction) {
     aqua_define_function(session_class, "Dispatch|派送", session_dispatch, "");
     aqua_define_function(session_class, "SafeArea|安全區域", session_safe_area, "");
     aqua_define_function(session_class, "SetCursor|設定游標", session_set_cursor, "s");
+    aqua_define_function(session_class, "CursorArea|游標區域", session_cursor_area, "snnnns");
+    aqua_define_function(session_class, "RemoveCursorArea|移除游標區域", session_remove_cursor_area, "s");
     aqua_define_function(session_class, "Detach|解除", session_detach, "");
     aqua_define_function(session_class, "TextInput|文字輸入", session_text_input, "b");
     aqua_define_function(session_class, "TextRect|文字位置", session_text_rect, "nnnn");

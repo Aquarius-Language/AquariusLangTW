@@ -40,9 +40,16 @@ t.Dispatch();
 # Typed text and input-method composition (while text input is on) arrive as their own events.
 var w = ix.Create();
 w.On("text", function(e) { print("text", e.text); return true; });
-w.On("composition", function(e) { print("composition", e.phase, e.text); return true; });
+w.On("composition", function(e) { print("composition", e.phase, e.text, e.cursor); return true; });
 w.Feed({"type": "text", "text": "星泉 é"});
-w.Feed({"type": "composition", "text": "ㄒㄧㄥ"});
+w.Feed({"type": "composition", "phase": "start"});
+w.Feed({"type": "composition", "text": "ㄒㄧㄥ", "cursor": 2});
+w.Feed({"type": "composition", "phase": "end"});
 w.Dispatch();
 print(w.TextInput(true), w.TextRect(1, 2, 3, 4));
+# Cursor areas: shapes over rectangles (a session without a window has no cursor to change, so nothing fails).
+w.CursorArea("text", 0, 0, 100, 50, "text");
+w.CursorArea("link", 10, 10, 20, 10, "hand");
+w.CursorArea("text", 0, 0, 120, 60, "text");
+print(w.RemoveCursorArea("link"), w.RemoveCursorArea("link"), w.SetCursor("arrow"));
 t.Feed({"type": "dance"});

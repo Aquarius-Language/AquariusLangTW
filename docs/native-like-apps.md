@@ -96,8 +96,9 @@ apply those that fit the application. The libraries named do the platform-specif
       release over the same control). Dragging away cancels it (the recognizer reports `dragStart` instead of `click`).
 - [ ] **Hover and pressed states** for every interactive element on devices with hover (`Conventions().hover`); never
       make information reachable only by hovering, since touch screens have no hover.
-- [ ] **Cursor shapes** (`session.SetCursor`): `text` over editable text, `hand` over links, `resizeHorizontal` /
-      `resizeVertical` over splitters and edges, `arrow` elsewhere.
+- [ ] **Cursor shapes** (`session.CursorArea`, or `session.SetCursor` while dragging): `text` over editable text,
+      `hand` over links, `resizeHorizontal` / `resizeVertical` over splitters and edges, `arrow` elsewhere (over
+      line numbers, scrollbars and popups too). Keep the areas current when the layout changes.
 - [ ] **Scrolling** for anything that can be longer than the window, with `ScrollView`: wheel and touchpad, Shift+wheel
       sideways, touch pan with fling, scrollbars of the platform's style, keyboard scrolling, and
       `ScrollIntoView` for the focused item.
@@ -211,7 +212,11 @@ apply those that fit the application. The libraries named do the platform-specif
   selects the word and shows handles to adjust the selection and a small menu (Cut, Copy, Paste, Select all); the
   field scrolls above the soft keyboard.
 - The caret blinks with `caretBlinkTime` (0 means the user turned blinking off) and stays solid while typing.
-- The text cursor (`SetCursor("text")`) shows over editable and selectable text.
+- The text cursor (`CursorArea(name, x, y, width, height, "text")`) shows over editable and selectable text.
+- Input-method composition (Chinese, Japanese, Korean...) shows while it is typed: draw the `composition` event's
+  uncommitted `text` at the caret, underlined, with the rest of the line moved aside and the caret at its `cursor`;
+  keys during a composition belong to the input method, and the text is inserted only when the `text` event commits
+  it.
 
 ### Context menus
 
@@ -294,6 +299,7 @@ session.Off(id);
 session.Dispatch();                     # run pending handlers now (hand-driven loops)
 var area = session.SafeArea();          # left, top, right, bottom, keyboardVisible
 session.SetCursor("text");
+session.CursorArea("editor", 0, 40, 600, 560, "text");   # the text cursor while hovering it, the arrow elsewhere
 ix.ShortcutLabel("save");               # "Ctrl+S", "⌘S"
 ```
 

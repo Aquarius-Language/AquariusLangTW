@@ -284,6 +284,7 @@ void aqua_window_text_input(aqua_window *w, bool enabled) {
     w->text_enabled = enabled;
     soft_keyboard(enabled);
 }
+bool aqua_window_text_input_enabled(aqua_window *w) { return w && w->text_enabled; }
 void aqua_window_text_rect(aqua_window *w, int32_t x, int32_t y, int32_t width, int32_t height) { (void)w; (void)x; (void)y; (void)width; (void)height; }
 bool aqua_window_composition_supported(aqua_window *w) { (void)w; return android_activity_method("showKeyboard", "(Z)V") != NULL; }
 bool aqua_window_surface(aqua_window *w, aqua_surface *s) {

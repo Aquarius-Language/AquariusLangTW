@@ -31,7 +31,7 @@ typedef struct listener { aqua_window_listener run; void *data; } listener;
 struct aqua_window {
     aqua_runtime *rt;
     int32_t handle;
-    bool should_close;
+    bool should_close, text_enabled;
     listener *listeners; uint32_t listener_count, listener_capacity;
     aqua_window *next;
 };
@@ -117,7 +117,8 @@ void aqua_window_unlisten(aqua_window *w, aqua_window_listener run, void *data) 
             return;
         }
 }
-void aqua_window_text_input(aqua_window *w, bool enabled) { web_window_text_input(w->handle, enabled); }
+void aqua_window_text_input(aqua_window *w, bool enabled) { w->text_enabled = enabled; web_window_text_input(w->handle, enabled); }
+bool aqua_window_text_input_enabled(aqua_window *w) { return w && w->text_enabled; }
 void aqua_window_text_rect(aqua_window *w, int32_t x, int32_t y, int32_t width, int32_t height) { web_window_text_rect(w->handle, x, y, width, height); }
 bool aqua_window_composition_supported(aqua_window *w) { (void)w; return true; }
 bool aqua_window_surface(aqua_window *w, aqua_surface *s) {
