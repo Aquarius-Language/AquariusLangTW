@@ -211,6 +211,10 @@ use `目前時間()` for elapsed durations. It is available on desktop and brows
 
 ## Inspecting value types
 
+`參數個數(函式)` / `arityOf(function)` gives the number of parameters a script function (or an async function)
+declares, and -1 for native functions; libraries use it to call handlers with only the arguments they accept.
+
+
 `型別(值)` / `typeOf(value)` is a core global available on every host. Both names
 return the same stable English tag: `integer`, `float`, `double`, `string`, `boolean`,
 `null`, `array`, `hash`, `function`, `module` or `error`; a struct value gives its declared name and a struct

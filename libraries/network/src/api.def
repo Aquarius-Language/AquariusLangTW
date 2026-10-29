@@ -43,6 +43,8 @@ FUNCTION(module, net_parse_url, "ParseURL", "解析網址", "s")
 FUNCTION(module, net_status, "StatusText", "狀態說明", "i")
 FUNCTION(module, net_random_bytes, "RandomBytes", "隨機位元組", "i")
 FUNCTION(module, net_page_origin, "PageOrigin", "頁面來源", "")
+FUNCTION(module, net_text_to_bytes, "TextToBytes", "文字轉位元組", "s")
+FUNCTION(module, net_bytes_to_text, "BytesToText", "位元組轉文字", "a")
 NATIVE_ASYNC(module, net_listen_and_serve, "ListenAndServe", "監聽並服務", "s|hh", "http-server")
 
 CLASS(client, "Network.Client", client_release)

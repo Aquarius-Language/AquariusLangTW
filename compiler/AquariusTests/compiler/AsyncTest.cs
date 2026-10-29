@@ -250,6 +250,28 @@ public class AsyncTest
     }
 
     [RuntimeFact]
+    public void TheProgramEndsWhenOnlyAwaitsOfUnsettledPromisesRemain()
+    {
+        var result = WasmTestHost.Run("""
+            var never = Promise.New(function(resolve, reject) { 0; });
+            var waiter = async function() { await never; print("unreachable"); };
+            waiter();
+            print("main done");
+            """);
+        Assert.Equal(0, result.ExitCode);
+        Assert.Equal("main done\n", result.Output);
+    }
+
+    [RuntimeFact]
+    public void ArityOfCountsDeclaredParameters()
+    {
+        Assert.Equal("[0, 2, 1, -1, 3]\n", WasmTestHost.Output("""
+            print([arityOf(function() { 0; }), 參數個數(function(a, b) { a; }), arityOf(async function(x) { x; }),
+                arityOf(print), arityOf(非同步 函式(a, b, c) { 0; })]);
+            """));
+    }
+
+    [RuntimeFact]
     public void ExistingNamesAndThreadsKeepWorking()
     {
         Assert.Equal("8\n3\n6\n2\n", WasmTestHost.Output("""

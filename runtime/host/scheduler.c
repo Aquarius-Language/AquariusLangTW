@@ -307,7 +307,10 @@ double runtime_turn(aqua_runtime *rt, double budget_ms) {
     /* A tick may have settled a deferred call (aqua_resolve), making its task runnable again. */
     for (task *t = rt->tasks; t && !runnable; t = t->next) runnable = !t->finished && !t->pending && t->execution;
     if (runnable || atomic_load(&rt->post_flag)) return 0;
-    if (!rt->tasks && !rt->timers && rt->finished) { promises_finish(rt); return -1; }
+    /* Done when only awaits of promises remain: nothing left could settle them (as in JavaScript). */
+    bool waiting_only = true;
+    for (task *t = rt->tasks; t && waiting_only; t = t->next) waiting_only = t->finished || (t->pending && t->pending->awaiting);
+    if (waiting_only && !rt->timers && rt->finished) { promises_finish(rt); return -1; }
     if (rt->timers) { double wait = rt->timers->due - aqua_now_ms(rt); return wait > 0 ? wait : 0; }
     return 1e9; /* only waiting executions: sleep until posted work arrives */
 }

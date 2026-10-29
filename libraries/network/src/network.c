@@ -175,6 +175,21 @@ static void net_random_bytes(aqua_call *call, const char *name) {
     free(bytes);
 }
 
+/* TextToBytes(text): its UTF-8 bytes. BytesToText(bytes): UTF-8 text (invalid sequences become U+FFFD). For protocols
+   that count bytes, such as Content-Length framing. */
+static void net_text_to_bytes(aqua_call *call, const char *name) {
+    (void)name;
+    aqua_str text = aqua_arg_str(call, 0);
+    aqua_return(call, bytes_value(aqua_call_runtime(call), (const uint8_t *)text.data, text.length));
+}
+static void net_bytes_to_text(aqua_call *call, const char *name) {
+    net_buffer bytes = {0};
+    net_error e;
+    if (!value_bytes(aqua_call_runtime(call), aqua_arg(call, 0), &bytes, &e)) { buffer_free(&bytes); net_raise(call, name, &e); return; }
+    aqua_return_text(call, bytes.length ? (const char *)bytes.data : "", bytes.length);
+    buffer_free(&bytes);
+}
+
 /* PageOrigin(): the origin of the web page running the application ("https://example.com:8443"), "" elsewhere. */
 static void net_page_origin(aqua_call *call, const char *name) {
     (void)name;

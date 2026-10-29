@@ -7,6 +7,7 @@ One version covers the language, the compiler, the CLI, the language server and 
 
 Language:
 
+- `arityOf` / `參數個數` gives the parameter count of a script or async function (-1 for native ones).
 - Async functions and promises: `async function` / `非同步 函式` returns a promise and runs as its own task, `await` /
   `等待` waits for one (inside async functions and at a script's top level), and the `Promise` / `承諾` module adds `New`,
   `Resolve`, `Reject`, `All`, `AllSettled`, `Race`, `Any`, `Delay`, `Timeout`, `Then`, `Catch` and `Finally`. The words

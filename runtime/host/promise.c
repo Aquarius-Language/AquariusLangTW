@@ -136,10 +136,15 @@ static void resolve_with(aqua_runtime *rt, promise *p, aqua_value value) {
 /* ---- Callbacks that return promises -------------------------------------------------------------------------------- */
 
 typedef struct follow { aqua_done done; void *data; } follow;
+static void async_done(aqua_runtime *rt, bool ok, aqua_value result, void *data);
+static void then_done(aqua_runtime *rt, bool ok, aqua_value result, void *data);
+static void executor_done(aqua_runtime *rt, bool ok, aqua_value result, void *data);
 static void follow_react(aqua_runtime *rt, promise *p, void *data) {
     follow *f = data;
     aqua_value value = aqua_ref_value(rt, p->value);
-    if (p->state == REJECTED) value = reason_error(rt, value);
+    /* Promises passed on keep their reason (a hash stays a hash); other callers get an error value. */
+    bool keep = f->done == async_done || f->done == then_done || f->done == executor_done;
+    if (p->state == REJECTED && !keep) value = reason_error(rt, value);
     f->done(rt, p->state == FULFILLED, value, f->data);
     free(f);
 }
@@ -200,6 +205,16 @@ static void async_call(aqua_call *call) {
     aqua_return(call, v);
 }
 
+/* The parameter count of a script function, also through an async function's wrapper; -1 for native functions. */
+int32_t function_arity(aqua_runtime *rt, aqua_value function) {
+    if (function.type == AQUA_NATIVE) {
+        handle *h = handle_get(rt, function.ref);
+        handle *self = h && h->kind == HANDLE_BOUND ? handle_get(rt, h->self) : NULL;
+        if (self && self->cls == async_class) return aqua_function_arity(rt, aqua_ref_value(rt, ((async_function *)self->data)->function));
+    }
+    return aqua_function_arity(rt, function);
+}
+
 static void async_wrap(aqua_call *call) {
     aqua_runtime *rt = aqua_call_runtime(call);
     async_function *f = malloc(sizeof *f);
@@ -223,7 +238,9 @@ static void await_value(aqua_call *call) {
         aqua_fail(call, "等待 / await: 這段程式同步執行，無法等待尚未完成的承諾；請改用非同步函式或 Then / this code runs synchronously and cannot wait for a pending promise; use an async function or Then.");
         return;
     }
-    add_reaction(rt, p, aqua_defer(call), NULL, NULL);
+    aqua_pending *pending = aqua_defer(call);
+    pending->awaiting = true;
+    add_reaction(rt, p, pending, NULL, NULL);
 }
 
 /* ---- Then, Catch, Finally ------------------------------------------------------------------------------------------- */
@@ -251,7 +268,7 @@ static double then_tick(aqua_runtime *rt, double now, void *data) {
     if (!handler) { adopt(rt, t->source, t->derived); then_free(rt, t); return -1; }
     aqua_value function = aqua_ref_value(rt, handler);
     /* A script handler without parameters ignores the value. */
-    uint32_t count = t->finally || aqua_function_arity(rt, function) == 0 ? 0 : 1;
+    uint32_t count = t->finally || function_arity(rt, function) == 0 ? 0 : 1;
     aqua_invoke_async(rt, function, &value, count, then_done, t);
     return -1;
 }

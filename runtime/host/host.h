@@ -127,7 +127,8 @@ typedef struct handle {
 
 /* ---- Scheduling. ------------------------------------------------------------------------------------------------ */
 typedef struct task task;
-struct aqua_pending { aqua_runtime *rt; task *task; bool settled; aqua_value result; aqua_ref result_ref; struct promise *promise; };
+struct aqua_pending { aqua_runtime *rt; task *task; bool settled; aqua_value result; aqua_ref result_ref; struct promise *promise;
+    bool awaiting; /* an await of a promise: only other tasks can settle it, nothing outside keeps it alive */ };
 struct task {
     uint32_t execution;      /* guest Execution* */
     aqua_pending *pending;   /* while waiting for a deferred library call */
@@ -220,7 +221,8 @@ void promises_finish(aqua_runtime *rt); /* reports unhandled rejections when the
    deferred result. */
 aqua_value promise_of_call(aqua_runtime *rt, aqua_call *call);
 void promise_settle_pending(aqua_runtime *rt, struct promise *p, aqua_value result);
-bool promise_follow(aqua_runtime *rt, aqua_value value, aqua_done done, void *data); /* done once a returned promise settles */
+bool promise_follow(aqua_runtime *rt, aqua_value value, aqua_done done, void *data);
+int32_t function_arity(aqua_runtime *rt, aqua_value function); /* through async wrappers too; -1 for natives */ /* done once a returned promise settles */
 char *format_value(aqua_runtime *rt, aqua_value v);
 void format_number(char *buffer, size_t size, double n, aqua_type type);
 

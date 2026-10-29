@@ -64,6 +64,9 @@ A rejected promise that nobody awaits or handles is reported when it is garbage-
 `未處理的承諾拒絕 / Unhandled promise rejection: <reason>`, and the exit code becomes 1.
 沒有被等待或處理的拒絕會在回收或程式結束時回報，並使結束碼為 1。
 
+A program ends once its script finished and nothing but awaits of promises nobody can settle any more remains (no
+timers, no network operations, no other tasks), as a JavaScript program does.
+
 Await can only suspend code that runs as a task of the runtime's loop: the entry script, async functions, event
 handlers and callbacks libraries start asynchronously. Code a library runs to completion inside a call (an imported
 module's top level, an `Array.Sort` comparator) cannot wait for a pending promise and fails with "this code runs

@@ -64,6 +64,7 @@ internal static class LanguageFacts
             ("加入", "push", "加入(陣列, 值) — Return an array with a value appended."),
             ("印出", "print", "印出(值, ...) — Print values to the console."),
             ("型別", "typeOf", "型別(值) — The value's type tag: integer, float, double, string, boolean, null, array, hash, function, module or error."),
+            ("參數個數", "arityOf", "參數個數(函式) — How many parameters a script function (or async function) declares; -1 for native functions."),
             ("目前時間", "currentTime", "目前時間() — Monotonic time in double milliseconds; subtract two readings to measure elapsed time. The origin is arbitrary, not a calendar timestamp."),
             ("目前日期", "currentDate", "目前日期() — The local calendar date as yyyy-MM-dd."),
             ("匯入", "import", "匯入(名稱或路徑) — Load a library module by name (Processing, Audio, Models, ...), an Aquarius script by relative path, or a Bottle library script (/bottles/NAME/main.aqua)."),

@@ -41,6 +41,14 @@ static void type_of(aqua_call *call) {
     aqua_return_cstring(call, name);
 }
 
+/* arityOf(function): how many parameters a script function declares (an async one's too); -1 for native functions,
+   which check their own arguments. */
+static void arity_of(aqua_call *call) {
+    aqua_value f = aqua_arg(call, 0);
+    if (!aqua_is_callable(f)) { aqua_fail(call, "arityOf / 參數個數: expected a function, got %s.", aqua_type_name(f)); return; }
+    aqua_return_int(call, function_arity(aqua_call_runtime(call), f));
+}
+
 static void current_time(aqua_call *call) { aqua_return_double(call, aqua_now_ms(aqua_call_runtime(call))); }
 
 static void current_date(aqua_call *call) {
@@ -119,6 +127,7 @@ void core_library(aqua_library *library) {
     aqua_define_function(globals, "print|印出", print, "v*");
     aqua_define_function(globals, "import|匯入", import, "s");
     aqua_define_function(globals, "typeOf|型別", type_of, "v");
+    aqua_define_function(globals, "arityOf|參數個數", arity_of, "v");
     aqua_define_function(globals, "currentTime|目前時間", current_time, "");
     aqua_define_function(globals, "currentDate|目前日期", current_date, "");
     aqua_define_function(globals, "isOSWindows|是Windows", is_windows, "");
