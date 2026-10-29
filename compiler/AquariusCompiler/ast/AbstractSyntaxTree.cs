@@ -826,6 +826,30 @@ public class FunctionLiteral : IExpression {
 
     /// <summary>The optional return type after the parameter list (<c>函式(n: 整數): 整數</c>).</summary>
     public TypeAnnotation? ReturnType { get; set; }
+
+    /// <summary>Declared with <c>非同步</c> / <c>async</c>; such a literal is the argument of an <see cref="AsyncFunctionExpression"/>.</summary>
+    public bool IsAsync { get; set; }
+}
+
+/// <summary><c>非同步 函式(...) { ... }</c> / <c>async function(...) { ... }</c>: the function literal passed to the runtime's
+/// async builtin, which returns a function that runs the literal as its own task and gives a promise (承諾 / Promise)
+/// of its result. Being a call, every pass over calls handles it; the builtin's name cannot be written in source.</summary>
+public sealed class AsyncFunctionExpression : CallExpression {
+    public const string Builtin = "async@";
+    public AsyncFunctionExpression(Token token, FunctionLiteral function)
+        : base(token, new Identifier(token, Builtin), new IExpression[] { function }) { function.IsAsync = true; }
+    public FunctionLiteral Literal => (FunctionLiteral)Arguments[0];
+    public override string String() => "async " + Literal.String();
+}
+
+/// <summary><c>等待 值</c> / <c>await value</c>: a call of the runtime's await builtin, which suspends the calling task until a
+/// promise settles and gives its value (or fails with its reason); any other value is the result itself.</summary>
+public sealed class AwaitExpression : CallExpression {
+    public const string Builtin = "await@";
+    public AwaitExpression(Token token, IExpression operand)
+        : base(token, new Identifier(token, Builtin), new IExpression[] { operand }) { }
+    public IExpression Operand => Arguments[0];
+    public override string String() => "(await " + Operand?.String() + ")";
 }
 
 public class CallExpression : IExpression {
@@ -852,7 +876,7 @@ public class CallExpression : IExpression {
         return token.Literal;
     }
 
-    public string String() {
+    public virtual string String() {
         StringBuilder builder = new StringBuilder();
 
         List<string> args = new List<string>();

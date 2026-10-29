@@ -128,6 +128,7 @@ void core_library(aqua_library *library) {
     aqua_define_function(globals, "isWeb|是網頁", is_web, "");
     aqua_define_function(globals, "execFile|執行檔案", execute_file, "sa");
     aqua_define_property(globals, "currWorkingDir|目前工作目錄", working_directory);
+    promise_library(library, globals);
     image_library(library);
     window_object_library(library);
     /* Portable builtins: the guest runtime executes these ids itself (runtime/guest/runtime.c rt_call). */

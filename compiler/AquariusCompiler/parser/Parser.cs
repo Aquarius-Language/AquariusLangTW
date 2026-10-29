@@ -111,6 +111,9 @@ namespace AquariusLang.parser {
         /// </summary>
         private Token currToken;
         private Token peekToken;
+        private Token previousToken;
+        // Whether each enclosing function literal is async, innermost on top; empty at the top level of a script.
+        private readonly Stack<bool> functions = new Stack<bool>();
 
         /// <summary>
         /// In order for our parser to get the correct prefixParseFn or infixParseFn for the current token type.
@@ -193,6 +196,7 @@ namespace AquariusLang.parser {
         }
 
         private void nextToken() {
+            previousToken = currToken;
             currToken = peekToken;
             peekToken = lexer.NextToken();
         }
@@ -269,6 +273,7 @@ namespace AquariusLang.parser {
             }
 
             statement.Name = new Identifier(currToken, currToken.Literal);
+            declared(statement.Name.Value);
 
             if (peekTokenIs(TokenType.COLON)) {
                 statement.Name.Type = parseTypeAnnotation();
@@ -289,7 +294,7 @@ namespace AquariusLang.parser {
 
             statement.Value = parseExpression((int)Precedence.OperatorPrecedence.LOWEST);
 
-            if (statement.Alias != null && !(statement.Value is FunctionLiteral))
+            if (statement.Alias != null && !(statement.Value is FunctionLiteral or AsyncFunctionExpression))
                 addError("Two names can only be declared for a function literal.", statement.Alias.Token);
 
             /*
@@ -440,7 +445,43 @@ namespace AquariusLang.parser {
         /// </summary>
         /// <returns></returns>
         private IExpression parseIdentifier() {
+            // 非同步 / async and 等待 / await are keywords only where they start an async function or an await (a name
+            // followed by an operand is no other expression), so programs using these words as names keep working. A
+            // member name after `.` (執行緒.等待) is always a name.
+            if (previousToken.Type != TokenType.DOT) {
+                if ((currToken.Literal is "非同步" or "async" && peekTokenIs(TokenType.FUNCTION))
+                    || (currToken.Literal == "非同步函式" && peekTokenIs(TokenType.LPAREN))) {
+                    Token keyword = currToken;
+                    if (currToken.Literal != "非同步函式") nextToken();
+                    return parseFunction(true) is FunctionLiteral function ? new AsyncFunctionExpression(keyword, function) : null;
+                }
+                if (currToken.Literal is "等待" or "await" && startsAwaitOperand()) return parseAwaitExpression();
+            }
             return new Identifier(currToken, currToken.Literal);
+        }
+
+        private bool insideAsync => functions.Count > 0 && functions.Peek();
+
+        // 等待 / await declared as a variable or parameter earlier in the source.
+        private readonly HashSet<string> awaitNames = new HashSet<string>();
+        private void declared(string name) { if (name is "等待" or "await") awaitNames.Add(name); }
+
+        // The token after 等待 / await begins its operand. A parenthesized or array operand counts too, unless the word
+        // was declared as a name outside an async function: then `等待(...)` and `等待[...]` call or index it.
+        private bool startsAwaitOperand() => peekToken.Type switch {
+            TokenType.IDENT or TokenType.INT or TokenType.FLOAT or TokenType.DOUBLE or TokenType.STRING or TokenType.TRUE
+                or TokenType.FALSE or TokenType.NULL or TokenType.FUNCTION or TokenType.BANG => true,
+            TokenType.LPAREN or TokenType.LBRACKET => insideAsync || !awaitNames.Contains(currToken.Literal),
+            _ => false
+        };
+
+        private IExpression parseAwaitExpression() {
+            Token keyword = currToken;
+            if (functions.Count > 0 && !functions.Peek())
+                addError("等待 只能用在非同步函式或腳本最上層 / await is only valid inside an async function or at the top level of a script.", keyword);
+            nextToken();
+            IExpression operand = parseExpression((int)Precedence.OperatorPrecedence.PREFIX);
+            return operand == null ? null : new AwaitExpression(keyword, operand);
         }
 
         private IExpression parseIntegerLiteral() {
@@ -737,8 +778,10 @@ namespace AquariusLang.parser {
             return forLoopLiteral;
         }
 
-        private IExpression parseFunctionLiteral() {
-            FunctionLiteral functionLiteral = new FunctionLiteral(currToken);
+        private IExpression parseFunctionLiteral() => parseFunction(false);
+
+        private IExpression parseFunction(bool isAsync) {
+            FunctionLiteral functionLiteral = new FunctionLiteral(currToken) { IsAsync = isAsync };
             if (!expectPeek(TokenType.LPAREN)) {
                 return null;
             }
@@ -755,7 +798,9 @@ namespace AquariusLang.parser {
                 return null;
             }
 
-            functionLiteral.Body = parseBlockStatement();
+            functions.Push(isAsync);
+            try { functionLiteral.Body = parseBlockStatement(); }
+            finally { functions.Pop(); }
 
             return functionLiteral;
         }
@@ -773,6 +818,7 @@ namespace AquariusLang.parser {
                 return null;
             }
             Identifier identifier = new Identifier(currToken, currToken.Literal);
+            declared(identifier.Value);
             identifiers.Add(identifier);
             if (peekTokenIs(TokenType.COLON) && (identifier.Type = parseTypeAnnotation()) == null) return null;
 
@@ -784,6 +830,7 @@ namespace AquariusLang.parser {
                     return null;
                 }
                 identifier = new Identifier(currToken, currToken.Literal);
+                declared(identifier.Value);
                 if (identifiers.Exists(p => p.Value == identifier.Value))
                     addError($"參數 {identifier.Value} 重複 / Duplicate parameter {identifier.Value}.", currToken);
                 identifiers.Add(identifier);

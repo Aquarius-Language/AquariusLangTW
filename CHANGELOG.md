@@ -7,6 +7,11 @@ One version covers the language, the compiler, the CLI, the language server and 
 
 Language:
 
+- Async functions and promises: `async function` / `非同步 函式` returns a promise and runs as its own task, `await` /
+  `等待` waits for one (inside async functions and at a script's top level), and the `Promise` / `承諾` module adds `New`,
+  `Resolve`, `Reject`, `All`, `AllSettled`, `Race`, `Any`, `Delay`, `Timeout`, `Then`, `Catch` and `Finally`. The words
+  stay names wherever they start no async function or await, so existing programs keep working. Unhandled
+  rejections are reported when the program ends. See [async functions and promises](docs/async.md).
 - `&&` and `||` short-circuit: the right operand is skipped when the left one decides the result (`f != null &&
   f(x)`, `false && g()` no longer calls `g`). Programs whose right operands had no effects keep their output.
 

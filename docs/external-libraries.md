@@ -103,6 +103,17 @@ AQUA_LIBRARY(sqlite) {
 }
 ```
 
+A function that completes later calls `aqua_defer` and settles the pending call with `aqua_resolve` / `aqua_reject`;
+the calling script waits while other tasks keep running. Registering the same C function a second time with
+`aqua_define_async` (named `...Async` / `非同步...`) gives scripts a variant that returns a promise at once, settled
+by the same result, for `await` / `等待` and `Promise.All` (see [async functions](async.md)). That needs SDK API version
+2 (`AQUA_API_VERSION`).
+
+```c
+aqua_define_function(module, "Query|查詢", query, "s");
+aqua_define_async(module, "QueryAsync|非同步查詢", query, "s");
+```
+
 ## Installing and shipping
 
 `aqua bottle install` snapshots a library into the per-user cache with its manifest, Aquarius sources, assets and the

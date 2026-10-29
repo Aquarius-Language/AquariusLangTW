@@ -7,7 +7,7 @@ using AquariusLang.Libraries;
 
 namespace AquariusLanguageServer;
 
-internal sealed record CatalogMember(IReadOnlyList<string> Names, bool Function, string Detail);
+internal sealed record CatalogMember(IReadOnlyList<string> Names, bool Function, string Detail, bool Async = false);
 /// <summary>A module the editor can complete members of: a native module from the runtime's catalog or a built-in
 /// portable module of the language.</summary>
 internal sealed record CatalogModule(string Library, IReadOnlyList<string> Names, IReadOnlyList<CatalogMember> Members)
@@ -40,7 +40,7 @@ internal sealed class ModuleCatalog
                         var entry = new CatalogModule(name, names, members);
                         foreach (string alias in names) modules.TryAdd(alias, entry);
                     } else if (name == "core" && names[0] == "globals")
-                        foreach (var member in members) foreach (string alias in member.Names) globals[alias] = member.Detail;
+                        foreach (var member in members) foreach (string alias in member.Names) if (!alias.Contains('@')) globals[alias] = member.Detail; // async@ and await@ are the compiler's
                 }
             }
         }
@@ -52,6 +52,9 @@ internal sealed class ModuleCatalog
         Globals = globals;
     }
 
+    /// <summary>Names of library functions that give a promise (aqua_define_async).</summary>
+    public IReadOnlySet<string> AsyncMembers => asyncMembers ??= modules.Values.SelectMany(m => m.Members).Where(m => m.Async).SelectMany(m => m.Names).ToHashSet(StringComparer.Ordinal);
+    private HashSet<string>? asyncMembers;
     public CatalogModule? Module(string name) => modules.GetValueOrDefault(name);
     /// <summary>The source file of an Aquarius-source library module an import name selects.</summary>
     public string? SourceModule(string name) => sources.GetValueOrDefault(name);
@@ -95,7 +98,8 @@ internal sealed class ModuleCatalog
         string label = string.Join(" / ", names);
         if (kind != "function") return new CatalogMember(names, false, $"{owner}.{label} ({kind})");
         string signature = member.TryGetProperty("signature", out var s) ? s.GetString() ?? "" : "";
-        return new CatalogMember(names, true, $"{label}({Parameters(signature)})");
+        bool async = member.TryGetProperty("async", out var a) && a.GetBoolean();
+        return new CatalogMember(names, true, $"{label}({Parameters(signature)}){(async ? " → 承諾 Promise" : "")}", async);
     }
 
     /// <summary>A runtime signature ("ns|b", "v*") as readable parameter kinds.</summary>

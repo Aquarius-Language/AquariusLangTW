@@ -215,3 +215,8 @@ int32_t class_member(const aqua_class *c, const char *name) {
 }
 
 void class_define_value(aqua_class *owner, const char *names, aqua_value value) { add_member(owner, names, MEMBER_VALUE)->value = value; }
+
+void aqua_define_async(aqua_class *owner, const char *names, aqua_function function, const char *signature) {
+    aqua_define_function(owner, names, function, signature);
+    owner->members[owner->member_count - 1].async = true;
+}

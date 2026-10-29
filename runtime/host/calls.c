@@ -76,7 +76,11 @@ aqua_value call_native(aqua_runtime *rt, uint32_t function_handle, const aqua_va
     call.rt = rt; call.owner = self->cls; call.member = &self->cls->members[h->member];
     call.self = h->self; call.context = context; call.arguments = arguments; call.count = count;
     call.result = aqua_void();
-    if (check_arguments(&call)) call.member->function(&call);
+    if (check_arguments(&call)) {
+        call.member->function(&call);
+        /* An async function gives a promise of its outcome instead of making its caller wait. */
+        if (call.member->async) { call.result = promise_of_call(rt, &call); call.pending = NULL; }
+    }
     for (scratch_block *b = call.scratch; b;) { scratch_block *next = b->next; free(b); b = next; }
     if (pending) *pending = call.pending;
     return call.result;

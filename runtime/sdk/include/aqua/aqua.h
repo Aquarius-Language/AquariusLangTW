@@ -19,7 +19,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#define AQUA_API_VERSION 1
+#define AQUA_API_VERSION 2
 
 /* ---- Target detection: one macro per operating system family, for library preprocessor branches. ------------------ */
 #if defined(__wasm__)
@@ -171,6 +171,10 @@ aqua_class *aqua_define_module(aqua_library *library, const char *names);
    reaches an object and the library holds no reference (aqua_retain), on the runtime's thread. */
 aqua_class *aqua_define_class(aqua_library *library, const char *name, void (*finalize)(aqua_runtime *rt, void *data));
 void aqua_define_function(aqua_class *owner, const char *names, aqua_function function, const char *signature);
+/* Like aqua_define_function, for a function that may complete later (aqua_defer): the script gets a promise (Promise /
+   承諾) at once instead of waiting, settled by the function's result, failure or deferred result. Name such variants
+   ...Async / ...非同步 (GetAsync|非同步取得), next to the waiting function with the same implementation. */
+void aqua_define_async(aqua_class *owner, const char *names, aqua_function function, const char *signature);
 /* A property is read through its getter on every access (live values such as mouseX). */
 void aqua_define_property(aqua_class *owner, const char *names, aqua_function getter);
 void aqua_define_int(aqua_class *owner, const char *names, int32_t value);

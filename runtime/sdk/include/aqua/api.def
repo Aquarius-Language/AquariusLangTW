@@ -140,6 +140,7 @@ AQUA_API(aqua_image *, aqua_image_of, (aqua_runtime *rt, aqua_value value), (rt,
 AQUA_API_VOID(aqua_image_describe, (aqua_runtime *rt, aqua_image *image, aqua_value metadata, const char *pixel_format), (rt, image, metadata, pixel_format))
 AQUA_API(aqua_value, aqua_window_object, (aqua_window *window), (window))
 AQUA_API(aqua_window *, aqua_window_of, (aqua_runtime *rt, aqua_value value), (rt, value))
+AQUA_API_VOID(aqua_define_async, (aqua_class *owner, const char *names, aqua_function function, const char *signature), (owner, names, function, signature))
 /* Platform-specific functions, last: the table of each target ends with that target's entries. */
 #if defined(AQUA_OS_WINDOWS)
 AQUA_API_VOID(aqua_window_add_message_hook, (aqua_window *window, aqua_window_message_hook hook, void *data), (window, hook, data))

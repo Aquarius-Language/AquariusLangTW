@@ -53,6 +53,8 @@ map to the same token types, AST nodes and WebAssembly semantics.
 | `繼續` | `continue` | Start the innermost loop's next iteration |
 | `真` / `假` | `true` / `false` | Boolean literals |
 | `空值` | `null` | The null literal |
+| `非同步` / `非同步函式` | `async` | Async function: `非同步 函式(...) { ... }` returns a promise |
+| `等待` | `await` | Wait for a promise inside an async function or at the top level |
 
 ```aquarius
 var 加法, add = function(甲, b) { 回傳 甲 + b; };
@@ -168,6 +170,18 @@ Default value inspection still prints booleans as `真` / `假` and null as `nul
 
 See the repository [syntax and examples](../../README.md#語法) and the
 [Starship example](../../examples/starship_expedition/README.md).
+
+## Async functions
+
+`非同步 函式(...) { ... }` / `async function(...) { ... }` (also `非同步函式(...)`) makes an async function: a call returns
+a promise (`承諾` / `Promise`) at once and the body runs as its own task of the runtime's scheduler, starting inside
+the call until it first waits. `等待 值` / `await value` suspends that task until a promise settles and gives its value,
+or fails with its reason; any other value is the result itself. `等待` / `await` is valid inside async functions and at
+the top level of the entry script; inside a synchronous function it is a compile error. Like `結構` / `struct`, the
+four words are keywords only where they start an async function or an await, so programs using them as names keep
+working (`執行緒.等待(工作)`). The parser represents both as calls (`AsyncFunctionExpression` of the builtin `async@`
+with the literal, `AwaitExpression` of `await@`), so every pass over calls handles them; `runtime/host/promise.c`
+implements the builtins and the Promise module on every target. See [async functions and promises](../../docs/async.md).
 
 ## Measuring elapsed time
 

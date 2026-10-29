@@ -70,6 +70,9 @@ internal sealed class Document
             // Annotation mismatches the compiler would reject.
             if (parser.Diagnostics.Count == 0) foreach (var error in TypeChecker.Check(ast).Errors) AddError(error.Message, error.Token);
             Walk(ast, root);
+            // Async misuse the compiler accepts: warnings and hints.
+            if (parser.Diagnostics.Count == 0)
+                foreach (var finding in AsyncChecks.Check(ast, Catalog.AsyncMembers)) AddError(finding.Message, finding.Token, finding.Severity);
         }
         catch (Exception error) when (error is ArgumentException or InvalidOperationException or NullReferenceException or FormatException or OverflowException)
         {
@@ -103,9 +106,9 @@ internal sealed class Document
 
     private string ManifestText(string file) => resolveDocument?.Invoke(new System.Uri(file).AbsoluteUri)?.Source.Text ?? File.ReadAllText(file);
 
-    private void AddError(string message, Token token)
+    private void AddError(string message, Token token, int severity = 1)
     {
-        var diagnostic = new Diagnostic(Source.Range(token.Start, token.Length), message);
+        var diagnostic = new Diagnostic(Source.Range(token.Start, token.Length), message, severity);
         if (!Diagnostics.Contains(diagnostic) && Diagnostics.Count < 100) Diagnostics.Add(diagnostic);
     }
 
@@ -152,7 +155,7 @@ internal sealed class Document
                 foreach (var statement in block.Statements ?? []) Walk(statement, scope);
                 break;
             case LetStatement let:
-                var function = let.Value as FunctionLiteral;
+                var function = let.Value as FunctionLiteral ?? (let.Value as AsyncFunctionExpression)?.Literal;
                 string names = let.Alias == null ? let.Name?.Value ?? "" : $"{let.Name?.Value} / {let.Alias.Value}";
                 string detail = function == null ? $"變數 {names}{Annotation(let.Name?.Type)}" : $"{names}{Signature(function)}";
                 Declare(let.Name, scope, function == null ? 13 : 12, detail, function == null ? null : End(function.Body), let.Value);
@@ -205,7 +208,8 @@ internal sealed class Document
     // Optional annotations as written (": 整數", ": double[]", ": 陣列").
     private static string Annotation(TypeAnnotation? type) => type == null ? "" : ": " + type.String();
     private static string Signature(FunctionLiteral function) =>
-        $"({string.Join(", ", (function.Parameters ?? []).Select(p => p.Value + Annotation(p.Type)))}){Annotation(function.ReturnType)}";
+        $"({string.Join(", ", (function.Parameters ?? []).Select(p => p.Value + Annotation(p.Type)))}){Annotation(function.ReturnType)}{(function.IsAsync ? " → 承諾 Promise (非同步 async)" : "")}";
+    private static FunctionLiteral? FunctionOf(IExpression? value) => value as FunctionLiteral ?? (value as AsyncFunctionExpression)?.Literal;
 
     // LSP symbol kinds of struct types and their fields.
     private const int StructKind = 23, FieldKind = 8;
@@ -503,12 +507,12 @@ internal sealed class Document
         if (IsMember(callee)) {
             var module = MemberModule(callee, offset);
             var exported = module?.Script?.Exports().LastOrDefault(d => d.Token.Literal == name);
-            if (exported?.Value is FunctionLiteral exportedFunction) return name + Signature(exportedFunction);
+            if (FunctionOf(exported?.Value) is { } exportedFunction) return name + Signature(exportedFunction);
             detail = module?.Module?.Find(name)?.Detail;
         } else {
             var declaration = Visible(offset).FirstOrDefault(d => d.Token.Literal == name)
                 ?? declarations.LastOrDefault(d => d.Struct != null && d.Token.Literal == name);
-            if (declaration?.Value is FunctionLiteral function) return name + Signature(function);
+            if (FunctionOf(declaration?.Value) is { } function) return name + Signature(function);
             if (declaration?.Struct is { } shape) return $"{name}({string.Join(", ", shape.Fields.Select(f => f.Value + Annotation(f.Type)))})";
             if (declaration != null) return null;
             detail = LanguageFacts.Builtins.GetValueOrDefault(name) ?? Catalog.Globals.GetValueOrDefault(name);

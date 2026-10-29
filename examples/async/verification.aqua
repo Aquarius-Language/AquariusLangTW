@@ -1,0 +1,37 @@
+# Shared check for every target: prints ASYNC_OK when async functions, await and the Promise module behave the same.
+var Array = import("Array");
+var String = import("String");
+var failures = [];
+var check = function(name, ok) { if (!ok) { Array.Append(failures, name); } };
+
+var later = async function(ms, value) { await Promise.Delay(ms); return value; };
+var log = [];
+var task = async function() { Array.Append(log, "in"); await Promise.Delay(1); Array.Append(log, "resumed"); return "done"; };
+var p = task();
+Array.Append(log, "caller");
+check("pending", p.State == "pending");
+check("result", await p == "done");
+check("order", String.Join(log, ",") == "in,caller,resumed");
+
+check("all", String.Join(await Promise.All([later(20, "a"), later(5, "b"), "c"]), "") == "abc");
+check("race", await Promise.Race([later(40, "slow"), later(2, "fast")]) == "fast");
+check("any", await Promise.Any([Promise.Reject("x"), later(3, "y")]) == "y");
+var settled = await Promise.AllSettled([Promise.Reject("no"), later(1, 1)]);
+check("allSettled", settled[0]["status"] == "rejected" && settled[0]["reason"] == "no" && settled[1]["value"] == 1);
+check("timeout", await Promise.Timeout(Promise.Delay(300), 5).Catch(function(r) { return "timed out"; }) == "timed out");
+check("then", await later(1, 2).Then(function(n) { return later(1, n * 21); }) == 42);
+check("catch", await (async function() { await Promise.Delay(1); return [1][4] + 1; })().Catch(function(m) { return "caught"; }) == "caught");
+var finals = [];
+check("finally", await Promise.Resolve(3).Finally(function() { Array.Append(finals, 1); }) == 3 && len(finals) == 1);
+check("new", await Promise.New(function(resolve, reject) { resolve("ok"); }) == "ok");
+var seven = 7;
+check("non-promise", await seven == 7);
+var fib = async function(n) { if (n < 2) { return n; } return (await fib(n - 1)) + (await fib(n - 2)); };
+check("recursion", await fib(10) == 55);
+變數 中文 = 非同步 函式(x) { 回傳 (等待 承諾.延遲(1, x)) + 1; };
+check("chinese", 等待 中文(1) == 2);
+var typed = async function(n: int): int { var s: int = 0; for (var i: int = 0; i < n; i++) { s += i; } return s; };
+check("typed", await typed(100) == 4950);
+check("isPromise", Promise.IsPromise(later(1, 0)) && !Promise.IsPromise(1) && typeOf(p) == "promise");
+
+if (len(failures) == 0) { print("ASYNC_OK"); } else { print("ASYNC_FAILED", failures); }

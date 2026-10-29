@@ -5,6 +5,8 @@
   "Conditional": { "prefix": "如果", "body": ["如果 (${1:條件}) {", "\t$2", "} 否則 {", "\t$0", "}"], "description": "Conditional branches" },
   "For loop": { "prefix": "迴圈", "body": ["迴圈 (變數 ${1:索引} = 0; $1 < ${2:10}; $1++) {", "\t$0", "}"], "description": "For loop" },
   "Print": { "prefix": "印出", "body": "印出($0);", "description": "Print values" },
+  "Async function": { "prefix": ["非同步函式", "async-fn"], "body": ["變數 ${1:名稱} = 非同步 函式(${2:參數}) {", "\t變數 ${3:結果} = 等待 ${4:承諾};", "\t$0", "};"], "description": "Declare an async function that awaits a promise" },
+  "English async function": { "prefix": "async-function", "body": ["var ${1:name} = async function(${2:parameters}) {", "\tvar ${3:result} = await ${4:promise};", "\t$0", "};"], "description": "Declare an async function with English syntax" },
   "English variable": { "prefix": "var", "body": "var ${1:name} = ${2:0};", "description": "Declare a variable with English syntax" },
   "English function": { "prefix": "function", "body": ["var ${1:name} = function(${2:parameters}) {", "\t$0", "};"], "description": "Declare a function with English syntax" },
   "English bilingual function": { "prefix": "bilingual-function", "body": ["var ${1:englishName}, ${2:中文名稱} = function(${3:parameters}) {", "\t$0", "};"], "description": "Declare one function with English and Chinese names" },

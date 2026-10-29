@@ -37,7 +37,7 @@ foreach(folder IN LISTS library_folders)
 endforeach()
 
 set(host_sources host/api.c host/application.c host/calls.c host/core.c host/format.c host/guest.c host/image.c
-    host/registry.c host/scheduler.c host/session.c host/values.c host/window_object.c)
+    host/promise.c host/registry.c host/scheduler.c host/session.c host/values.c host/window_object.c)
 
 # The default libraries the host registers at startup, as X(name) entries for host/session.c.
 get_property(default_libraries GLOBAL PROPERTY AQUA_DEFAULT_LIBRARIES)

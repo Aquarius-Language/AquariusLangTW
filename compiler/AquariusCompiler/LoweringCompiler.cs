@@ -106,7 +106,7 @@ public sealed class LoweringCompiler {
             case BlockStatement block: Statements(block.Statements, true); break;
             case ExpressionStatement statement: Node(statement.Expression); break;
             case LetStatement declaration:
-                if (declaration.Alias != null && (!(declaration.Value is FunctionLiteral) || declaration.Alias.Value == declaration.Name.Value))
+                if (declaration.Alias != null && (!(declaration.Value is FunctionLiteral or AsyncFunctionExpression) || declaration.Alias.Value == declaration.Name.Value))
                     throw new CompilationException("Two distinct names require a function literal.");
                 Node(declaration.Value);
                 Check(declaration);

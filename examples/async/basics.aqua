@@ -1,0 +1,45 @@
+# Async functions, await and promises. Expected output is in README.md.
+var String = import("String");
+
+# An async function returns a promise at once; its body runs as its own task.
+var brew = async function(drink, minutes) {
+    print("start " + drink);
+    await Promise.Delay(minutes * 10);     # waits without blocking the other tasks
+    print("ready " + drink);
+    return drink;
+};
+
+# Both start now and run at the same time: tea (20 ms) is ready before coffee (40 ms).
+var coffee = brew("coffee", 4);
+var tea = brew("tea", 2);
+print("ordered, state: " + coffee.State);
+print(await Promise.All([coffee, tea]));
+
+# The first to finish wins.
+print("race: " + await Promise.Race([brew("espresso", 1), brew("latte", 3)]));
+await Promise.Delay(40);                   # let the latte finish too
+
+# Errors travel through await like ordinary errors; Catch turns them into values.
+var order = async function(item) {
+    if (item == "") { return Promise.Reject("nothing ordered"); }
+    return "served " + item;
+};
+print(await order("cake"));
+print(await order("").Catch(function(reason) { return "refused: " + reason; }));
+
+# AllSettled reports every outcome.
+var outcomes = await Promise.AllSettled([order("pie"), order("")]);
+for (var i = 0; i < len(outcomes); i++) { print(outcomes[i]["status"]); }
+
+# A promise the executor settles, a time limit and a chain of Then.
+var answer = Promise.New(function(resolve, reject) { resolve(41); });
+print(await answer.Then(function(n) { return n + 1; }));
+print(await Promise.Timeout(Promise.Delay(500), 20).Catch(function(reason) { return reason; }));
+
+# Recursion and loops work as in synchronous code.
+var countdown = async function(n) {
+    if (n == 0) { return "liftoff"; }
+    await Promise.Delay(1);
+    return String.From(n) + " " + await countdown(n - 1);
+};
+print(await countdown(3));

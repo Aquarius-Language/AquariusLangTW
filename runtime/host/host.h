@@ -71,6 +71,7 @@ typedef struct member {
     uint32_t minimum, maximum; /* arity from the signature; maximum UINT32_MAX for repeated kinds */
     double number; char *text;
     aqua_value value;       /* MEMBER_VALUE: a fixed scalar such as a portable builtin token */
+    bool async;             /* aqua_define_async: the call gives a promise of its outcome */
 } member;
 struct aqua_library {
     const aqua_api_table *api;  /* first field: read by aqua_api_stub.c in external libraries */
@@ -126,12 +127,13 @@ typedef struct handle {
 
 /* ---- Scheduling. ------------------------------------------------------------------------------------------------ */
 typedef struct task task;
-struct aqua_pending { aqua_runtime *rt; task *task; bool settled; aqua_value result; aqua_ref result_ref; };
+struct aqua_pending { aqua_runtime *rt; task *task; bool settled; aqua_value result; aqua_ref result_ref; struct promise *promise; };
 struct task {
     uint32_t execution;      /* guest Execution* */
     aqua_pending *pending;   /* while waiting for a deferred library call */
     aqua_done done; void *data;
     bool finished, failed;
+    bool loop;               /* on the runtime loop's list: it may wait (await), unlike an execution run to completion */
     aqua_value result;
     uint32_t result_pin;     /* keeps result alive until delivered */
     task *next;
@@ -170,6 +172,7 @@ struct aqua_runtime {
     uint32_t pending_block;          /* guest Pending*, 0 for runtimes without one */
     uint32_t quantum;
     task *tasks; task *current;
+    struct promise *unhandled;       /* rejected promises nobody handled yet (promise.c) */
     timer *timers;
     posted *posts; void *post_lock; atomic_bool post_flag;
     uint32_t *refs_free; uint32_t refs_free_count;
@@ -210,6 +213,12 @@ aqua_value host_error(aqua_runtime *rt, const char *format, ...);
 int32_t thread_service(aqua_runtime *rt, int32_t operation, int32_t arguments, int32_t count, int32_t output);
 void threads_close(aqua_runtime *rt);
 void core_library(aqua_library *library);
+void promise_library(aqua_library *library, aqua_class *globals);
+void promises_finish(aqua_runtime *rt); /* reports unhandled rejections when the application ends */
+/* The promise an aqua_define_async function gives for its call: settled by its result or failure, or later through its
+   deferred result. */
+aqua_value promise_of_call(aqua_runtime *rt, aqua_call *call);
+void promise_settle_pending(aqua_runtime *rt, struct promise *p, aqua_value result);
 char *format_value(aqua_runtime *rt, aqua_value v);
 void format_number(char *buffer, size_t size, double n, aqua_type type);
 

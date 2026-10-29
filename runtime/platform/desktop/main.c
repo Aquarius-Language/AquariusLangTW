@@ -171,6 +171,7 @@ static int catalog(void) {
                     say(1, line);
                     say(1, ",\"signature\":");
                     json_string(mm->signature);
+                    if (mm->async) say(1, ",\"async\":true");
                 }
                 say(1, "}");
             }

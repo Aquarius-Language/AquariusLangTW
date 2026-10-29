@@ -138,7 +138,7 @@ void aqua_invoke_async(aqua_runtime *rt, aqua_value function, const aqua_value *
     if (function.type == AQUA_FUNCTION) {
         task *t = calloc(1, sizeof *t);
         t->execution = start_execution(rt, function, arguments, count);
-        t->done = done; t->data = data;
+        t->done = done; t->data = data; t->loop = true;
         /* Run the first slice now, so callbacks that need no waiting complete before this returns. */
         uint32_t status = run_slice(rt, t);
         if (t->finished) { free(t); return; }
@@ -168,6 +168,7 @@ void aqua_resolve(aqua_pending *pending, aqua_value result) {
     if (!pending || pending->settled) return;
     aqua_runtime *rt = pending->rt;
     pending->settled = true;
+    if (pending->promise) { promise_settle_pending(rt, pending->promise, result); free(pending); return; }
     task *t = pending->task;
     if (!t) { pending->result = result; pending->result_ref = aqua_retain(rt, result); return; } /* a synchronous waiter takes it */
     t->pending = NULL;
@@ -270,7 +271,7 @@ bool runtime_start(aqua_runtime *rt, const char *entry) {
     uint32_t scope = guest(rt, GUEST_scope, 0, 0, 0, 0);
     task *t = calloc(1, sizeof *t);
     t->execution = guest(rt, GUEST_execute, rt->app.program_address, rt->app.modules[module].function, scope, context);
-    t->done = main_done;
+    t->done = main_done; t->loop = true;
     t->next = rt->tasks; rt->tasks = t;
     return true;
 }
@@ -303,7 +304,7 @@ double runtime_turn(aqua_runtime *rt, double budget_ms) {
     /* A tick may have settled a deferred call (aqua_resolve), making its task runnable again. */
     for (task *t = rt->tasks; t && !runnable; t = t->next) runnable = !t->finished && !t->pending && t->execution;
     if (runnable || atomic_load(&rt->post_flag)) return 0;
-    if (!rt->tasks && !rt->timers && rt->finished) return -1;
+    if (!rt->tasks && !rt->timers && rt->finished) { promises_finish(rt); return -1; }
     if (rt->timers) { double wait = rt->timers->due - aqua_now_ms(rt); return wait > 0 ? wait : 0; }
     return 1e9; /* only waiting executions: sleep until posted work arrives */
 }
