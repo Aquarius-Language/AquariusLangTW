@@ -204,8 +204,11 @@ static void align_to_pixels(const canvas *c, float *x, float *y, float *w, float
     float snapped_x = fabsf(dx) < 1e-3f ? *x : *x + dx / sx, snapped_y = fabsf(dy) < 1e-3f ? *y : *y + dy / sy;
     if (fabsf(fabsf(sx) - density) < 0.01f && fabsf(fabsf(sy) - density) < 0.01f) {
         float exact_w = (float)pixel_w / fabsf(sx), exact_h = (float)pixel_h / fabsf(sy);
-        if (fabsf(exact_w - *w) * fabsf(sx) >= 0.01f) *w = exact_w;
-        if (fabsf(exact_h - *h) * fabsf(sy) >= 0.01f) *h = exact_h;
+        /* The raster's own size keeps text crisp while it agrees with the measured box (within the box's overhang).
+           Fonts with whole-pixel advances (細明體 at small sizes) render wider at screen scale than at the measured
+           size; that text is fitted to its box, so what follows it and carets from textWidth() stay in place. */
+        if (fabsf(exact_w - *w) * fabsf(sx) >= 0.01f && fabsf(exact_w - *w) <= 2.0f) *w = exact_w;
+        if (fabsf(exact_h - *h) * fabsf(sy) >= 0.01f && fabsf(exact_h - *h) <= 2.0f) *h = exact_h;
     }
     *x = snapped_x; *y = snapped_y;
 }

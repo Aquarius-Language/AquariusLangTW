@@ -52,6 +52,9 @@ Libraries:
   Delete) on Windows, Linux, Android and the web, for every library; the scancode stays the physical key. Android maps
   Home, End, Page Up/Down, Insert, the keypad, brackets, lock keys and Meta, and reports Meta, Caps Lock and Num Lock
   in `mods`. Processing adds `INSERT`, `HOME`, `END`, `PAGE_UP` and `PAGE_DOWN`. See [the input roadmap](docs/input-roadmap.md).
+- Processing: text whose font renders wider at the screen's scale than at its measured size (細明體, which a `zh-Hant`
+  page uses for `monospace`, rounds advances to whole pixels) is fitted to the box `textWidth()` reports, so full-width
+  and Chinese text no longer runs into what follows it on high-density displays and editor carets stay on the text.
 - Exported web pages hide the empty output and error boxes, which covered the top of full-window canvases and took
   the pointer there.
 - Processing's `platformWindow` and WGPU windows' `PlatformWindow` give other libraries the shared window object.

@@ -40,8 +40,10 @@ and `input` libraries, Processing's input and the embedded editor, and what is w
 
 ## Text input
 
-1. **Full-width (全形) and IME modes.** Full-width characters measure and draw consistently in the editor (checked at
-   1× and 2.5×). What remains is reported but not yet reproduced; it needs the exact input steps.
+1. **Full-width (全形) text.** Fixed: on high-density displays text drawn with fonts that round advances per size
+   (細明體, the `monospace` of `zh-Hant` pages) was wider than `textWidth()`, so carets and following text drifted;
+   Processing now fits such text to its measured box. A crisper fix on the web is rasterizing with the box's width
+   (`fillText` with `maxWidth`) instead of scaling the image.
 2. **Composition attributes.** Windows and the web know which part of the composition is the converted segment;
    exposing segment ranges (`composition` event `segments`) would let editors draw the thick underline under the
    active clause, as native editors do.
