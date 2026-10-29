@@ -51,7 +51,8 @@ registerGlue('window', (context) => {
             if (title) document.title = title;
             this.abort = new AbortController();
             this.listen();
-            this.canvas.focus();
+            // A page embedded in a frame waits for a click instead of taking focus from the page around it.
+            if (globalThis.top === globalThis) this.canvas.focus();
         }
         applySize() {
             const style = this.canvas.style;
@@ -81,7 +82,8 @@ registerGlue('window', (context) => {
             window.addEventListener('keyup', (e) => key(e, 0), { signal });
             const pointer = (e) => ({ x: this.x, y: this.y, pointer: e.pointerType === 'mouse' ? 0 : e.pointerId, pointerType: e.pointerType === 'pen' ? 2 : e.pointerType === 'touch' ? 1 : 0, pressure: e.pressure ?? 0.5 });
             c.addEventListener('pointerdown', (e) => {
-                this.position(e); c.setPointerCapture?.(e.pointerId); c.focus();
+                this.position(e); c.setPointerCapture?.(e.pointerId);
+                (this.textEnabled ? this.textarea : c).focus({ preventScroll: true });
                 const b = glfwButton(e.button); this.buttons.add(b);
                 this.push(EVENT.POINTER, pointer(e));
                 this.push(EVENT.BUTTON, { ...pointer(e), button: b, action: 1, mods: modifiers(e) });

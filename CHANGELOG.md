@@ -39,6 +39,8 @@ Libraries:
   placed in the application's coordinates (web glue domain `frame`); other targets report it unsupported.
 - Interaction: `text` and `composition` events (typed text and input-method composition) with session
   `TextInput(enabled)` and `TextRect(x, y, width, height)`, for text editors drawn by any graphics library.
+  On the web a click keeps typing in the text input, and a window inside a frame no longer takes focus from the page
+  around it when it opens.
 - Processing's `platformWindow` and WGPU windows' `PlatformWindow` give other libraries the shared window object.
 - Web glue domains `history` (the browser's back button) and `mediaquery` (`matchMedia`).
 
