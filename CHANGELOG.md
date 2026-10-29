@@ -48,6 +48,10 @@ Libraries:
 - SDK: `aqua_window_text_input_enabled(window)`. Processing's Escape no longer closes a sketch while another library
   (an editor) has text input on, nor on the web, where a page has no window to close; `run` ends without a value,
   so a script ending with it no longer prints `null`.
+- Keypad keys with Num Lock off arrive as the navigation keys printed under them (Home, End, Page Up/Down, arrows, Insert,
+  Delete) on Windows, Linux, Android and the web, for every library; the scancode stays the physical key. Android maps
+  Home, End, Page Up/Down, Insert, the keypad, brackets, lock keys and Meta, and reports Meta, Caps Lock and Num Lock
+  in `mods`. Processing adds `INSERT`, `HOME`, `END`, `PAGE_UP` and `PAGE_DOWN`. See [the input roadmap](docs/input-roadmap.md).
 - Exported web pages hide the empty output and error boxes, which covered the top of full-window canvases and took
   the pointer there.
 - Processing's `platformWindow` and WGPU windows' `PlatformWindow` give other libraries the shared window object.

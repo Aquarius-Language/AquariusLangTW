@@ -88,7 +88,8 @@ Beyond the earlier implementation, the module has: blend modes `SUBTRACT`, `LIGH
 setters), `year()`..`second()`, `nf`, `nfs`, `nfp`, `nfc`, `hex`, `unhex`, `binary`, `unbinary`, `str`, `trim`,
 `split`, `splitTokens`, `join`, `cursor(ARROW | CROSS | HAND | MOVE | TEXT | WAIT)` and `cursor(image[, x, y])`,
 `windowTitle()`, `pixelDensity()`, `focused`, `requestImage()`, `saveFrame()` without a name, and the key constants
-`UP`, `DOWN`, `LEFT_ARROW`, `RIGHT_ARROW`, `SHIFT`, `CONTROL`, `ALT`, `ENTER`, `RETURN`, `BACKSPACE`, `TAB`, `DELETE`
+`UP`, `DOWN`, `LEFT_ARROW`, `RIGHT_ARROW`, `SHIFT`, `CONTROL`, `ALT`, `ENTER`, `RETURN`, `BACKSPACE`, `TAB`, `DELETE`,
+`INSERT`, `HOME`, `END`, `PAGE_UP`, `PAGE_DOWN` (the keypad's keys with Num Lock off arrive as these)
 (GLFW key codes, like `keyCode`; `LEFT` and `RIGHT` stay the alignment and mouse-button constants). Not provided:
 SVG in `loadShape()`, PDF recording, `textMode()`, `loadFont()` (`.vlw`; use `createFont()`), `delay()`, and the
 data classes (`Table`, `JSONObject`, `IntList`, ...), which the language's own arrays and hashes cover.

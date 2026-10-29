@@ -54,6 +54,13 @@ aqua_value aqua_window_object(aqua_window *window) {
     return value;
 }
 
+int32_t host_keypad_key(int32_t key, bool num_lock) {
+    /* GLFW keypad 0..9 and the decimal point; -1 keeps the key (5 has no navigation meaning). */
+    static const int32_t navigation[11] = {260, 269, 264, 267, 263, -1, 262, 268, 265, 266, 261};
+    if (num_lock || key < 320 || key > 330) return key;
+    return navigation[key - 320] < 0 ? key : navigation[key - 320];
+}
+
 aqua_window *aqua_window_of(aqua_runtime *rt, aqua_value value) {
     window_object *object = aqua_object_data(rt, value, window_class);
     return object ? object->window : NULL;

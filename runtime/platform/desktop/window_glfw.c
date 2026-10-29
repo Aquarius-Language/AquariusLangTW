@@ -26,6 +26,7 @@
 #include <string.h>
 #include "desktop.h"
 #include "window_desktop.h"
+#include "../../host/host.h"
 
 typedef struct listener { aqua_window_listener run; void *data; } listener;
 struct aqua_window {
@@ -35,6 +36,7 @@ struct aqua_window {
     GLFWcursor *cursor;
     double pointer_x, pointer_y; bool has_pointer;
     bool text_enabled, composing;
+    int32_t keypad[11];     /* the key each held keypad key pressed (host_keypad_key), so its release matches */
     aqua_window *next;
 #if defined(_WIN32)
     HWND hwnd;
@@ -87,8 +89,15 @@ static void emit(aqua_window *w, aqua_window_event *e) {
     if (list != copy) free(list);
 }
 static void on_key(GLFWwindow *g, int key, int scancode, int action, int mods) {
+    aqua_window *w = of(g);
     aqua_window_event e = {AQUA_EVENT_KEY}; e.key = key; e.scancode = scancode; e.action = action; e.mods = mods; e.text = glfwGetKeyName(key, scancode);
-    emit(of(g), &e);
+    int32_t *held = w && key >= GLFW_KEY_KP_0 && key <= GLFW_KEY_KP_DECIMAL ? &w->keypad[key - GLFW_KEY_KP_0] : NULL;
+    if (held) {
+        if (action == GLFW_PRESS || !*held) *held = host_keypad_key(key, (mods & GLFW_MOD_NUM_LOCK) != 0);
+        if (*held != key) { e.key = *held; e.text = NULL; }
+        if (action == GLFW_RELEASE) *held = 0;
+    }
+    emit(w, &e);
 }
 static void on_pointer(GLFWwindow *g, double x, double y) {
     aqua_window *w = of(g);
@@ -339,7 +348,11 @@ bool aqua_display_size(aqua_runtime *rt, int32_t *width, int32_t *height) {
 void aqua_windows_poll(aqua_runtime *rt) { (void)rt; if (initialized) glfwPollEvents(); }
 double aqua_window_time(aqua_runtime *rt) { ensure_glfw(); return initialized ? glfwGetTime() : aqua_now_ms(rt) / 1000.0; }
 
-int32_t aqua_window_key(aqua_window *w, int32_t key) { return glfwGetKey(w->glfw, key); }
+int32_t aqua_window_key(aqua_window *w, int32_t key) {
+    for (int i = 0; i < 11; i++) if (w->keypad[i] == key && key != GLFW_KEY_KP_0 + i) return GLFW_PRESS;   /* a navigation key held on the keypad */
+    if (key >= GLFW_KEY_KP_0 && key <= GLFW_KEY_KP_DECIMAL && w->keypad[key - GLFW_KEY_KP_0] != 0 && w->keypad[key - GLFW_KEY_KP_0] != key) return GLFW_RELEASE;
+    return glfwGetKey(w->glfw, key);
+}
 int32_t aqua_window_mouse_button(aqua_window *w, int32_t button) { return glfwGetMouseButton(w->glfw, button); }
 void aqua_window_cursor(aqua_window *w, double *x, double *y) { glfwGetCursorPos(w->glfw, x, y); }
 void aqua_window_set_cursor_mode(aqua_window *w, int32_t mode) {

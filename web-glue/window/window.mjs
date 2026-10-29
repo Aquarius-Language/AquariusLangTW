@@ -39,7 +39,7 @@ registerGlue('window', (context) => {
         constructor(pointer, width, height, title, flags) {
             this.pointer = pointer;   // the C aqua_window
             this.queue = [];
-            this.keys = new Set(); this.buttons = new Set(); this.x = 0; this.y = 0;
+            this.keys = new Set(); this.buttons = new Set(); this.keypad = {}; this.x = 0; this.y = 0;
             this.canvas = document.createElement('canvas');
             this.canvas.tabIndex = 0;
             this.canvas.style.touchAction = 'none';
@@ -72,7 +72,14 @@ registerGlue('window', (context) => {
             const signal = this.abort.signal, c = this.canvas;
             const key = (e, action) => {
                 if (this.composing || e.isComposing) return;
-                const code = glfwKey(e.code);
+                let code = glfwKey(e.code);
+                // A keypad key with Num Lock off is the navigation key the browser names (Home, End, ...), and its
+                // release matches its press.
+                if (code >= 320 && code <= 330) {
+                    if (action || !(e.code in this.keypad)) this.keypad[e.code] = NAMED[e.key] ?? code;
+                    code = this.keypad[e.code];
+                    if (!action) delete this.keypad[e.code];
+                }
                 if (action) this.keys.add(code); else this.keys.delete(code);
                 this.push(EVENT.KEY, { key: code, action: action && e.repeat ? 2 : action, mods: modifiers(e), text: e.key?.length === 1 ? e.key : null });
                 if (action && !this.textEnabled && e.key?.length === 1 && !e.ctrlKey && !e.metaKey) this.push(EVENT.TEXT, { text: e.key });

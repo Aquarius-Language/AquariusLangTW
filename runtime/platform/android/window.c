@@ -54,16 +54,33 @@ static int32_t glfw_key(int32_t code) {
     case AKEYCODE_CTRL_LEFT: return 341; case AKEYCODE_CTRL_RIGHT: return 345; case AKEYCODE_ALT_LEFT: return 342; case AKEYCODE_ALT_RIGHT: return 346;
     case AKEYCODE_SPACE: return 32; case AKEYCODE_COMMA: return 44; case AKEYCODE_PERIOD: return 46; case AKEYCODE_MINUS: return 45;
     case AKEYCODE_EQUALS: return 61; case AKEYCODE_SLASH: return 47; case AKEYCODE_SEMICOLON: return 59; case AKEYCODE_APOSTROPHE: return 39;
+    case AKEYCODE_LEFT_BRACKET: return 91; case AKEYCODE_BACKSLASH: return 92; case AKEYCODE_RIGHT_BRACKET: return 93; case AKEYCODE_GRAVE: return 96;
+    case AKEYCODE_INSERT: return 260; case AKEYCODE_PAGE_UP: return 266; case AKEYCODE_PAGE_DOWN: return 267;
+    case AKEYCODE_MOVE_HOME: return 268; case AKEYCODE_MOVE_END: return 269; case AKEYCODE_CAPS_LOCK: return 280;
+    case AKEYCODE_SCROLL_LOCK: return 281; case AKEYCODE_NUM_LOCK: return 282; case AKEYCODE_SYSRQ: return 283; case AKEYCODE_BREAK: return 284;
+    case AKEYCODE_NUMPAD_DOT: return 330; case AKEYCODE_NUMPAD_DIVIDE: return 331; case AKEYCODE_NUMPAD_MULTIPLY: return 332;
+    case AKEYCODE_NUMPAD_SUBTRACT: return 333; case AKEYCODE_NUMPAD_ADD: return 334; case AKEYCODE_NUMPAD_ENTER: return 335;
+    case AKEYCODE_NUMPAD_EQUALS: return 336; case AKEYCODE_META_LEFT: return 343; case AKEYCODE_META_RIGHT: return 347; case AKEYCODE_MENU: return 348;
     }
+    if (code >= AKEYCODE_NUMPAD_0 && code <= AKEYCODE_NUMPAD_9) return 320 + (code - AKEYCODE_NUMPAD_0);
     return -1;
 }
+
+static int32_t keypad[11];   /* the key each held keypad key pressed (host_keypad_key), so its release matches */
 
 static void key_event(int32_t code, int32_t action, int32_t meta) {
     if (!window) return;
     int32_t key = glfw_key(code);
+    if (key >= 320 && key <= 330) {
+        int32_t *held = &keypad[key - 320];
+        if (action == 1 || !*held) *held = host_keypad_key(key, (meta & AMETA_NUM_LOCK_ON) != 0);
+        key = *held;
+        if (action == 0) *held = 0;
+    }
     aqua_window_event e = {AQUA_EVENT_KEY};
     e.key = key; e.scancode = code; e.action = action;
-    e.mods = (meta & AMETA_SHIFT_ON ? 1 : 0) | (meta & AMETA_CTRL_ON ? 2 : 0) | (meta & AMETA_ALT_ON ? 4 : 0);
+    e.mods = (meta & AMETA_SHIFT_ON ? 1 : 0) | (meta & AMETA_CTRL_ON ? 2 : 0) | (meta & AMETA_ALT_ON ? 4 : 0) | (meta & AMETA_META_ON ? 8 : 0) |
+             (meta & AMETA_CAPS_LOCK_ON ? 16 : 0) | (meta & AMETA_NUM_LOCK_ON ? 32 : 0);
     if (key >= 0 && key < 512) window->keys[key] = action != 0;
     emit(&e);
 }

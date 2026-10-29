@@ -250,6 +250,12 @@ bool runtime_start(aqua_runtime *rt, const char *entry);
 double runtime_turn(aqua_runtime *rt, double budget_ms);
 void runtime_destroy(aqua_runtime *rt);
 
+/* Window key events: with Num Lock off, a keypad key stands for the navigation key printed under its digit (0 Insert,
+   1 End, 2 Down, 3 Page Down, 4 Left, 6 Right, 7 Home, 8 Up, 9 Page Up, the decimal point Delete) as in every
+   application on keyboards with Num Lock; the platform layers deliver that key (the scancode stays the physical key).
+   Returns the key a GLFW keypad key stands for, or the key itself. */
+int32_t host_keypad_key(int32_t key, bool num_lock);
+
 /* ---- Platform layer (runtime/platform/<os>). -------------------------------------------------------------------- */
 /* After the runtime's libraries released their state: windows and other platform resources still open close here. */
 void platform_runtime_closing(aqua_runtime *rt);

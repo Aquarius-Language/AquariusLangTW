@@ -208,6 +208,8 @@ apply those that fit the application. The libraries named do the platform-specif
   click. Double click selects a word, triple click a line or paragraph.
 - Keyboard: arrows move, Shift extends, Ctrl+arrows (Option+arrows on macOS) move by words, Home/End to line ends,
   Ctrl/Cmd+A selects all; `copy`, `cut`, `paste`, `undo`, `redo` commands go to `TextEdit` (`editor.Copy()`, ...).
+  The keypad's keys with Num Lock off arrive as Home, End, Page Up/Down, the arrows, Insert and Delete, and the
+  keypad's Enter is Enter.
 - Touch: a tap places the caret and shows the soft keyboard (`TextInput` / `AndroidInput.ShowKeyboard`); a long press
   selects the word and shows handles to adjust the selection and a small menu (Cut, Copy, Paste, Select all); the
   field scrolls above the soft keyboard.
