@@ -132,7 +132,7 @@ public class CompilerAndMachineTest {
         (string Source, TestValue Expected)[] cases = [
             ("變數 值 = 3; 值 += 值++; 值;", new("integer", "7")),
             ("變數 加 = 函式(甲) { 函式(乙) { 甲 + 乙; }; }; 加(2)(3);", new("integer", "5")),
-            ("變數 值 = 0; 假 && (值++ == 1); 值;", new("integer", "1")),
+            ("變數 值 = 0; 假 && (值++ == 1); 值;", new("integer", "0")),
             ("1 && 2;", new("error", "ERROR: Unknown operator: INTEGER && INTEGER")),
             ("中斷; 42;", new("integer", "42")),
             ("如果 (真) { 中斷; 9; } 42;", new("integer", "42")),

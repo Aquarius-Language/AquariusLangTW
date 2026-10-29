@@ -501,6 +501,8 @@ internal sealed class WasmNativeFunction
                 case IrOperation.Void: stack.Add(VoidType); break;
                 case IrOperation.Null: stack.Add(NullType); break;
                 case IrOperation.Pop: if (stack.Count == 0) return Reject(pc); Pop(1); break;
+                // `&&` and `||` keep their left operand for the Boolean operation (LoweringCompiler.ShortCircuit).
+                case IrOperation.Duplicate: if (stack.Count == 0 || Top() != BoolType) return Reject(pc); stack.Add(BoolType); break;
                 case IrOperation.Load: {
                     int slot = SlotAt(pc, plan.Accesses[pc]!);
                     if (slot == -2) return Reject(pc);
@@ -1434,6 +1436,7 @@ internal sealed class WasmNativeFunction
                     }
                     Set(w, StackI(below)); break;
                 }
+                case IrOperation.Duplicate: Get(w, StackI(top)); Set(w, StackI(depth)); break;
                 case IrOperation.And: case IrOperation.Or:
                     Get(w, StackI(below)); Get(w, StackI(top)); Op(op.Code == IrOperation.And ? (byte)0x71 : (byte)0x72); Set(w, StackI(below)); break;
                 case IrOperation.Negate:

@@ -118,7 +118,9 @@ Default value inspection still prints booleans as `真` / `假` and null as `nul
   Indexing and postfix `++` bind tighter than `.` in the parser, which rebuilds `物件.清單[0]` as `(物件.清單)[0]`, so
   reads, writes and compound assignments through members work like on variables. Any other assignment target is a
   compile error.
-- Boolean `&&` and `||` evaluate both operands. They do not short-circuit.
+- Boolean `&&` and `||` short-circuit: the right operand runs only when the left one does not decide the result
+  (`f != null && f(x)` never calls a null `f`). An operand that runs must be a Boolean, or the operation is an error.
+  Both have the same precedence and group from the left, so `a || b && c` is `(a || b) && c`.
 - Functions support explicit `回傳` / `return`, a final expression as an implicit result,
   recursion and lexical closures. Assignments update the scope owning a variable.
 - `變數 加法, add = 函式(甲, 乙) { 甲 + 乙; };` gives one function two public

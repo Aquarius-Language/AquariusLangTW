@@ -403,8 +403,6 @@ them.
 
 ## Pitfalls
 
-- `&&` and `||` evaluate both sides in AquariusLang: check for null in a separate `if` before calling or comparing
-  (`if (f != null) { if (f(x)) { ... } }`).
 - Handlers must return `true` only when they used the event; returning true from a catch-all `"*"` handler hides
   every event from older handlers.
 - In a native-like interface, do not read `p.mouseX`/`p.mousePressed` for controls: it bypasses thresholds, click
@@ -432,5 +430,5 @@ them.
   交給 `Interaction.Attach`；自有視窗的函式庫以 `Interaction.Create()` 建立工作階段，再用 `Feed` 餵入原始事件。
 - **處理器**：`session.On(類型, 函式)` 由最新註冊者先執行，回傳 `真` 表示已處理；系統返回若無人處理，Android 會關閉活動、
   網頁會離開頁面。
-- **注意**：星泉的 `&&`、`||` 兩側都會求值，先單獨檢查 null；不要直接讀取原始滑鼠狀態做介面控制；不要寫死 Ctrl、
+- **注意**：不要直接讀取原始滑鼠狀態做介面控制；不要寫死 Ctrl、
   像素尺寸或捲軸樣式。

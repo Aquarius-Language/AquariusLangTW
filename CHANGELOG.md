@@ -5,6 +5,11 @@ One version covers the language, the compiler, the CLI, the language server and 
 
 ## Unreleased
 
+Language:
+
+- `&&` and `||` short-circuit: the right operand is skipped when the left one decides the result (`f != null &&
+  f(x)`, `false && g()` no longer calls `g`). Programs whose right operands had no effects keep their output.
+
 Libraries:
 
 - New default library `interaction`: `Interaction` / `互動` turns window events into each platform's clicks (with
