@@ -24,6 +24,14 @@ public class LanguageServerTest
     }
 
     [Fact]
+    public void BareReturnHasNoDiagnostics()
+    {
+        using var s = Launch();
+        NoDiagnostics(s.Open("var f = function(x) { if (x > 0) { return; } return x; };\n變數 g = 函式() { 回傳 };\nf(1);"));
+        Assert.Matches("bare return; returns null", HoverText(s.Feature("hover", 0, 36)));
+    }
+
+    [Fact]
     public void ChineseEnglishAndMixedSyntaxProvideDiagnosticsKeywordsAndSourceDefinitions()
     {
         using var s = Launch();

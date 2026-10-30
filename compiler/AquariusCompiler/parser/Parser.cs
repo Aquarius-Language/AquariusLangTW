@@ -336,6 +336,12 @@ namespace AquariusLang.parser {
 
         private ReturnStatement parseReturnStatement() {
             ReturnStatement statement = new ReturnStatement(currToken);
+            // A bare `return;` (or `return }`) returns null, as in the languages scripts are written after.
+            if (peekTokenIs(TokenType.SEMICOLON) || peekTokenIs(TokenType.RBRACE)) {
+                statement.ReturnValue = new NullLiteral(currToken);
+                if (peekTokenIs(TokenType.SEMICOLON)) nextToken();
+                return statement;
+            }
             nextToken();
             statement.ReturnValue = parseExpression((int)Precedence.OperatorPrecedence.LOWEST);
 

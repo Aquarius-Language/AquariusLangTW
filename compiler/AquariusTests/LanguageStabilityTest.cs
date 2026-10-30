@@ -14,6 +14,12 @@ public class LanguageStabilityTest
         ("struct N { v: int; next: N } var n = N(1, N(2)); var t = 0; for (var at = n; at != null; at = at.next) { t += at.v; } t;", "integer", "3"),
         ("struct N { v: int; next: N } var f = function(n: N): N { if (n.v > 0) { return null; } return n; }; [f(N(1)), f(N(0)).v];", "array", "[null, 0]"));
 
+    [RuntimeFact]
+    public void BareReturnReturnsNull() => LanguageCases.Expect(
+        ("var f = function(x) { if (x > 0) { return; } return x; }; [f(1), f(-2)];", "array", "[null, -2]"),
+        ("var log = []; var g = function() { Array.Append(log, 1); return }; g(); [g(), log];", "array", "[null, [1, 1]]"),
+        ("變數 h = 函式() { 回傳; }; h();", "null", "null"));
+
     [Fact]
     public void NullOnlyFitsStructAnnotations()
     {
