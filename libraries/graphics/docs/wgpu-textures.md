@@ -29,3 +29,21 @@ shader.setTexture("probe", probe);
 這些能力是一般圖學功能。Cerberus、原例的三盞光源、投影數值、GGX 烘焙、BRDF 與場景控制保留在 `AquariusLangTW_PBR` 的腳本與資源中，沒有加入 core 的特殊分支。
 
 設計依循 [WebGPU 紋理格式與綁定契約](https://www.w3.org/TR/webgpu/)及 [WGSL 紋理介面](https://www.w3.org/TR/WGSL/)。驗證包含 descriptor / WGSL layout、真實 GPU 的 cube mip / HDR / target dependency / dispose，以及 Android 批次與瀏覽器場景測試。
+
+## 多階段 GPU 運算的繪圖目標 / Render targets for multi-pass GPU work
+
+模擬、程序化生成與路徑追蹤這類多階段運算需要的功能（napali 的 WebGPU 移植即以此實作）：
+
+- 格式：`CreateRenderTarget(w, h, format)` 接受 `rgba8unorm`、`rgba16float`、`r16float`、`r32float`、`rgba32float`。裝置支援時會開啟 `float32-filterable`，32 位元浮點目標可用線性取樣。`blend: "replace"` 不設混合狀態，因此不可混合的格式也能寫入。
+- 選項：`CreateRenderTarget(w, h, format, {"attachments": 2, "mipLevels": 9})`。片段著色器輸出 `@location(0..n-1)` 寫入各附件，`GetTexture(i)` 取得第 i 個；`GenerateMipmaps()` 以 2x2 盒式濾波由 mip 0 產生其餘層級。
+- 群組 2：紋理可放在 0..7 與 18..31；binding 8 為線性 clamp 取樣器，宣告 binding 16 的 `sampler` 則得到重複定址、mipmap 線性、8 倍非等向的取樣器。
+- `UserUniforms` 上限 4096 位元組，另支援 `array<vec4<f32>, N>`（`Set` 傳 4N 個值）與 `mat3x3<f32>`（`Set` 傳 9 個行優先值）。
+- `DrawProcedural(shader, count, first, [x, y, w, h])` 只繪製剪裁矩形內的像素；`Flush()` 立即送出目前的繪製。長時間的全螢幕通道可分帶繪製並逐帶送出，避免 GPU 看門狗重設裝置。
+- `Prepare(shader)` 預先編譯此目標繪製該 shader 所用的管線；網頁上非同步編譯，不會阻塞瀏覽器的 GPU 執行緒（大型 shader 在 Chrome/D3D12 可能需要一分鐘以上）。
+
+English summary: render targets take `r16float`, `r32float` and `rgba32float` (filterable where the device offers
+`float32-filterable`) besides `rgba8unorm`/`rgba16float`; `{"attachments": n, "mipLevels": m}` gives several outputs
+(`GetTexture(i)`) and mip chains (`GenerateMipmaps()`); group 2 has textures at 0..7 and 18..31 and an optional
+repeating anisotropic sampler at binding 16; `UserUniforms` (4096 bytes) adds `array<vec4<f32>, N>` and
+`mat3x3<f32>`; `DrawProcedural` takes an optional scissor and `Flush()` submits, so long passes can be drawn in bands;
+`Prepare(shader)` compiles a pipeline ahead of the first draw, asynchronously on the web. Test: `tests/wgpu_targets.aqua`.

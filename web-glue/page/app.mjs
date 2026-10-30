@@ -1,5 +1,6 @@
 // The page of an exported AquariusLang website: reads aquarius.json (written by `aqua build --target web`) and runs
-// the application with the unified glue. ?autorun=0 waits for window.aquarius.run(); ?frames=N limits frame drivers.
+// the application with the unified glue. ?autorun=0 waits for window.aquarius.run(); ?frames=N limits frame drivers; the
+// query string is the application's AQUARIUS_QUERY environment variable.
 import { startApplication } from './glue/index.mjs';
 
 const output = document.getElementById('output'), error = document.getElementById('error');
@@ -23,7 +24,10 @@ async function run() {
                 if (!response.ok) throw new Error(`Cannot load asset ${name}: HTTP ${response.status}`);
                 return new Uint8Array(await response.arrayBuffer());
             },
-            environment: parameters.get('frames') ? { AQUARIUS_GRAPHICS_FRAMES: parameters.get('frames') } : {},
+            environment: {
+                AQUARIUS_QUERY: location.search.slice(1),
+                ...(parameters.get('frames') ? { AQUARIUS_GRAPHICS_FRAMES: parameters.get('frames') } : {}),
+            },
             output: (stream, line) => {
                 state.lines.push(line);
                 (stream === 2 ? error : output).textContent += line + '\n';

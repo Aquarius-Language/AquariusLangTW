@@ -335,6 +335,10 @@ static void on_adapter(WGPURequestAdapterStatus status, WGPUAdapter adapter, WGP
     descriptor.deviceLostCallbackInfo.mode = GPU_CALLBACK_MODE;
     descriptor.deviceLostCallbackInfo.callback = on_lost;
     descriptor.deviceLostCallbackInfo.userdata1 = d;
+    /* Filterable 32-bit float textures (r32float/rgba32float targets sampled through the linear samplers) where the
+       adapter offers them. */
+    static const WGPUFeatureName float32_filterable = WGPUFeatureName_Float32Filterable;
+    if (wgpuAdapterHasFeature(adapter, float32_filterable)) { descriptor.requiredFeatureCount = 1; descriptor.requiredFeatures = &float32_filterable; }
     WGPURequestDeviceCallbackInfo callback = WGPU_REQUEST_DEVICE_CALLBACK_INFO_INIT;
     callback.mode = GPU_CALLBACK_MODE;
     callback.callback = on_device;

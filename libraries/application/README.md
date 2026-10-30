@@ -22,7 +22,7 @@ registers). Failures stop the script with `Name: Kind: message`, the kinds being
 | `Serialization` / `序列化` | `Json`, `ParseJson`, `Binary`, `ParseBinary`, `TryParseBinary`, `Compress`, `Decompress`, `Archive`, `ReadArchive` |
 | `Storage` | `SettingsDirectory`, `DataDirectory`, `Read`, `Write`, `Delete`, `GetPreference`, `SetPreference`, `Recent`, `Remember` |
 | `Clipboard` | `Capabilities`, `Formats`, `ReadText`, `ReadImage`, `WriteText`, `WriteImage` |
-| `Application` | `Capabilities`, `LaunchFiles`, `OpenFiles`, `SaveFile`, `PickDirectory`, `Print`, `AcquireImage`, `Accessibility`, `RegisterFileAssociation` |
+| `Application` | `Capabilities`, `Environment`, `LaunchFiles`, `OpenFiles`, `SaveFile`, `PickDirectory`, `Print`, `AcquireImage`, `Accessibility`, `RegisterFileAssociation` |
 | `Tasks` | `CreateCancellation`, `UseCancellation`; token `Cancel`, `IsCancelled`, `Dispose` |
 | `TextEdit` | `Create`, `Convert`; editor `State`, `Select`, `Insert`, `Backspace`, `Delete`, `Move`, `Convert`, `Composition`, `CancelComposition`, `Commit`, `Copy`, `Cut`, `Paste`, `Shortcut`, `Undo`, `Redo`, `CanUndo`, `CanRedo`, `DeleteWord`, field `positionUnit` |
 
@@ -102,6 +102,8 @@ nearest `aqua.toml`, so compile the cases from a copy outside this folder.
 - `Files.Enumerate` returns entries sorted by name. On the web, temporary directories now copy and move (in memory),
   `Storage.SettingsDirectory()`/`DataDirectory()` are directories (`kind` 1) without a persistent identity as on the
   desktop, and the IndexedDB database is `aquarius:<AQUARIUS_APPLICATION_ID or application>` instead of the entry script.
+- `Application.Environment(name)` is the environment variable `name`, or null. Web pages supply the environment: the
+  exported page sets `AQUARIUS_QUERY` to its query string (without `?`), so one setting reads the same everywhere.
 - `Application.LaunchFiles()` resolves every launch argument the runtime received (it strips `--documents`).
 - Records are `record` objects (`typeOf` gives `record`) instead of modules; resources, streams, editors and tokens are
   `resource`, `stream`, `editor` and `cancellation` objects. Argument-type errors come from the runtime's signature

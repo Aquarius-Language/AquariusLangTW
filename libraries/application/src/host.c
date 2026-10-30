@@ -12,6 +12,13 @@ void app_application_Capabilities(aqua_call *call) {
     aqua_return(call, app_record(rt, hash));
 }
 
+/* An environment variable, or null. On the web the page supplies them: AQUARIUS_QUERY is the page's query string. */
+void app_application_Environment(aqua_call *call) {
+    const char *value = aqua_environment(aqua_call_runtime(call), aqua_arg_str(call, 0).data);
+    if (value) aqua_return_cstring(call, value);
+    else aqua_return_null(call);
+}
+
 /* ---- Options ---- */
 
 static bool text_option(aqua_runtime *rt, aqua_value hash, const char *name, char **out, bool required, app_error *e) {

@@ -1,17 +1,21 @@
-/* WGSL shaders: the UserUniforms layout (group 1), named textures and storage buffers (group 2), validation through an
-   error scope, and the render pipelines each shader needs (cached by state). */
+/* WGSL shaders: the UserUniforms layout (group 1), named textures, samplers and storage buffers (group 2), validation
+   through an error scope, and the render pipelines each shader needs (cached by state).
+
+   Group 2: textures at bindings 0..7 and 18..31, the linear clamp-to-edge sampler at 8, the linear repeating sampler
+   (mipmapped, 8x anisotropic) at 16 when the shader declares it, read-only storage buffers at 9..15. */
 #include "gpu.h"
 #include <ctype.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
-enum { FIELD_F32, FIELD_I32, FIELD_U32, FIELD_VECTOR, FIELD_MATRIX };
+enum { FIELD_F32, FIELD_I32, FIELD_U32, FIELD_VECTOR, FIELD_MATRIX, FIELD_MATRIX3, FIELD_ARRAY };
+#define TEXTURE_SLOTS 22
 typedef struct uniform_field { char name[64]; int offset, count, type; } uniform_field;
 typedef struct texture_field { char name[64]; int binding; bool cube; gpu_texture *texture; } texture_field;
 typedef struct buffer_field { char name[64]; int binding; gpu_buffer *buffer; } buffer_field;
 typedef struct pipeline_entry {
-    int mode, blend, depth, stencil, cull; uint32_t samples; WGPUTextureFormat format; bool vertex_buffer;
+    int mode, blend, depth, stencil, cull, colors; uint32_t samples; WGPUTextureFormat format; bool vertex_buffer;
     WGPURenderPipeline pipeline;
 } pipeline_entry;
 
@@ -20,9 +24,10 @@ struct gpu_shader {
     WGPUShaderModule vertex, fragment;
     WGPUBindGroupLayout texture_layout;
     WGPUPipelineLayout pipeline_layout;
-    WGPUSampler texture_sampler;
-    uniform_field fields[64]; int field_count;
-    texture_field textures[8]; int texture_count;
+    WGPUSampler texture_sampler, repeat_sampler;
+    bool repeating;                     /* declares the repeating sampler (binding 16) */
+    uniform_field fields[128]; int field_count;
+    texture_field textures[TEXTURE_SLOTS]; int texture_count;
     buffer_field buffers[7]; int buffer_count;
     uint8_t user[GPU_USER_BYTES];
     int version, user_version;
@@ -94,7 +99,14 @@ static bool parse_uniforms(gpu_shader *s, const char *source, char *error, size_
         body[length] = 0;
         int offset = 0;
         bool ok = true;
-        for (char *field = strtok(body, ","); field && ok; field = strtok(NULL, ",")) {
+        /* Fields end at commas outside <...> (array<vec4<f32>, 8> holds one). */
+        int depth = 0;
+        for (char *c = body; *c; c++) {
+            if (*c == '<') depth++;
+            else if (*c == '>') depth--;
+            else if (*c == ',' && depth == 0) *c = ';';
+        }
+        for (char *field = strtok(body, ";"); field && ok; field = strtok(NULL, ";")) {
             char *f = trim(field);
             if (!*f) continue;
             char field_name[64], type[64];
@@ -103,8 +115,10 @@ static bool parse_uniforms(gpu_shader *s, const char *source, char *error, size_
             ok = *field_name && *r == ':';
             if (ok) {
                 snprintf(type, sizeof type, "%s", r + 1);
-                char *t = trim(type);
-                int count = 0, kind = 0;
+                remove_space(type);
+                char *t = type;
+                int count = 0, kind = 0, elements = 0;
+                char closing[4] = {0};
                 if (strcmp(t, "f32") == 0) { count = 1; kind = FIELD_F32; }
                 else if (strcmp(t, "i32") == 0) { count = 1; kind = FIELD_I32; }
                 else if (strcmp(t, "u32") == 0) { count = 1; kind = FIELD_U32; }
@@ -112,13 +126,17 @@ static bool parse_uniforms(gpu_shader *s, const char *source, char *error, size_
                 else if (strcmp(t, "vec3<f32>") == 0) { count = 3; kind = FIELD_VECTOR; }
                 else if (strcmp(t, "vec4<f32>") == 0) { count = 4; kind = FIELD_VECTOR; }
                 else if (strcmp(t, "mat4x4<f32>") == 0) { count = 16; kind = FIELD_MATRIX; }
+                else if (strcmp(t, "mat3x3<f32>") == 0) { count = 12; kind = FIELD_MATRIX3; }
+                else if (sscanf(t, "array<vec4<f32>,%d%3s", &elements, closing) == 2 && strcmp(closing, ">") == 0 && elements > 0 && elements <= 256) {
+                    count = 4 * elements; kind = FIELD_ARRAY;
+                }
                 ok = count > 0;
                 if (ok) {
                     int alignment = count == 1 ? 4 : count == 2 ? 8 : 16;
                     offset = (offset + alignment - 1) / alignment * alignment;
                     bool duplicate = false;
                     for (int i = 0; i < s->field_count; i++) if (strcmp(s->fields[i].name, field_name) == 0) duplicate = true;
-                    if (offset + count * 4 > GPU_USER_BYTES || duplicate || s->field_count == 64) {
+                    if (offset + count * 4 > GPU_USER_BYTES || duplicate || s->field_count == 128) {
                         snprintf(error, error_size, "Duplicate or oversized UserUniforms field.");
                         free(body);
                         return false;
@@ -131,7 +149,7 @@ static bool parse_uniforms(gpu_shader *s, const char *source, char *error, size_
             }
         }
         free(body);
-        if (!ok) { snprintf(error, error_size, "UserUniforms supports f32, i32, u32, vec2/3/4<f32> and mat4x4<f32> fields."); return false; }
+        if (!ok) { snprintf(error, error_size, "UserUniforms supports f32, i32, u32, vec2/3/4<f32>, mat3x3<f32>, mat4x4<f32> and array<vec4<f32>, N> fields."); return false; }
         return true;
     }
     return true;
@@ -208,9 +226,10 @@ static bool parse_bindings(gpu_shader *s, const char *source, char *error, size_
             if (binding < 64 && used[binding]) { snprintf(error, error_size, "Duplicate texture group binding."); return false; }
             if (binding < 64) used[binding] = true;
             if (binding == 8 && strcmp(type, "sampler") == 0) continue;
+            if (binding == 16 && strcmp(type, "sampler") == 0) { s->repeating = true; continue; }
             bool cube = strcmp(type, "texture_cube<f32>") == 0;
-            if (binding < 0 || binding > 7 || (!cube && strcmp(type, "texture_2d<f32>") != 0)) {
-                snprintf(error, error_size, "Group 2 supports 2D/cube float textures at 0..7 and a sampler at 8.");
+            if (binding < 0 || (binding > 7 && binding < 18) || binding > 31 || (!cube && strcmp(type, "texture_2d<f32>") != 0)) {
+                snprintf(error, error_size, "Group 2 supports 2D/cube float textures at 0..7 and 18..31 and samplers at 8 and 16.");
                 return false;
             }
             for (int i = 0; i < s->texture_count; i++)
@@ -226,7 +245,7 @@ static bool parse_bindings(gpu_shader *s, const char *source, char *error, size_
 /* ---- Creation ---- */
 
 static void create_layouts(gpu_shader *s, gpu_device *device) {
-    WGPUBindGroupLayoutEntry entries[16];
+    WGPUBindGroupLayoutEntry entries[TEXTURE_SLOTS + 9];
     int n = 0;
     for (int i = 0; i < s->texture_count; i++) {
         WGPUBindGroupLayoutEntry e = WGPU_BIND_GROUP_LAYOUT_ENTRY_INIT;
@@ -248,6 +267,7 @@ static void create_layouts(gpu_shader *s, gpu_device *device) {
     sampler.visibility = WGPUShaderStage_Vertex | WGPUShaderStage_Fragment;
     sampler.sampler.type = WGPUSamplerBindingType_Filtering;
     entries[n++] = sampler;
+    if (s->repeating) { sampler.binding = 16; entries[n++] = sampler; }
     WGPUBindGroupLayoutDescriptor layout = WGPU_BIND_GROUP_LAYOUT_DESCRIPTOR_INIT;
     layout.entryCount = (size_t)n; layout.entries = entries;
     s->texture_layout = wgpuDeviceCreateBindGroupLayout(gpu_device_handle(device), &layout);
@@ -261,6 +281,11 @@ static void create_layouts(gpu_shader *s, gpu_device *device) {
     descriptor.mipmapFilter = WGPUMipmapFilterMode_Linear;
     descriptor.lodMaxClamp = 32; descriptor.maxAnisotropy = 1;
     s->texture_sampler = wgpuDeviceCreateSampler(gpu_device_handle(device), &descriptor);
+    if (s->repeating) {
+        descriptor.addressModeU = descriptor.addressModeV = descriptor.addressModeW = WGPUAddressMode_Repeat;
+        descriptor.maxAnisotropy = 8;
+        s->repeat_sampler = wgpuDeviceCreateSampler(gpu_device_handle(device), &descriptor);
+    }
 }
 
 static WGPUShaderModule module(gpu_device *device, const char *source) {
@@ -362,7 +387,8 @@ void gpu_shader_release_handles(gpu_shader *s) {
     if (s->pipeline_layout) wgpuPipelineLayoutRelease(s->pipeline_layout);
     if (s->texture_layout) wgpuBindGroupLayoutRelease(s->texture_layout);
     if (s->texture_sampler) wgpuSamplerRelease(s->texture_sampler);
-    s->vertex = s->fragment = NULL; s->pipeline_layout = NULL; s->texture_layout = NULL; s->texture_sampler = NULL;
+    if (s->repeat_sampler) wgpuSamplerRelease(s->repeat_sampler);
+    s->vertex = s->fragment = NULL; s->pipeline_layout = NULL; s->texture_layout = NULL; s->texture_sampler = s->repeat_sampler = NULL;
     s->released = true;
 }
 
@@ -388,9 +414,11 @@ static uniform_field *field(gpu_shader *s, const char *name) {
 bool gpu_shader_set(gpu_shader *s, const char *name, const float *values, int count, char *error, size_t error_size) {
     uniform_field *f = field(s, name);
     if (!f) { snprintf(error, error_size, "Unknown UserUniforms field: %s", name); return false; }
-    if (count != f->count) { snprintf(error, error_size, "Uniform %s needs %d values.", name, f->count); return false; }
+    int needed = f->type == FIELD_MATRIX3 ? 9 : f->count;
+    if (count != needed) { snprintf(error, error_size, "Uniform %s needs %d values.", name, needed); return false; }
     if (f->type == FIELD_I32 || f->type == FIELD_U32) { snprintf(error, error_size, "Uniform %s requires setInt().", name); return false; }
-    memcpy(s->user + f->offset, values, (size_t)count * 4);
+    if (f->type == FIELD_MATRIX3) for (int c = 0; c < 3; c++) memcpy(s->user + f->offset + c * 16, values + c * 3, 12); /* columns in vec4 slots */
+    else memcpy(s->user + f->offset, values, (size_t)count * 4);
     s->version++;
     return true;
 }
@@ -470,7 +498,7 @@ WGPUBindGroup gpu_shader_texture_group(gpu_shader *s, gpu_target *destination, c
         if (!b->buffer || gpu_buffer_released(b->buffer)) { snprintf(error, error_size, "Missing or disposed shader storage buffer: %s", b->name); return NULL; }
     }
     if (s->texture_group) return s->texture_group;
-    WGPUBindGroupEntry entries[16];
+    WGPUBindGroupEntry entries[TEXTURE_SLOTS + 9];
     int n = 0;
     for (int i = 0; i < s->texture_count; i++) {
         WGPUBindGroupEntry e = WGPU_BIND_GROUP_ENTRY_INIT;
@@ -486,6 +514,7 @@ WGPUBindGroup gpu_shader_texture_group(gpu_shader *s, gpu_target *destination, c
     WGPUBindGroupEntry sampler = WGPU_BIND_GROUP_ENTRY_INIT;
     sampler.binding = 8; sampler.sampler = s->texture_sampler;
     entries[n++] = sampler;
+    if (s->repeating) { sampler.binding = 16; sampler.sampler = s->repeat_sampler; entries[n++] = sampler; }
     WGPUBindGroupDescriptor descriptor = WGPU_BIND_GROUP_DESCRIPTOR_INIT;
     descriptor.layout = s->texture_layout; descriptor.entryCount = (size_t)n; descriptor.entries = entries;
     s->texture_group = wgpuDeviceCreateBindGroup(gpu_device_handle(s->link.device), &descriptor);
@@ -494,14 +523,54 @@ WGPUBindGroup gpu_shader_texture_group(gpu_shader *s, gpu_target *destination, c
 
 /* ---- Pipelines ---- */
 
-WGPURenderPipeline gpu_shader_pipeline(gpu_shader *s, int mode, int blend, int depth_mode, uint32_t samples, int stencil,
-                                       WGPUTextureFormat format, int cull, bool vertex_buffer, char *error, size_t error_size) {
-    if (s->released) { snprintf(error, error_size, "wgpu shader has been disposed."); return NULL; }
+static WGPURenderPipeline cached(gpu_shader *s, const pipeline_entry *k) {
     for (size_t i = 0; i < s->pipeline_count; i++) {
         pipeline_entry *e = &s->pipelines[i];
-        if (e->mode == mode && e->blend == blend && e->depth == depth_mode && e->samples == samples && e->stencil == stencil &&
-            e->format == format && e->cull == cull && e->vertex_buffer == vertex_buffer) return e->pipeline;
+        if (e->mode == k->mode && e->blend == k->blend && e->depth == k->depth && e->samples == k->samples && e->stencil == k->stencil &&
+            e->format == k->format && e->colors == k->colors && e->cull == k->cull && e->vertex_buffer == k->vertex_buffer) return e->pipeline;
     }
+    return NULL;
+}
+
+static void remember(gpu_shader *s, const pipeline_entry *k, WGPURenderPipeline pipeline) {
+    if (s->pipeline_count == s->pipeline_capacity) {
+        s->pipeline_capacity = s->pipeline_capacity ? s->pipeline_capacity * 2 : 8;
+        s->pipelines = realloc(s->pipelines, s->pipeline_capacity * sizeof *s->pipelines);
+    }
+    s->pipelines[s->pipeline_count] = *k;
+    s->pipelines[s->pipeline_count++].pipeline = pipeline;
+}
+
+typedef struct prepare {
+    gpu_shader *shader;
+    pipeline_entry key;
+    gpu_prepare_done done;
+    void *data;
+} prepare;
+
+static void on_pipeline(WGPUCreatePipelineAsyncStatus status, WGPURenderPipeline pipeline, WGPUStringView message, void *user, void *unused) {
+    (void)unused;
+    prepare *p = user;
+    if (status == WGPUCreatePipelineAsyncStatus_Success && pipeline) {
+        if (!p->shader->released && !cached(p->shader, &p->key)) remember(p->shader, &p->key, pipeline);
+        else wgpuRenderPipelineRelease(pipeline);
+        p->done(p->data, NULL);
+    } else {
+        char failure[1536];
+        int length = message.data ? (int)(message.length == WGPU_STRLEN ? strlen(message.data) : message.length) : 0;
+        snprintf(failure, sizeof failure, "%.*s", length, length ? message.data : "wgpu render pipeline creation failed.");
+        p->done(p->data, failure);
+    }
+    free(p);
+}
+
+/* Builds the pipeline for key `k`: synchronously (returned), or, with `async`, through the asynchronous call, which
+   compiles off the browser's GPU thread (a large shader can take longer than the GPU process may block). */
+static WGPURenderPipeline build(gpu_shader *s, const pipeline_entry *k, prepare *async) {
+    int mode = k->mode, blend = k->blend, depth_mode = k->depth, stencil = k->stencil, cull = k->cull, colors = k->colors;
+    uint32_t samples = k->samples;
+    WGPUTextureFormat format = k->format;
+    bool vertex_buffer = k->vertex_buffer;
     gpu_device *d = s->link.device;
     bool depth = depth_mode != 0, stencil_write = stencil == 1 || stencil == 2;
     WGPUVertexAttribute attributes[4] = {WGPU_VERTEX_ATTRIBUTE_INIT, WGPU_VERTEX_ATTRIBUTE_INIT, WGPU_VERTEX_ATTRIBUTE_INIT, WGPU_VERTEX_ATTRIBUTE_INIT};
@@ -533,13 +602,17 @@ WGPURenderPipeline gpu_shader_pipeline(gpu_shader *s, int mode, int blend, int d
         blending.color.srcFactor = WGPUBlendFactor_OneMinusDst; blending.color.dstFactor = WGPUBlendFactor_OneMinusSrc;
         blending.alpha.dstFactor = WGPUBlendFactor_One;
     }
-    WGPUColorTargetState color = WGPU_COLOR_TARGET_STATE_INIT;
-    color.format = format;
-    color.writeMask = stencil_write ? WGPUColorWriteMask_None : WGPUColorWriteMask_All;
-    color.blend = &blending;
+    /* Replacing needs no blend state, which also lets it write formats that cannot blend (32-bit floats). */
+    WGPUColorTargetState color[4];
+    for (int i = 0; i < colors; i++) {
+        color[i] = (WGPUColorTargetState)WGPU_COLOR_TARGET_STATE_INIT;
+        color[i].format = format;
+        color[i].writeMask = stencil_write ? WGPUColorWriteMask_None : WGPUColorWriteMask_All;
+        color[i].blend = blend == 4 ? NULL : &blending;
+    }
     WGPUFragmentState fragment = WGPU_FRAGMENT_STATE_INIT;
     fragment.module = s->fragment; fragment.entryPoint = gpu_text("fs_main");
-    fragment.targetCount = 1; fragment.targets = &color;
+    fragment.targetCount = (size_t)colors; fragment.targets = color;
     WGPUStencilFaceState face = WGPU_STENCIL_FACE_STATE_INIT;
     face.compare = stencil == 3 ? WGPUCompareFunction_Equal : WGPUCompareFunction_Always;
     face.failOp = WGPUStencilOperation_Keep; face.depthFailOp = WGPUStencilOperation_Keep;
@@ -561,17 +634,46 @@ WGPURenderPipeline gpu_shader_pipeline(gpu_shader *s, int mode, int blend, int d
     descriptor.primitive.cullMode = cull == 1 ? WGPUCullMode_Back : cull == 2 ? WGPUCullMode_Front : WGPUCullMode_None;
     descriptor.depthStencil = &depth_state;
     descriptor.multisample.count = samples; descriptor.multisample.mask = 0xFFFFFFFFu;
-    WGPURenderPipeline pipeline = wgpuDeviceCreateRenderPipeline(gpu_device_handle(d), &descriptor);
+    if (async) {
+        WGPUCreateRenderPipelineAsyncCallbackInfo callback = WGPU_CREATE_RENDER_PIPELINE_ASYNC_CALLBACK_INFO_INIT;
+        callback.mode = GPU_CALLBACK_MODE; callback.callback = on_pipeline; callback.userdata1 = async;
+        wgpuDeviceCreateRenderPipelineAsync(gpu_device_handle(d), &descriptor, callback);
+        return NULL;
+    }
+    return wgpuDeviceCreateRenderPipeline(gpu_device_handle(d), &descriptor);
+}
+
+WGPURenderPipeline gpu_shader_pipeline(gpu_shader *s, int mode, int blend, int depth_mode, uint32_t samples, int stencil,
+                                       WGPUTextureFormat format, int colors, int cull, bool vertex_buffer, char *error, size_t error_size) {
+    if (s->released) { snprintf(error, error_size, "wgpu shader has been disposed."); return NULL; }
+    pipeline_entry key = {mode, blend, depth_mode, stencil, cull, colors, samples, format, vertex_buffer, NULL};
+    WGPURenderPipeline pipeline = cached(s, &key);
+    if (pipeline) return pipeline;
+    gpu_device *d = s->link.device;
+    pipeline = build(s, &key, NULL);
     const char *failure = gpu_device_take_error(d);
     if (failure || !pipeline) {
         if (pipeline) wgpuRenderPipelineRelease(pipeline);
         snprintf(error, error_size, "%s", failure ? failure : "wgpu render pipeline creation failed.");
         return NULL;
     }
-    if (s->pipeline_count == s->pipeline_capacity) {
-        s->pipeline_capacity = s->pipeline_capacity ? s->pipeline_capacity * 2 : 8;
-        s->pipelines = realloc(s->pipelines, s->pipeline_capacity * sizeof *s->pipelines);
-    }
-    s->pipelines[s->pipeline_count++] = (pipeline_entry){mode, blend, depth_mode, stencil, cull, samples, format, vertex_buffer, pipeline};
+    remember(s, &key, pipeline);
     return pipeline;
+}
+
+void gpu_shader_prepare(gpu_shader *s, int mode, int blend, int depth_mode, uint32_t samples, int stencil, WGPUTextureFormat format,
+                        int colors, int cull, bool vertex_buffer, gpu_prepare_done done, void *data) {
+    if (s->released) { done(data, "wgpu shader has been disposed."); return; }
+    pipeline_entry key = {mode, blend, depth_mode, stencil, cull, colors, samples, format, vertex_buffer, NULL};
+    if (cached(s, &key)) { done(data, NULL); return; }
+#if defined(AQUA_OS_WEB)
+    prepare *p = calloc(1, sizeof *p);
+    p->shader = s; p->key = key; p->done = done; p->data = data;
+    build(s, &key, p);
+#else
+    /* Native builds compile on the calling thread without a watchdog: the synchronous path is the same pipeline. */
+    char error[1536];
+    if (gpu_shader_pipeline(s, mode, blend, depth_mode, samples, stencil, format, colors, cull, vertex_buffer, error, sizeof error)) done(data, NULL);
+    else done(data, error);
+#endif
 }

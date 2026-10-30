@@ -117,6 +117,7 @@ FUNCTION(editor, DeleteWord, "刪除字詞", "i")
 
 MODULE(application, "Application")
 FUNCTION(application, Capabilities, "功能支援", "")
+FUNCTION(application, Environment, "環境變數", "s")
 FUNCTION(application, LaunchFiles, "啟動檔案", "")
 FUNCTION(application, OpenFiles, "開啟檔案", "v")
 FUNCTION(application, SaveFile, "儲存檔案", "v")

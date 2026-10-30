@@ -1,5 +1,6 @@
-/* Render targets: a color attachment (sampled by other draws as an image), a depth/stencil attachment and, while
-   smooth, a 4x multisampled color attachment resolved into it. Draws record into one open pass; their vertices and
+/* Render targets: color attachments (sampled by other draws as images; usually one, up to four for shaders with several
+   outputs, optionally mipmapped), a depth/stencil attachment and, while smooth, a 4x multisampled color attachment
+   resolved into the first. Draws record into one open pass; their vertices and
    uniform snapshots are appended to per-target CPU arenas that are written to the GPU buffers when the pass is submitted
    (queue writes are ordered before that submission), so a frame of draws costs one upload per arena. */
 #include "gpu.h"
@@ -30,6 +31,8 @@ typedef struct pending_draw {
 struct gpu_target {
     gpu_resource link;
     gpu_texture *color, *depth, *msaa;
+    gpu_texture *extra[3];              /* color attachments 1..colors-1 */
+    int colors, mip_levels;
     WGPUTextureFormat format;
     uint32_t samples;
     WGPUCommandEncoder encoder;
@@ -62,19 +65,30 @@ static void record_pending(gpu_target *t) {
 
 static void create_attachments(gpu_target *t, int width, int height) {
     gpu_device *d = t->link.device;
-    t->color = gpu_texture_attachment(d, width, height, t->format, 1);
+    t->color = gpu_texture_attachment(d, width, height, t->format, 1, t->mip_levels);
     gpu_texture_set_source(t->color, t);
-    t->depth = gpu_texture_attachment(d, width, height, WGPUTextureFormat_Depth24PlusStencil8, 1);
+    for (int i = 1; i < t->colors; i++) {
+        t->extra[i - 1] = gpu_texture_attachment(d, width, height, t->format, 1, t->mip_levels);
+        if (t->extra[i - 1]) gpu_texture_set_source(t->extra[i - 1], t);
+    }
+    t->depth = gpu_texture_attachment(d, width, height, WGPUTextureFormat_Depth24PlusStencil8, 1, 1);
     t->samples = 1;
 }
 
 gpu_target *gpu_target_create(gpu_device *device, int width, int height, WGPUTextureFormat format) {
+    return gpu_target_create_multiple(device, width, height, format, 1, 1);
+}
+
+gpu_target *gpu_target_create_multiple(gpu_device *device, int width, int height, WGPUTextureFormat format, int colors, int mip_levels) {
     gpu_target *t = calloc(1, sizeof *t);
     t->link.next = t->link.previous = &t->link;
     t->format = format;
+    t->colors = colors; t->mip_levels = mip_levels;
     gpu_device_link(device, &t->link, GPU_TARGET);
     create_attachments(t, width, height);
-    if (!t->color || !t->depth) { gpu_target_free(t); return NULL; }
+    bool complete = t->color && t->depth;
+    for (int i = 1; i < colors; i++) complete = complete && t->extra[i - 1];
+    if (!complete) { gpu_target_free(t); return NULL; }
     static const float transparent[4] = {0, 0, 0, 0};
     gpu_target_clear(t, transparent);
     return t;
@@ -116,14 +130,18 @@ static void begin(gpu_target *t, const float *clear, bool clear_depth, bool clea
     if (t->pass) return;
     gpu_device *d = t->link.device;
     t->encoder = wgpuDeviceCreateCommandEncoder(gpu_device_handle(d), NULL);
-    WGPURenderPassColorAttachment color = WGPU_RENDER_PASS_COLOR_ATTACHMENT_INIT;
-    color.view = t->msaa ? gpu_texture_view(t->msaa) : gpu_texture_view(t->color);
-    color.resolveTarget = t->msaa ? gpu_texture_view(t->color) : NULL;
-    color.loadOp = clear ? WGPULoadOp_Clear : WGPULoadOp_Load;
-    color.storeOp = WGPUStoreOp_Store;
-    if (clear) {
-        color.clearValue.r = clear[0] * clear[3]; color.clearValue.g = clear[1] * clear[3];
-        color.clearValue.b = clear[2] * clear[3]; color.clearValue.a = clear[3];
+    WGPURenderPassColorAttachment colors[4];
+    for (int i = 0; i < t->colors; i++) {
+        WGPURenderPassColorAttachment color = WGPU_RENDER_PASS_COLOR_ATTACHMENT_INIT;
+        color.view = i ? gpu_texture_attachment_view(t->extra[i - 1]) : t->msaa ? gpu_texture_view(t->msaa) : gpu_texture_attachment_view(t->color);
+        color.resolveTarget = !i && t->msaa ? gpu_texture_view(t->color) : NULL;
+        color.loadOp = clear ? WGPULoadOp_Clear : WGPULoadOp_Load;
+        color.storeOp = WGPUStoreOp_Store;
+        if (clear) {
+            color.clearValue.r = clear[0] * clear[3]; color.clearValue.g = clear[1] * clear[3];
+            color.clearValue.b = clear[2] * clear[3]; color.clearValue.a = clear[3];
+        }
+        colors[i] = color;
     }
     WGPURenderPassDepthStencilAttachment depth = WGPU_RENDER_PASS_DEPTH_STENCIL_ATTACHMENT_INIT;
     depth.view = gpu_texture_view(t->depth);
@@ -133,7 +151,7 @@ static void begin(gpu_target *t, const float *clear, bool clear_depth, bool clea
     depth.stencilLoadOp = clear || clear_depth || clear_stencil ? WGPULoadOp_Clear : WGPULoadOp_Load;
     depth.stencilStoreOp = WGPUStoreOp_Store;
     WGPURenderPassDescriptor descriptor = WGPU_RENDER_PASS_DESCRIPTOR_INIT;
-    descriptor.colorAttachmentCount = 1; descriptor.colorAttachments = &color;
+    descriptor.colorAttachmentCount = (size_t)t->colors; descriptor.colorAttachments = colors;
     descriptor.depthStencilAttachment = &depth;
     t->pass = wgpuCommandEncoderBeginRenderPass(t->encoder, &descriptor);
 }
@@ -157,6 +175,7 @@ void gpu_target_configure(gpu_target *t, int width, int height, bool smooth) {
     if (width != gpu_texture_width(t->color) || height != gpu_texture_height(t->color)) {
         gpu_target_flush(t);
         gpu_texture_free(t->color); gpu_texture_free(t->depth); gpu_texture_free(t->msaa);
+        for (int i = 1; i < t->colors; i++) gpu_texture_free(t->extra[i - 1]);
         t->msaa = NULL;
         create_attachments(t, width, height);
         static const float transparent[4] = {0, 0, 0, 0};
@@ -167,9 +186,9 @@ void gpu_target_configure(gpu_target *t, int width, int height, bool smooth) {
     gpu_texture_free(t->depth); gpu_texture_free(t->msaa);
     t->msaa = NULL;
     t->samples = wanted;
-    t->depth = gpu_texture_attachment(d, width, height, WGPUTextureFormat_Depth24PlusStencil8, wanted);
+    t->depth = gpu_texture_attachment(d, width, height, WGPUTextureFormat_Depth24PlusStencil8, wanted, 1);
     if (wanted == 4) {
-        t->msaa = gpu_texture_attachment(d, width, height, t->format, 4);
+        t->msaa = gpu_texture_attachment(d, width, height, t->format, 4, 1);
         gpu_device_blit(d, gpu_texture_view(t->color), gpu_texture_view(t->msaa), t->format, 4);
     }
     begin(t, NULL, true, false);
@@ -272,7 +291,7 @@ bool gpu_target_draw(gpu_target *t, gpu_shader *shader, const float *vertices, s
     if (floats == 0 || floats % GPU_FLOATS_PER_VERTEX) { snprintf(error, error_size, "Vertices need 12 floats each: position, normal, UV, RGBA."); return false; }
     WGPUBindGroup textures = gpu_shader_texture_group(shader, t, error, error_size);
     if (!textures) return false;
-    WGPURenderPipeline pipeline = gpu_shader_pipeline(shader, mode, blend, depth_mode, t->samples, stencil, t->format, cull, true, error, error_size);
+    WGPURenderPipeline pipeline = gpu_shader_pipeline(shader, mode, blend, depth_mode, t->samples, stencil, t->format, t->colors, cull, true, error, error_size);
     if (!pipeline) return false;
     begin(t, NULL, false, false);
     if (!texture) sampling = 0;
@@ -304,14 +323,15 @@ bool gpu_target_draw(gpu_target *t, gpu_shader *shader, const float *vertices, s
     return true;
 }
 
-bool gpu_target_draw_retained(gpu_target *t, gpu_shader *shader, gpu_buffer *vertices, int first, int count, char *error, size_t error_size) {
+bool gpu_target_draw_retained(gpu_target *t, gpu_shader *shader, gpu_buffer *vertices, int first, int count, const gpu_rect *scissor,
+                              char *error, size_t error_size) {
     if (!live(t, error, error_size)) return false;
     gpu_device *d = t->link.device;
     if (gpu_shader_device(shader) != d || (vertices && gpu_buffer_device(vertices) != d)) { snprintf(error, error_size, "wgpu resources must belong to the same device."); return false; }
     if (vertices && gpu_buffer_released(vertices)) { snprintf(error, error_size, "wgpu vertex buffer has been disposed."); return false; }
     WGPUBindGroup textures = gpu_shader_texture_group(shader, t, error, error_size);
     if (!textures) return false;
-    WGPURenderPipeline pipeline = gpu_shader_pipeline(shader, 4, t->state.blend, t->state.depth, t->samples, 0, t->format, t->state.cull, vertices != NULL, error, error_size);
+    WGPURenderPipeline pipeline = gpu_shader_pipeline(shader, 4, t->state.blend, t->state.depth, t->samples, 0, t->format, t->colors, t->state.cull, vertices != NULL, error, error_size);
     if (!pipeline) return false;
     begin(t, NULL, false, false);
     record_pending(t);
@@ -321,11 +341,17 @@ bool gpu_target_draw_retained(gpu_target *t, gpu_shader *shader, gpu_buffer *ver
     wgpuRenderPassEncoderSetBindGroup(t->pass, 1, gpu_shader_user_group(shader), 0, NULL);
     wgpuRenderPassEncoderSetBindGroup(t->pass, 2, textures, 0, NULL);
     if (vertices) wgpuRenderPassEncoderSetVertexBuffer(t->pass, 0, gpu_buffer_handle(vertices), 0, (uint64_t)gpu_buffer_length(vertices) * 4);
-    wgpuRenderPassEncoderSetScissorRect(t->pass, 0, 0, (uint32_t)gpu_texture_width(t->color), (uint32_t)gpu_texture_height(t->color));
-    wgpuRenderPassEncoderDraw(t->pass, (uint32_t)count, 1, (uint32_t)first, 0);
+    gpu_rect r = scissor ? *scissor : (gpu_rect){0, 0, gpu_texture_width(t->color), gpu_texture_height(t->color)};
+    wgpuRenderPassEncoderSetScissorRect(t->pass, (uint32_t)r.x, (uint32_t)r.y, (uint32_t)r.width, (uint32_t)r.height);
+    if (r.width > 0 && r.height > 0) wgpuRenderPassEncoderDraw(t->pass, (uint32_t)count, 1, (uint32_t)first, 0);
     const char *failure = gpu_device_take_error(d);
     if (failure) { snprintf(error, error_size, "%s", failure); return false; }
     return true;
+}
+
+void gpu_target_prepare(gpu_target *t, gpu_shader *shader, bool vertex_buffer, gpu_prepare_done done, void *data) {
+    if (t->released) { done(data, "wgpu render target has been disposed."); return; }
+    gpu_shader_prepare(shader, 4, t->state.blend, t->state.depth, t->samples, 0, t->format, t->colors, t->state.cull, vertex_buffer, done, data);
 }
 
 /* ---- Readback ---- */
@@ -413,6 +439,8 @@ int gpu_target_width(const gpu_target *t) { return gpu_texture_width(t->color); 
 int gpu_target_height(const gpu_target *t) { return gpu_texture_height(t->color); }
 WGPUTextureFormat gpu_target_format(const gpu_target *t) { return t->format; }
 gpu_texture *gpu_target_color(gpu_target *t) { return t->color; }
+gpu_texture *gpu_target_color_at(gpu_target *t, int index) { return index ? t->extra[index - 1] : t->color; }
+int gpu_target_colors(const gpu_target *t) { return t->colors; }
 
 void gpu_target_release_handles(gpu_target *t) {
     if (t->released) return;
@@ -427,12 +455,14 @@ void gpu_target_release_handles(gpu_target *t) {
     if (t->color) gpu_texture_release_handles(t->color);
     if (t->depth) gpu_texture_release_handles(t->depth);
     if (t->msaa) gpu_texture_release_handles(t->msaa);
+    for (int i = 1; i < t->colors; i++) if (t->extra[i - 1]) gpu_texture_release_handles(t->extra[i - 1]);
 }
 
 void gpu_target_free(gpu_target *t) {
     if (!t) return;
     gpu_target_release_handles(t);
     gpu_texture_free(t->color); gpu_texture_free(t->depth); gpu_texture_free(t->msaa);
+    for (int i = 1; i < t->colors; i++) gpu_texture_free(t->extra[i - 1]);
     free(t->spent);
     free(t->groups);
     gpu_device_unlink(&t->link);

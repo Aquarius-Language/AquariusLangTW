@@ -19,7 +19,7 @@
 #include <webgpu/webgpu.h>
 
 #define GPU_UNIFORM_BYTES 1120   /* the Processing uniform ABI (shaders.c) */
-#define GPU_USER_BYTES 1024      /* UserUniforms at group 1 */
+#define GPU_USER_BYTES 4096      /* UserUniforms at group 1 */
 #define GPU_FLOATS_PER_VERTEX 12 /* position xyz, normal xyz, uv, rgba */
 #define GPU_MAX_FLOATS (16 * 1024 * 1024)
 
@@ -32,6 +32,8 @@ typedef struct gpu_buffer gpu_buffer;
 /* Every resource starts with this link into its device's list. */
 typedef enum gpu_kind { GPU_TEXTURE, GPU_TARGET, GPU_SHADER, GPU_BUFFER } gpu_kind;
 typedef struct gpu_resource { struct gpu_resource *previous, *next; gpu_kind kind; gpu_device *device; } gpu_resource;
+/* Completion of gpu_shader_prepare / gpu_target_prepare: NULL or the failure. */
+typedef void (*gpu_prepare_done)(void *data, const char *error);
 
 /* ---- Devices (device.c) ------------------------------------------------------------------------------------- */
 typedef void (*gpu_device_done)(gpu_device *device, const char *error, void *data);
@@ -99,8 +101,14 @@ bool gpu_format_parse(const char *name, gpu_format *format);
 gpu_texture *gpu_texture_create(gpu_device *device, const gpu_texture_desc *desc, const uint8_t *bytes, char *error, size_t error_size);
 /* A 2D RGBA8 texture filled later with gpu_texture_upload (images). */
 gpu_texture *gpu_texture_rgba(gpu_device *device, int width, int height);
-/* An attachment (color, depth or multisampled) of a render target. */
-gpu_texture *gpu_texture_attachment(gpu_device *device, int width, int height, WGPUTextureFormat format, uint32_t samples);
+/* An attachment (color, depth or multisampled) of a render target; color attachments may have `mip_levels` > 1 (drawn
+   into mip 0, sampled with all levels). */
+gpu_texture *gpu_texture_attachment(gpu_device *device, int width, int height, WGPUTextureFormat format, uint32_t samples, int mip_levels);
+/* The color formats render targets support, by name ("rgba8unorm", "rgba16float", "r16float", "r32float", "rgba32float"). */
+bool gpu_target_format_parse(const char *name, WGPUTextureFormat *format);
+/* Fills mips 1.. of a color attachment from mip 0 (2x2 box filter). */
+void gpu_texture_generate_mipmaps(gpu_texture *texture);
+int gpu_texture_mip_levels(const gpu_texture *texture);
 /* Replaces the pixels of an RGBA8 texture. Draws recorded earlier keep sampling the old pixels unless `unused`. */
 void gpu_texture_upload(gpu_texture *texture, const uint8_t *rgba, bool unused);
 void gpu_texture_free(gpu_texture *texture);  /* releases and frees (owner side) */
@@ -108,7 +116,8 @@ bool gpu_texture_released(const gpu_texture *texture);
 int gpu_texture_width(const gpu_texture *texture);
 int gpu_texture_height(const gpu_texture *texture);
 bool gpu_texture_cube(const gpu_texture *texture);
-WGPUTextureView gpu_texture_view(const gpu_texture *texture);
+WGPUTextureView gpu_texture_view(const gpu_texture *texture);            /* every mip, for sampling */
+WGPUTextureView gpu_texture_attachment_view(const gpu_texture *texture); /* mip 0, for drawing */
 WGPUTexture gpu_texture_handle(const gpu_texture *texture);
 gpu_device *gpu_texture_device(const gpu_texture *texture);
 /* The render target whose color attachment this is, if any (sampling it flushes that target first). */
@@ -123,12 +132,17 @@ void gpu_texture_release_handles(gpu_texture *texture);
 typedef struct gpu_state { int depth, blend, cull; } gpu_state;
 typedef struct gpu_rect { int x, y, width, height; } gpu_rect;
 gpu_target *gpu_target_create(gpu_device *device, int width, int height, WGPUTextureFormat format);
+/* A target whose draws write `colors` (1..4) attachments of one format (fragment outputs @location(0..colors-1)), each
+   with `mip_levels` mips. */
+gpu_target *gpu_target_create_multiple(gpu_device *device, int width, int height, WGPUTextureFormat format, int colors, int mip_levels);
+int gpu_target_colors(const gpu_target *target);
 void gpu_target_free(gpu_target *target);
 bool gpu_target_released(const gpu_target *target);
 int gpu_target_width(const gpu_target *target);
 int gpu_target_height(const gpu_target *target);
 WGPUTextureFormat gpu_target_format(const gpu_target *target);
 gpu_texture *gpu_target_color(gpu_target *target);
+gpu_texture *gpu_target_color_at(gpu_target *target, int index);
 /* Resizes the attachments (clearing them) and switches between 4x multisampling (smooth) and single sampling. */
 void gpu_target_configure(gpu_target *target, int width, int height, bool smooth);
 void gpu_target_clear(gpu_target *target, const float rgba[4]);  /* straight RGBA, stored premultiplied */
@@ -144,9 +158,12 @@ gpu_state gpu_target_state(const gpu_target *target);
 bool gpu_target_draw(gpu_target *target, gpu_shader *shader, const float *vertices, size_t floats, const float *uniforms, const float *model,
                      int mode, int blend, int depth_mode, int cull, const gpu_rect *scissor, gpu_texture *texture, int sampling, int stencil,
                      char *error, size_t error_size);
-/* WGPU-module draws with the target's state and identity Processing uniforms: retained vertices or procedural. */
+/* WGPU-module draws with the target's state and identity Processing uniforms: retained vertices or procedural, inside
+   `scissor` (pixels; NULL for the whole target). */
 bool gpu_target_draw_retained(gpu_target *target, gpu_shader *shader, gpu_buffer *vertices, int first, int count,
-                              char *error, size_t error_size);
+                              const gpu_rect *scissor, char *error, size_t error_size);
+/* Compiles the pipeline gpu_target_draw_retained will use for `shader` (see gpu_shader_prepare). */
+void gpu_target_prepare(gpu_target *target, gpu_shader *shader, bool vertex_buffer, gpu_prepare_done done, void *data);
 /* Reads the color attachment as straight-alpha RGBA8 rows (top-down); `done` gets the pixels or an error. */
 typedef void (*gpu_pixels_done)(void *data, const uint8_t *rgba, int width, int height, const char *error);
 void gpu_target_read(gpu_target *target, gpu_pixels_done done, void *data);
@@ -172,7 +189,11 @@ bool gpu_shader_set_buffer(gpu_shader *shader, const char *name, gpu_buffer *buf
 void gpu_shader_release_handles(gpu_shader *shader);
 /* target.c helpers */
 WGPURenderPipeline gpu_shader_pipeline(gpu_shader *shader, int mode, int blend, int depth_mode, uint32_t samples, int stencil,
-                                       WGPUTextureFormat format, int cull, bool vertex_buffer, char *error, size_t error_size);
+                                       WGPUTextureFormat format, int colors, int cull, bool vertex_buffer, char *error, size_t error_size);
+/* Compiles the pipeline gpu_shader_pipeline would return for these arguments ahead of the first draw: asynchronously
+   on the web (off the browser's GPU thread), at once natively. `done` gets NULL or the failure. */
+void gpu_shader_prepare(gpu_shader *shader, int mode, int blend, int depth_mode, uint32_t samples, int stencil, WGPUTextureFormat format,
+                        int colors, int cull, bool vertex_buffer, gpu_prepare_done done, void *data);
 WGPUBindGroup gpu_shader_user_group(gpu_shader *shader);
 WGPUBindGroup gpu_shader_texture_group(gpu_shader *shader, gpu_target *destination, char *error, size_t error_size);
 

@@ -22,7 +22,7 @@ typedef struct wgpu_window wgpu_window;
 typedef struct device_object { gpu_device *device; wgpu_window *window; aqua_ref window_ref; } device_object;
 typedef struct buffer_object { device_object *owner; aqua_ref owner_ref; gpu_buffer *buffer; } buffer_object;
 typedef struct binding { char name[64]; aqua_ref ref; } binding;
-typedef struct shader_object { device_object *owner; aqua_ref owner_ref; gpu_shader *shader; binding bound[16]; int bound_count; } shader_object;
+typedef struct shader_object { device_object *owner; aqua_ref owner_ref; gpu_shader *shader; binding bound[32]; int bound_count; } shader_object;
 typedef struct target_object { device_object *owner; aqua_ref owner_ref; gpu_target *target; } target_object;
 typedef struct texture_object { gpu_device *device; aqua_ref keep; gpu_texture *texture; gpu_target *target; bool disposed; } texture_object;
 
@@ -276,7 +276,7 @@ static void bind(aqua_runtime *rt, shader_object *s, const char *name, aqua_valu
     int slot = -1;
     for (int i = 0; i < s->bound_count; i++) if (strcmp(s->bound[i].name, name) == 0) slot = i;
     if (slot < 0) {
-        if (s->bound_count == 16) return; /* at most 8 textures and 7 buffers exist */
+        if (s->bound_count == 32) return; /* at most 22 textures and 7 buffers exist */
         slot = s->bound_count++;
         snprintf(s->bound[slot].name, sizeof s->bound[slot].name, "%s", name);
     } else aqua_release(rt, s->bound[slot].ref);
@@ -360,7 +360,18 @@ static void target_Height(aqua_call *call) { aqua_return_int(call, gpu_target_he
 static void target_GetTexture(aqua_call *call) {
     target_object *t = aqua_self(call);
     if (!target_live(call, t)) return;
-    aqua_return(call, gfx_texture_object_new(aqua_call_runtime(call), t->owner->device, gpu_target_color(t->target), t->target, aqua_self_value(call)));
+    int index = aqua_argc(call) > 0 ? gfx_int(call, 0) : 0;
+    if (aqua_failed(call)) return;
+    if (index < 0 || index >= gpu_target_colors(t->target)) { gfx_fail(call, "Color attachment index must be 0..%d.", gpu_target_colors(t->target) - 1); return; }
+    aqua_return(call, gfx_texture_object_new(aqua_call_runtime(call), t->owner->device, gpu_target_color_at(t->target, index), t->target, aqua_self_value(call)));
+}
+
+static void target_GenerateMipmaps(aqua_call *call) {
+    target_object *t = aqua_self(call);
+    if (!target_live(call, t)) return;
+    for (int i = 0; i < gpu_target_colors(t->target); i++) gpu_texture_generate_mipmaps(gpu_target_color_at(t->target, i));
+    const char *failure = gpu_device_take_error(t->owner->device);
+    if (failure) gfx_fail(call, "%s", failure);
 }
 
 static void target_Clear(aqua_call *call) {
@@ -449,7 +460,7 @@ static void target_DrawBuffer(aqua_call *call) {
     if (aqua_failed(call)) return;
     if (first < 0 || count < 0 || first > vertices - count) { gfx_fail(call, "Vertex range is outside the buffer / 頂點範圍超出緩衝區。"); return; }
     char error[1024];
-    if (count > 0 && !gpu_target_draw_retained(t->target, s->shader, b->buffer, first, count, error, sizeof error)) gfx_fail(call, "%s", error);
+    if (count > 0 && !gpu_target_draw_retained(t->target, s->shader, b->buffer, first, count, NULL, error, sizeof error)) gfx_fail(call, "%s", error);
 }
 
 static void target_DrawProcedural(aqua_call *call) {
@@ -465,8 +476,43 @@ static void target_DrawProcedural(aqua_call *call) {
         gfx_fail(call, "Procedural vertex range must be nonnegative and at most 50331648 vertices / 程序化頂點範圍無效。");
         return;
     }
+    /* An optional scissor [x, y, width, height] in pixels limits the draw to part of the target (long full-screen
+       passes are drawn in bands, each submitted with Flush, so no single GPU submission runs long). */
+    gpu_rect scissor;
+    bool scissored = aqua_argc(call) > 3;
+    if (scissored) {
+        uint32_t n = 0;
+        float *clip = wgpu_floats(call, 3, &n);
+        if (!clip) return;
+        if (n != 4) { gfx_fail(call, "Scissor needs [x, y, width, height]."); return; }
+        scissor = gpu_scissor(gpu_target_width(t->target), gpu_target_height(t->target), clip);
+    }
     char error[1024];
-    if (count > 0 && !gpu_target_draw_retained(t->target, s->shader, NULL, first, count, error, sizeof error)) gfx_fail(call, "%s", error);
+    if (count > 0 && !gpu_target_draw_retained(t->target, s->shader, NULL, first, count, scissored ? &scissor : NULL, error, sizeof error)) gfx_fail(call, "%s", error);
+}
+
+static void prepared(void *data, const char *error) {
+    gfx_async *a = data;
+    if (error) gfx_async_fail(a, "%s", error);
+    else gfx_async_finish(a, aqua_null());
+}
+
+/* Compiles the pipeline this target's draws of `shader` use, before the first one (on the web without blocking the
+   browser's GPU thread, which may not stall for long); Prepare(shader, true) for DrawBuffer's vertex-buffer pipeline. */
+static void target_Prepare(aqua_call *call) {
+    target_object *t = aqua_self(call);
+    if (!target_live(call, t)) return;
+    shader_object *s = shader_argument(call, 0, t->owner);
+    if (!s) return;
+    bool vertices = aqua_argc(call) > 1 && aqua_arg(call, 1).type == AQUA_BOOL && aqua_arg(call, 1).number != 0;
+    gfx_async *a = gfx_async_begin(call, 0);
+    gpu_target_prepare(t->target, s->shader, vertices, prepared, a);
+    gfx_async_end(a);
+}
+
+static void target_Flush(aqua_call *call) {
+    target_object *t = aqua_self(call);
+    if (target_live(call, t)) gpu_target_flush(t->target);
 }
 
 static void pixels_read(void *data, const uint8_t *rgba, int width, int height, const char *error) {
@@ -684,15 +730,37 @@ static void device_CreateRenderTarget(aqua_call *call) {
     device_object *d = device_self(call);
     if (!device_live(call, d)) return;
     WGPUTextureFormat format = WGPUTextureFormat_RGBA8Unorm;
-    if (aqua_argc(call) == 3) {
+    if (aqua_argc(call) >= 3) {
         aqua_str name = gfx_text(call, 2);
         if (aqua_failed(call)) return;
-        if (strcmp(name.data, "rgba16float") == 0) format = WGPUTextureFormat_RGBA16Float;
-        else if (strcmp(name.data, "rgba8unorm") != 0) { gfx_fail(call, "Render target format must be rgba8unorm or rgba16float."); return; }
+        if (!gpu_target_format_parse(name.data, &format)) {
+            gfx_fail(call, "Render target format must be rgba8unorm, rgba16float, r16float, r32float or rgba32float.");
+            return;
+        }
     }
     int width = gfx_dimension(call, 0), height = gfx_dimension(call, 1);
     if (aqua_failed(call)) return;
-    gpu_target *target = gpu_target_create(d->device, width, height, format);
+    /* Options: {"attachments": 1..4 (outputs @location(0..n-1)), "mipLevels": 1..full chain} */
+    int colors = 1, mips = 1;
+    if (aqua_argc(call) == 4) {
+        aqua_runtime *rt = aqua_call_runtime(call);
+        aqua_value options = aqua_arg(call, 3);
+        if (options.type != AQUA_HASH) { gfx_fail(call, "Render target options must be a hash such as {\"attachments\": 2, \"mipLevels\": 9}."); return; }
+        for (uint32_t i = 0, n = aqua_hash_count(rt, options); i < n; i++) {
+            aqua_value key, value;
+            aqua_hash_entry(rt, options, i, &key, &value);
+            double number = aqua_is_number(value) ? value.number : NAN;
+            if (key.type != AQUA_STRING || number != floor(number)) { gfx_fail(call, "Render target options take integer attachments and mipLevels."); return; }
+            aqua_str k = aqua_str_of(call, key);
+            if (strcmp(k.data, "attachments") == 0) colors = (int)number;
+            else if (strcmp(k.data, "mipLevels") == 0) mips = (int)number;
+            else { gfx_fail(call, "Unknown render target option '%s'; expected attachments or mipLevels.", k.data); return; }
+        }
+        int largest = width > height ? width : height, chain = 1;
+        for (int size = largest; size > 1; size >>= 1) chain++;
+        if (colors < 1 || colors > 4 || mips < 1 || mips > chain) { gfx_fail(call, "Render targets have 1..4 attachments and 1..%d mip levels.", chain); return; }
+    }
+    gpu_target *target = gpu_target_create_multiple(d->device, width, height, format, colors, mips);
     if (!target) { gfx_fail(call, "wgpu render target creation failed."); return; }
     target_object *t = calloc(1, sizeof *t);
     t->owner = d; t->owner_ref = aqua_retain(aqua_call_runtime(call), aqua_self_value(call)); t->target = target;
@@ -923,7 +991,7 @@ void gfx_wgpu_destroy(wgpu_state *state) {
 
 #define WGPU_MODULE(X) X(wgpu_CreateDevice, "CreateDevice|建立裝置", 0, 1) X(wgpu_CreateWindow, "CreateWindow|建立視窗", 3, 3)
 #define DEVICE_MEMBERS(X) \
-    X(device_CreateBuffer, "CreateBuffer|建立緩衝區", 1, 1) X(device_CreateRenderTarget, "CreateRenderTarget|建立繪圖目標", 2, 3) \
+    X(device_CreateBuffer, "CreateBuffer|建立緩衝區", 1, 1) X(device_CreateRenderTarget, "CreateRenderTarget|建立繪圖目標", 2, 4) \
     X(device_CreateShader, "CreateShader|建立著色器", 2, 2) X(device_CreateVertexBuffer, "CreateVertexBuffer|建立頂點緩衝區", 1, 1) \
     X(device_Dispatch, "Dispatch|派送", 3, 3) X(device_Dispose, "Dispose|釋放", 0, 0) X(device_LoadTexture, "LoadTexture|載入紋理", 6, 6) \
     X(device_Poll, "Poll|輪詢", 0, 0) X(device_Present, "Present|呈現", 1, 1)
@@ -935,8 +1003,8 @@ void gfx_wgpu_destroy(wgpu_state *state) {
     X(shader_SetInt, "SetInt|設定整數", 2, 2) X(shader_SetTexture, "SetTexture|設定紋理", 2, 2)
 #define TARGET_MEMBERS(X) \
     X(target_Clear, "Clear|清除", 1, 1) X(target_Dispose, "Dispose|釋放", 0, 0) X(target_Draw, "Draw|繪製", 2, 2) \
-    X(target_DrawBuffer, "DrawBuffer|繪製緩衝區", 2, 4) X(target_DrawProcedural, "DrawProcedural|程序化繪製", 2, 3) \
-    X(target_GetTexture, "GetTexture|取得紋理", 0, 0) X(target_ReadPixels, "ReadPixels|讀取像素", 0, 0) X(target_Save, "Save|儲存", 1, 1) \
+    X(target_DrawBuffer, "DrawBuffer|繪製緩衝區", 2, 4) X(target_DrawProcedural, "DrawProcedural|程序化繪製", 2, 4) X(target_Flush, "Flush|送出", 0, 0) X(target_Prepare, "Prepare|準備", 1, 2) \
+    X(target_GenerateMipmaps, "GenerateMipmaps|產生多級紋理", 0, 0) X(target_GetTexture, "GetTexture|取得紋理", 0, 1) X(target_ReadPixels, "ReadPixels|讀取像素", 0, 0) X(target_Save, "Save|儲存", 1, 1) \
     X(target_SetState, "SetState|設定狀態", 1, 1)
 #define TEXTURE_MEMBERS(X) X(texture_Dispose, "Dispose|釋放", 0, 0)
 #define VERTEX_MEMBERS(X) X(buffer_Dispose, "Dispose|釋放", 0, 0) X(vertex_Write, "Write|寫入", 1, 1) X(vertex_WriteRange, "WriteRange|寫入範圍", 2, 2)

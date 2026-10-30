@@ -9,8 +9,9 @@
 struct gpu_texture {
     gpu_resource link;
     WGPUTexture handle;
-    WGPUTextureView view;
-    int width, height;
+    WGPUTextureView view, attachment_view; /* attachment_view: mip 0 of a mipmapped attachment, else NULL */
+    WGPUTextureFormat format;
+    int width, height, mip_levels;
     bool cube, sampled_rgba;
     gpu_target *source;
 };
@@ -61,6 +62,8 @@ static gpu_texture *create(gpu_device *device, const WGPUTextureDescriptor *desc
     t->view = wgpuTextureCreateView(t->handle, view);
     t->width = (int)descriptor->size.width;
     t->height = (int)descriptor->size.height;
+    t->format = descriptor->format;
+    t->mip_levels = (int)descriptor->mipLevelCount;
     gpu_device_link(device, &t->link, GPU_TEXTURE);
     return t;
 }
@@ -114,16 +117,52 @@ gpu_texture *gpu_texture_rgba(gpu_device *device, int width, int height) {
     return t;
 }
 
-gpu_texture *gpu_texture_attachment(gpu_device *device, int width, int height, WGPUTextureFormat format, uint32_t samples) {
+bool gpu_target_format_parse(const char *name, WGPUTextureFormat *format) {
+    static const struct { const char *name; WGPUTextureFormat format; } formats[] = {
+        {"rgba8unorm", WGPUTextureFormat_RGBA8Unorm}, {"rgba16float", WGPUTextureFormat_RGBA16Float},
+        {"r16float", WGPUTextureFormat_R16Float}, {"r32float", WGPUTextureFormat_R32Float}, {"rgba32float", WGPUTextureFormat_RGBA32Float},
+    };
+    for (size_t i = 0; i < sizeof formats / sizeof *formats; i++)
+        if (strcmp(name, formats[i].name) == 0) { *format = formats[i].format; return true; }
+    return false;
+}
+
+gpu_texture *gpu_texture_attachment(gpu_device *device, int width, int height, WGPUTextureFormat format, uint32_t samples, int mip_levels) {
     WGPUTextureDescriptor descriptor = WGPU_TEXTURE_DESCRIPTOR_INIT;
     descriptor.dimension = WGPUTextureDimension_2D;
     descriptor.size.width = (uint32_t)width; descriptor.size.height = (uint32_t)height; descriptor.size.depthOrArrayLayers = 1;
     descriptor.format = format;
-    descriptor.mipLevelCount = 1; descriptor.sampleCount = samples;
+    descriptor.mipLevelCount = (uint32_t)mip_levels; descriptor.sampleCount = samples;
     descriptor.usage = WGPUTextureUsage_RenderAttachment;
-    bool color = format == WGPUTextureFormat_RGBA8Unorm || format == WGPUTextureFormat_RGBA16Float;
+    bool color = format != WGPUTextureFormat_Depth24PlusStencil8;
     if (samples == 1 && color) descriptor.usage |= WGPUTextureUsage_TextureBinding | WGPUTextureUsage_CopySrc | WGPUTextureUsage_CopyDst;
-    return create(device, &descriptor, NULL);
+    gpu_texture *t = create(device, &descriptor, NULL);
+    if (t && mip_levels > 1) {
+        WGPUTextureViewDescriptor view = WGPU_TEXTURE_VIEW_DESCRIPTOR_INIT;
+        view.format = format; view.dimension = WGPUTextureViewDimension_2D;
+        view.mipLevelCount = 1; view.arrayLayerCount = 1; view.aspect = WGPUTextureAspect_All;
+        t->attachment_view = wgpuTextureCreateView(t->handle, &view);
+    }
+    return t;
+}
+
+/* Each mip is the previous one drawn at half size through the device's linear sampler: a 2x2 box filter. */
+void gpu_texture_generate_mipmaps(gpu_texture *t) {
+    if (!t->handle || t->mip_levels < 2) return;
+    gpu_device *device = t->link.device;
+    if (t->source) gpu_target_flush(t->source);
+    WGPUTextureView previous = t->attachment_view;
+    for (int level = 1; level < t->mip_levels; level++) {
+        WGPUTextureViewDescriptor descriptor = WGPU_TEXTURE_VIEW_DESCRIPTOR_INIT;
+        descriptor.format = t->format; descriptor.dimension = WGPUTextureViewDimension_2D;
+        descriptor.baseMipLevel = (uint32_t)level; descriptor.mipLevelCount = 1; descriptor.arrayLayerCount = 1;
+        descriptor.aspect = WGPUTextureAspect_All;
+        WGPUTextureView view = wgpuTextureCreateView(t->handle, &descriptor);
+        gpu_device_blit(device, previous, view, t->format, 1);
+        if (previous != t->attachment_view) wgpuTextureViewRelease(previous);
+        previous = view;
+    }
+    if (previous != t->attachment_view) wgpuTextureViewRelease(previous);
 }
 
 void gpu_texture_upload(gpu_texture *t, const uint8_t *rgba, bool unused) {
@@ -141,8 +180,9 @@ void gpu_texture_upload(gpu_texture *t, const uint8_t *rgba, bool unused) {
 
 void gpu_texture_release_handles(gpu_texture *t) {
     if (t->view) wgpuTextureViewRelease(t->view);
+    if (t->attachment_view) wgpuTextureViewRelease(t->attachment_view);
     if (t->handle) wgpuTextureRelease(t->handle);
-    t->view = NULL; t->handle = NULL;
+    t->view = NULL; t->attachment_view = NULL; t->handle = NULL;
 }
 
 void gpu_texture_free(gpu_texture *t) {
@@ -158,6 +198,8 @@ int gpu_texture_width(const gpu_texture *t) { return t->width; }
 int gpu_texture_height(const gpu_texture *t) { return t->height; }
 bool gpu_texture_cube(const gpu_texture *t) { return t->cube; }
 WGPUTextureView gpu_texture_view(const gpu_texture *t) { return t->view; }
+WGPUTextureView gpu_texture_attachment_view(const gpu_texture *t) { return t->attachment_view ? t->attachment_view : t->view; }
+int gpu_texture_mip_levels(const gpu_texture *t) { return t->mip_levels; }
 WGPUTexture gpu_texture_handle(const gpu_texture *t) { return t->handle; }
 gpu_device *gpu_texture_device(const gpu_texture *t) { return t->link.device; }
 gpu_target *gpu_texture_source(const gpu_texture *t) { return t->source; }

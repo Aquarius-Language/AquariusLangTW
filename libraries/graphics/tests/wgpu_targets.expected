@@ -1,0 +1,8 @@
+4286595250
+4294901760
+4294901760 4278190335
+wgpu.texture wgpu.target
+CreateRenderTarget: Render target format must be rgba8unorm, rgba16float, r16float, r32float or rgba32float.
+CreateRenderTarget: Render targets have 1..4 attachments and 1..2 mip levels.
+GetTexture: Color attachment index must be 0..1.
+Set: Uniform m needs 9 values.

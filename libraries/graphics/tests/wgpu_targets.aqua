@@ -1,0 +1,88 @@
+# (needs a GPU device) WGPU render targets for multi-pass GPU work: 32-bit float formats, several outputs, mipmaps and
+# GenerateMipmaps, the repeating sampler, textures at bindings 18..31, uniform arrays and mat3x3, scissored draws with
+# Flush, and Prepare.
+var gpu = import("WGPU");
+var device = gpu.CreateDevice();
+var vs = "@vertex fn vs_main(@builtin(vertex_index) i: u32) -> VertexOutput {
+    var o: VertexOutput;
+    let x = f32((i << 1u) & 2u);
+    let y = f32(i & 2u);
+    o.position = vec4<f32>(x * 2.0 - 1.0, 1.0 - y * 2.0, 0.0, 1.0);
+    return o;
+}";
+
+# Two outputs into rgba32float: values outside 0..1 survive exactly.
+var write = device.CreateShader(vs, "struct UserUniforms { values: array<vec4<f32>, 2>, m: mat3x3<f32>, k: i32, }
+@group(1) @binding(0) var<uniform> user: UserUniforms;
+struct Out { @location(0) a: vec4<f32>, @location(1) b: vec4<f32>, }
+@fragment fn fs_main(@builtin(position) p: vec4<f32>) -> Out {
+    var o: Out;
+    o.a = user.values[0] + vec4<f32>(user.m * vec3<f32>(1.0, 2.0, 3.0), f32(user.k));
+    o.b = user.values[1];
+    return o;
+}");
+write.Set("values", [1000, -2, 0.5d, 3, 7, 8, 9, 10]);
+write.Set("m", [1, 0, 0, 0, 1, 0, 0, 0, 1]);
+write.SetInt("k", 4);
+var pair = device.CreateRenderTarget(4, 4, "rgba32float", {"attachments": 2});
+pair.SetState({"blend": "replace"});
+pair.Prepare(write);
+pair.DrawProcedural(write, 3);
+
+# Read both outputs back through an rgba8 target: scaled into 0..1 by a shader with textures at bindings 0 and 18.
+var show = device.CreateShader(vs, "@group(2) @binding(0) var first: texture_2d<f32>;
+@group(2) @binding(18) var second: texture_2d<f32>;
+@fragment fn fs_main(@builtin(position) p: vec4<f32>) -> @location(0) vec4<f32> {
+    let q = vec2<i32>(p.xy);
+    let a = textureLoad(first, q, 0);
+    let b = textureLoad(second, q, 0);
+    return vec4<f32>(a.x / 2000.0, (a.y + 2.0) / 8.0, b.x / 10.0, b.w / 10.0);
+}");
+show.SetTexture("first", pair.GetTexture(0));
+show.SetTexture("second", pair.GetTexture(1));
+var out = device.CreateRenderTarget(4, 4);
+out.SetState({"blend": "replace"});
+out.DrawProcedural(show, 3);
+print(out.ReadPixels()[5]);
+
+# Mipmaps: an 8x8 checkerboard averages to grey at the 1x1 mip; the repeating sampler (binding 16) wraps.
+var checker = device.CreateShader(vs, "@fragment fn fs_main(@builtin(position) p: vec4<f32>) -> @location(0) vec4<f32> {
+    let c = f32((u32(p.x) + u32(p.y)) % 2u);
+    return vec4<f32>(c, c, c, 1.0);
+}");
+var mips = device.CreateRenderTarget(8, 8, "rgba16float", {"mipLevels": 4});
+mips.SetState({"blend": "replace"});
+mips.DrawProcedural(checker, 3);
+mips.GenerateMipmaps();
+var sample = device.CreateShader(vs, "@group(2) @binding(0) var image: texture_2d<f32>;
+@group(2) @binding(16) var wrap: sampler;
+@fragment fn fs_main(@builtin(position) p: vec4<f32>) -> @location(0) vec4<f32> {
+    let top = textureSampleLevel(image, wrap, vec2<f32>(0.3, 0.6), 3.0).x;
+    let wrapped = textureSampleLevel(image, wrap, vec2<f32>(1.0 + 0.5 / 8.0, 0.5 / 8.0), 0.0).x;
+    return vec4<f32>(select(0.0, 1.0, abs(top - 0.5) < 0.05), wrapped, 0.0, 1.0);   // grey, within GPU rounding
+}");
+sample.SetTexture("image", mips.GetTexture());
+out.DrawProcedural(sample, 3);
+print(out.ReadPixels()[0]);
+
+# Scissored bands, each submitted with Flush.
+var fill = device.CreateShader(vs, "struct UserUniforms { c: vec4<f32>, }
+@group(1) @binding(0) var<uniform> user: UserUniforms;
+@fragment fn fs_main(@builtin(position) p: vec4<f32>) -> @location(0) vec4<f32> { return user.c; }");
+out.Clear([0, 0, 0, 1]);
+fill.Set("c", [1, 0, 0, 1]);
+out.DrawProcedural(fill, 3, 0, [0, 0, 4, 2]);
+out.Flush();
+fill.Set("c", [0, 0, 1, 1]);
+out.DrawProcedural(fill, 3, 0, [0, 2, 4, 2]);
+out.Flush();
+var px = out.ReadPixels();
+print(px[0], px[15]);
+
+# r32float and r16float targets; misuse fails clearly.
+print(typeOf(device.CreateRenderTarget(2, 2, "r32float").GetTexture()), typeOf(device.CreateRenderTarget(2, 2, "r16float")));
+print(import("Network").Try(function() { return device.CreateRenderTarget(2, 2, "rgba64"); }).Error.Message);
+print(import("Network").Try(function() { return device.CreateRenderTarget(2, 2, "rgba8unorm", {"mipLevels": 5}); }).Error.Message);
+print(import("Network").Try(function() { return pair.GetTexture(2); }).Error.Message);
+print(import("Network").Try(function() { return write.Set("m", [1, 2, 3]); }).Error.Message);
+device.Dispose();
