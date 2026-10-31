@@ -24,3 +24,8 @@ back closes 假
 tab email 真
 shift+tab wraps ok
 a click hides the ring 假
+hot before a frame finished 假
+item hot 真 covered button 假
+menu surface null outside null no pointer null
+captured space 真 假
+released 真 null

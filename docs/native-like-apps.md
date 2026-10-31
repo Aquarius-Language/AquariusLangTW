@@ -96,6 +96,8 @@ apply those that fit the application. The libraries named do the platform-specif
       release over the same control). Dragging away cancels it (the recognizer reports `dragStart` instead of `click`).
 - [ ] **Hover and pressed states** for every interactive element on devices with hover (`Conventions().hover`); never
       make information reachable only by hovering, since touch screens have no hover.
+- [ ] **Only the topmost control reacts** (`HitTest`): a control covered by an open menu, dialog or popover neither
+      lights up on hover nor takes the click, and while a press or drag holds a control, no other control lights up.
 - [ ] **Cursor shapes** (`session.CursorArea`, or `session.SetCursor` while dragging): `text` over editable text,
       `hand` over links, `resizeHorizontal` / `resizeVertical` over splitters and edges, `arrow` elsewhere (over
       line numbers, scrollbars and popups too). Keep the areas current when the layout changes.
@@ -180,6 +182,8 @@ apply those that fit the application. The libraries named do the platform-specif
 | Fling with real velocity | Lists that stop dead feel broken on touch screens | `dragEnd.velocityX/Y` (logical units per second over the last 100 ms, 0 if the finger rested) |
 | One gesture at a time | A second finger turns a pan into a pinch | The recognizer ends the first finger's drag (`dragEnd`, phase `cancel`) and reports `pinch` start, change, end |
 | Cancel cleanly | Losing focus or pausing in the middle of a drag must not leave it stuck | `dragEnd` with phase `cancel`; treat it like Escape |
+| Only the topmost control is hovered or pressed | A menu or dialog drawn over a button hides it; lighting the covered button up as well shows two targets for one pointer | `HitTest`: register controls in drawing order, `Block` the surfaces of menus, dialogs and backdrops, highlight with `IsHot`, route presses with `Top` |
+| A pressed control keeps the pointer | Dragging a slider or scrollbar across other controls must not hover or click them | `HitTest.Capture` on press, `Release` on release, `dragEnd` or `captureLost` |
 
 ### Scrolling
 
@@ -391,6 +395,28 @@ focus.Set(ring, "email", false);         # a click focused it
 if (focus.RingVisible(ring) && focus.Has(ring, "send")) { /* draw the focus ring */ }
 ```
 
+### HitTest / 命中測試
+
+```aqua
+var HitTest = import("HitTest");
+var hits = HitTest.Create();
+# every frame, before drawing:
+HitTest.Begin(hits);
+# each control, in drawing order (later ones lie on top):
+var hot = HitTest.IsHot(hits, "save", pointerX, pointerY);   # draw the hover state only if true
+HitTest.Add(hits, "save", x, y, width, height);
+# an open menu or dialog: its surface first, then its items
+HitTest.Block(hits, menuX, menuY, menuWidth, menuHeight);
+HitTest.Add(hits, "menu:open", itemX, itemY, itemWidth, itemHeight);
+# input
+session.On("press", function(e) { var key = HitTest.Top(hits, e.x, e.y); if (key != null) { HitTest.Capture(hits, key); } });
+session.On("release", function(e) { HitTest.Release(hits); });
+```
+
+`Top` and `IsHot` answer from the last complete frame, so a control knows its state while it is drawn; `TopNow`
+answers from the regions registered so far. A blocked point has no key (`null`): a press there belongs to the menu or
+dialog (to close it, for example), never to what lies beneath.
+
 ## Connecting a graphics library
 
 A graphics library needs to do one of two things to work with every library above:
@@ -439,7 +465,9 @@ them.
 - **`interaction` 函式庫**（與繪圖函式庫無關）：`Interaction`／`互動`（C）把視窗事件轉成各平台原生語意的事件（點擊次數、
   拖曳門檻與速度、長按、雙指縮放、右鍵選單請求、返回與前進、捲動與縮放、鍵盤指令），並提供平台慣例（雙擊時間、觸控門檻、
   捲軸樣式、深色模式、減少動態效果等）；`ScrollView`／`捲動檢視`、`Navigation`／`導覽`、`ContextMenu`／`右鍵選單`、
-  `Focus`／`焦點` 以星泉撰寫，只管行為與狀態，不負責繪圖。
+  `Focus`／`焦點`、`HitTest`／`命中測試` 以星泉撰寫，只管行為與狀態，不負責繪圖。
+- **只有最上層的控制項會反應**（`HitTest`）：被選單、對話框或彈出視窗蓋住的按鈕不顯示滑過效果、也不接受點擊；按住或拖曳
+  某個控制項時，其他控制項不會亮起。
 - **串接方式**：使用 SDK 視窗的繪圖函式庫提供共用視窗物件（Processing 的 `platformWindow`、WGPU 的 `PlatformWindow`），
   交給 `Interaction.Attach`；自有視窗的函式庫以 `Interaction.Create()` 建立工作階段，再用 `Feed` 餵入原始事件。
 - **處理器**：`session.On(類型, 函式)` 由最新註冊者先執行，回傳 `真` 表示已處理；系統返回若無人處理，Android 會關閉活動、

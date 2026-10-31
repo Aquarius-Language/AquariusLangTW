@@ -1,0 +1,62 @@
+# HitTest / 命中測試: which drawn control the pointer is really over, for interfaces drawn by any graphics library.
+# Controls are rectangles registered in drawing order, so later ones lie on top. A menu, dialog or popover registers
+# its surface with Block: it covers everything drawn before it, so a covered button neither lights up on hover nor
+# takes the click, exactly as with native windows. While a press or drag holds a control (Capture), only that
+# control is hot, so dragging a slider across buttons does not light them up.
+# Each frame answers from the previous complete frame, so a control knows whether it is hot while it is drawn.
+#     var hits = HitTest.Create();
+#     # every frame:  HitTest.Begin(hits);  then for each control, in drawing order:
+#     var hover = HitTest.IsHot(hits, "save", mouseX, mouseY);  HitTest.Add(hits, "save", x, y, w, h);  ...draw...
+#     # an open menu:  HitTest.Block(hits, menuX, menuY, menuW, menuH);  then Add its items.
+#     session.On("press", function(e) { var key = HitTest.Top(hits, e.x, e.y); ... });
+var Version = 1;
+var _array = import("Array");
+
+struct Layers { regions; previous; captured }
+struct Region { key; x; y; width; height }
+
+var Create = function() { return Layers([], [], null); };
+
+# Starts a frame: the regions of the frame just drawn answer Top and IsHot while the new one is registered.
+var Begin = function(layers) {
+    layers.previous = layers.regions;
+    layers.regions = [];
+};
+
+# An interactive region on top of everything registered before it in this frame. `key` identifies the control.
+var Add = function(layers, key, x, y, width, height) {
+    _array.Append(layers.regions, Region(key, x, y, width, height));
+};
+
+# An opaque surface (a menu, dialog, popover or modal backdrop): it covers what was drawn before and reacts to nothing.
+var Block = function(layers, x, y, width, height) {
+    _array.Append(layers.regions, Region(null, x, y, width, height));
+};
+
+var _top = function(regions, x, y) {
+    # && and || evaluate both sides, so null is checked on its own first.
+    if (x == null || y == null) { return null; }
+    for (var i = len(regions) - 1; i >= 0; i = i - 1) {
+        var r = regions[i];
+        if (x >= r.x && x < r.x + r.width && y >= r.y && y < r.y + r.height) { return r.key; }
+    }
+    return null;
+};
+
+# The key of the topmost control under (x, y) in the last complete frame; null over a blocking surface or nothing.
+var Top = function(layers, x, y) { return _top(layers.previous, x, y); };
+# The same over the regions registered so far in the current frame (for handlers that run after drawing).
+var TopNow = function(layers, x, y) { return _top(layers.regions, x, y); };
+
+# Whether the control `key` is the one to highlight: the captured control while one is captured, otherwise the
+# topmost control under the pointer.
+var IsHot = function(layers, key, x, y) {
+    if (key == null) { return false; }
+    if (layers.captured != null) { return layers.captured == key; }
+    return Top(layers, x, y) == key;
+};
+
+# A press on `key` holds it until Release (call on release, dragEnd or captureLost).
+var Capture = function(layers, key) { layers.captured = key; };
+var Release = function(layers) { layers.captured = null; };
+var Captured = function(layers) { return layers.captured; };
