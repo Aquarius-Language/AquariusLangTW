@@ -63,6 +63,9 @@ Libraries:
 - Processing's `platformWindow` and WGPU windows' `PlatformWindow` give other libraries the shared window object.
 - Web glue domains `history` (the browser's back button) and `mediaquery` (`matchMedia`).
 - ONNX: models up to 2 GiB (protobuf's limit) instead of 256 MiB, so YOLOX-X (396 MB) and other large models load.
+- ONNX: models saved with external data (a small `.onnx` plus separate weight files, how models over 2 GiB are stored)
+  open from files (weights read from the model's folder) and from the package (packaged weight files handed to ONNX
+  Runtime from memory, on every target including the web).
 
 SDK (API version 2): `aqua_define_async` registers a promise variant of a function; `aqua_object_member` gives a
 method of a native object as a function value; `aqua_invoke_async` waits for a promise a callback returns. A deferred

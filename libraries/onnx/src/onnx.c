@@ -66,25 +66,120 @@ static bool same_prefix(const char *path, const char *root, size_t length) {
 #endif
 }
 
-uint8_t *onnx_model_bytes(aqua_call *call, aqua_value model, size_t *length, bool *owned, onnx_error *error) {
-    aqua_runtime *rt = aqua_call_runtime(call);
-    *owned = false;
-    if (model.type == AQUA_ARRAY) {
-        /* The model's bytes themselves (an addition to the old contract, which took paths only). */
-        uint32_t count = aqua_array_length(rt, model);
-        if (count > ONNX_MAX_MODEL_BYTES) { onnx_fail(error, ONNX_INVALID_ARGUMENT, "模型大小超過上限。"); return NULL; }
-        uint8_t *bytes = malloc(count ? count : 1);
-        if (!bytes || !aqua_array_read_u8(rt, model, 0, count, bytes)) {
-            free(bytes);
-            onnx_fail(error, ONNX_INVALID_ARGUMENT, "模型位元組必須是 0 到 255 的整數。");
-            return NULL;
-        }
-        *length = count;
-        *owned = true;
-        return bytes;
+void onnx_model_free(onnx_model *model) {
+    if (model->owned) free((void *)model->bytes);
+    for (uint32_t i = 0; i < model->file_count; i++) free(model->files[i].name);
+    free(model->files);
+    free(model->folder);
+    memset(model, 0, sizeof *model);
+}
+
+/* ---- External data: the weight files a model names (ModelProto.graph.initializer.external_data "location") ---- */
+static bool read_varint(const uint8_t **p, const uint8_t *end, uint64_t *value) {
+    *value = 0;
+    for (int shift = 0; *p < end && shift < 64; shift += 7) {
+        uint8_t byte = *(*p)++;
+        *value |= (uint64_t)(byte & 0x7f) << shift;
+        if (!(byte & 0x80)) return true;
     }
-    if (model.type != AQUA_STRING) { onnx_fail(error, ONNX_INVALID_ARGUMENT, "預期字串參數。"); return NULL; }
-    aqua_str text = aqua_str_of(call, model);
+    return false;
+}
+
+/* Calls `found` with each length-delimited field `wanted` of the protobuf message in [p, end); false when malformed. */
+static bool each_field(const uint8_t *p, const uint8_t *end, uint32_t wanted,
+                       void (*found)(const uint8_t *, const uint8_t *, void *), void *data) {
+    while (p < end) {
+        uint64_t key, n = 0;
+        if (!read_varint(&p, end, &key)) return false;
+        switch (key & 7) {
+            case 0: if (!read_varint(&p, end, &n)) return false; break;
+            case 1: if (end - p < 8) return false; p += 8; break;
+            case 5: if (end - p < 4) return false; p += 4; break;
+            case 2:
+                if (!read_varint(&p, end, &n) || n > (uint64_t)(end - p)) return false;
+                if ((key >> 3) == wanted) found(p, p + n, data);
+                p += n;
+                break;
+            default: return false;
+        }
+    }
+    return true;
+}
+
+typedef struct names { char *items[ONNX_MAX_WEIGHT_FILES]; uint32_t count; bool key_is_location; } names;
+
+static void entry_key(const uint8_t *p, const uint8_t *end, void *data) {
+    ((names *)data)->key_is_location = end - p == 8 && memcmp(p, "location", 8) == 0;
+}
+static void entry_value(const uint8_t *p, const uint8_t *end, void *data) {
+    names *list = data;
+    if (!list->key_is_location || p == end) return;
+    size_t length = (size_t)(end - p);
+    for (uint32_t i = 0; i < list->count; i++) if (strlen(list->items[i]) == length && memcmp(list->items[i], p, length) == 0) return;
+    if (list->count == ONNX_MAX_WEIGHT_FILES) return;
+    char *name = malloc(length + 1);
+    memcpy(name, p, length);
+    name[length] = 0;
+    list->items[list->count++] = name;
+}
+static void external_entry(const uint8_t *p, const uint8_t *end, void *data) {
+    ((names *)data)->key_is_location = false;
+    each_field(p, end, 1, entry_key, data);
+    each_field(p, end, 2, entry_value, data);
+}
+static void initializer(const uint8_t *p, const uint8_t *end, void *data) { each_field(p, end, 13, external_entry, data); }
+static void graph(const uint8_t *p, const uint8_t *end, void *data) { each_field(p, end, 5, initializer, data); }
+
+/* The folder of a '/'-separated path ("." for a bare name). */
+static char *folder_of(const char *path) {
+    const char *slash = strrchr(path, '/');
+    if (!slash) return strdup(".");
+    size_t length = slash == path ? 1 : (size_t)(slash - path);
+    char *folder = malloc(length + 1);
+    memcpy(folder, path, length);
+    folder[length] = 0;
+    return folder;
+}
+
+/* A packaged model's weight files are packaged beside it: they go to the engine from memory, on every target. */
+static bool packaged_weights(aqua_runtime *rt, const char *relative, onnx_model *model, onnx_error *error) {
+    names list = {0};
+    each_field(model->bytes, model->bytes + model->length, 7, graph, &list);
+    bool ok = true;
+    model->files = calloc(list.count + 1, sizeof *model->files);
+    char *folder = folder_of(relative);
+    for (uint32_t i = 0; i < list.count; i++) {
+        size_t n = strlen(folder) + strlen(list.items[i]) + 2;
+        char *path = malloc(n);
+        snprintf(path, n, "%s/%s", strcmp(folder, ".") == 0 ? "" : folder, list.items[i]);
+        size_t length = 0;
+        const uint8_t *bytes = aqua_asset(rt, path[0] == '/' ? path + 1 : path, &length);
+        if (!bytes && ok) ok = onnx_fail(error, ONNX_INVALID_ARGUMENT, "找不到模型的權重檔「%s」：請將它與模型一起打包。", path[0] == '/' ? path + 1 : path);
+        model->files[model->file_count++] = (onnx_weight_file){list.items[i], bytes, length};
+        free(path);
+    }
+    free(folder);
+    return ok;
+}
+
+/* The model for a path (a packaged asset, or a file on native targets) or a byte array. */
+bool onnx_model_read(aqua_call *call, aqua_value value, onnx_model *model, onnx_error *error) {
+    aqua_runtime *rt = aqua_call_runtime(call);
+    memset(model, 0, sizeof *model);
+    if (value.type == AQUA_ARRAY) {
+        /* The model's bytes themselves (an addition to the old contract, which took paths only). */
+        uint32_t count = aqua_array_length(rt, value);
+        if (count > ONNX_MAX_MODEL_BYTES) return onnx_fail(error, ONNX_INVALID_ARGUMENT, "模型大小超過上限。");
+        uint8_t *bytes = malloc(count ? count : 1);
+        if (!bytes || !aqua_array_read_u8(rt, value, 0, count, bytes)) {
+            free(bytes);
+            return onnx_fail(error, ONNX_INVALID_ARGUMENT, "模型位元組必須是 0 到 255 的整數。");
+        }
+        *model = (onnx_model){bytes, count, true, NULL, NULL, 0};
+        return true;
+    }
+    if (value.type != AQUA_STRING) return onnx_fail(error, ONNX_INVALID_ARGUMENT, "預期字串參數。");
+    aqua_str text = aqua_str_of(call, value);
     char *path = aqua_scratch(call, text.length + 1);
     memcpy(path, text.data, text.length + 1);
     for (char *p = path; *p; p++) if (*p == '\\') *p = '/';
@@ -97,19 +192,24 @@ uint8_t *onnx_model_bytes(aqua_call *call, aqua_value model, size_t *length, boo
     size_t size = 0;
     const uint8_t *asset = aqua_asset(rt, relative, &size);
     if (asset) {
-        if (size > ONNX_MAX_MODEL_BYTES) { onnx_fail(error, ONNX_INVALID_ARGUMENT, "模型大小超過上限。"); return NULL; }
-        *length = size;
-        return (uint8_t *)asset;
+        if (size > ONNX_MAX_MODEL_BYTES) return onnx_fail(error, ONNX_INVALID_ARGUMENT, "模型大小超過上限。");
+        model->bytes = asset;
+        model->length = size;
+        if (!packaged_weights(rt, relative, model, error)) { onnx_model_free(model); return false; }
+        return true;
     }
 #if !defined(AQUA_OS_WEB)
-    /* Otherwise a file, as the old desktop host read unpackaged models. */
+    /* Otherwise a file, as the old desktop host read unpackaged models; the engine reads weight files beside it. */
     bool too_large = false;
-    uint8_t *bytes = onnx_platform_read_file(path, ONNX_MAX_MODEL_BYTES, length, &too_large);
-    if (too_large) { onnx_fail(error, ONNX_INVALID_ARGUMENT, "模型大小超過上限。"); return NULL; }
-    if (bytes) { *owned = true; return bytes; }
+    size_t length = 0;
+    uint8_t *bytes = onnx_platform_read_file(path, ONNX_MAX_MODEL_BYTES, &length, &too_large);
+    if (too_large) return onnx_fail(error, ONNX_INVALID_ARGUMENT, "模型大小超過上限。");
+    if (bytes) {
+        *model = (onnx_model){bytes, length, true, folder_of(path), NULL, 0};
+        return true;
+    }
 #endif
-    onnx_fail(error, ONNX_INVALID_ARGUMENT, "找不到模型檔案「%s」。", text.data);
-    return NULL;
+    return onnx_fail(error, ONNX_INVALID_ARGUMENT, "找不到模型檔案「%s」。", text.data);
 }
 
 /* ---- Records -------------------------------------------------------------------------------------------------- */
@@ -347,12 +447,10 @@ static void create_session(aqua_call *call) {
     aqua_value model = aqua_arg(call, 0);
     if (model.type != AQUA_STRING && model.type != AQUA_ARRAY) { aqua_fail(call, PREFIX ".%s：預期字串參數。", function); return; }
     if (state->session_count >= ONNX_MAX_SESSIONS) { aqua_fail(call, PREFIX ".%s：最多只能同時建立八個推論工作階段。", function); return; }
-    size_t length = 0;
-    bool owned = false;
-    uint8_t *bytes = onnx_model_bytes(call, model, &length, &owned, &error);
-    if (!bytes) { fail(call, function, &error); return; }
-    onnx_session *session = onnx_session_open(bytes, length, &selection, &error);
-    if (owned) free(bytes);
+    onnx_model bytes;
+    if (!onnx_model_read(call, model, &bytes, &error)) { fail(call, function, &error); return; }
+    onnx_session *session = onnx_session_open(&bytes, &selection, &error);
+    onnx_model_free(&bytes);
     if (!session) { fail(call, function, &error); return; }
     session_object *s = calloc(1, sizeof *s);
     s->owner = state;

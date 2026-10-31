@@ -1,0 +1,63 @@
+# Models saved with external data: a small .onnx whose weights live in a separate file (how ONNX stores models over
+# protobuf's 2 GiB). The packaged pair in external/ is read from memory on every target; on native targets the same
+# model written to a folder is opened by its path and the engine reads the weight file beside it.
+var onnx = import("ONNX");
+
+# ---- The model: Y = X + W, W = [10, 20] stored in add.weights ------------------------------------------------------
+var concat = function(a, b) {
+    var result = a;
+    for (var i = 0; i < len(b); i++) { result = push(result, b[i]); }
+    return result;
+};
+var varint = function(n) {
+    var bytes = [];
+    var rest = n;
+    for (var i = 0; rest >= 128; i++) { bytes = push(bytes, rest % 128 + 128); rest = rest / 128; }
+    return push(bytes, rest);
+};
+var number = function(field, value) { return concat(varint(field * 8), varint(value)); };
+var message = function(field, bytes) { return concat(concat(varint(field * 8 + 2), varint(len(bytes))), bytes); };
+var ascii = function(text) {
+    var bytes = [];
+    for (var i = 0; i < len(text); i++) { bytes = push(bytes, import("String").Code(text, i)); }
+    return bytes;
+};
+var value = function(name) {
+    return concat(message(1, ascii(name)), message(2, message(1, concat(number(1, 1), message(2, message(1, number(1, 2)))))));
+};
+var weights = concat(concat(number(1, 2), number(2, 1)), message(8, ascii("W")));
+weights = concat(weights, message(13, concat(message(1, ascii("location")), message(2, ascii("add.weights")))));
+weights = concat(weights, number(14, 1));
+var node = concat(concat(concat(message(1, ascii("X")), message(1, ascii("W"))), message(2, ascii("Y"))), message(4, ascii("Add")));
+var graph = concat(concat(concat(concat(message(1, node), message(2, ascii("g"))), message(5, weights)), message(11, value("X"))), message(12, value("Y")));
+var model = concat(concat(number(1, 8), message(7, graph)), message(8, number(2, 13)));
+var weightBytes = [0, 0, 32, 65, 0, 0, 160, 65]; # float32 10 and 20, little-endian
+
+var run = function(session) {
+    var y = session.Run(["X"], [onnx.CreateTensor(onnx.Float32, [2], [1, 2])], ["Y"])[0];
+    return y.GetData();
+};
+
+# ---- Packaged: external/add.onnx with external/add.weights (the same bytes as above) -------------------------------
+var files = import("Files");
+var same = function(a, b) {
+    if (len(a) != len(b)) { return false; }
+    for (var i = 0; i < len(a); i++) { if (a[i] != b[i]) { return false; } }
+    return true;
+};
+print("fixture matches", same(files.ReadAssetBytes("external/add.onnx"), model), same(files.ReadAssetBytes("external/add.weights"), weightBytes));
+var packaged = onnx.CreateSession("external/add.onnx", onnx.CPU);
+print("packaged", run(packaged));
+packaged.Dispose();
+
+# ---- A folder on native targets --------------------------------------------------------------------------------
+if (!isWeb()) {
+    var folder = files.Temporary(true);
+    files.SaveBytes(files.Resolve(folder.id + "/add.onnx"), model);
+    files.SaveBytes(files.Resolve(folder.id + "/add.weights"), weightBytes);
+    var session = onnx.CreateSession(folder.id + "/add.onnx", onnx.CPU);
+    print("file", run(session));
+    session.Dispose();
+    folder.Dispose();
+}
+print("done");

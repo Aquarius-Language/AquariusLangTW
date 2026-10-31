@@ -38,7 +38,8 @@ convolution (the old probe model), so a missing driver or library is reported in
 A session's `Providers/後端清單` is the chain handed to the engine, including companions (CUDA behind TensorRT) and the
 implicit CPU fallback. The pose tracker resolves the selection for its detector and opens the landmark model on exactly
 the same chain. Limits: 8 live sessions and 4 trackers per runtime, 16 axes and 16,777,216 elements per tensor,
-2 GiB per model (protobuf's limit), pose frames up to 1920 × 1080 (portrait too).
+2 GiB per `.onnx` file (protobuf's limit; larger models keep their weights in external data files, below) and 64
+external weight files per model, pose frames up to 1920 × 1080 (portrait too).
 
 ## Platforms
 
@@ -95,6 +96,13 @@ Models are read from the application package (`--assets`; by package path or by 
 targets, from the file system. `CreateSession` and `CreatePoseTracker` also accept the model's bytes as an array of
 integers, and `CreateTensor` accepts an image object as the data of a `uint8` tensor (its RGBA bytes); both are
 additions.
+
+Models saved with **external data** (a small `.onnx` plus separate weight files, ONNX's format for models over 2 GiB,
+e.g. `onnx.save_model(model, path, save_as_external_data=True)`) open like any other model: from a file, the engine
+reads the weight files from the model's folder; from the package, `CreateSession` finds the weight files the model
+names in its `external_data` locations among the packaged assets beside it and hands them to the engine from memory,
+so packaged ones work on every target, the web included (package the weight files with the model, for example
+`--assets models`). A model passed as bytes has no folder: its weights must be inside it.
 
 ## Web
 
@@ -169,6 +177,9 @@ pinned files in `AQUA_ONNX_DOWNLOADS` beforehand; their hashes are checked eithe
 
 - `inference` — a model the test writes itself (a small protobuf writer in Aquarius): all five tensor types, a dynamic
   axis, several outputs in requested order, metadata, session records and release.
+- `external` — a model with its weights in an external file (`tests/external/add.onnx` and `add.weights`, the same
+  bytes the test writes): opened from the package on every target and, on native targets, from a folder
+  (`external.web.expected` leaves the folder out).
 - `providers` — constants, the ranked device list's invariants, bilingual selection parsing, Auto with the old tests'
   `add.onnx` bytes.
 - `pose` — needs the Images library and the MediaPipe models as `models/` (packaged with `--assets models`, or on

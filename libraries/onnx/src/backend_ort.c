@@ -561,11 +561,31 @@ static bool read_infos(OrtSession *session, bool inputs, onnx_value_info **out, 
 
 static const device_row *row_of(const onnx_device *device) { return &rows[device - engine.devices]; }
 
-onnx_session *backend_open(const uint8_t *model, size_t length, const onnx_plan *plan, onnx_error *error) {
+/* Where the engine finds the weight files of a model saved with external data: the folder of a model file, or the
+   packaged weight files in memory. */
+static bool add_weights(OrtSessionOptions *options, const onnx_model *model, char *message, size_t size) {
+    if (model->folder && !succeeded(ORT->AddSessionConfigEntry(options, "session.model_external_initializers_file_folder_path",
+                                                               model->folder), message, size, NULL)) return false;
+    if (!model->file_count) return true;
+    ORTCHAR_T *names[ONNX_MAX_WEIGHT_FILES];
+    char *buffers[ONNX_MAX_WEIGHT_FILES];
+    size_t lengths[ONNX_MAX_WEIGHT_FILES];
+    for (uint32_t i = 0; i < model->file_count; i++) {
+        names[i] = onnx_platform_path(model->files[i].name);
+        buffers[i] = (char *)model->files[i].bytes;
+        lengths[i] = model->files[i].length;
+    }
+    bool ok = succeeded(ORT->AddExternalInitializersFromFilesInMemory(options, (const ORTCHAR_T *const *)names, buffers, lengths,
+                                                                      model->file_count), message, size, NULL);
+    for (uint32_t i = 0; i < model->file_count; i++) free(names[i]);
+    return ok;
+}
+
+onnx_session *backend_open(const onnx_model *model, const onnx_plan *plan, onnx_error *error) {
     const char *primary = onnx_provider_id(plan->devices[0]->provider);
     char message[1024] = "";
     OrtSessionOptions *options = create_options(message, sizeof message);
-    bool ok = options != NULL;
+    bool ok = options != NULL && add_weights(options, model, message, sizeof message);
     onnx_platform_lock(); /* plugin device state is process wide */
     for (uint32_t i = 0; ok && i < plan->count; i++) {
         const device_row *row = row_of(plan->devices[i]);
@@ -575,7 +595,7 @@ onnx_session *backend_open(const uint8_t *model, size_t length, const onnx_plan 
     OrtSession *native = NULL;
     OrtErrorCode code = ORT_FAIL;
     if (ok) {
-        ok = succeeded(ORT->CreateSessionFromArray(engine.env, model, length, options, &native), message, sizeof message, &code);
+        ok = succeeded(ORT->CreateSessionFromArray(engine.env, model->bytes, model->length, options, &native), message, sizeof message, &code);
         if (!ok && (code == ORT_INVALID_PROTOBUF || code == ORT_INVALID_GRAPH || code == ORT_NO_MODEL)) {
             ORT->ReleaseSessionOptions(options);
             onnx_fail(error, ONNX_INVALID_ARGUMENT, "ONNX 模型無效或格式不受支援：%s", message);

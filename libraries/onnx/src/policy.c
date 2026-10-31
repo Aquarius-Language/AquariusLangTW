@@ -179,9 +179,9 @@ bool onnx_selection_supported(const onnx_selection *selection, bool *supported, 
     return *supported || error->status == ONNX_UNSUPPORTED;
 }
 
-onnx_session *onnx_session_open(const uint8_t *model, size_t length, const onnx_selection *selection, onnx_error *error) {
-    if (length < 1 || length > ONNX_MAX_MODEL_BYTES) {
-        onnx_fail(error, ONNX_INVALID_ARGUMENT, "模型必須是非空的 ONNX 資料，最多二百五十六 MiB。");
+onnx_session *onnx_session_open(const onnx_model *model, const onnx_selection *selection, onnx_error *error) {
+    if (model->length < 1 || model->length > ONNX_MAX_MODEL_BYTES) {
+        onnx_fail(error, ONNX_INVALID_ARGUMENT, "模型必須是非空的 ONNX 資料，最多 2 GiB（更大的模型以外部權重檔儲存）。");
         return NULL;
     }
     uint32_t device_count, plan_count;
@@ -191,7 +191,7 @@ onnx_session *onnx_session_open(const uint8_t *model, size_t length, const onnx_
     char failures[sizeof error->message] = "";
     uint32_t failed = 0;
     for (uint32_t i = 0; i < plan_count; i++) {
-        onnx_session *session = backend_open(model, length, &plans[i], error);
+        onnx_session *session = backend_open(model, &plans[i], error);
         if (session) return session;
         /* Explicit lists never become a different session; preferences skip providers that fail to initialize. */
         if (selection->preference == ONNX_EXPLICIT || (error->status != ONNX_ENGINE && error->status != ONNX_UNSUPPORTED)) return NULL;

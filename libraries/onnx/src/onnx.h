@@ -20,6 +20,7 @@
 #define ONNX_MAX_MODEL_BYTES 0x7FFFFFFFu           /* protobuf's 2 GiB limit */
 #define ONNX_MAX_SESSIONS 8                        /* live ONNX sessions of one runtime */
 #define ONNX_MAX_RANK 16
+#define ONNX_MAX_WEIGHT_FILES 64                   /* external weight files of one model */
 #define ONNX_MAX_DEVICES 16                        /* rows of devices.def */
 
 /* ---- Failures ------------------------------------------------------------------------------------------------- */
@@ -102,10 +103,23 @@ bool onnx_validate_run(const onnx_value_info *inputs, uint32_t input_count, cons
                        const char *const *requested, uint32_t requested_count, onnx_error *error);
 
 /* ---- Sessions ------------------------------------------------------------------------------------------------- */
+/* A model to open: its .onnx bytes and the weight files of a model saved with external data (a small .onnx plus
+   separate weight files, how models over protobuf's 2 GiB limit are stored). A model read from a file names its folder,
+   where the engine reads the weight files itself; a packaged model brings its packaged weight files in memory. */
+typedef struct onnx_weight_file { char *name; const uint8_t *bytes; size_t length; } onnx_weight_file;
+typedef struct onnx_model {
+    const uint8_t *bytes;
+    size_t length;
+    bool owned;               /* bytes are freed with the model */
+    char *folder;             /* weight files' folder (UTF-8), or NULL */
+    onnx_weight_file *files;  /* packaged weight files, borrowed from the package */
+    uint32_t file_count;
+} onnx_model;
+void onnx_model_free(onnx_model *model);
 typedef struct onnx_session onnx_session;
 /* Opens a session for a selection: explicit lists are strict, preferences try ranked candidates and move on only
    when a provider fails to initialize on this machine (the old OnnxSessionFactory). */
-onnx_session *onnx_session_open(const uint8_t *model, size_t length, const onnx_selection *selection, onnx_error *error);
+onnx_session *onnx_session_open(const onnx_model *model, const onnx_selection *selection, onnx_error *error);
 /* Whether the selection yields a plan on this machine now; false only for "unsupported" failures. */
 bool onnx_selection_supported(const onnx_selection *selection, bool *supported, onnx_error *error);
 
@@ -113,7 +127,7 @@ bool onnx_selection_supported(const onnx_selection *selection, bool *supported, 
 /* Every device of this target, best first, probed once per process. */
 const onnx_device *backend_devices(uint32_t *count);
 /* Opens exactly this plan; never substitutes another provider. */
-onnx_session *backend_open(const uint8_t *model, size_t length, const onnx_plan *plan, onnx_error *error);
+onnx_session *backend_open(const onnx_model *model, const onnx_plan *plan, onnx_error *error);
 void backend_close(onnx_session *session);
 const onnx_plan *backend_plan(const onnx_session *session);
 /* The provider chain handed to the engine: the plan, companions (CUDA behind TensorRT) and the CPU fallback. */
@@ -141,9 +155,9 @@ void mediapipe_close_trackers(onnx_state *state);
 /* ---- Shared by the two modules (onnx.c) ------------------------------------------------------------------------- */
 /* A provider/preference string or an ordered array of provider strings. */
 bool onnx_selection_of(aqua_runtime *rt, aqua_value value, onnx_selection *selection, onnx_error *error);
-/* The model bytes for a path (a packaged asset, or a file on native targets) or a byte array. *owned tells whether
-   the caller frees the bytes with free(). */
-uint8_t *onnx_model_bytes(aqua_call *call, aqua_value model, size_t *length, bool *owned, onnx_error *error);
+/* The model for a path (a packaged asset, or a file on native targets) or a byte array; release it with
+   onnx_model_free. */
+bool onnx_model_read(aqua_call *call, aqua_value value, onnx_model *model, onnx_error *error);
 
 void onnx_module(aqua_library *library);      /* onnx.c */
 void mediapipe_module(aqua_library *library); /* mediapipe.c */

@@ -96,21 +96,20 @@ static void create_tracker(aqua_call *call) {
         aqua_fail(call, PREFIX ".%s：%s", function, error.message);
         return;
     }
-    size_t detector_length = 0, landmark_length = 0;
-    bool detector_owned = false, landmark_owned = false;
-    uint8_t *detector_model = onnx_model_bytes(call, aqua_arg(call, 0), &detector_length, &detector_owned, &error);
-    uint8_t *landmark_model = detector_model ? onnx_model_bytes(call, aqua_arg(call, 1), &landmark_length, &landmark_owned, &error) : NULL;
+    onnx_model detector_model = {0}, landmark_model = {0};
+    bool read = onnx_model_read(call, aqua_arg(call, 0), &detector_model, &error) &&
+        onnx_model_read(call, aqua_arg(call, 1), &landmark_model, &error);
     pose_tracker *t = calloc(1, sizeof *t);
-    bool ok = detector_model && landmark_model && t;
-    if (ok) ok = (t->detector = onnx_session_open(detector_model, detector_length, &selection, &error)) != NULL;
+    bool ok = read && t;
+    if (ok) ok = (t->detector = onnx_session_open(&detector_model, &selection, &error)) != NULL;
     if (ok) {
         const onnx_plan *plan = backend_plan(t->detector);
         onnx_selection same = {ONNX_EXPLICIT, plan->count, {0}};
         for (uint32_t i = 0; i < plan->count; i++) same.providers[i] = plan->devices[i]->provider;
-        ok = (t->landmark = onnx_session_open(landmark_model, landmark_length, &same, &error)) != NULL;
+        ok = (t->landmark = onnx_session_open(&landmark_model, &same, &error)) != NULL;
     }
-    if (detector_owned) free(detector_model);
-    if (landmark_owned) free(landmark_model);
+    onnx_model_free(&detector_model);
+    onnx_model_free(&landmark_model);
     if (ok) {
         static const int64_t detector_shape[4] = {1, 3, 224, 224}, landmark_shape[4] = {1, 256, 256, 3};
         if (!single_input(t->detector, detector_shape) || !single_input(t->landmark, landmark_shape))
