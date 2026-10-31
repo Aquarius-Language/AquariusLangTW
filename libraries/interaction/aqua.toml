@@ -3,7 +3,7 @@ manifest_version = 2
 [library]
 name = "interaction"
 version = "1.0.0"
-description = "Interaction/互動: native-feeling input for any graphics library (clicks and double clicks, drags, long presses, pinches, context menus, back, shortcuts, platform conventions) and the ScrollView, Navigation, ContextMenu and Focus modules built on it."
+description = "Interaction/互動: native-feeling input for any graphics library (clicks and double clicks, drags, long presses, pinches, context menus, back, shortcuts, platform conventions) and the ScrollView, Navigation, ContextMenu, Focus and HitTest modules built on it."
 license = "MIT"
 platforms = ["windows", "linux", "android", "web"]
 
@@ -25,3 +25,7 @@ source = "aqua/ContextMenu.aqua"
 [[modules]]
 names = "Focus|焦點"
 source = "aqua/Focus.aqua"
+
+[[modules]]
+names = "HitTest|命中測試"
+source = "aqua/HitTest.aqua"

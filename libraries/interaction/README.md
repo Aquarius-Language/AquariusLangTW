@@ -12,6 +12,7 @@ AI coding assistants, are in [docs/native-like-apps.md](../../docs/native-like-a
 | `Navigation` / `導覽` | AquariusLang | The back stack: screens that can refuse back (unsaved changes), the first screen left to the system |
 | `ContextMenu` / `右鍵選單` | AquariusLang | Placement inside the window, highlight, keyboard navigation, platform shortcut labels, closing rules |
 | `Focus` / `焦點` | AquariusLang | Tab order and the focus-visible rule |
+| `HitTest` / `命中測試` | AquariusLang | Layered hit regions: only the topmost control under the pointer is hovered or pressed; menus and dialogs block what they cover; a pressed control keeps the capture |
 
 ## Interaction
 

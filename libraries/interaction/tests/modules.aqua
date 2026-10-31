@@ -5,6 +5,7 @@ var sv = import("ScrollView");
 var nav = import("Navigation");
 var cm = import("ContextMenu");
 var focus = import("Focus");
+var hit = import("HitTest");
 var s = ix.Create();
 
 # ---- ScrollView: a 200 x 100 view at (10, 20) over 200 x 1000 of content ----
@@ -124,3 +125,18 @@ print("shift+tab wraps", focus.Current(ring));
 s4.Feed({"type": "button", "button": 0, "action": 1, "x": 1, "y": 1});
 s4.Dispatch();
 print("a click hides the ring", focus.RingVisible(ring));
+
+# ---- HitTest: a menu over a button; only the topmost control is hot ----
+var hits = hit.Create();
+hit.Begin(hits);
+hit.Add(hits, "space", 100, 100, 300, 32);        # a button
+hit.Block(hits, 80, 40, 330, 150);                # a dropdown drawn over it
+hit.Add(hits, "viewing", 86, 110, 318, 30);       # an item of the dropdown, above the button
+print("hot before a frame finished", hit.IsHot(hits, "viewing", 120, 120));
+hit.Begin(hits);
+print("item hot", hit.IsHot(hits, "viewing", 120, 120), "covered button", hit.IsHot(hits, "space", 120, 120));
+print("menu surface", hit.Top(hits, 90, 50), "outside", hit.Top(hits, 500, 500), "no pointer", hit.Top(hits, null, null));
+hit.Capture(hits, "space");
+print("captured", hit.Captured(hits), hit.IsHot(hits, "space", 500, 500), hit.IsHot(hits, "viewing", 120, 120));
+hit.Release(hits);
+print("released", hit.IsHot(hits, "viewing", 120, 120), hit.TopNow(hits, 120, 120));
