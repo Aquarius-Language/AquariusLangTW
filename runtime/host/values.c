@@ -82,27 +82,35 @@ static uint32_t array_layout(aqua_runtime *rt, aqua_value array) {
     return guest_u32(rt, guest_u32(rt, array.ref + G_Array_Storage) + G_ArrayStorage_Layout);
 }
 static size_t layout_size(uint32_t layout) { return layout == AQUA_INT || layout == AQUA_FLOAT ? 4 : layout == AQUA_DOUBLE ? 8 : layout == AQUA_BOOL ? 1 : G_Value_Size; }
-static aqua_value element_read(aqua_runtime *rt, uint32_t items, uint32_t layout, uint32_t index) {
-    const uint8_t *at = guest_base(rt) + items + (size_t)index * layout_size(layout);
+/* Elements at a guest memory base the caller read once: bulk transfers touch millions of elements, and every guest_base
+   asks the engine for its memory. Nothing may allocate in the guest between reading the base and using it. */
+static aqua_value element_load(const uint8_t *base, uint32_t items, uint32_t layout, uint32_t index) {
+    const uint8_t *at = base + items + (size_t)index * layout_size(layout);
     aqua_value v = {(aqua_type)layout, 0, 0};
     switch (layout) {
         case AQUA_INT: { int32_t x; memcpy(&x, at, 4); v.number = x; return v; }
         case AQUA_FLOAT: { float x; memcpy(&x, at, 4); v.number = x; return v; }
         case AQUA_DOUBLE: memcpy(&v.number, at, 8); return v;
         case AQUA_BOOL: v.number = *at; return v;
-        default: return guest_read_value(rt, items + index * G_Value_Size);
+        default: memcpy(&v, at, sizeof v); return v;
     }
 }
+static aqua_value element_read(aqua_runtime *rt, uint32_t items, uint32_t layout, uint32_t index) {
+    return element_load(guest_base(rt), items, layout, index);
+}
 /* item must fit the layout (element_fits). */
-static void element_write(aqua_runtime *rt, uint32_t items, uint32_t layout, uint32_t index, aqua_value item) {
-    uint8_t *at = guest_base(rt) + items + (size_t)index * layout_size(layout);
+static void element_store(uint8_t *base, uint32_t items, uint32_t layout, uint32_t index, aqua_value item) {
+    uint8_t *at = base + items + (size_t)index * layout_size(layout);
     switch (layout) {
         case AQUA_INT: { int32_t x = (int32_t)item.number; memcpy(at, &x, 4); return; }
         case AQUA_FLOAT: { float x = (float)item.number; memcpy(at, &x, 4); return; }
         case AQUA_DOUBLE: memcpy(at, &item.number, 8); return;
         case AQUA_BOOL: *at = item.number != 0; return;
-        default: guest_write_value(rt, items + index * G_Value_Size, item);
+        default: memcpy(at, &item, sizeof item);
     }
+}
+static void element_write(aqua_runtime *rt, uint32_t items, uint32_t layout, uint32_t index, aqua_value item) {
+    element_store(guest_base(rt), items, layout, index, item);
 }
 /* Whether item fits a packed array, widened like the guest's element check (an integer or float into a float or double
    array); any value fits whole Values. */
@@ -158,8 +166,9 @@ static bool range(aqua_runtime *rt, aqua_value array, uint32_t start, uint32_t c
     bool NAME(aqua_runtime *rt, aqua_value array, uint32_t start, uint32_t count, T *out) { \
         if (!range(rt, array, start, count)) return false; \
         uint32_t items = array_items(rt, array), layout = array_layout(rt, array); \
+        const uint8_t *base = guest_base(rt); \
         for (uint32_t i = 0; i < count; i++) { \
-            aqua_value v = element_read(rt, items, layout, start + i); \
+            aqua_value v = element_load(base, items, layout, start + i); \
             if (!aqua_is_number(v) || !(CHECK)) return false; \
             out[i] = (T)v.number; \
         } \
@@ -177,6 +186,7 @@ READ_NUMBERS(aqua_array_read_u8, uint8_t, v.type == AQUA_INT && v.number >= 0 &&
         uint32_t layout = array_layout(rt, array); \
         if (layout) { aqua_value v = {TAG##_TYPE, 0, 0}; if (count && !element_fits(layout, &v)) return false; } \
         uint32_t storage = writable_items(rt, array); /* may allocate: read the base after */ \
+        uint8_t *base = guest_base(rt); \
         for (uint32_t i = 0; i < count; i++) { \
             aqua_value v = {TAG##_TYPE, 0, (double)in[i]}; \
             if (v.type == AQUA_FLOAT) v.number = (double)(float)v.number; \
@@ -184,7 +194,7 @@ READ_NUMBERS(aqua_array_read_u8, uint8_t, v.type == AQUA_INT && v.number >= 0 &&
             if (v.type == AQUA_INT) v.number = v.number != v.number ? 0 : v.number <= -2147483648.0 ? -2147483648.0 \
                 : v.number >= 2147483647.0 ? 2147483647.0 : (double)(int32_t)v.number; \
             element_fits(layout, &v); \
-            element_write(rt, storage, layout, start + i, v); \
+            element_store(base, storage, layout, start + i, v); \
         } \
         return true; \
     }

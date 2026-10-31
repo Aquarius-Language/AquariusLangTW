@@ -38,7 +38,7 @@ convolution (the old probe model), so a missing driver or library is reported in
 A session's `Providers/後端清單` is the chain handed to the engine, including companions (CUDA behind TensorRT) and the
 implicit CPU fallback. The pose tracker resolves the selection for its detector and opens the landmark model on exactly
 the same chain. Limits: 8 live sessions and 4 trackers per runtime, 16 axes and 16,777,216 elements per tensor,
-256 MiB per model, pose frames up to 1920 × 1080 (portrait too).
+2 GiB per model (protobuf's limit), pose frames up to 1920 × 1080 (portrait too).
 
 ## Platforms
 

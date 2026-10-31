@@ -62,10 +62,13 @@ Libraries:
   the pointer there.
 - Processing's `platformWindow` and WGPU windows' `PlatformWindow` give other libraries the shared window object.
 - Web glue domains `history` (the browser's back button) and `mediaquery` (`matchMedia`).
+- ONNX: models up to 2 GiB (protobuf's limit) instead of 256 MiB, so YOLOX-X (396 MB) and other large models load.
 
 SDK (API version 2): `aqua_define_async` registers a promise variant of a function; `aqua_object_member` gives a
 method of a native object as a function value; `aqua_invoke_async` waits for a promise a callback returns. A deferred
-call that settled before its function returned no longer leaves its caller waiting.
+call that settled before its function returned no longer leaves its caller waiting. The bulk array transfers
+(`aqua_array_read_*`, `aqua_array_write_*`, `aqua_array_from_*`) ask the engine for guest memory once per call instead
+of once per element: 2–3 times faster on million-element arrays (an image's bytes, a model's input tensor).
 
 Docs: [native-like applications](docs/native-like-apps.md), the rules and checklist for drawn interfaces on every
 platform.

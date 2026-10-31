@@ -15,9 +15,9 @@
 #include <stddef.h>
 #include <stdint.h>
 
-/* ---- Limits (unchanged from the old contract) ---------------------------------------------------------------- */
+/* ---- Limits (the old contract's, except 2 GiB models instead of 256 MiB) ------------------------------------- */
 #define ONNX_MAX_ELEMENTS (16u * 1024u * 1024u)    /* elements of one tensor */
-#define ONNX_MAX_MODEL_BYTES (256u * 1024u * 1024u)
+#define ONNX_MAX_MODEL_BYTES 0x7FFFFFFFu           /* protobuf's 2 GiB limit */
 #define ONNX_MAX_SESSIONS 8                        /* live ONNX sessions of one runtime */
 #define ONNX_MAX_RANK 16
 #define ONNX_MAX_DEVICES 16                        /* rows of devices.def */
