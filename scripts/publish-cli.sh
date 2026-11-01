@@ -25,5 +25,6 @@ for library in "$root"/libraries/*/; do
 done
 cp -r "$root/examples" "$output/examples"
 cp "$root/LICENSE" "$output/"
+cp "$root/docs/agent-reference.md" "$output/AGENT_REFERENCE.md"
 "$output/aqua" --help > /dev/null
 echo "Published $output"

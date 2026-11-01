@@ -7,6 +7,7 @@
 #     sdk/                           runtime/sdk: headers, CMake modules and toolchain files for external library authors
 #     scripts/                       the toolchain pins and installers the SDK's toolchain files use
 #     examples/                      the example tree
+#     AGENT_REFERENCE.md             docs/agent-reference.md: the language and CLI reference for AI agents
 #   scripts/publish-cli.ps1 [-Runtime win-x64|linux-x64] [-Output dist/aqua] [-Packs windows-x64,web,...]
 param([string]$Dotnet = 'dotnet', [string]$Runtime = 'win-x64', [string]$Output = 'dist/aqua', [string[]]$Packs = @())
 $ErrorActionPreference = 'Stop'
@@ -54,6 +55,7 @@ foreach ($library in Get-ChildItem -LiteralPath (Join-Path $repository 'librarie
 }
 Copy-Folder (Join-Path $repository 'examples') (Join-Path $Output 'examples')
 Copy-Item -LiteralPath (Join-Path $repository 'LICENSE') -Destination $Output
+Copy-Item -LiteralPath (Join-Path $repository 'docs/agent-reference.md') -Destination (Join-Path $Output 'AGENT_REFERENCE.md')
 
 $aqua = Join-Path $Output $(if ($Runtime.StartsWith('win-')) { 'aqua.exe' } else { 'aqua' })
 & $aqua --help | Out-Null

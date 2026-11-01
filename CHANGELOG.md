@@ -74,7 +74,8 @@ call that settled before its function returned no longer leaves its caller waiti
 of once per element: 2–3 times faster on million-element arrays (an image's bytes, a model's input tensor).
 
 Docs: [native-like applications](docs/native-like-apps.md), the rules and checklist for drawn interfaces on every
-platform.
+platform. [The reference for AI agents](docs/agent-reference.md) ships in the package as `AGENT_REFERENCE.md`: the CLI,
+the whole language, the libraries, error messages and pitfalls, with examples checked against the packaged `aqua`.
 
 ## 0.1.6
 

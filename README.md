@@ -72,6 +72,8 @@ Press Ctrl+C to exit. Quote paths containing spaces.
 The compiler package is self-contained: users do not need the .NET SDK or a runtime. Keep the whole folder together:
 `runtime/<target>/` holds the runtime packs applications are built from, `web-glue/` the web glue, `libraries/` the
 default libraries' manifests and Aquarius sources, `sdk/` the library SDK and `examples/` the examples.
+`AGENT_REFERENCE.md` ([source](docs/agent-reference.md)) is a single-file reference of the CLI, the language, the
+libraries and common pitfalls for AI coding agents that only have the package.
 
 ## Build and package a release
 
