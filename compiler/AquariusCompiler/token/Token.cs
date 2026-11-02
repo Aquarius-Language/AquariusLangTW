@@ -14,6 +14,7 @@ namespace AquariusLang.token {
         public const string INT = "INT"; // 1343456
         public const string FLOAT = "FLOAT"; // 234.234f, 0.34124f...
         public const string DOUBLE = "DOUBLE"; // 234.234d, 0.34124d...
+        public const string LONG = "LONG"; // 5000000000L, 0xFFL: 長整數 / long
 
         // Operators
         public const string ASSIGN = "=";

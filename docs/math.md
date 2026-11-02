@@ -24,6 +24,41 @@ text within 32 bits gives an integer, any other number a double (`"2147483648"`,
 else null (`"0x10"`, `"1e"`, `""`). The conversion is exact (the double nearest to the text, ties to even, any
 number of digits), so `String.ParseNumber(String.From(x)) == x` for every double printed by 印出 or `String.From`.
 
+## 64-bit integers (長整數 / long)
+
+`整數` / `int` stays the 32-bit default. `長整數` / `long` is the opt-in 64-bit integer:
+
+```aquarius
+變數 毫秒: 長整數 = 1730505600000L;      # literals end in L
+變數 雜湊 = 0xCBF29CE484222325L;           # hexadecimal and binary up to 64 bits (0xFFFF_FFFF_FFFF_FFFFL is -1)
+雜湊 = (雜湊 ^ 97) * 0x100000001B3L;       # an int with a long gives a long; * wraps around like i64
+印出(毫秒 / 1000, 型別(毫秒), 長整數(3.9), 整數(5000000000L), 字串.解析長整數("9223372036854775807"));
+```
+
+| Rule | Long |
+| --- | --- |
+| Literals | Integer digits (decimal, `0x`, `0b`, `_`) with the suffix `L`; `-9223372036854775808L` is the minimum. Without `L` an integer is 32-bit; an out-of-range one is a compile error that suggests the `L` form. |
+| Mixing | int with long → long; long with float or double → double (C# would give float; a float cannot hold 25 bits). |
+| Arithmetic | `+ - *` and negation wrap (two's complement); `/` and `%` truncate, a zero divisor is an error, the minimum `/ -1` wraps to itself. |
+| Bitwise | `& \| ^ ~ << >> >>>`; shift counts use their low 6 bits (`1L << 64` is 1). |
+| Comparisons | Exact: `9007199254740993L == 9007199254740992.0d` is false, `5L == 5` is true, NaN compares false. |
+| Conversions | `長整數(x)` / `long(x)` truncates and saturates (NaN 0); `整數(long)` saturates; `雙精度(long)` and `浮點數(long)` round to nearest. |
+| Typed bindings | `變數 t: 長整數`, parameters, results, struct fields and `長整數[]` arrays; ints widen to long, longs widen to float and double. A compound assignment keeps the variable's type, so `n += 5000000000L` saturates an `整數` n. |
+| Text | Plain decimal digits in `印出` and `String.From`; `字串.解析長整數` / `String.ParseLong` reads optionally signed digits within 64 bits, else null. |
+| Hash keys | Typed: `{5: "int", 5L: "long"}` has two keys. |
+| Math | `Abs`, `Sign`, `Min`, `Max`, `Clamp` keep longs; `Floor`..`Trunc` return them unchanged; `*Int` saturate to int; other functions compute on doubles. `Math.Seed` takes a long. |
+| Threads | Longs travel to and from workers exactly. |
+
+A long is the value tag 17; its two's complement bits fill the 8 bytes a number uses (`Value.number`), so nothing
+else in the value layout changes. Generic compiled code keeps proven longs in their f64 registers and computes `+ - *`,
+comparisons and bitwise operators inline as `i64` instructions on the reinterpreted bits; division, remainder,
+operations with floats or doubles and unknown types call the runtime. The native tier does not compile functions that
+use longs yet (they run as generic code), and `長整數[]` arrays store whole values (not packed) — see
+[the design](int64-design.md) for the remaining phases. Native libraries see longs through SDK API 3: `AQUA_LONG`,
+`aqua_value.integer`, `aqua_long()`, `aqua_arg_long()`, `aqua_return_long()`, `aqua_is_numeric()` and `aqua_number_of()`;
+`aqua_arg_number` accepts a long (rounded to a double) and `aqua_is_number` stays false for one, so existing libraries
+never misread its bits.
+
 ## Printing numbers
 
 `印出` / `print` (the host, `runtime/host/format.c`) and `字串.轉文字` / `String.From` (the guest, `texts.h`) format numbers

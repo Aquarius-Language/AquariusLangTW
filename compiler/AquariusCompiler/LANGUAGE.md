@@ -99,6 +99,14 @@ Default value inspection still prints booleans as `真` / `假` and null as `nul
   are integers; `1.5`, `1e-9` and `2d` are doubles (a fraction or exponent without a suffix makes a double); `1.5f`,
   `2.5e3f` and `2f` are floats; `1.5d` stays a double. Literals outside their type's range and malformed numbers
   (`0xFG`, `1__0`, `1.5x`) are compile errors. See [numbers](../../docs/math.md#number-literals).
+- `長整數` / `long` is a 64-bit integer: literals end in `L` (`5000000000L`, `0xFFFF_FFFF_FFFF_FFFFL` is -1; an unsuffixed
+  integer stays 32-bit, and one out of range is a compile error suggesting the `L` form). An int with a long gives a
+  long, a long with a float or double gives a double; `+ - *` wrap around (i64), `/` and `%` by zero are errors, bitwise
+  operators work with shift counts masked to 6 bits, and comparisons are exact (`9007199254740993L ==
+  9007199254740992.0d` is false). `長整數(x)` and `整數(long)` truncate and saturate; a compound assignment keeps the
+  variable's type (`n += 5000000000L` saturates an `整數` n). Longs print as plain decimals, `字串.解析長整數` /
+  `String.ParseLong` reads them, hash keys `5` and `5L` differ, `型別` gives `long`, and `長整數[]` arrays hold longs
+  (ints widen into them). See [64-bit integers](../../docs/math.md#64-bit-integers-長整數--long).
 - Optional annotations (`name: type` on declarations, parameters and after a parameter list) fix a binding's type:
   `整數`/`int`, `浮點數`/`float`, `雙精度`/`double`, `布林`/`bool`, `字串`/`string`, arrays such as `整數[]`, and
   `字串[]`/`string[]`, and `陣列`/`array`, an array whose elements may be any values (arrays of arrays, mixed elements;

@@ -24,6 +24,13 @@ Language:
   unchanged.
 - Integer bitwise operators `&`, `|`, `^`, `~`, `<<`, `>>`, `>>>` and `&= |= ^= <<= >>= >>>=`, with C#/JavaScript
   precedence and shift counts masked to 5 bits; non-integer operands are errors.
+- 64-bit integers: `長整數` / `long` with `L` literals (`5000000000L`, `0xFFL`), `長整數(x)` / `long(x)`, `長整數[]`,
+  `字串.解析長整數` / `String.ParseLong`. An int with a long gives a long, a long with a float or double a double; `+ - *`
+  wrap like i64, comparisons are exact, bitwise operators mask shift counts to 6 bits, conversions saturate, longs print
+  as plain decimals and `型別` gives `long`. `整數` / `int` stays 32-bit; an out-of-range int literal now suggests its
+  `L` form. Generic compiled code computes proven longs inline as i64; the native tier does not take longs yet. The
+  library SDK moves to API 3 (`AQUA_LONG`, `aqua_long`, `aqua_arg_long`, `aqua_return_long`); API 2 libraries still
+  load.
 - `arityOf` / `參數個數` gives the parameter count of a script or async function (-1 for native ones).
 - Async functions and promises: `async function` / `非同步 函式` returns a promise and runs as its own task, `await` /
   `等待` waits for one (inside async functions and at a script's top level), and the `Promise` / `承諾` module adds `New`,

@@ -133,6 +133,7 @@ public sealed class LoweringCompiler {
                 else Value(RepeatedPrimitives.BREAK);
                 break;
             case IntegerLiteral integer: Value(new IntegerObj(integer.Value)); break;
+            case LongLiteral number: Value(new LongObj(number.Value)); break;
             case FloatLiteral floating: Value(new FloatObj(floating.Value)); break;
             case DoubleLiteral number: Value(new DoubleObj(number.Value)); break;
             case BooleanLiteral boolean: Value(boolean.Value ? RepeatedPrimitives.TRUE : RepeatedPrimitives.FALSE); break;

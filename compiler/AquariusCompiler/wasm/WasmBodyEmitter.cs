@@ -244,7 +244,7 @@ internal sealed class WasmBodyEmitter
     /// convert the value in place (an integer to float or double), so the operand is reloaded with the proven tag.</summary>
     private void CheckType(int n, int d)
     {
-        int p = d - 1, want = (n & 16) != 0 ? ArrayTag : n & 15;
+        int p = d - 1, want = (n & 16) != 0 ? ArrayTag : CodeTag(n);
         if ((n & 16) == 0 && Tags(pc)[p] == want) return;
         Helper("checkType", n, d, 1);
         LoadValue(p, F, StackOffset(p), want); loc[p] = Loc.Both;
@@ -794,6 +794,8 @@ internal sealed class WasmBodyEmitter
             case IrOperation.BitNot: {
                 int p = d - 1, tag = Tags(pc)[p]; Ensure(p, tag);
                 if (tag == IntTag) { Get(I(p)); I32(-1); Op(0x73); Set(I(p)); loc[p] = Loc.Reg; return false; }
+                // A long's bits live in its f64 register: i64.xor with -1 on the reinterpreted bits.
+                if (tag == LongTag) { Get(N(p)); Op(0xbd, 0x42, 0x7f, 0x85, 0xbf); Set(N(p)); loc[p] = Loc.Reg; return false; }
                 Helper("bitNot", 0, d, 1); LoadValue(p, F, StackOffset(p), TagAfter(p)); loc[p] = Loc.Both; return false;
             }
             case IrOperation.Not: {
@@ -907,6 +909,7 @@ internal sealed class WasmBodyEmitter
             else Helper(HelperName(op), 0, d, 2);
             LoadValue(a, F, StackOffset(a), result); loc[a] = Loc.Both;
         }
+        if (LongInline(op, a, b, ta, tb, comparison)) return;
         if (IsBitwise(op)) {
             // Proven integers compute inline; any other operands take the runtime, which reports non-integers.
             if (ta == IntTag && tb == IntTag) { IntArithmetic(op, () => Get(I(a)), () => Get(I(b))); Set(I(a)); loc[a] = Loc.Reg; loc[b] = Loc.Mem; return; }
@@ -955,6 +958,26 @@ internal sealed class WasmBodyEmitter
             DynamicArithmetic(op, x, y, T(a), () => IsInt(b, tb), N(a));
             loc[a] = Loc.Reg; return false;
         }, () => { Slow(); return false; }, b);
+    }
+    /// <summary>Proven 長整數 / long arithmetic, comparisons and bitwise operators of a long with an int or long, inline
+    /// on i64 values: a long's bits live in its f64 register (reinterpreted), an int sign-extends. Division, remainder and
+    /// operations with floats or doubles take the runtime. i64 shifts use the count's low 6 bits like the runtime.</summary>
+    private bool LongInline(IrOperation op, int a, int b, int ta, int tb, bool comparison)
+    {
+        if (!(ta == LongTag && tb is var t && (t == LongTag || t == IntTag) || tb == LongTag && ta == IntTag)) return false;
+        byte code;
+        if (comparison) code = op switch { IrOperation.Less => 0x53, IrOperation.Greater => 0x55, IrOperation.LessEqual => 0x57,
+            IrOperation.GreaterEqual => 0x59, IrOperation.Equal => 0x51, _ => 0x52 };
+        else if (op is IrOperation.Add or IrOperation.Subtract or IrOperation.Multiply || IsBitwise(op)) code = op switch {
+            IrOperation.Add => 0x7c, IrOperation.Subtract => 0x7d, IrOperation.Multiply => 0x7e, IrOperation.BitAnd => 0x83,
+            IrOperation.BitOr => 0x84, IrOperation.BitXor => 0x85, IrOperation.ShiftLeft => 0x86, IrOperation.ShiftRight => 0x87, _ => 0x88 };
+        else return false;
+        void Wide(int p, int tag) { if (tag == IntTag) { Get(I(p)); Op(0xac); } else { Get(N(p)); Op(0xbd); } }
+        Wide(a, ta); Wide(b, tb); Op(code);
+        if (!comparison) { Op(0xbf); Set(N(a)); }
+        else if (Fusable()) { Set(A); fusedTruth = a; }
+        else { Op(0xb8); Set(N(a)); }
+        loc[a] = Loc.Reg; loc[b] = Loc.Mem; return true;
     }
     private void BoolTest(int p, int tag) { if (tag == BoolTag) I32(1); else { Get(T(p)); I32(BoolTag); Op(0x46); } }
     private void KnownNumeric(IrOperation op, int a, int b, int ta, int tb, bool comparison)

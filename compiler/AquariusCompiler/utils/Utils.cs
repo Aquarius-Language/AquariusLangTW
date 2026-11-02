@@ -31,6 +31,23 @@ namespace AquariusLang.utils {
                 && double.IsFinite(value) ? value : null;
         }
 
+        /// <summary>A 長整數 / long literal's value (digits and the suffix L): decimal up to 9223372036854775807, or 0x / 0b up
+        /// to 64 bits read as the two's complement pattern (<c>0xFFFF_FFFF_FFFF_FFFFL</c> is -1); null when it does not fit.</summary>
+        public static long? StringToLong(string literal) {
+            string digits = literal.Replace("_", "").TrimEnd('L');
+            if (digits.Length > 2 && digits[0] == '0' && digits[1] is 'x' or 'X' or 'b' or 'B') {
+                int radix = digits[1] is 'x' or 'X' ? 16 : 2;
+                ulong bits = 0;
+                foreach (char c in digits.AsSpan(2)) {
+                    uint digit = (uint)Convert.ToInt32(c.ToString(), 16);
+                    if (bits > (ulong.MaxValue - digit) / (ulong)radix) return null;
+                    bits = bits * (ulong)radix + digit;
+                }
+                return unchecked((long)bits);
+            }
+            return long.TryParse(digits, System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out long value) ? value : null;
+        }
+
         /// <summary>An integer literal's value: decimal up to 2147483647, or <c>0x</c> hexadecimal / <c>0b</c> binary up to 32
         /// bits, read as the two's complement pattern (<c>0xFFFFFFFF</c> is -1); null when it does not fit.</summary>
         public static int? StringToInteger(string literal) {

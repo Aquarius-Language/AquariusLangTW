@@ -151,6 +151,7 @@ namespace AquariusLang.parser {
             parser.registerPrefix(TokenType.INT, parser.parseIntegerLiteral);
             parser.registerPrefix(TokenType.FLOAT, parser.parseFloatLiteral);
             parser.registerPrefix(TokenType.DOUBLE, parser.parseDoubleLiteral);
+            parser.registerPrefix(TokenType.LONG, parser.parseLongLiteral);
             parser.registerPrefix(TokenType.BANG, parser.parsePrefixExpression);
             parser.registerPrefix(TokenType.MINUS, parser.parsePrefixExpression);
             parser.registerPrefix(TokenType.BIT_NOT, parser.parsePrefixExpression);
@@ -498,7 +499,7 @@ namespace AquariusLang.parser {
         // The token after 等待 / await begins its operand. A parenthesized or array operand counts too, unless the word
         // was declared as a name outside an async function: then `等待(...)` and `等待[...]` call or index it.
         private bool startsAwaitOperand() => peekToken.Type switch {
-            TokenType.IDENT or TokenType.INT or TokenType.FLOAT or TokenType.DOUBLE or TokenType.STRING or TokenType.TRUE
+            TokenType.IDENT or TokenType.INT or TokenType.FLOAT or TokenType.DOUBLE or TokenType.LONG or TokenType.STRING or TokenType.TRUE
                 or TokenType.FALSE or TokenType.NULL or TokenType.FUNCTION or TokenType.BANG => true,
             TokenType.LPAREN or TokenType.LBRACKET => insideAsync || !awaitNames.Contains(currToken.Literal),
             _ => false
@@ -516,13 +517,22 @@ namespace AquariusLang.parser {
         private IExpression parseIntegerLiteral() {
             IntegerLiteral integerLiteral = new IntegerLiteral(currToken);
             if (Utils.StringToInteger(currToken.Literal) is not int value) {
-                string msg = $"整數 {currToken.Literal} 超出 32 位元範圍 / Could not parse {currToken.Literal} as a 32-bit integer.";
+                // A larger integer is most likely meant as a 長整數 / long: suggest its literal.
+                string suggestion = Utils.StringToLong(currToken.Literal + "L") != null ? $"；更大的整數請用 長整數：{currToken.Literal}L" : "";
+                string hint = suggestion.Length > 0 ? $"; for a larger integer use a long: {currToken.Literal}L" : "";
+                string msg = $"整數 {currToken.Literal} 超出 32 位元範圍{suggestion} / Could not parse {currToken.Literal} as a 32-bit integer{hint}.";
                 addError(msg, currToken);
                 return null;
             }
 
             integerLiteral.Value = value;
             return integerLiteral;
+        }
+
+        private IExpression parseLongLiteral() {
+            if (Utils.StringToLong(currToken.Literal) is long value) return new LongLiteral(currToken, value);
+            addError($"長整數 {currToken.Literal} 超出 64 位元範圍 / Could not parse {currToken.Literal} as a 64-bit long.", currToken);
+            return null;
         }
 
         private IExpression parseFloatLiteral() {
@@ -575,6 +585,10 @@ namespace AquariusLang.parser {
             if (currTokenIs(TokenType.MINUS) && peekTokenIs(TokenType.INT) && peekToken.Literal.Replace("_", "") == "2147483648") {
                 nextToken();
                 return new IntegerLiteral(currToken) { Value = int.MinValue };
+            }
+            if (currTokenIs(TokenType.MINUS) && peekTokenIs(TokenType.LONG) && peekToken.Literal.Replace("_", "") == "9223372036854775808L") {
+                nextToken();
+                return new LongLiteral(currToken, long.MinValue);
             }
             PrefixExpression expression = new PrefixExpression(currToken, currToken.Literal);
             nextToken();

@@ -1,7 +1,9 @@
 # Design: a 64-bit integer type (長整數 / long)
 
-Status: proposal only. Nothing here is implemented. It records what a 64-bit integer touches in the current
-architecture and recommends a plan, so the work can be scheduled and split.
+Status: phases 1 and 2 are implemented (the runtime core, the compiler front end and the generic emitter's inline
+`i64` code), together with the SDK accessors of phase 3; packed `長整數[]` storage, the native tier and `Math.RandomLong`
+remain. The language surface below is what was built; see [numbers](math.md#64-bit-integers-長整數--long) for the
+user documentation.
 
 ## Why
 

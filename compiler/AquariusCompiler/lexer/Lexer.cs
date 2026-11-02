@@ -336,7 +336,8 @@ namespace AquariusLang.lexer {
         /// <summary>A number literal, as written (the parser converts it): decimal digits with an optional fraction
         /// (<c>1.5</c>) and exponent (<c>1e-9</c>), then an optional suffix <c>f</c> (float) or <c>d</c> (double); without a
         /// suffix a fraction or exponent makes a double, else an integer. <c>0x</c> / <c>0b</c> start hexadecimal and binary
-        /// integers. <c>_</c> may separate digits (<c>1_000_000</c>, <c>0xFF_FF</c>).</summary>
+        /// integers. <c>_</c> may separate digits (<c>1_000_000</c>, <c>0xFF_FF</c>). The suffix <c>L</c> makes integer digits a
+        /// 64-bit 長整數 / long (<c>5000000000L</c>, <c>0xFFL</c>).</summary>
         private string readNumber(out string numberType) {
             int lastPos = position;
             numberType = TokenType.INT;
@@ -344,6 +345,7 @@ namespace AquariusLang.lexer {
                 int radix = peekChar() is 'x' or 'X' ? 16 : 2;
                 readChar(); readChar();
                 if (!readDigits(radix)) numberType = TokenType.ILLEGAL;
+                else if (ch == 'L') { numberType = TokenType.LONG; readChar(); }
             } else {
                 bool floating = false, valid = readDigits(10);
                 if (ch == '.' && isDigit(peekChar())) { readChar(); valid &= readDigits(10); floating = true; }
@@ -353,7 +355,8 @@ namespace AquariusLang.lexer {
                     readChar(); if (ch is '+' or '-') readChar();
                     valid &= readDigits(10); floating = true;
                 }
-                if (ch == 'f') { numberType = TokenType.FLOAT; readChar(); }
+                if (ch == 'L' && !floating) { numberType = TokenType.LONG; readChar(); }
+                else if (ch == 'f') { numberType = TokenType.FLOAT; readChar(); }
                 else if (ch == 'd') { numberType = TokenType.DOUBLE; readChar(); }
                 else if (floating) numberType = TokenType.DOUBLE;
                 if (!valid) numberType = TokenType.ILLEGAL;

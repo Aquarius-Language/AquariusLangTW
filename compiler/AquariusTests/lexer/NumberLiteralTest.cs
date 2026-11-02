@@ -66,4 +66,19 @@ public class NumberLiteralTest {
         Assert.Equal([("<<", "<<"), ("<<=", "<<="), ("<", "<"), ("<=", "<="), (">>", ">>"), (">>=", ">>="), (">>>", ">>>"), (">>>=", ">>>="), (">", ">"), (">=", ">=")],
             Tokens("<< <<= < <= >> >>= >>> >>>= > >="));
     }
+
+    [Theory]
+    [InlineData("5000000000L"), InlineData("0xFFL"), InlineData("0b1L"), InlineData("1_000L"), InlineData("0L")]
+    public void LongLiteralsLexAsOneToken(string literal) => Assert.Equal([("LONG", literal), (";", ";")], Tokens(literal + ";"));
+
+    [Fact]
+    public void LongLiteralValues() {
+        Assert.Equal(5000000000L, Utils.StringToLong("5000000000L"));
+        Assert.Equal(-1L, Utils.StringToLong("0xFFFF_FFFF_FFFF_FFFFL"));
+        Assert.Equal(long.MinValue, Utils.StringToLong("0x8000000000000000L"));
+        Assert.Null(Utils.StringToLong("9223372036854775808L"));
+        Assert.Null(Utils.StringToLong("0x1_0000_0000_0000_0000L"));
+        var lexer = Lexer.NewInstance("1.5L;");
+        Assert.Equal(TokenType.ILLEGAL, lexer.NextToken().Type);
+    }
 }
