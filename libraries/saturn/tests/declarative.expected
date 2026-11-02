@@ -3,3 +3,5 @@ badges 3
 done filter [filters, Build, null, total]
 open filter [filters, Design, Ship, null, total]
 after check [filters, Design, Build, Ship, null, total] 3
+scroll extent fits 真 真
+list fits ListView 真 600

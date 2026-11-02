@@ -234,6 +234,7 @@ var alignmentOf = function(name) {
 var clamp = function(v, lo, hi) { if (v < lo) { return lo; } if (v > hi) { return hi; } return v; };
 var Processing_max = function(a, b) { if (a > b) { return a; } return b; };
 var Processing_abs = function(a) { if (a < 0) { return -a; } return a; };
+var Processing_min = function(a, b) { if (a < b) { return a; } return b; };
 # A color as [r, g, b, a] (0..255) from "#rgb", "#rrggbb", "#rrggbbaa" or an array.
 var hexDigit = function(text, i) {
     var c = String.Code(text, i);
@@ -600,13 +601,18 @@ kinds["CustomPaint"] = {"update": function(e, w) {
 kinds["ScrollView"] = {"update": function(e, w) {
     restyle(e, {"overflow": "scroll", "flexShrink": 1, "minHeight": 0, "minWidth": 0}, selectorsOf("ScrollView", null, w.class), w.style);
     var direction = if (w.horizontal == true) { "row"; } else { "column"; };
-    var content = Box(child: w.child, style: {"flexDirection": direction, "flexShrink": 0, "alignSelf": "flex-start", "minWidth": "100%"}, key: "content");
+    # A vertical view lays its content out at the view's width (so text wraps as it will be seen); a horizontal one at
+    # the content's own width.
+    var align = if (w.horizontal == true) { "flex-start"; } else { "stretch"; };
+    var content = Box(child: w.child, style: {"flexDirection": direction, "flexShrink": 0, "alignSelf": align, "minWidth": "100%"}, key: "content");
     var thumb = Box(class: "ScrollThumb", key: "thumb");
     reconcile(e, [content, thumb]);
     e.data["scrollable"] = true;
 }};
 kinds["ListView"] = {"update": function(e, w) {
-    restyle(e, {"overflow": "scroll", "flexShrink": 1, "minHeight": 0}, selectorsOf("ListView", null, w.class), w.style);
+    # A list fills the space its parent gives it (a style height or flexGrow 0 overrides that): its rows never size it or
+    # its ancestors, so 10,000 rows of spacers cannot push a card or a window off the screen.
+    restyle(e, {"overflow": "scroll", "flexGrow": 1, "flexShrink": 1, "flexBasis": 0, "minHeight": 0}, selectorsOf("ListView", null, w.class), w.style);
     var count = w.itemCount;
     var extent = w.itemExtent;
     var gap = pick(w.gap, 0);
@@ -617,7 +623,8 @@ kinds["ListView"] = {"update": function(e, w) {
     } else {
         # Virtualized: only the rows in view (plus one screen) are built, between spacers of the skipped rows.
         var top = Hash.Get(e.data, "scrollY", 0);
-        var viewport = Hash.Get(e.data, "viewport", e.surface.height);
+        # The rows in view: never more than the surface shows, even while the list's own height still follows its content.
+        var viewport = Processing_min(Hash.Get(e.data, "viewport", e.surface.height), e.surface.height);
         var step = extent + gap;
         var first = clamp(int((top - viewport) / step), 0, count);
         var last = clamp(int((top + 2 * viewport) / step) + 1, 0, count);

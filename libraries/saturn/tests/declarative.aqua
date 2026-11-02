@@ -54,3 +54,21 @@ print("open filter", keys(column));
 tap(column.children[0].children[0]);
 tap(column.children[1].children[0]);
 print("after check", keys(column), len(column.children[1].children));
+
+# A vertical ScrollView lays its content out at its own width, so wrapped text gives the real extent to scroll.
+var scroller = UI.Surface(200, 100, UI.ScrollView(style: {"flexGrow": 1}, child: UI.Column(children: [
+    for (var i = 0; i < 3; i++) UI.Text("Words that wrap over several lines in a narrow view", key: i),
+])), null);
+scroller.Frame(0);
+var view = scroller.tree.children[0];
+print("scroll extent fits", view.children[0].node.GetComputedHeight() < 400, view.children[0].node.GetComputedWidth() == 200);
+# A ListView fills the card it is in, whatever its 10,000 rows add up to, and scrolls by the wheel.
+var listSurface = UI.Surface(400, 300, UI.Row(style: {"flexGrow": 1, "padding": 10}, crossAxis: "stretch", children: [
+    UI.Expanded(child: UI.Card(style: {"padding": 0}, children: [UI.ListView(itemCount: 10000, itemExtent: 30, itemBuilder: i => UI.Text("#" + String.From(i)))])),
+]), null);
+listSurface.Frame(0);
+var list = listSurface.tree.children[0].children[0].children[0].children[0];
+listSurface.Feed({"type": "move", "x": 200, "y": 150});
+listSurface.Feed({"type": "scroll", "x": 200, "y": 150, "dy": 600});
+listSurface.Frame(16);
+print("list fits", list.type, list.node.GetComputedHeight() < 300, list.data["scrollY"]);
