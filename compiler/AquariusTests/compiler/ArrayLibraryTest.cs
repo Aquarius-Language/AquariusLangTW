@@ -21,7 +21,7 @@ public class ArrayLibraryTest {
             ("Clone", "克隆"), ("Clear", "清空"), ("Merge", "合併"), ("Entries", "項目列表")),
         new("String", "字串", ("From", "轉文字"), ("Slice", "切片"), ("Find", "尋找"), ("Contains", "包含"), ("StartsWith", "開頭是"), ("EndsWith", "結尾是"),
             ("Split", "分割"), ("Join", "合併"), ("Replace", "取代"), ("Trim", "修剪"), ("Upper", "轉大寫"), ("Lower", "轉小寫"), ("Repeat", "重複"),
-            ("Code", "字元碼"), ("FromCode", "從字元碼"), ("ParseInt", "解析整數")),
+            ("Code", "字元碼"), ("FromCode", "從字元碼"), ("ParseInt", "解析整數"), ("ParseNumber", "解析數字")),
         new("Math", "數學", ("Abs", "絕對值"), ("Sign", "正負號"), ("Min", "最小值"), ("Max", "最大值"), ("Clamp", "限制範圍"), ("Floor", "向下取整"),
             ("Ceil", "向上取整"), ("Round", "四捨五入"), ("Trunc", "截斷"), ("FloorInt", "向下取整數"), ("CeilInt", "向上取整數"), ("RoundInt", "四捨五入取整數"),
             ("TruncInt", "截斷取整數"), ("Sqrt", "平方根"), ("Cbrt", "立方根"), ("Hypot", "斜邊長"), ("Pow", "次方"), ("Exp", "指數"), ("Log", "對數"),

@@ -74,6 +74,21 @@
       "ParseInt accepts only 32-bit decimal integers",
       "[String.ParseInt(\" -42 \"),String.ParseInt(\"+7\"),String.ParseInt(\"x1\"),String.ParseInt(\"\"),String.ParseInt(\"2147483648\"),String.ParseInt(\"-2147483648\")];",
       "[-42, 7, null, null, null, -2147483648]"
+    ],
+    [
+      "ParseNumber gives integers within 32 bits, else doubles",
+      "[String.ParseNumber(\" 42 \"),型別(String.ParseNumber(\"42\")),String.ParseNumber(\"-1.5\"),型別(String.ParseNumber(\"1.0\")),String.ParseNumber(\"2147483648\"),型別(String.ParseNumber(\"2147483648\")),String.ParseNumber(\"1e3\"),型別(String.ParseNumber(\"1e3\")),String.ParseNumber(\".5\"),String.ParseNumber(\"-0\"),String.ParseNumber(\"x\"),String.ParseNumber(\"\"),String.ParseNumber(\"1e\"),String.ParseNumber(\"1.2.3\"),String.ParseNumber(\"0x10\")];",
+      "[42, integer, -1.5, double, 2147483648, double, 1000, double, 0.5, 0, null, null, null, null, null]"
+    ],
+    [
+      "ParseNumber reads decimal digits exactly",
+      "[String.ParseNumber(\"0.1\")==0.1,String.ParseNumber(\"1E+17\")==100000000000000000.0d,String.ParseNumber(\"9007199254740993\")==9007199254740992.0d,String.ParseNumber(\"2.2250738585072011e-308\")==String.ParseNumber(\"2.225073858507201e-308\"),String.ParseNumber(\"1e400\"),String.ParseNumber(\"-1e400\"),String.ParseNumber(\"1e-400\"),String.ParseNumber(\"Infinity\"),String.ParseNumber(\"NaN\")==String.ParseNumber(\"NaN\"),String.ParseNumber(\"4.9406564584124654e-324\")>0,String.ParseNumber(\"2.4703282292062327e-324\")==0,String.ParseNumber(\"2.4703282292062328e-324\")>0];",
+      "[真, 真, 真, 真, Infinity, -Infinity, 0, Infinity, 假, 真, 真, 真]"
+    ],
+    [
+      "ParseNumber keeps digits past the 780th that decide a tie",
+      "變數 tie=\"9007199254740993.\"+String.Repeat(\"0\",800);[String.ParseNumber(tie)==9007199254740992.0d,String.ParseNumber(tie+\"1\")==9007199254740994.0d,String.ParseNumber(String.Repeat(\"1\",400)+\"e-400\")==String.ParseNumber(\"0.1111111111111111111\")];",
+      "[真, 真, 真]"
     ]
   ],
   "invalid": [
@@ -84,6 +99,8 @@
     "String.Repeat(\"a\",-1);",
     "String.FromCode(1114112);",
     "String.Join(\"a\",\",\");",
-    "String.From();"
+    "String.From();",
+    "String.ParseNumber(5);",
+    "String.ParseNumber();"
   ]
 }

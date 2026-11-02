@@ -93,6 +93,7 @@ Strings are UTF-16 code-unit sequences; indexes and lengths match `len` and inde
 | 字元碼 | Code | text, index | Code point at index (surrogate pairs combined), or null / 字元碼或空值 |
 | 從字元碼 | FromCode | codePoint | One-character text for 0..0x10FFFF / 由字元碼建立文字 |
 | 解析整數 | ParseInt | text | 32-bit decimal integer, or null when invalid / 32 位元十進位整數或空值 |
+| 解析數字 | ParseNumber | text | Integer within 32 bits, else the exact nearest double (fraction, exponent, Infinity, NaN), or null; see [numbers](math.md#number-literals) / 整數或雙精度數，無效時為空值 |
 
 `轉文字` formats numbers like JavaScript's `Number#toString`: the shortest digits that
 read back as the same value, closest to it, with exponent notation below `1e-6` and

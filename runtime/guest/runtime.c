@@ -634,7 +634,7 @@ int rt_call(Frame*f,int n) {
         Value out=empty;int pending=host_service(4,f->context,callee.ref,0,address(args),n,address(&out));f->sp=base;
         if(pending==1){f->pending_base=base;f->pending_count=n+1;f->execution->status=2;}else push(f,out);
     }
-    else if(callee.tag==BUILTIN&&callee.ref>=ARRAY_FIRST_ID&&callee.ref<TEXT_FIRST_ID+TEXT_COUNT){Value out=callee.ref<HASH_FIRST_ID?array_call(f,callee.ref,args,n):callee.ref<TEXT_FIRST_ID?hash_call(f,callee.ref,args,n):text_call(f,callee.ref,args,n);f->sp=base;push(f,out);}
+    else if(callee.tag==BUILTIN&&(callee.ref>=ARRAY_FIRST_ID&&callee.ref<TEXT_FIRST_ID+TEXT_COUNT||callee.ref==TEXT_MORE_FIRST_ID)){Value out=callee.ref<HASH_FIRST_ID?array_call(f,callee.ref,args,n):callee.ref<TEXT_FIRST_ID?hash_call(f,callee.ref,args,n):text_call(f,callee.ref,args,n);f->sp=base;push(f,out);}
     else if(callee.tag==BUILTIN&&callee.ref>=MATH_FIRST_ID&&callee.ref<MATH_FIRST_ID+MATH_COUNT){Value out=math_call(f,callee.ref,args,(u32)n);f->sp=base;push(f,out);}
     else if(callee.tag==BUILTIN&&callee.ref>=KERNEL_FIRST_ID&&callee.ref<KERNEL_FIRST_ID+KERNEL_COUNT){Value out;u32 prelude=kernel_call(f,callee.ref,args,(u32)n,&out);
         if(prelude&&!f->execution->status){Closure*c=prelude_closure(f,prelude);if(!c)return 1;f->values[base]=value(CLOSURE,address(c),0);return rt_call(f,n);}

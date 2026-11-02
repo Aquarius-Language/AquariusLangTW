@@ -94,6 +94,10 @@ Default value inspection still prints booleans as `真` / `假` and null as `nul
   divided by -1 wraps to itself. Converting a float or double to an integer (`整數(x)` / `int(x)`, or a compound
   assignment into an integer variable) truncates toward zero and saturates at the integer range; NaN gives 0.
   Float results are rounded to 32 bits after each operation.
+- Number literals: `42`, `1_000_000` (`_` between digits), `0xFF` and `0b1010` (32-bit patterns: `0xFFFFFFFF` is -1)
+  are integers; `1.5`, `1e-9` and `2d` are doubles (a fraction or exponent without a suffix makes a double); `1.5f`,
+  `2.5e3f` and `2f` are floats; `1.5d` stays a double. Literals outside their type's range and malformed numbers
+  (`0xFG`, `1__0`, `1.5x`) are compile errors. See [numbers](../../docs/math.md#number-literals).
 - Optional annotations (`name: type` on declarations, parameters and after a parameter list) fix a binding's type:
   `整數`/`int`, `浮點數`/`float`, `雙精度`/`double`, `布林`/`bool`, `字串`/`string`, arrays such as `整數[]`, and
   `字串[]`/`string[]`, and `陣列`/`array`, an array whose elements may be any values (arrays of arrays, mixed elements;

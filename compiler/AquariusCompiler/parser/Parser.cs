@@ -492,8 +492,7 @@ namespace AquariusLang.parser {
 
         private IExpression parseIntegerLiteral() {
             IntegerLiteral integerLiteral = new IntegerLiteral(currToken);
-            bool parseSuccess = int.TryParse(currToken.Literal, out int value);
-            if (!parseSuccess) {
+            if (Utils.StringToInteger(currToken.Literal) is not int value) {
                 string msg = $"整數 {currToken.Literal} 超出 32 位元範圍 / Could not parse {currToken.Literal} as a 32-bit integer.";
                 addError(msg, currToken);
                 return null;
@@ -550,7 +549,7 @@ namespace AquariusLang.parser {
         /// <returns></returns>
         private IExpression parsePrefixExpression() {
             // The smallest integer, -2147483648, is written with a minus sign before a literal one past the largest.
-            if (currTokenIs(TokenType.MINUS) && peekTokenIs(TokenType.INT) && peekToken.Literal == "2147483648") {
+            if (currTokenIs(TokenType.MINUS) && peekTokenIs(TokenType.INT) && peekToken.Literal.Replace("_", "") == "2147483648") {
                 nextToken();
                 return new IntegerLiteral(currToken) { Value = int.MinValue };
             }

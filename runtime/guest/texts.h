@@ -3,6 +3,7 @@
  * matching 長度 and string indexing. Number formatting follows JavaScript's
  * Number#toString (shortest round trip, closest digits) so 轉文字 and the
  * browser 印出 agree. */
+#include "decimal.h"
 typedef struct { uint16_t *data; u32 length, capacity; } TextBuilder;
 static void tb_reserve(TextBuilder*b,u32 extra) {
     if(b->length+extra<=b->capacity)return;
@@ -25,63 +26,6 @@ static int text_find(Text*t,Text*needle,u32 from) {
     for(u32 i=from;i+needle->length<=t->length;i++)if(text_at(t,i,needle))return (int)i;return -1;
 }
 
-/* ---- Exact shortest round-trip digits (Burger & Dybvig free-format algorithm with bignums) ----
- * Produces the shortest digit string that reads back as the same value and, among
- * those, the one closest to it — the digits ECMAScript Number#toString prints. */
-typedef struct { u32 n; uint32_t w[40]; } Big;   /* little-endian base-2^32, up to 1280 bits */
-static void big_set(Big*a,uint64_t v) { a->n=0;while(v){a->w[a->n++]=(uint32_t)v;v>>=32;} }
-static void big_mul_small(Big*a,uint32_t m) {
-    uint64_t carry=0;for(u32 i=0;i<a->n;i++){uint64_t t=(uint64_t)a->w[i]*m+carry;a->w[i]=(uint32_t)t;carry=t>>32;}
-    if(carry)a->w[a->n++]=(uint32_t)carry;
-}
-static void big_shift(Big*a,u32 bits) {
-    if(!a->n)return;u32 words=bits/32,rest=bits%32;
-    if(rest){uint32_t carry=0;for(u32 i=0;i<a->n;i++){uint32_t v=a->w[i];a->w[i]=(v<<rest)|carry;carry=v>>(32-rest);}if(carry)a->w[a->n++]=carry;}
-    if(words){for(int i=(int)a->n-1;i>=0;i--)a->w[i+words]=a->w[i];for(u32 i=0;i<words;i++)a->w[i]=0;a->n+=words;}
-}
-static int big_compare(const Big*a,const Big*b) {
-    if(a->n!=b->n)return a->n<b->n?-1:1;
-    for(int i=(int)a->n-1;i>=0;i--)if(a->w[i]!=b->w[i])return a->w[i]<b->w[i]?-1:1;return 0;
-}
-static void big_add(Big*out,const Big*a,const Big*b) {
-    const Big*x=a->n>=b->n?a:b,*y=a->n>=b->n?b:a;uint64_t carry=0;u32 n=x->n;
-    for(u32 i=0;i<n;i++){uint64_t t=(uint64_t)x->w[i]+(i<y->n?y->w[i]:0)+carry;out->w[i]=(uint32_t)t;carry=t>>32;}
-    out->n=n;if(carry)out->w[out->n++]=(uint32_t)carry;
-}
-static void big_sub(Big*a,const Big*b) {   /* a -= b, requires a >= b */
-    int64_t borrow=0;for(u32 i=0;i<a->n;i++){int64_t t=(int64_t)a->w[i]-(i<b->n?b->w[i]:0)-borrow;borrow=t<0;a->w[i]=(uint32_t)(t+(borrow?4294967296LL:0));}
-    while(a->n&&!a->w[a->n-1])a->n--;
-}
-/* value = f * 2^e; lower_closer marks exact powers of two above the smallest normal.
- * Exact ties between two shortest candidates go to the even digit (Number#toString),
- * or upward for single precision (the hosts print floats through toPrecision). */
-static int shortest_digits(uint64_t f,int e,int lower_closer,int ties_up,char*digits,int*k) {
-    Big r,s,mplus,mminus;int even=!(f&1);
-    if(e>=0){
-        big_set(&r,f);big_shift(&r,(u32)e+(lower_closer?2:1));big_set(&s,lower_closer?4:2);
-        big_set(&mplus,1);big_shift(&mplus,(u32)e+(lower_closer?1:0));big_set(&mminus,1);big_shift(&mminus,(u32)e);
-    } else {
-        big_set(&r,f);big_shift(&r,lower_closer?2:1);big_set(&s,1);big_shift(&s,(u32)(-e)+(lower_closer?2:1));
-        big_set(&mplus,lower_closer?2:1);big_set(&mminus,1);
-    }
-    int bits=0;for(uint64_t t=f;t;t>>=1)bits++;
-    int estimate=0;{double guess=(e+bits-1)*0.30102999566398114-1e-10;estimate=(int)guess;if(guess>estimate)estimate++;}
-    if(estimate>=0)for(int i=0;i<estimate;i++)big_mul_small(&s,10);
-    else for(int i=0;i<-estimate;i++){big_mul_small(&r,10);big_mul_small(&mplus,10);big_mul_small(&mminus,10);}
-    Big high;big_add(&high,&r,&mplus);
-    if(big_compare(&high,&s)>=(even?0:1))estimate++;
-    else{big_mul_small(&r,10);big_mul_small(&mplus,10);big_mul_small(&mminus,10);}
-    *k=estimate;int length=0;
-    for(;;){
-        int digit=0;while(big_compare(&r,&s)>=0){big_sub(&r,&s);digit++;}
-        int low=even?big_compare(&r,&mminus)<=0:big_compare(&r,&mminus)<0;
-        big_add(&high,&r,&mplus);int up=even?big_compare(&high,&s)>=0:big_compare(&high,&s)>0;
-        if(!low&&!up){digits[length++]=(char)('0'+digit);big_mul_small(&r,10);big_mul_small(&mplus,10);big_mul_small(&mminus,10);continue;}
-        if(low&&up){Big twice=r;big_shift(&twice,1);int cmp=big_compare(&twice,&s);if(cmp>0||(cmp==0&&(ties_up||(digit&1))))digit++;}
-        else if(up)digit++;
-        digits[length++]=(char)('0'+digit);return length;
-    }
-}
 static void format_double(TextBuilder*b,double x,int single) {
     if(x!=x){tb_ascii(b,"NaN");return;}
     if(x==0){tb_unit(b,'0');return;}
@@ -146,8 +90,15 @@ static const uint16_t *const text_module_names[2]={u"String",u"字串"};
 static const uint16_t *const text_names[TEXT_COUNT][2]={{u"From",u"轉文字"},{u"Slice",u"切片"},{u"Find",u"尋找"},{u"Contains",u"包含"},{u"StartsWith",u"開頭是"},{u"EndsWith",u"結尾是"},{u"Split",u"分割"},{u"Join",u"合併"},{u"Replace",u"取代"},{u"Trim",u"修剪"},{u"Upper",u"轉大寫"},{u"Lower",u"轉小寫"},{u"Repeat",u"重複"},{u"Code",u"字元碼"},{u"FromCode",u"從字元碼"},{u"ParseInt",u"解析整數"}};
 static const unsigned char text_minimum[TEXT_COUNT]={1,3,2,2,2,2,2,2,3,1,1,1,2,2,1,1};
 static const unsigned char text_maximum[TEXT_COUNT]={1,3,2,2,2,2,2,2,3,1,1,1,2,2,1,1};
+/* Builtin IDs 57..: String functions added after the ids following 45 were taken (the conversions 46..48). */
+#define TEXT_MORE_FIRST_ID 57u
+#define TEXT_MORE_COUNT 1u
+static const uint16_t *const text_more_names[TEXT_MORE_COUNT][2]={{u"ParseNumber",u"解析數字"}};
+static const unsigned char text_more_minimum[TEXT_MORE_COUNT]={1};
+static const unsigned char text_more_maximum[TEXT_MORE_COUNT]={1};
 static Scope *text_library(void) {
-    Scope*s=scope(0);s->captured=1;for(u32 i=0;i<TEXT_COUNT;i++)for(u32 j=0;j<2;j++)declare(s,utf16(text_names[i][j]),value(BUILTIN,TEXT_FIRST_ID+i,0));return s;
+    Scope*s=scope(0);s->captured=1;for(u32 i=0;i<TEXT_COUNT;i++)for(u32 j=0;j<2;j++)declare(s,utf16(text_names[i][j]),value(BUILTIN,TEXT_FIRST_ID+i,0));
+    for(u32 i=0;i<TEXT_MORE_COUNT;i++)for(u32 j=0;j<2;j++)declare(s,utf16(text_more_names[i][j]),value(BUILTIN,TEXT_MORE_FIRST_ID+i,0));return s;
 }
 static int text_space(uint16_t c) {
     return c==' '||(c>=9&&c<=13)||c==0xA0||c==0x1680||(c>=0x2000&&c<=0x200A)||c==0x2028||c==0x2029||c==0x202F||c==0x205F||c==0x3000||c==0xFEFF;
@@ -161,7 +112,50 @@ static int text_index(Frame*f,Value v,u32 limit,u32*out) {
     if(v.tag!=INT||v.number<0||v.number>limit){failure(f,"String index must be an integer within the string.");return 0;}
     *out=(u32)v.number;return 1;
 }
+/* ParseNumber: an integer for integer text within 32 bits, a double for any other decimal number (a fraction, an
+   exponent, more digits, Infinity, NaN), or null. Decimal digits are converted exactly (decimal_to_double), so the
+   result is the double nearest to the text, as the compiler reads the same literal. */
+static Value text_parse_number(Text*t) {
+    u32 i=0,end=t->length;while(i<end&&text_space(t->data[i]))i++;while(end>i&&text_space(t->data[end-1]))end--;
+    int negative=0;if(i<end&&(t->data[i]=='+'||t->data[i]=='-')){negative=t->data[i]=='-';i++;}
+    static const uint16_t infinity[]=u"Infinity",nan[]=u"NaN";
+    if(end-i==8){u32 k=0;while(k<8&&t->data[i+k]==infinity[k])k++;if(k==8)return value(DOUBLE,0,negative?-__builtin_inf():__builtin_inf());}
+    if(end-i==3&&!negative&&t->data[i]==nan[0]&&t->data[i+1]==nan[1]&&t->data[i+2]==nan[2])return value(DOUBLE,0,__builtin_nan(""));
+    /* Significant digits (at most DECIMAL_DIGITS, then a sticky 1 for any further nonzero digit) times 10^exponent. */
+    char digits[DECIMAL_DIGITS+1];int count=0,exponent=0,any=0,integral=1,sticky=0;
+    for(int fraction=0;;fraction=1,i++){
+        for(;i<end&&t->data[i]>='0'&&t->data[i]<='9';i++){
+            uint16_t c=t->data[i];any=1;
+            if(count||c!='0'){if(count<DECIMAL_DIGITS){digits[count++]=(char)c;exponent-=fraction;}else{exponent+=!fraction;sticky|=c!='0';}}
+            else exponent-=fraction;
+        }
+        if(fraction||i>=end||t->data[i]!='.')break;
+        integral=0;
+    }
+    if(!any)return value(NULL_VALUE,0,0);
+    if(i<end&&(t->data[i]=='e'||t->data[i]=='E')){
+        integral=0;i++;int sign=1,power=0,seen=0;
+        if(i<end&&(t->data[i]=='+'||t->data[i]=='-')){sign=t->data[i]=='-'?-1:1;i++;}
+        for(;i<end&&t->data[i]>='0'&&t->data[i]<='9';i++){seen=1;if(power<100000)power=power*10+(t->data[i]-'0');}
+        if(!seen)return value(NULL_VALUE,0,0);
+        exponent+=sign*power;
+    }
+    if(i!=end)return value(NULL_VALUE,0,0);
+    if(sticky){digits[count++]='1';exponent--;}
+    else while(count&&digits[count-1]=='0'){count--;exponent++;}
+    if(integral&&count+exponent<=10){
+        int64_t whole=0;for(int k=0;k<count;k++)whole=whole*10+(digits[k]-'0');for(int k=0;k<exponent;k++)whole*=10;
+        if(negative)whole=-whole;
+        if(whole>=-2147483648LL&&whole<=2147483647LL)return number((double)whole,INT);
+    }
+    double d=decimal_to_double(digits,count,exponent);return value(DOUBLE,0,negative?-d:d);
+}
 static Value text_call(Frame*f,u32 id,Value*args,u32 n) {
+    if(id==TEXT_MORE_FIRST_ID){
+        if(n!=1){failure(f,"Incorrect String argument count.");return empty;}
+        if(args[0].tag!=STRING){failure(f,"String function requires a string.");return empty;}
+        return text_parse_number(pointer(args[0].ref));
+    }
     if(id<TEXT_FIRST_ID||id>=TEXT_FIRST_ID+TEXT_COUNT||n<text_minimum[id-TEXT_FIRST_ID]||n>text_maximum[id-TEXT_FIRST_ID]){failure(f,"Incorrect String argument count.");return empty;}
     if(id==30)return text_value(to_text(args[0]));
     if(id==37){

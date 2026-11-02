@@ -306,37 +306,62 @@ namespace AquariusLang.lexer {
             return input.Substring(lastPos, position - lastPos);
         }
 
+        /// <summary>A number literal, as written (the parser converts it): decimal digits with an optional fraction
+        /// (<c>1.5</c>) and exponent (<c>1e-9</c>), then an optional suffix <c>f</c> (float) or <c>d</c> (double); without a
+        /// suffix a fraction or exponent makes a double, else an integer. <c>0x</c> / <c>0b</c> start hexadecimal and binary
+        /// integers. <c>_</c> may separate digits (<c>1_000_000</c>, <c>0xFF_FF</c>).</summary>
         private string readNumber(out string numberType) {
             int lastPos = position;
-
-            bool noDotEncounter = true;
-            while (isDigit(ch) || (ch == '.' && noDotEncounter)) {
-                if (ch == '.') {
-                    noDotEncounter = false;
-                }
-
-                readChar();
-            }
-
-            if (noDotEncounter) {
-                numberType = TokenType.INT;
+            numberType = TokenType.INT;
+            if (ch == '0' && peekChar() is 'x' or 'X' or 'b' or 'B') {
+                int radix = peekChar() is 'x' or 'X' ? 16 : 2;
+                readChar(); readChar();
+                if (!readDigits(radix)) numberType = TokenType.ILLEGAL;
             } else {
-                switch (ch) {
-                    case 'f':
-                        numberType = TokenType.FLOAT;
-                        break;
-                    case 'd':
-                        numberType = TokenType.DOUBLE;
-                        break;
-                    default:
-                        numberType = TokenType.ILLEGAL;
-                        break;
+                bool floating = false, valid = readDigits(10);
+                if (ch == '.' && isDigit(peekChar())) { readChar(); valid &= readDigits(10); floating = true; }
+                // `1.f` and `1.d` (a fraction without digits before a suffix) stay valid as before.
+                else if (ch == '.' && peekChar() is 'f' or 'd' && !isIdentifierCharacter(peekChar(2))) { readChar(); floating = true; }
+                if (ch is 'e' or 'E' && (isDigit(peekChar()) || peekChar() is '+' or '-' && isDigit(peekChar(2)))) {
+                    readChar(); if (ch is '+' or '-') readChar();
+                    valid &= readDigits(10); floating = true;
                 }
-
-                readChar();
+                if (ch == 'f') { numberType = TokenType.FLOAT; readChar(); }
+                else if (ch == 'd') { numberType = TokenType.DOUBLE; readChar(); }
+                else if (floating) numberType = TokenType.DOUBLE;
+                if (!valid) numberType = TokenType.ILLEGAL;
             }
+            // A number runs into no letter or digit: `0xFG`, `0b102`, `1.5x` and `2_` are not numbers.
+            if (isIdentifierCharacter(ch) || isDigit(ch)) {
+                while (isIdentifierCharacter(ch) || isDigit(ch)) readChar();
+                numberType = TokenType.ILLEGAL;
+            }
+            string literal = input.Substring(lastPos, position - lastPos);
+            if (numberType == TokenType.ILLEGAL)
+                lexicalErrors.Add(new LexicalError($"無效的數字 {literal} / Invalid number literal {literal}.", lastPos, position - lastPos));
+            return literal;
+        }
 
-            return input.Substring(lastPos, position - lastPos);
+        /// <summary>Digits of a radix with single <c>_</c> separators between them; whether at least one digit was read and
+        /// every separator stood between two digits.</summary>
+        private bool readDigits(int radix) {
+            bool any = false, valid = true;
+            while (true) {
+                if (isRadixDigit(ch, radix)) { any = true; readChar(); }
+                else if (ch == '_' && isRadixDigit(peekChar(), radix)) { valid &= any; readChar(); }
+                else break;
+            }
+            return any && valid;
+        }
+
+        private static bool isRadixDigit(char c, int radix) =>
+            radix == 2 ? c is '0' or '1' : radix == 16 ? c is >= '0' and <= '9' or >= 'a' and <= 'f' or >= 'A' and <= 'F' : c is >= '0' and <= '9';
+
+        private bool isIdentifierCharacter(char c) => c == '_' || char.IsLetter(c);
+
+        private char peekChar(int ahead) {
+            int at = position + ahead;
+            return at < input.Length ? input[at] : (char)0;
         }
 
         private bool isIdentifierStart() {

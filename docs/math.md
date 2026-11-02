@@ -4,6 +4,26 @@ AquariusLang has three number types: 32-bit integers (`整數` / `int`), 32-bit 
 doubles (`雙精度` / `double`). Every target runs the same guest runtime (`runtime/guest`), so arithmetic, the Math
 module and number formatting give identical results on Windows, Linux, Android and the web.
 
+## Number literals
+
+| Literal | Type | Notes |
+| --- | --- | --- |
+| `42`, `1_000_000` | integer | Decimal, at most 2147483647 (`-2147483648` is written with a minus sign). `_` may stand between two digits. |
+| `0xFF`, `0b1010`, `0xFF_FF` | integer | Hexadecimal and binary, up to 32 bits, read as the two's complement pattern: `0xFFFFFFFF` is -1, `0x80000000` the minimum. |
+| `1.5`, `1e-9`, `1E+3`, `2d`, `1.5d` | double | A fraction or exponent without a suffix makes a double; `d` makes digits a double. |
+| `1.5f`, `2.5e3f`, `2f` | float | Rounded once from the decimal digits to 32 bits. |
+
+A digit is needed on both sides of `.` (`.5` is not a number; `1.f` and `1.d` remain valid). A literal outside its
+type's range (`2147483648`, `0x1_0000_0000`, `1e400`, `3.5e38f`) and a number running into letters or digits (`0xFG`,
+`0b102`, `1__0`, `1_`, `1.5x`) are compile errors. Before these forms existed only suffixed decimals (`1.5f`, `1.5d`) existed: `1.5`
+was a lexical error, and `0xFF`, `1e3`, `1_000` and `2d` split into a number and a name (a parse error).
+
+`字串.解析數字(text)` / `String.ParseNumber(text)` reads decimal text at run time: surrounding whitespace, an optional
+sign, digits with an optional fraction and exponent (`" 42 "`, `-1.5`, `.5`, `1E+17`), `Infinity` and `NaN`. Integer
+text within 32 bits gives an integer, any other number a double (`"2147483648"`, `"1.0"`, `"1e3"`), and anything
+else null (`"0x10"`, `"1e"`, `""`). The conversion is exact (the double nearest to the text, ties to even, any
+number of digits), so `String.ParseNumber(String.From(x)) == x` for every double printed by 印出 or `String.From`.
+
 ## The 數學 / Math module
 
 `數學` / `Math` is a portable module like `陣列` / `Array`: a global in both languages, also reachable through

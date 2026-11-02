@@ -275,7 +275,7 @@ public class LanguageServerTest
     public void IncompleteInputReportsErrorsAndNeverHangsOrCrashesTheServer()
     {
         using var s = Launch();
-        foreach (string text in new[] { "## unterminated", "\"unterminated", "變數 函 = 函式(甲) { 回傳 甲;", "變數 函 = 函式(1) {};", "變數 數字 = 1.5;", "變數 = ;",
+        foreach (string text in new[] { "## unterminated", "\"unterminated", "變數 函 = 函式(甲) { 回傳 甲;", "變數 函 = 函式(1) {};", "變數 數字 = 1.5x;", "變數 數字 = 0xFG;", "變數 = ;",
                      "迴圈 (變數 i = 0; i < 2; i++) 印出(i);", new string('(', 400) + "1" + new string(')', 400) })
             Assert.True(s.Open(text).GetArrayLength() > 0, text);
         NoDiagnostics(s.Open(string.Concat(Enumerable.Repeat("# line\n", 10000)) + "## block ##變數 正常 = 1;"));
