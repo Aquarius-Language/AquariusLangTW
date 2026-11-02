@@ -161,6 +161,10 @@ Default value inspection still prints booleans as `真` / `假` and null as `nul
   provides portable text operations (`轉文字` / `From`, slicing, searching, splitting,
   joining, replacing, trimming, case, code points, integer parsing). `長度` / `len`
   also counts hash entries. See [hash and string libraries](../../docs/hash-and-string.md).
+- The built-in `數學` / `Math` module (`runtime/guest/maths.h`) provides `絕對值` / `Abs`, `最小值` / `Min`,
+  `四捨五入` / `Round` (halves away from zero), `平方根` / `Sqrt`, `正弦` / `Sin`, `次方` / `Pow`, ... with IEEE results
+  (no domain errors), bit-identical on every target, a seeded PCG32 generator and the constants `圓周率` / `PI`, ...
+  See [numbers and the Math module](../../docs/math.md).
 - Imported script modules expose their environment through `ModuleObj`.
   Module member calls evaluate arguments in the caller's environment and execute
   function bodies in their captured environment.

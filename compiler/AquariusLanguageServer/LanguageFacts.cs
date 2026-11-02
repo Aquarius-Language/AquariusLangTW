@@ -152,6 +152,45 @@ internal static class LanguageFacts
             ("Code", "字元碼", "text, index", "文字, 索引", "Code point at index, or null. / 字元碼。"),
             ("FromCode", "從字元碼", "codePoint", "字元碼", "One-character text. / 由字元碼建立文字。"),
             ("ParseInt", "解析整數", "text", "文字", "32-bit decimal integer, or null. / 解析整數。")),
+        Portable("Math", "數學",
+            ("Abs", "絕對值", "x", "數", "Absolute value, same number type. / 絕對值，型別不變。"),
+            ("Sign", "正負號", "x", "數", "-1, 0 or 1 in x's type (±0 and NaN unchanged). / 正負號。"),
+            ("Min", "最小值", "a, b", "甲, 乙", "Smaller number (NaN if either is NaN; -0 below 0), wider type. / 較小值。"),
+            ("Max", "最大值", "a, b", "甲, 乙", "Larger number (NaN if either is NaN), wider type. / 較大值。"),
+            ("Clamp", "限制範圍", "x, low, high", "數, 下限, 上限", "Min(Max(x, low), high), widest type. / 限制在範圍內。"),
+            ("Floor", "向下取整", "x", "數", "Largest whole number <= x, same type. / 向下取整，型別不變。"),
+            ("Ceil", "向上取整", "x", "數", "Smallest whole number >= x, same type. / 向上取整，型別不變。"),
+            ("Round", "四捨五入", "x", "數", "Nearest whole number, halves away from zero, same type. / 四捨五入（遠離零），型別不變。"),
+            ("Trunc", "截斷", "x", "數", "Whole part toward zero, same type. / 去除小數，型別不變。"),
+            ("FloorInt", "向下取整數", "x", "數", "Floor as an integer (saturating, NaN gives 0). / 向下取整成整數。"),
+            ("CeilInt", "向上取整數", "x", "數", "Ceil as an integer (saturating, NaN gives 0). / 向上取整成整數。"),
+            ("RoundInt", "四捨五入取整數", "x", "數", "Round as an integer (saturating, NaN gives 0). / 四捨五入成整數。"),
+            ("TruncInt", "截斷取整數", "x", "數", "Trunc as an integer, like 整數(x). / 截斷成整數。"),
+            ("Sqrt", "平方根", "x", "數", "Square root (NaN below 0). / 平方根。"),
+            ("Cbrt", "立方根", "x", "數", "Cube root. / 立方根。"),
+            ("Hypot", "斜邊長", "x, y", "x, y", "sqrt(x² + y²) without overflow. / 斜邊長。"),
+            ("Pow", "次方", "x, y", "底數, 指數", "x to the power y. / 次方。"),
+            ("Exp", "指數", "x", "數", "e to the power x. / e 的 x 次方。"),
+            ("Log", "對數", "x", "數", "Natural logarithm (log(0) = -Infinity). / 自然對數。"),
+            ("Log2", "以二為底對數", "x", "數", "Base-2 logarithm. / 以 2 為底的對數。"),
+            ("Log10", "以十為底對數", "x", "數", "Base-10 logarithm. / 以 10 為底的對數。"),
+            ("Sin", "正弦", "x", "弧度", "Sine of radians. / 正弦。"),
+            ("Cos", "餘弦", "x", "弧度", "Cosine of radians. / 餘弦。"),
+            ("Tan", "正切", "x", "弧度", "Tangent of radians. / 正切。"),
+            ("Asin", "反正弦", "x", "數", "Arc sine in radians. / 反正弦。"),
+            ("Acos", "反餘弦", "x", "數", "Arc cosine in radians. / 反餘弦。"),
+            ("Atan", "反正切", "x", "數", "Arc tangent in radians. / 反正切。"),
+            ("Atan2", "雙參數反正切", "y, x", "y, x", "Angle of (x, y) in radians. / 點 (x, y) 的角度。"),
+            ("Sinh", "雙曲正弦", "x", "數", "Hyperbolic sine. / 雙曲正弦。"),
+            ("Cosh", "雙曲餘弦", "x", "數", "Hyperbolic cosine. / 雙曲餘弦。"),
+            ("Tanh", "雙曲正切", "x", "數", "Hyperbolic tangent. / 雙曲正切。"),
+            ("IsNaN", "是非數", "x", "數", "Whether x is NaN. / 是否為非數。"),
+            ("IsFinite", "是有限數", "x", "數", "Whether x is neither infinite nor NaN. / 是否為有限數。"),
+            ("Fmod", "浮點餘數", "x, y", "被除數, 除數", "Exact remainder of x / y truncated toward zero (C fmod). / 浮點餘數。"),
+            ("Random", "亂數", "", "", "Uniform double in [0, 1) (PCG32). / 0 到 1 之間的亂數。"),
+            ("RandomInt", "亂數整數", "low, high", "下限, 上限", "Uniform integer in [low, high); low when equal. / 範圍內的亂數整數。"),
+            ("Seed", "亂數種子", "seed", "種子", "Restart the sequence: one seed gives the same numbers on every target. / 設定亂數種子。"))
+            .With(("PI", "圓周率", "π"), ("E", "自然常數", "e"), ("TAU", "二倍圓周率", "2π"), ("Infinity", "無限大", "+∞"), ("NaN", "非數", "not a number (NaN)")),
     };
 
     /// <summary>The parameters of a portable function as declared above (English), for arity checks.</summary>
@@ -164,4 +203,9 @@ internal static class LanguageFacts
         return new("language", [english, chinese], functions.Select(f => new CatalogMember([f.English, f.Chinese], true,
             $"{chinese}.{f.Chinese}({f.ChineseParameters}) / {english}.{f.English}({f.EnglishParameters}) — {f.Doc}")).ToArray());
     }
+
+    /// <summary>A portable module's constants (double values, after its functions; maths.h math_constants).</summary>
+    private static CatalogModule With(this CatalogModule module, params (string English, string Chinese, string Doc)[] constants) =>
+        module with { Members = module.Members.Concat(constants.Select(c => new CatalogMember([c.English, c.Chinese], false,
+            $"{module.Names[1]}.{c.Chinese} / {module.Names[0]}.{c.English} — {c.Doc} (雙精度 double)"))).ToArray() };
 }

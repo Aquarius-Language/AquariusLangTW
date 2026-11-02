@@ -20,14 +20,17 @@ if [ ! -x "$clang" ]; then echo "Pinned clang not found at $clang. Run: pwsh scr
 if ! "$clang" --version | head -n1 | grep -q 'clang version 23\.1\.3\b'; then echo "Expected clang 23.1.3: $("$clang" --version | head -n1)" >&2; exit 1; fi
 mkdir -p "$(dirname "$output")"
 exports=()
-for name in $( { cat "$source" "$(dirname "$source")/threads.h" | grep -oE '\b(u32|int)[[:space:]]+(aqua_|rt_)[A-Za-z0-9_]+[[:space:]]*\(' | sed -E 's/^(u32|int)[[:space:]]+//; s/[[:space:]]*\($//';
+# The vendored musl libm subset (runtime/guest/third_party/musl) is compiled beside runtime.c with its shim headers.
+musl="$(dirname "$source")/third_party/musl"
+mapfile -t math_sources < <(printf '%s\n' "$musl"/src/math/*.c | LC_ALL=C sort)
+for name in $( { cat "$source" "$(dirname "$source")"/*.h | grep -oE '\b(u32|int|double)[[:space:]]+(aqua_|rt_)[A-Za-z0-9_]+[[:space:]]*\(' | sed -E 's/^(u32|int|double)[[:space:]]+//; s/[[:space:]]*\($//';
         for op in add subtract multiply divide less greater lessEqual greaterEqual equal notEqual and or modulo; do echo "rt_$op"; done; } | LC_ALL=C sort -u); do
     exports+=("-Wl,--export=$name")
 done
 "$clang" --target=wasm32-unknown-unknown -mcpu=lime1 -mbulk-memory -O3 -g0 -std=c11 -fno-builtin -nostdlib \
     -Wl,--no-entry -Wl,--export-table -Wl,--strip-all "${exports[@]}" \
     -Wl,-z,stack-size=1048576 -Wl,--initial-memory=16777216 -Wl,--max-memory=536870912 \
-    "$source" -o "$output"
+    -I"$musl/shim" -I"$musl/src/internal" "$source" "${math_sources[@]}" -o "$output"
 hash() { if command -v sha256sum >/dev/null 2>&1; then sha256sum "$1" | cut -d' ' -f1; else shasum -a 256 "$1" | cut -d' ' -f1; fi; }
 if [ $check = 1 ] && [ "$(hash "$output")" != "$(hash "$committed")" ]; then
     echo "The committed runtime.wasm differs from runtime.c. Rebuild it with the pinned Clang and commit the result." >&2; exit 1

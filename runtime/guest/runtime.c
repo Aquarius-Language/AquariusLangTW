@@ -75,7 +75,7 @@ static u32 heap_limit;
 /* A free block being carved sequentially like the bump region; it is on no free list and always a valid FREE block. */
 static Block *carving;
 static Scope *builtin_scopes[65536];
-static Scope *portable_modules[4]; /* Thread, Array, Hash, String: one module each, so every import is the same value */
+static Scope *portable_modules[5]; /* Thread, Array, Hash, String, Math: one module each, so every import is the same value */
 static u32 builtin_contexts[65536], builtin_context_count;
 static Execution *executions;
 static Pin *pins;
@@ -413,6 +413,7 @@ static void copy_elements(Array*a,u32 at,const Array*b,u32 start,u32 count) {
 #include "arrays.h"
 #include "hashes.h"
 #include "texts.h"
+#include "maths.h"
 int rt_nativeStruct(int shape);
 #include "threads.h"
 static Frame *frame(Execution*e,Frame*parent,Program*p,u32 id,Scope*s,u32 context) {
@@ -554,13 +555,13 @@ int rt_pop(Frame*f,int n) { pop(f);return 0; }
 int rt_duplicate(Frame*f,int n) { push(f,peek(f,1));return 0; }
 /* Built-in portable modules: each has an English and a Traditional Chinese global name. */
 static Scope *portable_module(Text*t,const uint16_t**alias);
-/* The portable module (Thread, Array, Hash, String or a Chinese name) a host import resolves to, or 0. */
+/* The portable module (Thread, Array, Hash, String, Math or a Chinese name) a host import resolves to, or 0. */
 u32 aqua_portable_module(u32 name) { const uint16_t*alias=0;return address(portable_module(pointer(name),&alias)); }
 static Scope *portable_module(Text*t,const uint16_t**alias) {
-    const uint16_t *const *names[]={thread_module_names,array_module_names,hash_module_names,text_module_names};
-    for(u32 i=0;i<4;i++)for(u32 j=0;j<2;j++)if(text_is(t,names[i][j])){
+    const uint16_t *const *names[]={thread_module_names,array_module_names,hash_module_names,text_module_names,math_module_names};
+    for(u32 i=0;i<5;i++)for(u32 j=0;j<2;j++)if(text_is(t,names[i][j])){
         *alias=names[i][1-j];
-        if(!portable_modules[i])portable_modules[i]=i==0?thread_library():i==1?array_library():i==2?hash_library():text_library();
+        if(!portable_modules[i])portable_modules[i]=i==0?thread_library():i==1?array_library():i==2?hash_library():i==3?text_library():math_library();
         return portable_modules[i];
     }
     return 0;
@@ -634,6 +635,7 @@ int rt_call(Frame*f,int n) {
         if(pending==1){f->pending_base=base;f->pending_count=n+1;f->execution->status=2;}else push(f,out);
     }
     else if(callee.tag==BUILTIN&&callee.ref>=ARRAY_FIRST_ID&&callee.ref<TEXT_FIRST_ID+TEXT_COUNT){Value out=callee.ref<HASH_FIRST_ID?array_call(f,callee.ref,args,n):callee.ref<TEXT_FIRST_ID?hash_call(f,callee.ref,args,n):text_call(f,callee.ref,args,n);f->sp=base;push(f,out);}
+    else if(callee.tag==BUILTIN&&callee.ref>=MATH_FIRST_ID&&callee.ref<MATH_FIRST_ID+MATH_COUNT){Value out=math_call(f,callee.ref,args,(u32)n);f->sp=base;push(f,out);}
     else if(callee.tag==BUILTIN&&callee.ref>=KERNEL_FIRST_ID&&callee.ref<KERNEL_FIRST_ID+KERNEL_COUNT){Value out;u32 prelude=kernel_call(f,callee.ref,args,(u32)n,&out);
         if(prelude&&!f->execution->status){Closure*c=prelude_closure(f,prelude);if(!c)return 1;f->values[base]=value(CLOSURE,address(c),0);return rt_call(f,n);}
         f->sp=base;push(f,out);}
@@ -899,7 +901,7 @@ u32 aqua_collect(void){memset(member_cache,0,sizeof member_cache);
     bytes_since_collection=0;heap_growth=0;gc_armed=0;for(Execution*e=executions;e;e=e->next)e->poll=0;
     // Marks are clear here: allocation clears them and the sweep below resets every survivor.
     for(u32 i=0;i<marked_native_count;i++)native_live[marked_native_ids[i]]=0;marked_native_count=0;mark_pending=0;
-    for(Execution*e=executions;e;e=e->next)mark_ref(e);for(Pin*p=pins;p;p=p->next)mark_ref(p);for(u32 i=0;i<builtin_context_count;i++)mark_ref(builtin_scopes[builtin_contexts[i]]);for(u32 i=0;i<4;i++)if(portable_modules[i])mark_ref(portable_modules[i]);
+    for(Execution*e=executions;e;e=e->next)mark_ref(e);for(Pin*p=pins;p;p=p->next)mark_ref(p);for(u32 i=0;i<builtin_context_count;i++)mark_ref(builtin_scopes[builtin_contexts[i]]);for(u32 i=0;i<5;i++)if(portable_modules[i])mark_ref(portable_modules[i]);
     for(Array*a=pending.dirty_arrays;a;a=a->dirty_next)mark_ref(a);
     for(Hash*h=pending.dirty_hashes;h;h=h->dirty_next)mark_ref(h);
     while(mark_pending){void*p=pointer(mark_pending);Block*b=(Block*)p-1;mark_pending=b->marked&~1u;b->marked=1;switch(b->kind){

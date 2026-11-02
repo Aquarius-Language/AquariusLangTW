@@ -10,7 +10,7 @@ public class ArrayLibraryTest {
         JsonDocument.Parse(File.ReadAllText(Path.Combine(AquariusInstallation.Require().Root, "tests", name + ".json")));
 
     /// <summary>A portable module's English and Chinese names and those of its functions, exactly as the guest runtime
-    /// declares them (runtime/guest/arrays.h, hashes.h, texts.h).</summary>
+    /// declares them (runtime/guest/arrays.h, hashes.h, texts.h, maths.h).</summary>
     internal sealed record PortableModule(string English, string Chinese, params (string English, string Chinese)[] Functions);
 
     internal static readonly PortableModule[] PortableModules = [
@@ -22,6 +22,12 @@ public class ArrayLibraryTest {
         new("String", "字串", ("From", "轉文字"), ("Slice", "切片"), ("Find", "尋找"), ("Contains", "包含"), ("StartsWith", "開頭是"), ("EndsWith", "結尾是"),
             ("Split", "分割"), ("Join", "合併"), ("Replace", "取代"), ("Trim", "修剪"), ("Upper", "轉大寫"), ("Lower", "轉小寫"), ("Repeat", "重複"),
             ("Code", "字元碼"), ("FromCode", "從字元碼"), ("ParseInt", "解析整數")),
+        new("Math", "數學", ("Abs", "絕對值"), ("Sign", "正負號"), ("Min", "最小值"), ("Max", "最大值"), ("Clamp", "限制範圍"), ("Floor", "向下取整"),
+            ("Ceil", "向上取整"), ("Round", "四捨五入"), ("Trunc", "截斷"), ("FloorInt", "向下取整數"), ("CeilInt", "向上取整數"), ("RoundInt", "四捨五入取整數"),
+            ("TruncInt", "截斷取整數"), ("Sqrt", "平方根"), ("Cbrt", "立方根"), ("Hypot", "斜邊長"), ("Pow", "次方"), ("Exp", "指數"), ("Log", "對數"),
+            ("Log2", "以二為底對數"), ("Log10", "以十為底對數"), ("Sin", "正弦"), ("Cos", "餘弦"), ("Tan", "正切"), ("Asin", "反正弦"), ("Acos", "反餘弦"),
+            ("Atan", "反正切"), ("Atan2", "雙參數反正切"), ("Sinh", "雙曲正弦"), ("Cosh", "雙曲餘弦"), ("Tanh", "雙曲正切"), ("IsNaN", "是非數"),
+            ("IsFinite", "是有限數"), ("Fmod", "浮點餘數"), ("Random", "亂數"), ("RandomInt", "亂數整數"), ("Seed", "亂數種子")),
     ];
 
     internal static PortableModule Module(string english) => PortableModules.Single(m => m.English == english);
