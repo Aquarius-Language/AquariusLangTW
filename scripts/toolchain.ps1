@@ -34,6 +34,7 @@ $AquaToolchain = [pscustomobject]@{
     Jdk = Join-Path $aquaToolchains $AquaPins.jdk.directory.Replace('{platform}', $aquaPlatform)
     CMake = Join-Path $aquaToolchains "$($AquaPins.cmake.directory.Replace('{platform}', $aquaPlatform))/$($AquaPins.cmake.$aquaPlatform.bin)/cmake$aquaExe"
     Ninja = Join-Path $aquaToolchains "$($AquaPins.ninja.directory.Replace('{platform}', $aquaPlatform))/ninja$aquaExe"
+    Wabt = Join-Path $aquaToolchains $AquaPins.wabt.directory.Replace('{platform}', $aquaPlatform)
 }
 # Wasm feature baseline of every built binary: lime1 (bulk-memory-opt, call-indirect-overlong, extended-const, multivalue,
 # mutable-globals, nontrapping-fptoint, sign-ext). Freestanding builds that relied on -mbulk-memory still pass it.

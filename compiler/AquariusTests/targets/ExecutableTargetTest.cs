@@ -68,6 +68,46 @@ public class ExecutableTargetTest
         Assert.Equal("UNICODE_ENTRY_OK\n", run.Output); Assert.Equal("", run.Error);
     }
 
+    /// <summary>--optimize true: the aquarius-aot launcher runs the application from the library compiled ahead of time
+    /// beside it, with the regular executable's output and errors; a library built from another application is refused.</summary>
+    [ExecutableFact]
+    public void OptimizedExecutablesMatchTheRegularOnesAndCheckTheirLibrary()
+    {
+        using var t = new TestFolder();
+        const string Source = "變數 fib = 函式(n: 整數): 整數 { 如果 (n < 2) { 回傳 n; } 回傳 fib(n - 1) + fib(n - 2); };\n" +
+            "變數 sum = 函式(a: 整數[], n: 整數): 整數 { 變數 s: 整數 = 0; 迴圈 (變數 k: 整數 = 0; k < n; k++) { s += a[k] * k; } 回傳 s; };\n" +
+            "變數 a: 整數[] = 陣列.建立(300, 3); 印出(fib(22), sum(a, 300), [1, 2], \"文字\");\n變數 b: 整數[] = 陣列.建立(3, 1); 印出(sum(b, 4));";
+        string wasm = Compile(t, Source);
+        string regular = t.FilePath("regular/app" + Extension), optimized = t.FilePath("optimized/app" + Extension);
+        HostTarget().Build(new WasmBuildRequest(wasm, regular));
+        HostTarget().Build(new WasmBuildRequest(wasm, optimized, Options: new Dictionary<string, string> { [ExecutableTarget.OptimizeOption] = "true" }));
+        Assert.True(File.Exists(t.FilePath("optimized/app" + (OperatingSystem.IsWindows() ? ".aot.dll" : ".aot.so"))));
+        var expected = Launch(regular);
+        var run = Launch(optimized);
+        Assert.Equal(1, expected.ExitCode);
+        Assert.Equal((expected.ExitCode, expected.Output), (run.ExitCode, run.Output));
+        Assert.Contains("17711", run.Output);
+
+        // A library compiled from another application is refused.
+        string other = Compile(t, "印出(1);");
+        string mismatched = t.FilePath("mismatched/app" + Extension);
+        HostTarget().Build(new WasmBuildRequest(other, mismatched, Options: new Dictionary<string, string> { [ExecutableTarget.OptimizeOption] = "true" }));
+        string library = OperatingSystem.IsWindows() ? ".aot.dll" : ".aot.so";
+        File.Copy(t.FilePath("optimized/app" + library), t.FilePath("mismatched/app" + library), true);
+        var refused = Launch(mismatched);
+        Assert.NotEqual(0, refused.ExitCode);
+        Assert.Contains("aqua build --optimize", refused.Output + refused.Error);
+    }
+
+    [Fact]
+    public void TheWasm2cDeclarationRepairOnlyReordersSplitDeclarations()
+    {
+        string broken = "{\n  }\n  u32   u32 var_i0, var_i1;\n  u64 var_j0;\nvar_l4 = 0, var_l5 = 0;\n  f64 var_l6 = 0;";
+        Assert.Equal("{\n  }\n  u32 var_i0, var_i1;\n  u64 var_j0;\n  u32 var_l4 = 0, var_l5 = 0;\n  f64 var_l6 = 0;", AheadOfTime.Repair(broken));
+        string sound = "  u32 var_l4 = 0;\n  u32 var_i0, var_i1;\n";
+        Assert.Equal(sound, AheadOfTime.Repair(sound));
+    }
+
     [ExecutableFact]
     public void NativeLauncherRejectsInvalidEntryMetadataInsteadOfRunningTheDefault()
     {
@@ -291,6 +331,8 @@ public class ExecutableTargetTest
         var unknown = Assert.Throws<ArgumentException>(() => targets.Resolve("native"));
         Assert.Contains("windows", unknown.Message); Assert.Contains("wasm", unknown.Message);
         Assert.Contains(ExecutableTarget.HideTerminalOption, targets.Resolve("windows").OptionNames);
+        Assert.Contains(ExecutableTarget.OptimizeOption, targets.Resolve("windows").OptionNames);
+        Assert.Contains(ExecutableTarget.OptimizeOption, targets.Resolve("linux").OptionNames);
         Assert.DoesNotContain(ExecutableTarget.HideTerminalOption, targets.Resolve("linux").OptionNames);
         Assert.Empty(targets.Resolve("web").OptionNames);
         Assert.Equal([AndroidTarget.ApplicationIdOption, AndroidTarget.NameOption, AndroidTarget.KeystoreOption, AndroidTarget.KeyAliasOption],

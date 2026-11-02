@@ -56,7 +56,7 @@ foreach ($target in Get-ChildItem -LiteralPath $AquaToolchain.CompilerRt -Direct
     $destination = Join-Path $resource "lib/$($target.Name)"
     if (-not (Test-Path -LiteralPath $destination)) { Copy-Item -LiteralPath $target.FullName -Destination $destination -Recurse }
 }
-foreach ($tool in @('cmake', 'ninja')) {
+foreach ($tool in @('cmake', 'ninja', 'wabt')) {
     $pin = $AquaPins.$tool.($AquaToolchain.Platform)
     Install-Archive ($AquaPins.$tool.base + $pin.file) $pin.sha256 (Join-Path $toolchains $AquaPins.$tool.directory.Replace('{platform}', $AquaToolchain.Platform))
 }

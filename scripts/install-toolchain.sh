@@ -44,7 +44,7 @@ for target in "$toolchains/$(pin compilerRt.directory)"/*/; do
     [ -d "$resource/lib/$(basename "$target")" ] || cp -R "$target" "$resource/lib/$(basename "$target")"
 done
 cmake="$toolchains/$(pin cmake.directory)/$(pin "cmake.$platform.bin")/cmake"
-for tool in cmake ninja; do
+for tool in cmake ninja wabt; do
     install_archive "$(pin $tool.base)$(pin "$tool.$platform.file")" "$(pin "$tool.$platform.sha256")" "$toolchains/$(pin $tool.directory)"
 done
 chmod +x "$toolchains/$(pin ninja.directory)/ninja"   # .zip archives may carry no permissions
