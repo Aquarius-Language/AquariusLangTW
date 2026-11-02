@@ -246,12 +246,16 @@ internal sealed class WasmNativeFunction
     /// that very builtin. The portable 陣列 / Array module itself is a compile-time-only operand (ArrayModule) that only its
     /// member call consumes.</summary>
     private const int MakeBuiltin = 6, AppendBuiltin = 10, ArrayModule = 1000;
+    /// <summary>The portable 數學 / Math module, a compile-time-only operand like ArrayModule; its member calls are the
+    /// builtins WasmMath.FirstId + k and its constants are doubles (WasmMath).</summary>
+    private const int MathModule = 1001;
+    private static int MathFunction(int callee) => callee - BuiltinBase - WasmMath.FirstId is var k && k >= 0 && k < WasmMath.Functions.Length ? k : -1;
     private const int ArrayLimit = 33554431; // ARRAY_LIMIT in runtime/guest/arrays.h
     private static bool Widens(int from, int to) => from == to || from is IntType or FloatType && to is FloatType or DoubleType && from < to
         || to == AnyArrayType && IsArray(from);
     private static int BuiltinOf(string name) => name switch {
         "int" or "整數" => ConvertFirst, "float" or "浮點數" => ConvertFirst + 1, "double" or "雙精度" => ConvertFirst + 2,
-        "len" or "長度" => LengthBuiltin, "Array" or "陣列" => ArrayModule, _ => -1 };
+        "len" or "長度" => LengthBuiltin, "Array" or "陣列" => ArrayModule, "Math" or "數學" => MathModule, _ => -1 };
 
     // ---- selection ----------------------------------------------------------------------------------------------
 
@@ -510,8 +514,15 @@ internal sealed class WasmNativeFunction
                     if (type == Unknown) return Reject(pc);
                     // The array module is only the receiver of a member call (it never reaches a deoptimization site).
                     if (type == BuiltinBase + ArrayModule && (pc + 1 >= n || code[pc + 1].Code != IrOperation.MemberFunction)) return Reject(pc);
+                    if (type == BuiltinBase + MathModule && (pc + 1 >= n || code[pc + 1].Code is not (IrOperation.MemberFunction or IrOperation.Member))) return Reject(pc);
                     stack.Add(type); break;
                 }
+                case IrOperation.MemberFunction when Top() == BuiltinBase + MathModule:
+                    if (WasmMath.FunctionIndex(NameOf(operand)) is not (>= 0 and var mathFunction)) return Reject(pc);
+                    stack[^1] = BuiltinBase + WasmMath.FirstId + mathFunction; break;
+                case IrOperation.Member when Top() == BuiltinBase + MathModule:
+                    if (WasmMath.ConstantIndex(NameOf(operand)) < 0) return Reject(pc);
+                    stack[^1] = DoubleType; break;
                 case IrOperation.MemberFunction:
                     if (Top() != BuiltinBase + ArrayModule) return Reject(pc);
                     if (NameOf(operand) is "追加" or "Append") stack[^1] = BuiltinBase + AppendBuiltin;
@@ -661,6 +672,9 @@ internal sealed class WasmNativeFunction
                         if (arguments[1] != element && (IsLoose(arguments[0]) || !Numeric(arguments[1]) || !Widens(arguments[1], element))) return Reject(pc);
                         Allocates = true; ResizesArrays = true;
                         result = arguments[0];
+                    } else if (MathFunction(callee) >= 0) {
+                        result = WasmMath.ResultType(MathFunction(callee), arguments);
+                        if (result == 0) return Reject(pc);
                     } else if (callee >= BuiltinBase) {
                         if (count != 1 || !Numeric(arguments[0])) return Reject(pc);
                         result = callee - BuiltinBase - ConvertFirst + IntType;
@@ -807,7 +821,7 @@ internal sealed class WasmNativeFunction
         foreach (var (name, id) in Guards) {
             Get(w, scope); I(w, text(name)); w.Write(Call); U(w, runtime["aqua_scope_get"]); Set(w, scratch);
             // The portable array module: any binding of its name shadows it.
-            if (id == ArrayModule) { Unless(() => { Get(w, scratch); w.Write((byte)0x45); }); continue; }
+            if (id is ArrayModule or MathModule) { Unless(() => { Get(w, scratch); w.Write((byte)0x45); }); continue; }
             Unless(() => {
                 Get(w, scratch); w.Write(new byte[] { 0x45, 0x04, 0x7f }); I(w, 1); w.Write((byte)0x05);
                 Get(w, scratch); Memory(w, I32Load, 2, ValueTag); I(w, BuiltinTag); w.Write((byte)0x46);
@@ -1234,7 +1248,7 @@ internal sealed class WasmNativeFunction
             // A core global: no binding of its name means the builtin; a binding must hold that very builtin.
             foreach (var (name, id) in Guards) {
                 Get(w, frame); Memory(w, I32Load, 2, FrameScope); I(w, text!(name)); Op(Call); U(w, runtime["aqua_scope_get"]); Set(w, tempI);
-                if (id == ArrayModule) { Unless(() => { Get(w, tempI); Op(0x45); }); continue; }
+                if (id is ArrayModule or MathModule) { Unless(() => { Get(w, tempI); Op(0x45); }); continue; }
                 Unless(() => { Get(w, tempI); Op(0x45, If, 0x7f); I(w, 1); Op(Else);
                     Get(w, tempI); Memory(w, I32Load, 2, ValueTag); I(w, BuiltinTag); Op(0x46); Get(w, tempI); Memory(w, I32Load, 2, ValueRef); I(w, id); Op(0x46, 0x71); Op(End); });
             }
@@ -1444,6 +1458,8 @@ internal sealed class WasmNativeFunction
                     else { Get(w, StackF(top)); Op(0x9a); Set(w, StackF(top)); }
                     break;
                 case IrOperation.Not: Get(w, StackI(top)); Op(0x45); Set(w, StackI(top)); break;
+                case IrOperation.Member when TopType() == BuiltinBase + MathModule:
+                    F(w, WasmMath.Constants[WasmMath.ConstantIndex(cur.NameOf(operand))].Value); Set(w, StackF(top)); break;
                 case IrOperation.Member: {
                     var field = cur.StructField(TopType(), cur.NameOf(operand))!.Value; int type = FieldValueType(field.Code);
                     NullCheck(top, 4); FieldAddress(StackI(top), field.Index);
@@ -1659,6 +1675,7 @@ internal sealed class WasmNativeFunction
                         Get(w, StackI(array)); Set(w, StackI(at)); CopyCompanions(stack[array], StackCount(array), StackCount(at));
                         break;
                     }
+                    if (MathFunction(callee) >= 0) { MathCall(MathFunction(callee), stack, at, count); break; }
                     if (callee >= BuiltinBase) {
                         int result = callee - BuiltinBase - ConvertFirst + IntType, argument = stack[top];
                         if (result == IntType) {
@@ -1845,6 +1862,52 @@ internal sealed class WasmNativeFunction
             Op(Call); U(w, runtime["rt_nativeStruct"]); Set(w, resultI);
             for (int i = 0; i < arguments.Length; i++) { FieldAddress(resultI, fields[i]); StoreField(shape.Fields[fields[i]].Type?.Code ?? 0, arguments[i], at + 1 + i); }
             Get(w, resultI); Set(w, StackI(at));
+        }
+        // A 數學 / Math call (WasmMath.ResultType accepted it) with the generic call's exact result: integer arguments of
+        // the type-keeping functions stay i32; everything else is computed in f64 like the guest (min/max/floor/... are the
+        // instructions the guest uses, the other functions the guest's rt_math), then converted to the result type.
+        void MathCall(int k, int[] stack, int at, int count) {
+            var function = (WasmMath.Function)k; int[] arguments = stack.Skip(at + 1).Take(count).ToArray();
+            int result = WasmMath.ResultType(k, arguments), x = at + 1;
+            if (arguments.All(a => a == IntType) && result is IntType or BoolType) {
+                switch (function) {
+                    case WasmMath.Function.Abs: I(w, 0); Get(w, StackI(x)); Op(0x6b); Get(w, StackI(x)); Get(w, StackI(x)); I(w, 0); Op(0x48, 0x1b); break;
+                    case WasmMath.Function.Sign: Get(w, StackI(x)); I(w, 0); Op(0x4a); Get(w, StackI(x)); I(w, 0); Op(0x48, 0x6b); break;
+                    case WasmMath.Function.Min: Get(w, StackI(x)); Get(w, StackI(x + 1)); Get(w, StackI(x)); Get(w, StackI(x + 1)); Op(0x48, 0x1b); break;
+                    case WasmMath.Function.Max: Get(w, StackI(x)); Get(w, StackI(x + 1)); Get(w, StackI(x)); Get(w, StackI(x + 1)); Op(0x4a, 0x1b); break;
+                    case WasmMath.Function.Clamp:
+                        Get(w, StackI(x)); Get(w, StackI(x + 1)); Get(w, StackI(x)); Get(w, StackI(x + 1)); Op(0x4a, 0x1b); Set(w, tempI);
+                        Get(w, tempI); Get(w, StackI(x + 2)); Get(w, tempI); Get(w, StackI(x + 2)); Op(0x48, 0x1b); break;
+                    case WasmMath.Function.IsNaN: I(w, 0); break;
+                    case WasmMath.Function.IsFinite: I(w, 1); break;
+                    default: Get(w, StackI(x)); break; // Floor, Ceil, Round, Trunc and the *Int functions of an integer.
+                }
+                Set(w, StackI(at)); return;
+            }
+            switch (function) {
+                case WasmMath.Function.Abs: AsDouble(arguments[0], x); Op(0x99); break;
+                case WasmMath.Function.Sign:
+                    AsDouble(arguments[0], x); Set(w, tempF);
+                    F(w, 1); F(w, -1); Get(w, tempF); Get(w, tempF); F(w, 0); Op(0x63, 0x1b); Get(w, tempF); F(w, 0); Op(0x64, 0x1b); break;
+                case WasmMath.Function.Min: AsDouble(arguments[0], x); AsDouble(arguments[1], x + 1); Op(0xa4); break;
+                case WasmMath.Function.Max: AsDouble(arguments[0], x); AsDouble(arguments[1], x + 1); Op(0xa5); break;
+                case WasmMath.Function.Clamp: AsDouble(arguments[0], x); AsDouble(arguments[1], x + 1); Op(0xa5); AsDouble(arguments[2], x + 2); Op(0xa4); break;
+                case WasmMath.Function.Floor: case WasmMath.Function.FloorInt: AsDouble(arguments[0], x); Op(0x9c); break;
+                case WasmMath.Function.Ceil: case WasmMath.Function.CeilInt: AsDouble(arguments[0], x); Op(0x9b); break;
+                case WasmMath.Function.Trunc: case WasmMath.Function.TruncInt: AsDouble(arguments[0], x); Op(0x9d); break;
+                case WasmMath.Function.Sqrt: AsDouble(arguments[0], x); Op(0x9f); break;
+                case WasmMath.Function.IsNaN: AsDouble(arguments[0], x); Set(w, tempF); Get(w, tempF); Get(w, tempF); Op(0x62); break;
+                case WasmMath.Function.IsFinite: AsDouble(arguments[0], x); Set(w, tempF); Get(w, tempF); Get(w, tempF); Op(0xa1); F(w, 0); Op(0x61); break;
+                default:
+                    // Round, RoundInt and the transcendental functions: the guest's rt_math(function, x, y).
+                    I(w, function == WasmMath.Function.RoundInt ? (int)WasmMath.Function.Round : k);
+                    AsDouble(arguments[0], x); if (count > 1) AsDouble(arguments[1], x + 1); else F(w, 0);
+                    Op(Call); U(w, runtime["rt_math"]); break;
+            }
+            if (result == BoolType) { Set(w, StackI(at)); return; }
+            if (result == IntType) { Op(0xfc, 0x02); Set(w, StackI(at)); return; }
+            if (result == FloatType) RoundFloat();
+            Set(w, StackF(at));
         }
         void ClearScope(int scope, int keep) { foreach (int slot in cur.plan.Scopes[scope].SlotList) if (slot != keep) { I(w, 0); Set(w, Flag(slot)); } }
         // Integer division and remainder by zero are language errors.

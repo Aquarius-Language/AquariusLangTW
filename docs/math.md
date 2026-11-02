@@ -50,3 +50,15 @@ Rules:
   `random` / `亂數` generator (a clone of .NET's `System.Random`) for compatibility.
 
 The module costs about 39 KB in every application (the musl code and its tables are part of the guest runtime).
+
+## Math in compiled code
+
+Generic code calls the module through the runtime (`rt_call` → `math_call` in `maths.h`). The native tier
+([execution tiers](execution-tiers.md#native-tier-for-fully-typed-functions)) compiles calls with number arguments
+directly (`WasmMath`, `WasmNativeFunction.MathCall`): integer `Abs`, `Sign`, `Min`, `Max` and `Clamp` are i32
+operations, `Sqrt`, `Floor`, `Ceil`, `Trunc`, `Abs`, `Min` and `Max` the f64 instructions (`f64.sqrt`, `f64.floor`,
+`f64.min`, ...) the guest itself uses, and the other functions call the guest's exported `rt_math`, so a native call
+returns exactly what the generic call returns (NativeMathTest compares both, including NaN, ±0 and ±Infinity). `Random`,
+`RandomInt` and `Seed` stay generic. The entry adapter checks that no binding shadows `數學` / `Math`, like the core
+conversions. The closed scalar tier (`WasmIntegerFunction`) accepts no builtin calls at all, so it does not take Math
+calls either: functions calling Math are compiled by the native tier when typed, as clones when untyped.
