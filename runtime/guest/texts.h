@@ -40,6 +40,7 @@ static void format_value(TextBuilder*b,Value v,u32 depth) {
     case INT: format_int(b,v.number);return;
     case FLOAT: format_double(b,v.number,1);return;
     case DOUBLE: format_double(b,v.number,0);return;
+    case LONG: {char text[24];int n=format_long_text(text,long_of(v));for(int i=0;i<n;i++)tb_unit(b,(uint16_t)text[i]);return;}
     case BOOL: tb_unit(b,v.number?0x771F:0x5047);return; /* 真 / 假 */
     case NULL_VALUE: tb_ascii(b,"null");return;
     case ARRAY: {
@@ -68,10 +69,10 @@ static const unsigned char text_minimum[TEXT_COUNT]={1,3,2,2,2,2,2,2,3,1,1,1,2,2
 static const unsigned char text_maximum[TEXT_COUNT]={1,3,2,2,2,2,2,2,3,1,1,1,2,2,1,1};
 /* Builtin IDs 57..: String functions added after the ids following 45 were taken (the conversions 46..48). */
 #define TEXT_MORE_FIRST_ID 57u
-#define TEXT_MORE_COUNT 1u
-static const uint16_t *const text_more_names[TEXT_MORE_COUNT][2]={{u"ParseNumber",u"解析數字"}};
-static const unsigned char text_more_minimum[TEXT_MORE_COUNT]={1};
-static const unsigned char text_more_maximum[TEXT_MORE_COUNT]={1};
+#define TEXT_MORE_COUNT 2u
+static const uint16_t *const text_more_names[TEXT_MORE_COUNT][2]={{u"ParseNumber",u"解析數字"},{u"ParseLong",u"解析長整數"}};
+static const unsigned char text_more_minimum[TEXT_MORE_COUNT]={1,1};
+static const unsigned char text_more_maximum[TEXT_MORE_COUNT]={1,1};
 static Scope *text_library(void) {
     Scope*s=scope(0);s->captured=1;for(u32 i=0;i<TEXT_COUNT;i++)for(u32 j=0;j<2;j++)declare(s,utf16(text_names[i][j]),value(BUILTIN,TEXT_FIRST_ID+i,0));
     for(u32 i=0;i<TEXT_MORE_COUNT;i++)for(u32 j=0;j<2;j++)declare(s,utf16(text_more_names[i][j]),value(BUILTIN,TEXT_MORE_FIRST_ID+i,0));return s;
@@ -126,11 +127,20 @@ static Value text_parse_number(Text*t) {
     }
     double d=decimal_to_double(digits,count,exponent);return value(DOUBLE,0,negative?-d:d);
 }
+/* ParseLong: a 長整數 / long for optionally signed decimal digits within 64 bits (surrounding whitespace allowed), else null. */
+static Value text_parse_long(Text*t) {
+    u32 i=0,end=t->length;while(i<end&&text_space(t->data[i]))i++;while(end>i&&text_space(t->data[end-1]))end--;
+    int negative=0;if(i<end&&(t->data[i]=='+'||t->data[i]=='-')){negative=t->data[i]=='-';i++;}
+    if(i>=end)return value(NULL_VALUE,0,0);
+    uint64_t total=0,limit=negative?(uint64_t)1<<63:((uint64_t)1<<63)-1;
+    for(;i<end;i++){uint16_t c=t->data[i];if(c<'0'||c>'9'||total>(limit-(c-'0'))/10)return value(NULL_VALUE,0,0);total=total*10+(c-'0');}
+    return long_wrap(negative?0-total:total);
+}
 static Value text_call(Frame*f,u32 id,Value*args,u32 n) {
-    if(id==TEXT_MORE_FIRST_ID){
+    if(id>=TEXT_MORE_FIRST_ID&&id<TEXT_MORE_FIRST_ID+TEXT_MORE_COUNT){
         if(n!=1){failure(f,"Incorrect String argument count.");return empty;}
         if(args[0].tag!=STRING){failure(f,"String function requires a string.");return empty;}
-        return text_parse_number(pointer(args[0].ref));
+        return id==TEXT_MORE_FIRST_ID?text_parse_number(pointer(args[0].ref)):text_parse_long(pointer(args[0].ref));
     }
     if(id<TEXT_FIRST_ID||id>=TEXT_FIRST_ID+TEXT_COUNT||n<text_minimum[id-TEXT_FIRST_ID]||n>text_maximum[id-TEXT_FIRST_ID]){failure(f,"Incorrect String argument count.");return empty;}
     if(id==30)return text_value(to_text(args[0]));

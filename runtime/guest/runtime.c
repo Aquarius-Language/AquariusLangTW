@@ -4,7 +4,7 @@
 
 typedef uint32_t u32;
 typedef struct { u32 tag, ref; double number; } Value;
-enum { VOID, INT, FLOAT, DOUBLE, BOOL, STRING, ARRAY, HASH, CLOSURE, MODULE, NATIVE, NULL_VALUE, BREAK_VALUE, ERROR, BUILTIN, STRUCT, STRUCT_TYPE };
+enum { VOID, INT, FLOAT, DOUBLE, BOOL, STRING, ARRAY, HASH, CLOSURE, MODULE, NATIVE, NULL_VALUE, BREAK_VALUE, ERROR, BUILTIN, STRUCT, STRUCT_TYPE, LONG };
 /* FOREIGN blocks are never collected: memory reserved for the host (aqua_reserve) and pages another module of the same
    memory grew (web side modules' libc), which the heap steps over. */
 enum { FREE, RAW, TEXT, VALUES, ENV, BINDINGS, CLOSURES, ARRAYS, HASHES, FRAMES, LOOPS, EXECUTIONS, PINS, FOREIGN, STRUCTS, SHAPES };
@@ -193,7 +193,7 @@ static struct { u32 length; uint16_t data[2]; } unit_texts[65536];
 static Text *unit_text(uint16_t c) { if(!unit_texts[c].length){unit_texts[c].length=1;unit_texts[c].data[0]=c;}return (Text*)&unit_texts[c]; }
 static Text *concat(Text *a,Text *b) { Text*t=pointer(aqua_text(a->length+b->length));memcpy(t->data,a->data,a->length*2);memcpy(t->data+a->length,b->data,b->length*2);return t; }
 static int text_equal(Text *a,Text*b) { if(a==b)return 1;if(!a||!b||a->length!=b->length)return 0;for(u32 i=0;i<a->length;i++)if(a->data[i]!=b->data[i])return 0;return 1; }
-static const char *type_name(u32 tag) { static const char *names[]={"NULL","INTEGER","FLOAT","DOUBLE","BOOLEAN","STRING","ARRAY","HASH","FUNCTION","MODULE","NATIVE","NULL","BREAK_OBJ","ERROR","BUILTIN","STRUCT","STRUCT_TYPE"};return tag<=STRUCT_TYPE?names[tag]:"UNKNOWN"; }
+static const char *type_name(u32 tag) { static const char *names[]={"NULL","INTEGER","FLOAT","DOUBLE","BOOLEAN","STRING","ARRAY","HASH","FUNCTION","MODULE","NATIVE","NULL","BREAK_OBJ","ERROR","BUILTIN","STRUCT","STRUCT_TYPE","LONG"};return tag<=LONG?names[tag]:"UNKNOWN"; }
 static void fail(Frame*f,Text*t) { f->execution->result=value(ERROR,address(t),0);f->execution->status=3; }
 static void failure(Frame*f,const char*s) { fail(f,ascii(s)); }
 static void named_failure(Frame*f,const char*s,Text*t) { fail(f,concat(ascii(s),t)); }
@@ -238,13 +238,17 @@ static int numeric(Value v) { return v.tag>=INT&&v.tag<=DOUBLE; }
 static double saturate_int(double n) { return n!=n?0:n<=-2147483648.0?-2147483648.0:n>=2147483647.0?2147483647.0:(double)(int32_t)n; }
 static Value number(double n,u32 tag) { if(tag==INT)n=saturate_int(n);else if(tag==FLOAT)n=(double)(float)n;return value(tag,0,n); }
 static Value integer(int64_t n) { return value(INT,0,(double)(int32_t)(uint32_t)(uint64_t)n); }
-static Value successor(Value v) { return v.tag==INT?integer((int64_t)v.number+1):number(v.number+1,v.tag); }
-/* Builtin ids of the conversions 整數(x)/int(x), 浮點數(x)/float(x), 雙精度(x)/double(x), in tag order. */
+/* Builtin ids of the conversions 整數(x)/int(x), 浮點數(x)/float(x), 雙精度(x)/double(x), in tag order, then 長整數(x)/long(x). */
 #define CONVERT_FIRST_ID 46u
+#define CONVERT_COUNT 4u
 double rt_remainder(double x,double y); /* maths.h */
-static int equal(Value a,Value b,int typed) { if(numeric(a)&&numeric(b))return (!typed||a.tag==b.tag)&&(a.number==b.number||(typed&&a.number!=a.number&&b.number!=b.number));if(a.tag!=b.tag)return 0;if(a.tag==STRING)return text_equal(pointer(a.ref),pointer(b.ref));if(a.tag==BOOL)return a.number==b.number;return a.ref==b.ref; }
+#include "longs.h"
+static Value successor(Value v) { return v.tag==INT?integer((int64_t)v.number+1):v.tag==LONG?long_wrap((uint64_t)long_of(v)+1):number(v.number+1,v.tag); }
+static int equal(Value a,Value b,int typed) { if(a.tag==LONG||b.tag==LONG)return any_number(a)&&any_number(b)&&(!typed||a.tag==b.tag)&&compare_numbers(a,b)==0;
+    if(numeric(a)&&numeric(b))return (!typed||a.tag==b.tag)&&(a.number==b.number||(typed&&a.number!=a.number&&b.number!=b.number));if(a.tag!=b.tag)return 0;if(a.tag==STRING)return text_equal(pointer(a.ref),pointer(b.ref));if(a.tag==BOOL)return a.number==b.number;return a.ref==b.ref; }
 static Value binary(Frame*f,int op,Value a,Value b,int compound) {
     static const char *symbols[]={"+","-","*","/","<",">","<=",">=","==","!=","&&","||","%","&","|","^","<<",">>",">>>"};
+    if(a.tag==LONG||b.tag==LONG){int handled;Value r=long_binary(f,op,a,b,compound,&handled);if(handled)return r;}
     if(a.tag==INT&&b.tag==INT&&(op<=3||op>=12)){
         int32_t x=(int32_t)a.number,y=(int32_t)b.number;
         /* Bitwise operators (13..18) of integers; shift counts use their low 5 bits, like i32.shl. */
@@ -398,10 +402,9 @@ u32 aqua_take_dirty_hash(void) { Hash*h=pending.dirty_hashes;if(!h)return 0;pend
 /* A typed array keeps its element type: integers widen to float and double and floats to double (in place, like a
    typed variable), and a generic write of any other type is a language error. */
 static int element_fits(Frame*f,Array*a,Value*v) {
-    static const char *const names[]={"","int","float","double","bool","string"};
     if(!a->element||v->tag==a->element)return 1;
-    if(numeric(*v)&&a->element>=FLOAT&&a->element<=DOUBLE&&v->tag<a->element){*v=number(v->number,a->element);return 1;}
-    Text*t=concat(ascii("型別不符 / Type mismatch: the array holds "),ascii(names[a->element]));
+    if(widen_number(v,a->element))return 1;
+    Text*t=concat(ascii("型別不符 / Type mismatch: the array holds "),ascii(scalar_type_name(a->element)));
     fail(f,concat(concat(t,ascii(", got ")),ascii(type_name(v->tag))));return 0;
 }
 /* Whether the elements a bulk copy brings from b into a typed array fit it (copy_elements widens them). */
@@ -414,7 +417,7 @@ static void copy_elements(Array*a,u32 at,const Array*b,u32 start,u32 count) {
     u32 layout=a->storage->layout,size=layout_size(layout);
     if(layout==b->storage->layout){memmove((char*)a->values+(size_t)at*size,(const char*)b->values+(size_t)start*size,(size_t)count*size);return;}
     for(u32 i=0;i<count;i++){Value v=array_get(b,start+i);
-        if(numeric(v)&&a->element>=FLOAT&&a->element<=DOUBLE&&v.tag<a->element)v=number(v.number,a->element);array_put(a,at+i,v);}
+        if(a->element)widen_number(&v,a->element);array_put(a,at+i,v);}
 }
 #include "arrays.h"
 #include "hashes.h"
@@ -507,8 +510,8 @@ static int host_service(int operation, int context, int subject, int name, int a
     if(operation==0){
         static const uint16_t *const builtins[][2]={{u"len",u"長度"},{u"last",u"最後一個"},{u"rest",u"其餘"},{u"push",u"加入"},{u"floodFill",u"區域填色"}};
         for(u32 i=0;i<5;i++)if(text_is(pointer((u32)name),builtins[i][0])||text_is(pointer((u32)name),builtins[i][1])){*out=value(BUILTIN,i+1,0);return 0;}
-        static const uint16_t *const conversions[][2]={{u"int",u"整數"},{u"float",u"浮點數"},{u"double",u"雙精度"}};
-        for(u32 i=0;i<3;i++)if(text_is(pointer((u32)name),conversions[i][0])||text_is(pointer((u32)name),conversions[i][1])){*out=value(BUILTIN,CONVERT_FIRST_ID+i,0);return 0;}
+        static const uint16_t *const conversions[][2]={{u"int",u"整數"},{u"float",u"浮點數"},{u"double",u"雙精度"},{u"long",u"長整數"}};
+        for(u32 i=0;i<CONVERT_COUNT;i++)if(text_is(pointer((u32)name),conversions[i][0])||text_is(pointer((u32)name),conversions[i][1])){*out=value(BUILTIN,CONVERT_FIRST_ID+i,0);return 0;}
         return 1; /* Identifier not found */
     }
     *out=value(ERROR,address(ascii("Worker cannot access host handles or start/wait for other threads.")),0);
@@ -584,12 +587,12 @@ int rt_compoundAssign(Frame*f,int n) { Value c=constant(f,n),r=pop(f);pop(f);Bin
 #define BINARY(NAME,OP) int rt_##NAME(Frame*f,int n){Value r=pop(f),l=pop(f);push(f,binary(f,OP,l,r,0));return 0;}
 BINARY(add,0) BINARY(subtract,1) BINARY(multiply,2) BINARY(divide,3) BINARY(less,4) BINARY(greater,5) BINARY(lessEqual,6) BINARY(greaterEqual,7) BINARY(equal,8) BINARY(notEqual,9) BINARY(and,10) BINARY(or,11) BINARY(modulo,12)
 BINARY(bitAnd,13) BINARY(bitOr,14) BINARY(bitXor,15) BINARY(shiftLeft,16) BINARY(shiftRight,17) BINARY(shiftRightUnsigned,18)
-int rt_negate(Frame*f,int n) { Value v=pop(f);if(numeric(v))push(f,v.tag==INT?integer(-(int64_t)v.number):number(-v.number,v.tag));else named_failure(f,"Unknown operator: -",ascii(type_name(v.tag)));return 0; }
-int rt_bitNot(Frame*f,int n) { Value v=pop(f);if(v.tag==INT)push(f,integer(~(int32_t)v.number));else named_failure(f,"Bitwise operators need integers / 位元運算需要整數: ~",ascii(type_name(v.tag)));return 0; }
+int rt_negate(Frame*f,int n) { Value v=pop(f);if(v.tag==LONG)push(f,long_wrap(0-(uint64_t)long_of(v)));else if(numeric(v))push(f,v.tag==INT?integer(-(int64_t)v.number):number(-v.number,v.tag));else named_failure(f,"Unknown operator: -",ascii(type_name(v.tag)));return 0; }
+int rt_bitNot(Frame*f,int n) { Value v=pop(f);if(v.tag==INT)push(f,integer(~(int32_t)v.number));else if(v.tag==LONG)push(f,long_value(~long_of(v)));else named_failure(f,"Bitwise operators need integers / 位元運算需要整數: ~",ascii(type_name(v.tag)));return 0; }
 int rt_not(Frame*f,int n) { Value v=pop(f);push(f,value(BOOL,0,v.tag==BOOL?!v.number:v.tag==NULL_VALUE));return 0; }
-static int increment(Frame*f,int n,int prefix) { Binding*b=cached_binding(f,n);if(!b){named_failure(f,"Identifier not found: ",name(f,n));return 0;}Value old=b->value;if(!numeric(old)){failure(f,"Increment requires a number.");return 0;}b->value=successor(old);push(f,prefix?b->value:old);return 0; }
+static int increment(Frame*f,int n,int prefix) { Binding*b=cached_binding(f,n);if(!b){named_failure(f,"Identifier not found: ",name(f,n));return 0;}Value old=b->value;if(!any_number(old)){failure(f,"Increment requires a number.");return 0;}b->value=successor(old);push(f,prefix?b->value:old);return 0; }
 /* Promoted locals are frame slots rather than named bindings; these helpers receive the slot address. */
-int rt_incrementAt(Frame*f,int prefix,Value*b) { Value old=*b;if(!numeric(old)){failure(f,"Increment requires a number.");return 0;}*b=successor(old);push(f,prefix?*b:old);return 0; }
+int rt_incrementAt(Frame*f,int prefix,Value*b) { Value old=*b;if(!any_number(old)){failure(f,"Increment requires a number.");return 0;}*b=successor(old);push(f,prefix?*b:old);return 0; }
 int rt_compoundAt(Frame*f,int n,Value*b) { Value c=constant(f,n),r=pop(f);pop(f);*b=binary(f,(int)c.number,*b,r,1);push(f,empty);return 0; }
 /* s = s + t and s += t on a promoted frame slot the compiler marks (WasmBodyEmitter.appendAt): the text built is allocated
    with room to grow and tagged with its slot (Value.number = slot + 1; strings otherwise leave it 0). The compiler clears
@@ -642,15 +645,15 @@ int rt_call(Frame*f,int n) {
         Value out=empty;int pending=host_service(4,f->context,callee.ref,0,address(args),n,address(&out));f->sp=base;
         if(pending==1){f->pending_base=base;f->pending_count=n+1;f->execution->status=2;}else push(f,out);
     }
-    else if(callee.tag==BUILTIN&&(callee.ref>=ARRAY_FIRST_ID&&callee.ref<TEXT_FIRST_ID+TEXT_COUNT||callee.ref==TEXT_MORE_FIRST_ID)){Value out=callee.ref<HASH_FIRST_ID?array_call(f,callee.ref,args,n):callee.ref<TEXT_FIRST_ID?hash_call(f,callee.ref,args,n):text_call(f,callee.ref,args,n);f->sp=base;push(f,out);}
+    else if(callee.tag==BUILTIN&&(callee.ref>=ARRAY_FIRST_ID&&callee.ref<TEXT_FIRST_ID+TEXT_COUNT||callee.ref>=TEXT_MORE_FIRST_ID&&callee.ref<TEXT_MORE_FIRST_ID+TEXT_MORE_COUNT)){Value out=callee.ref<HASH_FIRST_ID?array_call(f,callee.ref,args,n):callee.ref<TEXT_FIRST_ID?hash_call(f,callee.ref,args,n):text_call(f,callee.ref,args,n);f->sp=base;push(f,out);}
     else if(callee.tag==BUILTIN&&callee.ref>=MATH_FIRST_ID&&callee.ref<MATH_FIRST_ID+MATH_COUNT){Value out=math_call(f,callee.ref,args,(u32)n);f->sp=base;push(f,out);}
     else if(callee.tag==BUILTIN&&callee.ref>=KERNEL_FIRST_ID&&callee.ref<KERNEL_FIRST_ID+KERNEL_COUNT){Value out;u32 prelude=kernel_call(f,callee.ref,args,(u32)n,&out);
         if(prelude&&!f->execution->status){Closure*c=prelude_closure(f,prelude);if(!c)return 1;f->values[base]=value(CLOSURE,address(c),0);return rt_call(f,n);}
         f->sp=base;push(f,out);}
-    else if(callee.tag==BUILTIN&&callee.ref>=CONVERT_FIRST_ID&&callee.ref<CONVERT_FIRST_ID+3){Value out=empty;
+    else if(callee.tag==BUILTIN&&callee.ref>=CONVERT_FIRST_ID&&callee.ref<CONVERT_FIRST_ID+CONVERT_COUNT){Value out=empty;
         if(n!=1)failure(f,"Incorrect builtin argument count.");
-        else if(!numeric(args[0]))named_failure(f,"Conversion requires a number / 轉換需要數字: ",ascii(type_name(args[0].tag)));
-        else out=number(args[0].number,INT+callee.ref-CONVERT_FIRST_ID);
+        else if(!any_number(args[0]))named_failure(f,"Conversion requires a number / 轉換需要數字: ",ascii(type_name(args[0].tag)));
+        else out=convert_number(args[0],callee.ref==CONVERT_FIRST_ID+3?LONG:INT+callee.ref-CONVERT_FIRST_ID);
         f->sp=base;push(f,out);}
     else if(callee.tag==BUILTIN){Value out=empty;if(callee.ref<1||callee.ref>5||n!=(callee.ref==5?6:callee.ref==4?2:1)){failure(f,"Incorrect builtin argument count.");return 1;}Value a=args[0];
         if(callee.ref==5)out=flood_fill(f,args);
@@ -744,19 +747,17 @@ int rt_nativeAppend(int a,int b){
 static int fits(Value*v,u32 code) {
     if(!code)return 1;
     if(code&32u)return v->tag==NULL_VALUE||(v->tag==STRUCT&&((Struct*)pointer(v->ref))->shape->id==code>>6);
-    u32 want=code&15u;
+    u32 want=code_tag(code);
     if(code&16u){if(v->tag!=ARRAY)return 0;Array*a=pointer(v->ref);if(!want||a->element==want)return 1;
         u32 i=0;if(!a->element)while(i<a->count&&((const Value*)a->values)[i].tag==want)i++;if(!a->element&&i==a->count){lock_array(a,want);return 1;}return 0;}
     if(v->tag==want)return 1;
-    if(numeric(*v)&&want>=FLOAT&&want<=DOUBLE&&v->tag<want){*v=number(v->number,want);return 1;}
-    return 0;
+    return widen_number(v,want);
 }
 /* The name of a value's type in messages: a struct's own name, else the tag's. */
 static Text *value_type(Value v) { return v.tag==STRUCT?((Struct*)pointer(v.ref))->shape->name:ascii(type_name(v.tag)); }
 static Text *code_name(u32 code,Text*type) {
-    static const char *const names[]={"","int","float","double","bool","string"};
     if(code&32u)return type;if(code==16u)return ascii("array");
-    Text*t=ascii(names[code&15u]);return code&16u?concat(t,ascii("[]")):t;
+    Text*t=ascii(scalar_type_name(code&15u));return code&16u?concat(t,ascii("[]")):t;
 }
 static void mismatch(Frame*f,Text*subject,Text*expected,Value v) {
     Text*t=concat(concat(ascii("型別不符 / Type mismatch: "),subject),ascii(" expects "));
@@ -854,20 +855,19 @@ int rt_arrayKind(int array,int tag){Array*a=pointer((u32)array);if(a->element)re
 /* An annotation check on the top operand: n = (subject constant << 5) | type code (element tag, +16 for arrays).
    Integers widen to float or double and floats to double; any other mismatch is a language error. */
 int rt_checkType(Frame*f,int n){
-    static const char *const names[]={"","int","float","double","bool","string"};
-    if(!f->sp)return 0;Value*v=f->values+f->sp-1;u32 code=(u32)n&31u,want=code&15u;
+    if(!f->sp)return 0;Value*v=f->values+f->sp-1;u32 code=(u32)n&31u,want=code_tag(code);
     if(code&16u){if(v->tag==ARRAY){Array*a=pointer(v->ref);if(!want||a->element==want)return 0; /* 陣列 / array: any array */
         u32 i=0;if(!a->element)while(i<a->count&&((const Value*)a->values)[i].tag==want)i++;if(!a->element&&i==a->count){lock_array(a,want);return 0;}}}
     else if(v->tag==want)return 0;
-    else if(numeric(*v)&&want>=FLOAT&&want<=DOUBLE&&v->tag<want){*v=number(v->number,want);return 0;}
+    else if(widen_number(v,want))return 0;
     Text*t=concat(ascii("型別不符 / Type mismatch: "),pointer(constant(f,(u32)n>>5).ref));
-    t=concat(t,ascii(" expects "));t=concat(t,ascii(code==16u?"array":names[want]));if(code&16u&&want)t=concat(t,ascii("[]"));
+    t=concat(t,ascii(" expects "));t=concat(t,ascii(code==16u?"array":scalar_type_name(want)));if(code&16u&&want)t=concat(t,ascii("[]"));
     t=concat(t,ascii(", got "));fail(f,concat(t,ascii(type_name(v->tag))));return 0;
 }
-int rt_checkHashKey(Frame*f,int n){Value v=peek(f,1);if(!numeric(v)&&v.tag!=STRING&&v.tag!=BOOL)named_failure(f,"Unusable as hash key: ",ascii(type_name(v.tag)));return 0;}
+int rt_checkHashKey(Frame*f,int n){Value v=peek(f,1);if(!any_number(v)&&v.tag!=STRING&&v.tag!=BOOL)named_failure(f,"Unusable as hash key: ",ascii(type_name(v.tag)));return 0;}
 int rt_hash(Frame*f,int n){Hash*h=pointer(aqua_hash(n));u32 base=f->sp-n*2;h->count=0;for(int i=0;i<n;i++){Value k=f->values[base+i*2],v=f->values[base+i*2+1];u32 j=hash_find(h,k);if(j==h->count)h->count++;h->pairs[j]=(Pair){k,v};}f->sp=base;push(f,value(HASH,address(h),0));return 0;}
-int rt_index(Frame*f,int n){Value i=pop(f),v=pop(f),out=value(NULL_VALUE,0,0);if(v.tag==ARRAY&&i.tag==INT){Array*a=pointer(v.ref);if(i.number>=0&&i.number<a->count)out=array_get(a,(u32)i.number);else if(a->element){failure(f,"Array index is out of bounds / 陣列索引超出範圍。");return 0;}}else if(v.tag==STRING&&i.tag==INT){Text*t=pointer(v.ref);if(i.number>=0&&i.number<t->length)out=value(STRING,address(unit_text(t->data[(u32)i.number])),0);}else if(v.tag==HASH){if(!numeric(i)&&i.tag!=BOOL&&i.tag!=STRING){named_failure(f,"Unusable as hash key: ",ascii(type_name(i.tag)));return 0;}Hash*h=pointer(v.ref);u32 j=hash_find(h,i);if(j<h->count)out=h->pairs[j].value;}else {named_failure(f,"Index operator not supported: ",ascii(type_name(v.tag)));return 0;}push(f,out);return 0;}
-int rt_checkArrayWrite(Frame*f,int n){Value i=peek(f,1),a=peek(f,2);if(a.tag==HASH){if(!numeric(i)&&i.tag!=STRING&&i.tag!=BOOL)named_failure(f,"Unusable as hash key: ",ascii(type_name(i.tag)));}else if(a.tag!=ARRAY)failure(f,"Indexed assignment requires an array or hash.");else if(i.tag!=INT)failure(f,"Array assignment index must be an integer.");else if(i.number<0||i.number>=((Array*)pointer(a.ref))->count)failure(f,"Array assignment index is out of bounds.");return 0;}
+int rt_index(Frame*f,int n){Value i=pop(f),v=pop(f),out=value(NULL_VALUE,0,0);if(v.tag==ARRAY&&i.tag==INT){Array*a=pointer(v.ref);if(i.number>=0&&i.number<a->count)out=array_get(a,(u32)i.number);else if(a->element){failure(f,"Array index is out of bounds / 陣列索引超出範圍。");return 0;}}else if(v.tag==STRING&&i.tag==INT){Text*t=pointer(v.ref);if(i.number>=0&&i.number<t->length)out=value(STRING,address(unit_text(t->data[(u32)i.number])),0);}else if(v.tag==HASH){if(!any_number(i)&&i.tag!=BOOL&&i.tag!=STRING){named_failure(f,"Unusable as hash key: ",ascii(type_name(i.tag)));return 0;}Hash*h=pointer(v.ref);u32 j=hash_find(h,i);if(j<h->count)out=h->pairs[j].value;}else {named_failure(f,"Index operator not supported: ",ascii(type_name(v.tag)));return 0;}push(f,out);return 0;}
+int rt_checkArrayWrite(Frame*f,int n){Value i=peek(f,1),a=peek(f,2);if(a.tag==HASH){if(!any_number(i)&&i.tag!=STRING&&i.tag!=BOOL)named_failure(f,"Unusable as hash key: ",ascii(type_name(i.tag)));}else if(a.tag!=ARRAY)failure(f,"Indexed assignment requires an array or hash.");else if(i.tag!=INT)failure(f,"Array assignment index must be an integer.");else if(i.number<0||i.number>=((Array*)pointer(a.ref))->count)failure(f,"Array assignment index is out of bounds.");return 0;}
 int rt_writeIndex(Frame*f,int n){Value v=pop(f);rt_checkArrayWrite(f,0);Value i=pop(f),a=pop(f);if(!f->execution->status){
     if(a.tag==HASH){Hash*h=pointer(a.ref);u32 j=hash_find(h,i);if(j==h->count)aqua_hash_resize(a.ref,h->count+1);h->pairs[j]=(Pair){i,v};if(h->exposed&&!h->dirty){h->dirty=1;h->dirty_next=pending.dirty_hashes;pending.dirty_hashes=h;}}
     else{Array*x=pointer(a.ref);if(!element_fits(f,x,&v)){push(f,v);return 0;}writable_array(x,x->count);array_put(x,(u32)i.number,v);if(x->kind!=v.tag)x->kind=0;if(x->exposed&&!x->dirty){x->dirty=1;x->dirty_next=pending.dirty_arrays;pending.dirty_arrays=x;}}
@@ -885,14 +885,14 @@ int rt_compoundIndex(Frame*f,int n){Value c=constant(f,(u32)n),r=pop(f);rt_check
 int rt_incrementIndex(Frame*f,int n){Value i=pop(f),a=pop(f);if(f->execution->status)return 0;
     Value*slot;if(a.tag==HASH){Hash*h=pointer(a.ref);u32 j=hash_find(h,i);if(j==h->count){failure(f,"Increment requires a number.");return 0;}slot=&h->pairs[j].value;
         if(h->exposed&&!h->dirty){h->dirty=1;h->dirty_next=pending.dirty_hashes;pending.dirty_hashes=h;}}
-    else{Array*x=pointer(a.ref);writable_array(x,x->count);Value old=array_get(x,(u32)i.number);if(!numeric(old)){failure(f,"Increment requires a number.");return 0;}
+    else{Array*x=pointer(a.ref);writable_array(x,x->count);Value old=array_get(x,(u32)i.number);if(!any_number(old)){failure(f,"Increment requires a number.");return 0;}
         Value next=successor(old);array_put(x,(u32)i.number,next);if(x->exposed&&!x->dirty){x->dirty=1;x->dirty_next=pending.dirty_arrays;pending.dirty_arrays=x;}push(f,n?next:old);return 0;}
-    Value old=*slot;if(!numeric(old)){failure(f,"Increment requires a number.");return 0;}*slot=successor(old);push(f,n?*slot:old);return 0;}
+    Value old=*slot;if(!any_number(old)){failure(f,"Increment requires a number.");return 0;}*slot=successor(old);push(f,n?*slot:old);return 0;}
 /* ++obj.field / obj.field++ (n: the field's name constant << 1 | prefix); the field keeps its numeric type. */
 int rt_incrementMember(Frame*f,int n){Value m=pop(f);Text*t=name(f,(u32)n>>1);
     if(m.tag!=STRUCT){fail(f,concat(ascii("Cannot assign a member of "),value_type(m)));return 0;}
     Struct*x=pointer(m.ref);int k=cached_field(x->shape,t);if(k<0){unknown_field(f,x->shape,t);return 0;}
-    Value old=x->fields[k];if(!numeric(old)){failure(f,"Increment requires a number.");return 0;}x->fields[k]=successor(old);push(f,n&1?x->fields[k]:old);return 0;}
+    Value old=x->fields[k];if(!any_number(old)){failure(f,"Increment requires a number.");return 0;}x->fields[k]=successor(old);push(f,n&1?x->fields[k]:old);return 0;}
 int rt_member(Frame*f,int n){Value m=pop(f),out=empty;Text*t=name(f,n);
     if(m.tag==STRUCT){Struct*x=pointer(m.ref);int k=cached_field(x->shape,t);cache_site(f,(u32)n,x->shape,k);if(k<0)unknown_field(f,x->shape,t);else out=x->fields[k];push(f,out);return 0;}
     if(m.tag==MODULE){Binding*b=find(pointer(m.ref),t);if(!b)named_failure(f,"Module member not found: ",t);else out=b->value;}else if(m.tag==NATIVE){MemberEntry*c=pending.host_era?member_entry(m.ref,address(t)):0;if(c&&c->era==pending.host_era&&c->native==m.ref&&c->name==address(t))out=c->value;else{int found=host_service(2,f->context,m.ref,address(t),0,0,address(&out));if(found!=0&&found!=2)named_failure(f,"Module member not found: ",t);else if(found==0&&c&&pending.host_era&&member_cacheable(out.tag)){c->native=m.ref;c->name=address(t);c->era=pending.host_era;c->value=out;}}}else named_failure(f,"Cannot access member of ",ascii(type_name(m.tag)));push(f,out);return 0;}

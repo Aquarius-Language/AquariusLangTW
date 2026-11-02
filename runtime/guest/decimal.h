@@ -111,6 +111,14 @@ static int format_number_text(char*out,double x,int single) {
     return n;
 }
 
+/* A 64-bit integer's decimal text (長整數 / long: plain digits, never exponent notation) into out, at most 20 characters;
+   returns the length. */
+static int format_long_text(char*out,int64_t n) {
+    uint64_t u=n<0?0-(uint64_t)n:(uint64_t)n;char rev[20];int r=0,k=0;
+    do{rev[r++]=(char)('0'+u%10);u/=10;}while(u);
+    if(n<0)out[k++]='-';while(r)out[k++]=rev[--r];return k;
+}
+
 /* ---- Decimal to double, correctly rounded (to nearest, ties to even) ----
  * value = D × 10^exponent, D the count decimal digits (no leading zeros). A first guess from the leading 19 digits is
  * corrected by comparing the exact value with the midpoints next to the guess, so the result is exact for any input. */

@@ -86,21 +86,42 @@ double rt_math(int id,double x,double y) {
    dividend's sign, 1e17 % 3 is 1, -0.0 % 3 is -0, 5 % Infinity is 5). The generic runtime, generic compiled code and
    native code all call this one function. */
 double rt_remainder(double x,double y) { return fmod(x,y); }
+/* The functions that keep integers, for int and long arguments of which at least one is a long (長整數): the result is a
+   long (the *Int functions an int, saturating), or 0 for the functions computed on doubles. */
+static int long_math(u32 k,Value*args,u32 n,Value*out) {
+    int64_t v[3];for(u32 i=0;i<n&&i<3;i++)v[i]=args[i].tag==LONG?long_of(args[i]):(int64_t)args[i].number;
+    int64_t x=v[0];
+    switch(k){
+    case MATH_ABS:*out=long_wrap(x<0?0-(uint64_t)x:(uint64_t)x);return 1;
+    case MATH_SIGN:*out=long_value(x>0?1:x<0?-1:0);return 1;
+    case MATH_MIN:*out=long_value(x<v[1]?x:v[1]);return 1;
+    case MATH_MAX:*out=long_value(x>v[1]?x:v[1]);return 1;
+    case MATH_CLAMP:{int64_t m=x>v[1]?x:v[1];*out=long_value(m<v[2]?m:v[2]);return 1;}
+    case MATH_FLOOR:case MATH_CEIL:case MATH_ROUND:case MATH_TRUNC:*out=long_value(x);return 1;
+    case MATH_FLOOR_INT:case MATH_CEIL_INT:case MATH_ROUND_INT:case MATH_TRUNC_INT:*out=long_to_int(x);return 1;
+    case MATH_IS_NAN:*out=value(BOOL,0,0);return 1;
+    case MATH_IS_FINITE:*out=value(BOOL,0,1);return 1;
+    default:return 0;
+    }
+}
 static Value math_call(Frame*f,u32 id,Value*args,u32 n) {
     if(id<MATH_FIRST_ID||id>=MATH_FIRST_ID+MATH_COUNT||n<math_minimum[id-MATH_FIRST_ID]||n>math_maximum[id-MATH_FIRST_ID]){failure(f,"Incorrect Math argument count.");return empty;}
-    u32 k=id-MATH_FIRST_ID,tag=INT;
+    u32 k=id-MATH_FIRST_ID,tag=INT;int longs=0;
     for(u32 i=0;i<n;i++){
-        if(!numeric(args[i])){Text*t=concat(concat(ascii("Math."),utf16(math_names[k][0])),ascii(" requires numbers / 數學."));
+        if(!any_number(args[i])){Text*t=concat(concat(ascii("Math."),utf16(math_names[k][0])),ascii(" requires numbers / 數學."));
             fail(f,concat(concat(concat(t,utf16(math_names[k][1])),ascii(" 需要數字: ")),ascii(type_name(args[i].tag))));return empty;}
-        if(args[i].tag>tag)tag=args[i].tag;
+        if(args[i].tag==LONG)longs=1;else if(args[i].tag>tag)tag=args[i].tag;
     }
-    double x=n?args[0].number:0,y=n>1?args[1].number:0;
+    /* A long with ints keeps integers where the function does; with a float or double, longs compute as doubles. */
+    if(longs&&tag==INT){Value out;if(long_math(k,args,n,&out))return out;}
+    if(longs&&tag==FLOAT)tag=DOUBLE;
+    double x=n?number_of(args[0]):0,y=n>1?number_of(args[1]):0;
     switch(k){
     case MATH_ABS:return tag==INT?integer(x<0?-(int64_t)x:(int64_t)x):number(__builtin_fabs(x),tag);
     case MATH_SIGN:return number(x>0?1:x<0?-1:x,tag);
     case MATH_MIN:return number(math_min(x,y),tag);
     case MATH_MAX:return number(math_max(x,y),tag);
-    case MATH_CLAMP:return number(math_min(math_max(x,y),args[2].number),tag);
+    case MATH_CLAMP:return number(math_min(math_max(x,y),number_of(args[2])),tag);
     case MATH_FLOOR:return number(__builtin_floor(x),tag);
     case MATH_CEIL:return number(__builtin_ceil(x),tag);
     case MATH_ROUND:return number(round_away(x),tag);
@@ -120,8 +141,8 @@ static Value math_call(Frame*f,u32 id,Value*args,u32 n) {
         return integer((int64_t)x+r%range);
     }
     case MATH_SEED:
-        if(args[0].tag!=INT){failure(f,"Math.Seed requires an integer / 數學.亂數種子 需要整數。");return empty;}
-        random_seed((uint64_t)(int64_t)x);return empty;
+        if(args[0].tag!=INT&&args[0].tag!=LONG){failure(f,"Math.Seed requires an integer / 數學.亂數種子 需要整數。");return empty;}
+        random_seed((uint64_t)(args[0].tag==LONG?long_of(args[0]):(int64_t)x));return empty;
     default:return number(rt_math((int)k,x,y),tag==FLOAT?FLOAT:DOUBLE);
     }
 }

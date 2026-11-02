@@ -44,7 +44,7 @@ public class PortableModulesTest {
     [RuntimeFact]
     public void ImportAndNamesExposeBothLanguages() {
         var cases = new List<(string, string, string)>();
-        foreach (var (english, chinese, count) in new[] { ("Hash", "雜湊", 10), ("String", "字串", 17) }) {
+        foreach (var (english, chinese, count) in new[] { ("Hash", "雜湊", 10), ("String", "字串", 18) }) {
             var module = ArrayLibraryTest.Module(english);
             Assert.Equal(chinese, module.Chinese);
             Assert.Equal(count, module.Functions.Length);

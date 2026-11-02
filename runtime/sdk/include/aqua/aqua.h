@@ -19,7 +19,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#define AQUA_API_VERSION 2
+#define AQUA_API_VERSION 3
 
 /* ---- Target detection: one macro per operating system family, for library preprocessor branches. ------------------ */
 #if defined(__wasm__)
@@ -78,14 +78,16 @@ typedef enum aqua_type {
     AQUA_HASH = 7, AQUA_FUNCTION = 8, AQUA_MODULE = 9, AQUA_NATIVE = 10, AQUA_NULL = 11, AQUA_BREAK = 12,
     AQUA_ERROR = 13, AQUA_BUILTIN = 14,
     /* A struct value (結構 / struct) and a struct type (callable: it constructs values). */
-    AQUA_STRUCT = 15, AQUA_STRUCT_TYPE = 16
+    AQUA_STRUCT = 15, AQUA_STRUCT_TYPE = 16,
+    /* A 64-bit integer (長整數 / long, API 3): its two's complement bits are `integer`, not a double. */
+    AQUA_LONG = 17
 } aqua_type;
 
-/* A language value, copied by value. Numbers and booleans live in `number`; strings, arrays, hashes, functions and
-   modules refer to guest memory through `ref`; native objects refer to a runtime handle. A value that refers to guest
-   memory stays valid while the guest can reach it: arguments for the duration of the call, anything else only while
-   retained (aqua_retain). */
-typedef struct aqua_value { uint32_t type; uint32_t ref; double number; } aqua_value;
+/* A language value, copied by value. Numbers and booleans live in `number`, a long's 64 bits in `integer` (the same 8
+   bytes); strings, arrays, hashes, functions and modules refer to guest memory through `ref`; native objects refer to a
+   runtime handle. A value that refers to guest memory stays valid while the guest can reach it: arguments for the
+   duration of the call, anything else only while retained (aqua_retain). */
+typedef struct aqua_value { uint32_t type; uint32_t ref; union { double number; int64_t integer; }; } aqua_value;
 
 typedef struct aqua_runtime aqua_runtime; /* one running application */
 typedef struct aqua_call aqua_call;       /* one call of a library function, valid until it returns */
@@ -101,7 +103,13 @@ static inline aqua_value aqua_int(int32_t n) { aqua_value v = {AQUA_INT, 0, (dou
 static inline aqua_value aqua_float(float n) { aqua_value v = {AQUA_FLOAT, 0, (double)n}; return v; }
 static inline aqua_value aqua_double(double n) { aqua_value v = {AQUA_DOUBLE, 0, n}; return v; }
 static inline aqua_value aqua_bool(bool b) { aqua_value v = {AQUA_BOOL, 0, b ? 1.0 : 0.0}; return v; }
+static inline aqua_value aqua_long(int64_t n) { aqua_value v = {AQUA_LONG, 0, 0}; v.integer = n; return v; }
+/* An int, float or double: `number` holds its value. A long is not one (its `number` is not a double): use
+   aqua_is_numeric and aqua_number_of to accept every number. */
 static inline bool aqua_is_number(aqua_value v) { return v.type == AQUA_INT || v.type == AQUA_FLOAT || v.type == AQUA_DOUBLE; }
+static inline bool aqua_is_numeric(aqua_value v) { return aqua_is_number(v) || v.type == AQUA_LONG; }
+/* Any number's value as a double (a long rounds to nearest). */
+static inline double aqua_number_of(aqua_value v) { return v.type == AQUA_LONG ? (double)v.integer : v.number; }
 static inline bool aqua_is_nullish(aqua_value v) { return v.type == AQUA_NULL || v.type == AQUA_VOID; }
 /* The language's type name: integer, float, double, string, boolean, null, array, hash, function, module, error. */
 const char *aqua_type_name(aqua_value v);
@@ -214,6 +222,8 @@ aqua_value aqua_arg(aqua_call *call, uint32_t index);
 /* Typed reads of arguments the signature already checked. */
 double aqua_arg_number(aqua_call *call, uint32_t index);
 int32_t aqua_arg_int(aqua_call *call, uint32_t index);
+/* A number argument as a 64-bit integer: a long or int exactly, a float or double truncated and saturated (NaN 0). API 3. */
+int64_t aqua_arg_long(aqua_call *call, uint32_t index);
 bool aqua_arg_bool(aqua_call *call, uint32_t index);
 /* UTF-8 copy of a string argument, valid until the call returns. */
 aqua_str aqua_arg_str(aqua_call *call, uint32_t index);
@@ -234,6 +244,7 @@ aqua_str aqua_str_of(aqua_call *call, aqua_value text);
 void aqua_return(aqua_call *call, aqua_value result);
 void aqua_return_int(aqua_call *call, int32_t n);
 void aqua_return_double(aqua_call *call, double n);
+void aqua_return_long(aqua_call *call, int64_t n); /* API 3 */
 void aqua_return_bool(aqua_call *call, bool b);
 void aqua_return_null(aqua_call *call);
 void aqua_return_text(aqua_call *call, const char *utf8, size_t length);

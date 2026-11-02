@@ -16,8 +16,9 @@ static const char *kind_name(char kind) {
 }
 static bool kind_accepts(char kind, aqua_value v) {
     switch (kind) {
-    case 'n': return aqua_is_number(v);
-    case 'i': return v.type == AQUA_INT || (aqua_is_number(v) && v.number == floor(v.number) && v.number >= -2147483648.0 && v.number <= 2147483647.0);
+    case 'n': return aqua_is_numeric(v);
+    case 'i': return v.type == AQUA_INT || (v.type == AQUA_LONG && v.integer >= INT32_MIN && v.integer <= INT32_MAX)
+        || (aqua_is_number(v) && v.number == floor(v.number) && v.number >= -2147483648.0 && v.number <= 2147483647.0);
     case 'b': return v.type == AQUA_BOOL;
     case 's': return v.type == AQUA_STRING;
     case 'a': return v.type == AQUA_ARRAY;
@@ -93,7 +94,13 @@ uint32_t aqua_argc(aqua_call *call) { return call->count; }
 aqua_value aqua_arg(aqua_call *call, uint32_t index) { return index < call->count ? call->arguments[index] : aqua_void(); }
 double aqua_arg_number(aqua_call *call, uint32_t index) {
     aqua_value v = aqua_arg(call, index);
-    return aqua_is_number(v) ? v.number : v.type == AQUA_BOOL ? v.number : 0;
+    return aqua_is_numeric(v) ? aqua_number_of(v) : v.type == AQUA_BOOL ? v.number : 0;
+}
+int64_t aqua_arg_long(aqua_call *call, uint32_t index) {
+    aqua_value v = aqua_arg(call, index);
+    if (v.type == AQUA_LONG) return v.integer;
+    double n = aqua_arg_number(call, index);
+    return n != n ? 0 : n <= -9223372036854775808.0 ? INT64_MIN : n >= 9223372036854775808.0 ? INT64_MAX : (int64_t)n;
 }
 int32_t aqua_arg_int(aqua_call *call, uint32_t index) {
     double n = aqua_arg_number(call, index);
@@ -152,6 +159,7 @@ const char *aqua_call_script(aqua_call *call) {
 void aqua_return(aqua_call *call, aqua_value result) { if (!call->failed) call->result = result; }
 void aqua_return_int(aqua_call *call, int32_t n) { aqua_return(call, aqua_int(n)); }
 void aqua_return_double(aqua_call *call, double n) { aqua_return(call, aqua_double(n)); }
+void aqua_return_long(aqua_call *call, int64_t n) { aqua_return(call, aqua_long(n)); }
 void aqua_return_bool(aqua_call *call, bool b) { aqua_return(call, aqua_bool(b)); }
 void aqua_return_null(aqua_call *call) { aqua_return(call, aqua_null()); }
 void aqua_return_text(aqua_call *call, const char *utf8, size_t length) { if (!call->failed) call->result = aqua_text(call->rt, utf8, length); }

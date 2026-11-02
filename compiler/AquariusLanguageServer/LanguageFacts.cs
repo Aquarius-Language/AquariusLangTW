@@ -44,6 +44,7 @@ internal static class LanguageFacts
         ["整數"] = "型別 整數 — 32-bit integer. Alias: int.", ["int"] = "type int — 32-bit integer. Alias: 整數.",
         ["浮點數"] = "型別 浮點數 — 32-bit float. Alias: float.", ["float"] = "type float — 32-bit float. Alias: 浮點數.",
         ["雙精度"] = "型別 雙精度 — 64-bit double. Alias: double.", ["double"] = "type double — 64-bit double. Alias: 雙精度.",
+        ["長整數"] = "型別 長整數 — 64-bit integer (literals end in L: 5000000000L). Alias: long.", ["long"] = "type long — 64-bit integer (literals end in L: 5000000000L). Alias: 長整數.",
         ["布林"] = "型別 布林 — Boolean. Alias: bool.", ["bool"] = "type bool — Boolean. Alias: 布林.",
         ["字串"] = "型別 字串 — string. Alias: string.", ["string"] = "type string — string. Alias: 字串.",
         ["陣列"] = "型別 陣列 — an array whose elements may be any values; add [] after a scalar type for a typed array (整數[]). Alias: array.",
@@ -78,6 +79,7 @@ internal static class LanguageFacts
             ("整數", "int", "整數(值) — Convert a number to a 32-bit integer: truncates toward zero, saturates, NaN gives 0."),
             ("浮點數", "float", "浮點數(值) — Convert a number to a 32-bit float."),
             ("雙精度", "double", "雙精度(值) — Convert a number to a 64-bit double."),
+            ("長整數", "long", "長整數(值) — Convert a number to a 64-bit integer: truncates toward zero, saturates, NaN gives 0."),
             ("目前工作目錄", "currWorkingDir", "目前工作目錄 — Directory of the executing source file (string value)."),
         };
         var result = new Dictionary<string, string>(StringComparer.Ordinal);
@@ -152,7 +154,8 @@ internal static class LanguageFacts
             ("Code", "字元碼", "text, index", "文字, 索引", "Code point at index, or null. / 字元碼。"),
             ("FromCode", "從字元碼", "codePoint", "字元碼", "One-character text. / 由字元碼建立文字。"),
             ("ParseInt", "解析整數", "text", "文字", "32-bit decimal integer, or null. / 解析整數。"),
-            ("ParseNumber", "解析數字", "text", "文字", "Integer within 32 bits, else double (1.5, 1e-9, Infinity, NaN), or null. / 解析數字。")),
+            ("ParseNumber", "解析數字", "text", "文字", "Integer within 32 bits, else double (1.5, 1e-9, Infinity, NaN), or null. / 解析數字。"),
+            ("ParseLong", "解析長整數", "text", "文字", "64-bit decimal integer (長整數 / long), or null. / 解析長整數。")),
         Portable("Math", "數學",
             ("Abs", "絕對值", "x", "數", "Absolute value, same number type. / 絕對值，型別不變。"),
             ("Sign", "正負號", "x", "數", "-1, 0 or 1 in x's type (±0 and NaN unchanged). / 正負號。"),

@@ -115,7 +115,7 @@ static void int_introsort(int32_t*x,u32 n,u32 depth) {
     for(u32 i=1;i<n;i++){int32_t v=x[i];u32 j=i;while(j&&x[j-1]>v){x[j]=x[j-1];j--;}x[j]=v;}
 }
 /* Orders of the stable sort: numbers by value with NaN last, texts by UTF-16 code units. */
-static int number_before(Value a,Value b) { return a.number<b.number||(b.number!=b.number&&a.number==a.number); }
+static int number_before(Value a,Value b) { int c=compare_numbers(a,b);return c==-1||(c==2&&is_nan_number(b)&&!is_nan_number(a)); }
 static int text_before(Value a,Value b) {
     Text*x=pointer(a.ref),*y=pointer(b.ref);u32 n=x->length<y->length?x->length:y->length;
     for(u32 i=0;i<n;i++)if(x->data[i]!=y->data[i])return x->data[i]<y->data[i];return x->length<y->length;
@@ -137,7 +137,7 @@ static void merge_sort(Value*v,Value*t,u32 n,int texts) {
 /* Which kinds of elements an array holds: 1 all integers, 2 all numbers, 4 all texts (an empty array has every kind). */
 static u32 element_kinds(Array*a) {
     u32 ints=1,numbers=1,texts=1;
-    for(u32 i=0;i<a->count&&(numbers|texts);i++){u32 t=array_get(a,i).tag;ints&=t==INT;numbers&=t>=INT&&t<=DOUBLE;texts&=t==STRING;}
+    for(u32 i=0;i<a->count&&(numbers|texts);i++){u32 t=array_get(a,i).tag;ints&=t==INT;numbers&=t>=INT&&t<=DOUBLE||t==LONG;texts&=t==STRING;}
     return ints|numbers<<1|texts<<2;
 }
 static Value array_sort(Frame*f,Array*a,Value self) {
@@ -176,7 +176,7 @@ static Value array_extreme(Frame*f,Array*a,int largest) {
     if(!a->count)return value(NULL_VALUE,0,0);
     Value best=array_get(a,0);
     for(u32 i=1;i<a->count;i++){Value v=array_get(a,i);
-        if(kinds&2){if(best.number!=best.number)break;if(v.number!=v.number){best=v;break;}if(largest?v.number>best.number:v.number<best.number)best=v;}
+        if(kinds&2){if(is_nan_number(best))break;if(is_nan_number(v)){best=v;break;}if(compare_numbers(v,best)==(largest?1:-1))best=v;}
         else if(largest?text_before(best,v):text_before(v,best))best=v;}
     return best;
 }

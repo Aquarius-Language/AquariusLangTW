@@ -21,6 +21,7 @@ static void puts_(text_builder *b, const char *s) { put(b, s, strlen(s)); }
 
 void format_number(char *out, size_t size, double n, aqua_type type) {
     if (type == AQUA_INT) { snprintf(out, size, "%d", (int32_t)n); return; }
+    if (type == AQUA_LONG) { char text[24]; int64_t bits; memcpy(&bits, &n, 8); snprintf(out, size, "%.*s", format_long_text(text, bits), text); return; }
     char text[32];
     int length = format_number_text(text, n, type == AQUA_FLOAT);
     snprintf(out, size, "%.*s", length, text);
@@ -29,7 +30,7 @@ void format_number(char *out, size_t size, double n, aqua_type type) {
 static void format_into(aqua_runtime *rt, text_builder *b, aqua_value v, int depth) {
     char number[64];
     switch (v.type) {
-    case AQUA_INT: case AQUA_FLOAT: case AQUA_DOUBLE:
+    case AQUA_INT: case AQUA_FLOAT: case AQUA_DOUBLE: case AQUA_LONG:
         format_number(number, sizeof number, v.number, (aqua_type)v.type);
         puts_(b, number);
         return;
