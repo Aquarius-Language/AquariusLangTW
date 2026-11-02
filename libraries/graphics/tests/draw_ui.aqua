@@ -1,0 +1,46 @@
+# (needs a window) drawUI: a UI draw list (rounded rectangles, borders, gradients, lines, a textured mesh with its
+# texture, clips, transforms and opacity) drawn on the sketch and on an offscreen canvas, sampled as pixels.
+var p = import("Processing");
+var hex = function(c) { return p.hex(c, 8); };
+var list = {"version": 1, "strings": [], "images": [],
+    "commands": [
+        1, 0, 0, 40, 40, 0, 0, 0, 0, 255, 0, 0, 255,                       # red square
+        2, 40, 0, 40, 40, 0, 0, 0, 0, 4, 4, 4, 4, 0, 255, 0, 255,           # green frame
+        13, 80, 0, 40, 40, 0, 0, 0, 0, 80, 0, 120, 0, 0, 0, 0, 255, 0, 0, 255, 255,   # black -> blue, left to right
+        6, 0, 40, 20, 40, 0, 0, 0, 0,                                       # clip to the left half of the next square
+        1, 0, 40, 40, 40, 0, 0, 0, 0, 255, 255, 0, 255,
+        7,
+        8, 1, 0, 0, 1, 40, 40,                                              # translate (40, 40)
+        14, 0.5,
+        1, 0, 0, 40, 40, 0, 0, 0, 0, 255, 255, 255, 255,                    # half-transparent white
+        15, 9,
+        11, 7, 2, 1, 0, 0, 0, 2, 1,                                         # texture 7: 2x1 pixels from images[0]
+        10, 0, 4, 0, 6, 7,                                                  # a textured quad
+        12, 0, 79, 120, 79, 2, 255, 0, 255, 255],
+    "vertices": [80, 40, 0.25, 0.5, 255, 255, 255, 255,  120, 40, 0.75, 0.5, 255, 255, 255, 255,
+                 120, 80, 0.75, 0.5, 255, 255, 255, 255,  80, 80, 0.25, 0.5, 255, 255, 255, 255],
+    "indices": [0, 1, 2, 0, 2, 3]};
+list["images"] = [[0, 255, 255, 255, 255, 0, 255, 255]];
+var setup = function() { p.size(120, 80, p.P2D); p.noLoop(); };
+var draw = function() {
+    p.background(0);
+    p.drawUI(list);
+    print("solid", hex(p.get(20, 20)), hex(p.get(42, 20)), hex(p.get(60, 20)), hex(p.get(10, 60)), hex(p.get(30, 60)));
+    print("gradient", p.red(p.get(82, 20)), p.blue(p.get(82, 20)) < 40, p.blue(p.get(118, 20)) > 215);
+    print("opacity", p.red(p.get(60, 60)) > 115, p.red(p.get(60, 60)) < 140);
+    var left = p.get(81, 50);
+    var right = p.get(118, 50);
+    print("texture", p.red(left) < 40, p.green(left) > 215, p.red(right) > 215, p.green(right) < 40, "line", hex(p.get(60, 79)));
+    var metrics = p.uiTextMetrics("Saturn", "sans-serif", 16);
+    print("metrics", len(metrics), metrics[0] > 30, metrics[1] + metrics[2] > 12);
+    var canvas = p.createGraphics(40, 40, p.P2D);
+    canvas.beginDraw();
+    canvas.background(0, 0, 0, 0);
+    canvas.drawUI({"version": 1, "strings": [], "images": [], "commands": [1, 0, 0, 40, 40, 20, 20, 20, 20, 0, 128, 255, 255]});
+    canvas.endDraw();
+    print("canvas", hex(canvas.get(20, 20)), p.alpha(canvas.get(1, 1)) < 10);
+    var Network = import("Network");
+    print(Network.Try(function() { p.drawUI({"commands": [99]}); }).Error.Message);
+    p.exit();
+};
+p.run(setup, draw);

@@ -1,0 +1,43 @@
+# Clay without a window: a layout with fixed, grow and percent sizing, padding, gaps, alignment, text wrapping with the
+# built-in measurer, floating elements, hover and an embedded draw list, rendered into a UI draw list.
+var Clay = import("Clay");
+var Saturn = import("Saturn");
+var Network = import("Network");
+var layout = Clay.Create(400, 300);
+print("outside", Network.Try(function() { Clay.Text("x"); }).Error.Message);
+var hovered = false;
+var build = function() {
+layout.Begin();
+Clay.Element({"id": "root", "width": "grow", "height": "grow", "direction": "row", "padding": 10, "gap": 10, "background": "#202020"}, function() {
+    Clay.Element({"id": "side", "width": Clay.Fixed(100), "height": "grow", "background": [40, 40, 60], "radius": 6}, function() {
+        hovered = Clay.Hovered();
+    });
+    Clay.Element({"id": "main", "width": "grow", "height": "grow", "direction": "column", "gap": 8, "padding": [8, 12]}, function() {
+        Clay.Text("Clay wraps this sentence between words in the main column of the layout.", {"fontSize": 16, "color": "white"});
+        Clay.Element({"id": "half", "width": "50%", "height": Clay.Fixed(30), "background": "#4060ff",
+            "border": {"color": "white", "width": 2}});
+        Clay.Element({"id": "embed", "width": Clay.Fixed(40), "height": Clay.Fixed(20), "embed": function(x, y, w, h) {
+            var p = Saturn.Painter();
+            p.Text("hi", 0, 0, {"fontSize": 10});
+            return p.Build();
+        }});
+        Clay.Element({"id": "badge", "floating": {"attachTo": "parent", "offset": [5, 5], "element": "rightTop", "parent": "rightTop"},
+            "width": Clay.Fixed(20), "height": Clay.Fixed(20), "background": "red"});
+    });
+});
+return layout.End();
+};
+build();
+# Hover reads the pointer against the previous frame's layout, as Clay does.
+layout.SetPointer(20, 20, false);
+var list = build();
+var boxes = ["side", "main", "half", "embed", "badge"];
+for (var i = 0; i < len(boxes); i++) { print(boxes[i], layout.ElementBox(boxes[i])); }
+print("hover", hovered, layout.PointerOver("side"), layout.PointerOverIds());
+var sizes = [0, 12, 16, 14, 14, 17, 8, 0, 6, 0, 5, 8, 9, 20, 1, 0];
+var ops = [];
+var c = list["commands"];
+for (var at = 0; at < len(c); at += 1 + sizes[int(c[at])]) { Array.Append(ops, int(c[at])); }
+print("ops", ops);
+print("strings", list["strings"]);
+print("bad", Network.Try(function() { layout.Begin(); Clay.Element({"width": "wide"}); }).Error.Message);

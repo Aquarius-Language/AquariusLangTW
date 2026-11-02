@@ -331,7 +331,7 @@ static bool declaration_of(aqua_call *call, layout *l, aqua_value h, Clay_Elemen
         d->clip.horizontal = d->clip.vertical = on;
         if (text_is(rt, v, "vertical")) d->clip.vertical = true;
         if (text_is(rt, v, "horizontal")) d->clip.horizontal = true;
-        d->clip.childOffset = Clay_GetScrollOffset();
+        /* The scroll position of the open element: open() fills childOffset once the element is open. */
     }
     if (field(rt, h, "clip", &v)) {
         aqua_value x, y;
@@ -384,13 +384,18 @@ static bool declaration_of(aqua_call *call, layout *l, aqua_value h, Clay_Elemen
     return true;
 }
 
+/* Opens an element with its declaration (checked before anything is opened, so a bad one leaves Clay's tree intact). */
+static bool open(aqua_call *call, layout *l, aqua_value declaration) {
+    Clay_ElementDeclaration d;
+    if (!declaration_of(call, l, declaration, &d)) return false;
+    Clay__OpenElement();
+    if (d.clip.horizontal || d.clip.vertical) d.clip.childOffset = Clay_GetScrollOffset();
+    Clay__ConfigureOpenElement(d);
+    return true;
+}
 static void module_open(aqua_call *call) {
     layout *l = current(call);
-    if (!l) return;
-    Clay_ElementDeclaration d;
-    Clay__OpenElement();
-    if (!declaration_of(call, l, aqua_arg(call, 0), &d)) { Clay__CloseElement(); return; }
-    Clay__ConfigureOpenElement(d);
+    if (!l || !open(call, l, aqua_arg(call, 0))) return;
     report(call, l);
 }
 static void module_close(aqua_call *call) {
@@ -403,10 +408,7 @@ static void module_close(aqua_call *call) {
 static void module_element(aqua_call *call) {
     layout *l = current(call);
     if (!l) return;
-    Clay_ElementDeclaration d;
-    Clay__OpenElement();
-    if (!declaration_of(call, l, aqua_arg(call, 0), &d)) { Clay__CloseElement(); return; }
-    Clay__ConfigureOpenElement(d);
+    if (!open(call, l, aqua_arg(call, 0))) return;
     if (aqua_argc(call) > 1 && !aqua_is_nullish(aqua_arg(call, 1))) {
         aqua_value result;
         if (!aqua_invoke(l->rt, aqua_arg(call, 1), NULL, 0, &result)) {
