@@ -82,3 +82,21 @@ returns exactly what the generic call returns (NativeMathTest compares both, inc
 `RandomInt` and `Seed` stay generic. The entry adapter checks that no binding shadows `數學` / `Math`, like the core
 conversions. The closed scalar tier (`WasmIntegerFunction`) accepts no builtin calls at all, so it does not take Math
 calls either: functions calling Math are compiled by the native tier when typed, as clones when untyped.
+
+## The % operator
+
+Integer `%` truncates toward zero like integer division and fails on a zero divisor. When either operand is a float
+or double, `%` is the exact IEEE remainder of truncated division — C's `fmod`, implemented once in the guest
+(`rt_remainder`, musl's `fmod`) and called by the generic runtime, generic compiled code and native code alike. Its
+sign is the dividend's. Before, every tier computed `x - trunc(x / y) * y`, which is inexact for large quotients:
+
+| Expression | Before | Now |
+| --- | --- | --- |
+| `100000000000000000.0d % 3` | 0 | 1 |
+| `1e300 % 7` | 0 | 1 |
+| `-0.0 % 3` | 0 | -0 |
+| `5.0 % Infinity` | NaN | 5 |
+| `-7.5 % 2`, `7.5 % -2`, `1.5f % 0.4f` | -1.5, 1.5, 0.29999998 | unchanged |
+
+`數學.浮點餘數` / `Math.Fmod` is the same function. A compound `%=` into an integer variable computes in double and
+converts back like the other compound operators (`變數 n = 1000000000; n %= 0.7d;` gives 0).

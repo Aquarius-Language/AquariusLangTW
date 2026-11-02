@@ -354,8 +354,8 @@ internal sealed class WasmBodyEmitter
     {
         Get(right); I32(-1); Op(0x46); If(0x7f); I32(0); Else(); Get(left); Get(right); Op(0x6f); End();
     }
-    /// <summary>Float remainder: x - trunc(x / y) * y on f64 locals.</summary>
-    private void FloatRemainder(int left, int right) { Get(left); Get(left); Get(right); Op(0xa3); Op(0x9d); Get(right); Op(0xa2); Op(0xa1); }
+    /// <summary>Float remainder of f64 locals: the guest's exact rt_remainder (C fmod), like the generic runtime.</summary>
+    private void FloatRemainder(int left, int right) { Get(left); Get(right); Call("remainder"); }
 
     // ---- named bindings ------------------------------------------------------------------------
     /// <summary>Address of the guarded dynamic lexical candidate or 0 (no failure, no helper).</summary>

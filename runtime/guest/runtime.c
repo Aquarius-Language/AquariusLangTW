@@ -241,6 +241,7 @@ static Value integer(int64_t n) { return value(INT,0,(double)(int32_t)(uint32_t)
 static Value successor(Value v) { return v.tag==INT?integer((int64_t)v.number+1):number(v.number+1,v.tag); }
 /* Builtin ids of the conversions 整數(x)/int(x), 浮點數(x)/float(x), 雙精度(x)/double(x), in tag order. */
 #define CONVERT_FIRST_ID 46u
+double rt_remainder(double x,double y); /* maths.h */
 static int equal(Value a,Value b,int typed) { if(numeric(a)&&numeric(b))return (!typed||a.tag==b.tag)&&(a.number==b.number||(typed&&a.number!=a.number&&b.number!=b.number));if(a.tag!=b.tag)return 0;if(a.tag==STRING)return text_equal(pointer(a.ref),pointer(b.ref));if(a.tag==BOOL)return a.number==b.number;return a.ref==b.ref; }
 static Value binary(Frame*f,int op,Value a,Value b,int compound) {
     static const char *symbols[]={"+","-","*","/","<",">","<=",">=","==","!=","&&","||","%"};
@@ -257,9 +258,9 @@ static Value binary(Frame*f,int op,Value a,Value b,int compound) {
         u32 tag=compound?a.tag:a.tag>b.tag?a.tag:b.tag;double x=a.number,y=b.number;
         switch(op){case 0:return number(x+y,tag);case 1:return number(x-y,tag);case 2:return number(x*y,tag);case 3:return number(x/y,tag);case 4:return value(BOOL,0,x<y);case 5:return value(BOOL,0,x>y);case 6:return value(BOOL,0,x<=y);case 7:return value(BOOL,0,x>=y);case 8:return value(BOOL,0,x==y);case 9:return value(BOOL,0,x!=y);
         case 12:
-            // Remainder truncates toward zero like division; integer remainder by zero is an error.
+            // Remainder truncates toward zero like division (exactly, C fmod); integer remainder by zero is an error.
             if(tag==INT&&y==0){failure(f,"Integer remainder by zero / 整數不能對零取餘數。");return empty;}
-            return number(x-__builtin_trunc(x/y)*y,tag);}
+            return number(rt_remainder(x,y),tag);}
     }
     if(op==8||op==9)return value(BOOL,0,equal(a,b,0)^(op==9));
     if((op==10||op==11)&&a.tag==BOOL&&b.tag==BOOL)return value(BOOL,0,op==10?(a.number&&b.number):(a.number||b.number));

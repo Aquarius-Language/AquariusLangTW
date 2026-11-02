@@ -82,6 +82,10 @@ double rt_math(int id,double x,double y) {
     default:return __builtin_nan("");
     }
 }
+/* The % operator on numbers that are not both integers: the exact IEEE remainder of truncating division (C fmod: the
+   dividend's sign, 1e17 % 3 is 1, -0.0 % 3 is -0, 5 % Infinity is 5). The generic runtime, generic compiled code and
+   native code all call this one function. */
+double rt_remainder(double x,double y) { return fmod(x,y); }
 static Value math_call(Frame*f,u32 id,Value*args,u32 n) {
     if(id<MATH_FIRST_ID||id>=MATH_FIRST_ID+MATH_COUNT||n<math_minimum[id-MATH_FIRST_ID]||n>math_maximum[id-MATH_FIRST_ID]){failure(f,"Incorrect Math argument count.");return empty;}
     u32 k=id-MATH_FIRST_ID,tag=INT;

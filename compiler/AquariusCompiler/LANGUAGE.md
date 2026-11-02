@@ -87,8 +87,9 @@ Default value inspection still prints booleans as `真` / `假` and null as `nul
   Compound numeric assignments preserve the left variable's numeric type by
   converting the result back to that type. Prefix/postfix `++` also preserve it.
 - `%` and `%=` compute remainders with the precedence of `*` and `/`. Integer
-  remainders truncate toward zero like integer division; floating operands use
-  floating remainders. Integer remainder by zero is a runtime error.
+  remainders truncate toward zero like integer division; floating operands give the
+  exact IEEE remainder of truncated division (C `fmod`, the dividend's sign: `1e17 % 3` is 1, `-0.0 % 3` is -0,
+  `5 % Infinity` is 5, `x % 0` is NaN). Integer remainder by zero is a runtime error.
 - Integers are 32-bit and identical on every target: `+`, `-`, `*`, negation and `++` wrap around (two's
   complement); integer `/` truncates toward zero and dividing by zero is a runtime error; the minimum integer
   divided by -1 wraps to itself. Converting a float or double to an integer (`整數(x)` / `int(x)`, or a compound

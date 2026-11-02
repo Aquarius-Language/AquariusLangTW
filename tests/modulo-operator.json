@@ -31,6 +31,11 @@
       "18"
     ],
     [
+      "Floating remainder is exact (C fmod): large quotients, signs, zeros and infinities",
+      "[100000000000000000.0d%3,1e300%7,-7.5%2,7.5%-2,5.0d%Math.Infinity,1.0d/(-(0.0d)%3),Math.IsNaN(5.0d%0),Math.IsNaN(Math.Infinity%2),0.3%0.1,1.5f%0.4f];",
+      "[1, 1, -1.5, 1.5, 5, -Infinity, 真, 真, 0.09999999999999998, 0.29999998]"
+    ],
+    [
       "Smallest integer by minus one",
       "變數 low=-2147483647-1;low%-1;",
       "0"

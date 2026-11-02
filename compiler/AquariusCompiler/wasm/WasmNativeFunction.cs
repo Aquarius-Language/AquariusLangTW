@@ -1930,9 +1930,9 @@ internal sealed class WasmNativeFunction
                     Get(w, tempJ); I(w, -1); Op(0x46, If, 0x7f); I(w, 0); Op(Else); Get(w, tempI); Get(w, tempJ); Op(0x6f); Op(End); break;
             }
         }
-        // f64 arithmetic on two locals; the remainder is x - trunc(x / y) * y like the generic runtime.
+        // f64 arithmetic on two locals; the remainder is the guest's exact rt_remainder (C fmod) like the generic runtime.
         void FloatOperation(IrOperation operation, int x, int y) {
-            if (operation == IrOperation.Modulo) { Get(w, x); Get(w, x); Get(w, y); Op(0xa3, 0x9d); Get(w, y); Op(0xa2, 0xa1); return; }
+            if (operation == IrOperation.Modulo) { Get(w, x); Get(w, y); Op(Call); U(w, runtime["rt_remainder"]); return; }
             Get(w, x); Get(w, y); Op(WasmIntegerFunction.Arithmetic(operation));
         }
     }
