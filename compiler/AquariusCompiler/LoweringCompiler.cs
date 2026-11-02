@@ -201,7 +201,10 @@ public sealed class LoweringCompiler {
             else if (expression.Right is CallExpression call) {
                 if (call.Function is Identifier function) Emit(IrOperation.MemberFunction, Name(function.Value));
                 else Emit(IrOperation.ResolveMemberFunction, Constant(new LoweringCompiler(types).Compile(call.Function)));
-                Arguments(call.Arguments); Emit(IrOperation.Call, call.Arguments.Length);
+                Arguments(call.Arguments);
+                // Named arguments construct the member's struct type (`ui.Column(gap: 8)`), as for a plain name.
+                if (call.ArgumentNames != null) Emit(IrOperation.CallNamed, Constant(string.Join("\u0001", call.ArgumentNames)));
+                else Emit(IrOperation.Call, call.Arguments.Length);
             } else throw new CompilationException("成員存取的右側必須是名稱或呼叫 / The right side of a member access must be a name or a call.");
             return;
         }

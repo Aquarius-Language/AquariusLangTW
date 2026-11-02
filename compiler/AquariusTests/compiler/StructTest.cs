@@ -140,6 +140,19 @@ public class StructTest
     }
 
     [RuntimeFact]
+    public void NamedArgumentsThroughAModuleMemberFillFieldsByName()
+    {
+        // `module.Struct(b: ..., a: ...)` used to fill the fields in the order written; it must match them by name.
+        var modules = new Dictionary<string, string> {
+            ["ui.aqua"] = "struct Column { children; gap; padding }",
+            ["main.aqua"] = "var ui = import(\"ui.aqua\"); var c = ui.Column(gap: 8, children: [1, 2]); print(c, c.padding, len(c.children));",
+        };
+        var run = WasmTestHost.RunModules(modules, "main.aqua");
+        Assert.Equal(0, run.ExitCode);
+        Assert.Equal("Column{children: [1, 2], gap: 8, padding: null} null 2", run.Lines[0]);
+    }
+
+    [RuntimeFact]
     public void ManyStructsSurviveCollectionsUnderAnyQuantum()
     {
         // A long chain and many short-lived trees: every collection must keep reachable structs and their types.
