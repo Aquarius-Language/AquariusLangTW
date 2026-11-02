@@ -1183,6 +1183,12 @@ internal sealed partial class WasmNativeFunction
         // the entry, the native depth bound is reached; otherwise consume the weight with saturation. A pending
         // collection is armed only by allocation, which native code never does, so loops need not poll.
         // Each condition is its own branch to the one site (two predictable jumps, not flags combined with or).
+        // The native budget is not saturated like the generic one: it may go below 0, where the generic checkpoint would
+        // yield. A function with loops yields at its next loop head (budget <= 0); a function without loops (recursion
+        // only) would never yield again, so its entry tests budget <= 0 too. Entries of functions with loops keep
+        // budget == 0: deoptimizing a deep stack of their frames at every slice would cost more than the next loop head.
+        bool loopless = !this.constructs!.Any(c => c.Loop);
+        void Exhausted() { if (loopless) { Get(w, budget); I(w, 0); Op(0x4c); } else { Get(w, budget); Op(0x45); } }
         void Checkpoint(int pc, bool entry) {
             if (!fuel.TryGetValue(pc, out int weight)) return;
             int k = Site(CheckpointSite, BlockOf(pc), states[pc], pc);
@@ -1192,7 +1198,7 @@ internal sealed partial class WasmNativeFunction
                 // The adapters check for a pending collection before native code runs; native code only allocates
                 // when it leaves (a deoptimization) or copies an array on write, which loops do not poll for either.
                 Leave(() => { Get(w, depthParameter); I(w, depthLimit); Op(0x4f); });
-                Leave(() => { Get(w, budget); Op(0x45); });
+                Leave(Exhausted);
             }
             else Leave(() => { Get(w, budget); I(w, 0); Op(0x4c); });
             // A loop that allocates leaves for a pending collection too: the generic checkpoint collects.
@@ -1745,7 +1751,7 @@ internal sealed partial class WasmNativeFunction
                         }
                         for (int s = 0; s < slots; s++) { I(w, s < Signature.Parameters.Length ? 1 : 0); Set(w, Flag(s)); }
                         if (fuel.TryGetValue(0, out int entryWeight)) {
-                            Get(w, budget); Op(0x45, If, 0x40); ToHandler(CheckpointSite, BlockOf(0), states[0], 0); Op(End);
+                            Exhausted(); Op(If, 0x40); ToHandler(CheckpointSite, BlockOf(0), states[0], 0); Op(End);
                             Get(w, budget); I(w, entryWeight); Op(0x6b); Set(w, budget);
                         }
                         Op(Br); U(w, Label(c => c.Start == -4));

@@ -115,6 +115,23 @@ public class NativeFunctionTest
         }
     }
 
+    /// <summary>A long typed recursion without loops yields to other tasks: the native budget may go below 0 where the
+    /// generic one saturates, so a loopless function's entry tests budget &lt;= 0. An async ticker must advance while
+    /// fib(30) and ack(3, 8) run, under the portable quantum (web, Android) and the desktop's, with the generic results.</summary>
+    [RuntimeFact]
+    public void LongTypedRecursionYieldsToOtherTasks()
+    {
+        string program = "var ticks = 0; var done = false;\n" +
+            "var ticker = async function() { for (; !done;) { ticks = ticks + 1; } return ticks; };\n" +
+            "var fib = function(n: int): int { if (n < 2) { return n; } return fib(n - 1) + fib(n - 2); };\n" +
+            "var ack = function(m: int, n: int): int { if (m == 0) { return n + 1; } if (n == 0) { return ack(m - 1, 1); } return ack(m - 1, ack(m, n - 1)); };\n" +
+            "var t = ticker(); var before = ticks; var f = fib(30); var afterFib = ticks; var a = ack(3, 8); var afterAck = ticks; done = true;\n" +
+            "print(f, a, afterFib > before, afterAck > afterFib);";
+        foreach (string? quantum in new[] { "65536", null })
+            Assert.Equal("832040 2045 真 真\n", WasmTestHost.Run(program, quantum == null ? null
+                : new Dictionary<string, string> { ["AQUARIUS_FUEL_QUANTUM"] = quantum }).Succeeded().Output.Replace("\r\n", "\n"));
+    }
+
     /// <summary>Only loops that allocate (here or in a callee) poll for a pending collection. A loop whose only allocation
     /// is in a callee must still collect: these programs allocate about 5 GiB in all, more than a Wasm memory holds, and
     /// the loop after the allocation polls nothing and must leave the armed collection to the next poll.</summary>
