@@ -1102,7 +1102,7 @@ AQUA_LIBRARY(saturn) {
     aqua_define_function(node, "SetAlwaysFormsContainingBlock|設定形成包含區塊", node_set_containing_block, "b");
     aqua_define_function(node, "GetAlwaysFormsContainingBlock|取得形成包含區塊", node_get_containing_block, "");
     define_properties(node);
-    define_style(node);
+    define_style(module, node);
     define_text(module, node);
     define_paint(library, module, node);
 }

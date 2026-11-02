@@ -137,18 +137,39 @@ static bool parse_shadow(aqua_runtime *rt, aqua_value v, Shadow *out) {
     return true;
 }
 
-static void text_changed(Node *n) {
-    if (n->text && YGNodeHasMeasureFunc(n->yg) && !n->measure) {
+void text_changed(Node *n) {
+    if (is_text(n)) {
         n->text->lines.clear();
         YGNodeMarkDirty(n->yg);
     }
+    for (size_t i = 0, count = YGNodeGetChildCount(n->yg); i < count; i++) text_changed(node_of(YGNodeGetChild(n->yg, i)));
 }
 
-static TextStyle &text_style(Node *n) {
+static TextStyle &text_style(Node *n, uint32_t bit) {
     if (!n->text) n->text = std::make_unique<Text>();
+    n->text->style.set |= bit;
     return n->text->style;
 }
 
+TextStyle effective_text_style(Node *n) {
+    TextStyle s = n->text ? n->text->style : TextStyle{};
+    for (YGNodeRef at = YGNodeGetOwner(n->yg); at && (s.set & TEXT_INHERITED) != TEXT_INHERITED; at = YGNodeGetOwner(at)) {
+        Node *owner = node_of(at);
+        if (!owner->text) continue;
+        const TextStyle &o = owner->text->style;
+        uint32_t take = o.set & TEXT_INHERITED & ~s.set;
+        if (take & TEXT_FAMILY) s.family = o.family;
+        if (take & TEXT_SIZE) s.size = o.size;
+        if (take & TEXT_LINE) s.line_height = o.line_height;
+        if (take & TEXT_WEIGHT) s.weight = o.weight;
+        if (take & TEXT_ALIGN) s.align = o.align;
+        if (take & TEXT_ITALIC) s.italic = o.italic;
+        if (take & TEXT_NOWRAP) s.nowrap = o.nowrap;
+        if (take & TEXT_COLOR) s.color = o.color;
+        s.set |= take;
+    }
+    return s;
+}
 static const struct { const char *name; int fit; } fits[] = {
     {"fill", FIT_FILL}, {"contain", FIT_CONTAIN}, {"cover", FIT_COVER}, {"none", FIT_NONE}, {"scale-down", FIT_SCALE_DOWN}};
 static const struct { const char *name; int align; } aligns[] = {
@@ -297,13 +318,27 @@ static bool set_visual(aqua_call *call, Node *n, std::string_view key, aqua_valu
     if (key == "tint") return parse_color(rt, v, &n->look().tint) || fail_style(call, key);
     if (key == "scrollX") return number_of(v, &n->look().scroll_x) || fail_style(call, key);
     if (key == "scrollY") return number_of(v, &n->look().scroll_y) || fail_style(call, key);
+    if (key == "transition") {   /* milliseconds, or {"duration": ms, "easing": "easeOut" | "linear" | "easeInOut" | "easeIn"} */
+        aqua_value duration = v, easing;
+        if ((v.type == AQUA_HASH || v.type == AQUA_STRUCT)) {
+            if (!aqua_hash_field(rt, v, "duration", &duration)) return fail_style(call, key);
+            if (aqua_hash_field(rt, v, "easing", &easing)) {
+                std::string name = text_of(rt, easing);
+                n->look().easing = name == "linear" ? 1 : name == "easeInOut" ? 2 : name == "easeIn" ? 3 : 0;
+            }
+        }
+        if (aqua_is_nullish(duration)) { n->look().transition = 0; return true; }
+        if (!number_of(duration, &number) || number < 0) return fail_style(call, key);
+        n->look().transition = number;
+        return true;
+    }
 
     /* Text */
-    if (key == "color") { if (!parse_color(rt, v, &text_style(n).color)) return fail_style(call, key); return true; }
-    if (key == "fontFamily") { text_style(n).family = text_of(rt, v); text_changed(n); return true; }
+    if (key == "color") { if (!parse_color(rt, v, &text_style(n, TEXT_COLOR).color)) return fail_style(call, key); return true; }
+    if (key == "fontFamily") { text_style(n, TEXT_FAMILY).family = text_of(rt, v); text_changed(n); return true; }
     if (key == "fontSize") {
         if (!number_of(v, &number) || !(number > 0)) return fail_style(call, key);
-        text_style(n).size = number;
+        text_style(n, TEXT_SIZE).size = number;
         text_changed(n);
         return true;
     }
@@ -312,30 +347,30 @@ static bool set_visual(aqua_call *call, Node *n, std::string_view key, aqua_valu
         int weight = name == "bold" ? 700 : name == "normal" ? 400 : name == "light" ? 300 : 0;
         if (!weight && number_of(v, &number)) weight = (int)number;
         if (weight < 1 || weight > 1000) return fail_style(call, key);
-        text_style(n).weight = weight;
+        text_style(n, TEXT_WEIGHT).weight = weight;
         text_changed(n);
         return true;
     }
-    if (key == "fontStyle") { text_style(n).italic = text_of(rt, v) == "italic"; text_changed(n); return true; }
+    if (key == "fontStyle") { text_style(n, TEXT_ITALIC).italic = text_of(rt, v) == "italic"; text_changed(n); return true; }
     if (key == "lineHeight") {
         if (!number_of(v, &number) || !(number > 0)) return fail_style(call, key);
-        text_style(n).line_height = number;
+        text_style(n, TEXT_LINE).line_height = number;
         text_changed(n);
         return true;
     }
     if (key == "textAlign") {
         std::string name = text_of(rt, v);
-        for (auto &a : aligns) if (name == a.name) { text_style(n).align = a.align; return true; }
+        for (auto &a : aligns) if (name == a.name) { text_style(n, TEXT_ALIGN).align = a.align; return true; }
         return fail_style(call, key);
     }
     if (key == "maxLines") {
         if (!number_of(v, &number) && !aqua_is_nullish(v)) return fail_style(call, key);
-        text_style(n).max_lines = aqua_is_nullish(v) ? 0 : (int)number;
+        text_style(n, TEXT_MAX_LINES).max_lines = aqua_is_nullish(v) ? 0 : (int)number;
         text_changed(n);
         return true;
     }
-    if (key == "textOverflow") { text_style(n).ellipsis = text_of(rt, v) == "ellipsis"; text_changed(n); return true; }
-    if (key == "whiteSpace") { text_style(n).nowrap = text_of(rt, v) == "nowrap"; text_changed(n); return true; }
+    if (key == "textOverflow") { text_style(n, TEXT_ELLIPSIS).ellipsis = text_of(rt, v) == "ellipsis"; text_changed(n); return true; }
+    if (key == "whiteSpace") { text_style(n, TEXT_NOWRAP).nowrap = text_of(rt, v) == "nowrap"; text_changed(n); return true; }
     *handled = false;
     return true;
 }
@@ -364,6 +399,102 @@ static Node *self_node(aqua_call *call) {
     if (!n->yg) { aqua_fail(call, "Saturn.Node: the node was freed / 節點已釋放。"); return nullptr; }
     return n;
 }
+/* ---- Replacing a node's whole style, and transitions ---- */
+
+static float ease(int easing, float t) {
+    switch (easing) {
+    case 1: return t;
+    case 2: return t < 0.5f ? 2 * t * t : 1 - 2 * (1 - t) * (1 - t);
+    case 3: return t * t * t;
+    default: return 1 - (1 - t) * (1 - t) * (1 - t);
+    }
+}
+static Color mix(Color a, Color b, float t) { return {a.r + (b.r - a.r) * t, a.g + (b.g - a.g) * t, a.b + (b.b - a.b) * t, a.a + (b.a - a.a) * t}; }
+static float mix(float a, float b, float t) { return a + (b - a) * t; }
+
+Visual shown_visual(Node *n, bool *animating) {
+    Visual shown = *n->visual;
+    if (!n->from || shown.transition <= 0) return shown;
+    float t = (float)((n->state->now - n->start) / shown.transition);
+    if (t >= 1) { n->from.reset(); return shown; }
+    *animating = true;
+    float e = ease(shown.easing, t < 0 ? 0 : t);
+    const Visual &a = *n->from;
+    /* A color fading in or out keeps its hue: transparent ends take the other end's color. */
+    auto fade = [e](Color from, Color to) {
+        if (from.a == 0) { from = to; from.a = 0; }
+        if (to.a == 0) { to = from; to.a = 0; }
+        return mix(from, to, e);
+    };
+    shown.background = fade(a.background, shown.background);
+    shown.gradient_to = fade(a.gradient_to, shown.gradient_to);
+    for (int i = 0; i < 4; i++) { shown.border[i] = fade(a.border[i], shown.border[i]); shown.radius[i] = mix(a.radius[i], shown.radius[i], e); }
+    shown.opacity = mix(a.opacity, shown.opacity, e);
+    shown.translate_x = mix(a.translate_x, shown.translate_x, e);
+    shown.translate_y = mix(a.translate_y, shown.translate_y, e);
+    shown.scale_x = mix(a.scale_x, shown.scale_x, e);
+    shown.scale_y = mix(a.scale_y, shown.scale_y, e);
+    shown.rotate = mix(a.rotate, shown.rotate, e);
+    shown.tint = fade(a.tint, shown.tint);
+    for (size_t i = 0; i < shown.shadows.size() && i < a.shadows.size(); i++) {
+        Shadow &s = shown.shadows[i];
+        const Shadow &f = a.shadows[i];
+        s = {mix(f.x, s.x, e), mix(f.y, s.y, e), mix(f.blur, s.blur, e), mix(f.spread, s.spread, e), fade(f.color, s.color)};
+    }
+    return shown;
+}
+
+/* ReplaceStyle(style | [style, ...]): the node's style becomes exactly the given ones merged in order (later win),
+   every property they leave out back at its default, so state styles (hover, pressed) come and go cleanly. Layout is
+   dirtied only when the layout really changed; with "transition", visual properties animate from what is shown. */
+static void node_replace_style(aqua_call *call) {
+    Node *n = self_node(call);
+    if (!n) return;
+    aqua_runtime *rt = aqua_call_runtime(call);
+    Node scratch;
+    scratch.rt = rt;
+    scratch.state = n->state;
+    scratch.yg = YGNodeNewWithConfig(YGNodeGetConfig(n->yg));
+    scratch.visual = std::make_unique<Visual>();
+    scratch.text = std::make_unique<Text>();
+    aqua_value styles = aqua_arg(call, 0);
+    bool ok = true;
+    if (styles.type == AQUA_ARRAY) {
+        for (uint32_t i = 0, c = aqua_array_length(rt, styles); ok && i < c; i++) {
+            aqua_value s = aqua_array_get(rt, styles, i);
+            if (!aqua_is_nullish(s)) ok = apply_style(call, &scratch, s);
+        }
+    } else if (!aqua_is_nullish(styles)) ok = apply_style(call, &scratch, styles);
+    if (ok) {
+        YGNodeCopyStyle(n->yg, scratch.yg);
+        Visual &next = *scratch.visual;
+        if (n->visual) {
+            next.scroll_x = n->visual->scroll_x;
+            next.scroll_y = n->visual->scroll_y;
+            if (next.transition > 0) {
+                bool running = false;
+                n->from = std::make_unique<Visual>(shown_visual(n, &running));
+                n->from->image = 0;
+                n->start = n->state->now;
+            } else n->from.reset();
+            aqua_release(rt, n->visual->image);
+        }
+        n->visual = std::move(scratch.visual);
+        if (!n->text) n->text = std::make_unique<Text>();
+        TextStyle &old = n->text->style;
+        const TextStyle &now = scratch.text->style;
+        bool measured = old.set != now.set || old.family != now.family || old.size != now.size || old.line_height != now.line_height ||
+                        old.weight != now.weight || old.italic != now.italic || old.max_lines != now.max_lines ||
+                        old.ellipsis != now.ellipsis || old.nowrap != now.nowrap;
+        old = now;
+        if (measured) text_changed(n);
+    } else {
+        aqua_release(rt, scratch.visual->image);
+    }
+    YGNodeFree(scratch.yg);
+}
+static void module_set_time(aqua_call *call) { static_cast<State *>(aqua_state(call))->now = aqua_arg_number(call, 0); }
+static void module_animating(aqua_call *call) { aqua_return_bool(call, static_cast<State *>(aqua_state(call))->animating); }
 static void node_set_style(aqua_call *call) { if (Node *n = self_node(call)) apply_style(call, n, aqua_arg(call, 0)); }
 static void node_set_scroll(aqua_call *call) {
     Node *n = self_node(call);
@@ -388,7 +519,10 @@ static void node_set_image(aqua_call *call) {
     }
 }
 
-void define_style(aqua_class *node) {
+void define_style(aqua_class *module, aqua_class *node) {
+    aqua_define_function(module, "SetTime|設定時間", module_set_time, "n");
+    aqua_define_function(module, "Animating|動畫中", module_animating, "");
+    aqua_define_function(node, "ReplaceStyle|取代樣式", node_replace_style, "v");
     aqua_define_function(node, "SetStyle|設定樣式", node_set_style, "v");
     aqua_define_function(node, "SetScrollOffset|設定捲動位置", node_set_scroll, "nn");
     aqua_define_function(node, "GetScrollX|取得水平捲動", node_scroll_x, "");

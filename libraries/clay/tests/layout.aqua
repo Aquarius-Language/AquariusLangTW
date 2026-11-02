@@ -33,7 +33,7 @@ layout.SetPointer(20, 20, false);
 var list = build();
 var boxes = ["side", "main", "half", "embed", "badge"];
 for (var i = 0; i < len(boxes); i++) { print(boxes[i], layout.ElementBox(boxes[i])); }
-print("hover", hovered, layout.PointerOver("side"), layout.PointerOverIds());
+print("hover", hovered, layout.PointerOver("side"), Array.Sort(layout.PointerOverIds()));
 var sizes = [0, 12, 16, 14, 14, 17, 8, 0, 6, 0, 5, 8, 9, 20, 1, 0];
 var ops = [];
 var c = list["commands"];

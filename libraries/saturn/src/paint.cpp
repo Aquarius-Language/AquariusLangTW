@@ -348,16 +348,17 @@ static void paint_text(Painting &p, Node *n, float x, float y, float w) {
     float bt = YGNodeLayoutGetBorder(n->yg, YGEdgeTop) + YGNodeLayoutGetPadding(n->yg, YGEdgeTop);
     float inner = w - bl - YGNodeLayoutGetBorder(n->yg, YGEdgeRight) - YGNodeLayoutGetPadding(n->yg, YGEdgeRight);
     layout_text(n, inner, true);
-    float lh = t.style.size * t.style.line_height;
-    int font = t.style.family.empty() ? -1 : p.list.text(t.style.family);
-    const Color &c = t.style.color;
+    const TextStyle &style = t.resolved;
+    float lh = style.size * style.line_height;
+    int font = style.family.empty() ? -1 : p.list.text(style.family);
+    const Color &c = style.color;
     for (size_t i = 0; i < t.lines.size(); i++) {
         const TextLine &line = t.lines[i];
         if (line.text.empty()) continue;
-        float lx = x + bl + (t.style.align == ALIGN_CENTER ? (inner - line.width) / 2 : t.style.align == ALIGN_END ? inner - line.width : 0);
+        float lx = x + bl + (style.align == ALIGN_CENTER ? (inner - line.width) / 2 : style.align == ALIGN_END ? inner - line.width : 0);
         float ly = y + bt + (float)i * lh + (lh - t.ascent - t.descent) / 2;
-        p.list.op(OP_TEXT, {lx, ly, line.width, t.ascent + t.descent, (float)p.list.text(line.text), (float)font, t.style.size,
-            (float)t.style.weight, t.style.italic ? 1.0f : 0.0f, t.ascent, c.r, c.g, c.b, c.a});
+        p.list.op(OP_TEXT, {lx, ly, line.width, t.ascent + t.descent, (float)p.list.text(line.text), (float)font, style.size,
+            (float)style.weight, style.italic ? 1.0f : 0.0f, t.ascent, c.r, c.g, c.b, c.a});
     }
 }
 
@@ -375,6 +376,8 @@ static void paint_node(Painting &p, Node *n, float ox, float oy) {
     float x = ox + YGNodeLayoutGetLeft(n->yg), y = oy + YGNodeLayoutGetTop(n->yg);
     float w = YGNodeLayoutGetWidth(n->yg), h = YGNodeLayoutGetHeight(n->yg);
     DrawList &list = p.list;
+    Visual shown;
+    if (v) { shown = shown_visual(n, &p.state->animating); v = &shown; }
     bool transformed = v && v->transformed(), faded = v && v->opacity < 1;
     if (transformed) {
         Matrix m = node_matrix(*v, x, y, w, h);
@@ -477,6 +480,7 @@ static void node_paint(aqua_call *call) {
     DrawList list(aqua_call_runtime(call));
     Painting p{call, list, n->state};
     n->state->error.clear();
+    n->state->animating = false;
     paint_node(p, n, ox, oy);
     if (p.failed) return;
     if (!n->state->error.empty()) { aqua_fail(call, "%s", n->state->error.c_str()); n->state->error.clear(); return; }

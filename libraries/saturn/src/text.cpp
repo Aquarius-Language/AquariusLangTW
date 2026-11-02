@@ -117,7 +117,7 @@ static std::vector<std::string> tokens_of(std::string_view paragraph) {
 
 static void add_line(Text &t, State *state, std::string text) {
     std::string_view trimmed = trim_end(text);
-    t.lines.push_back({std::string(trimmed), measure_run(state, trimmed, t.style).width});
+    t.lines.push_back({std::string(trimmed), measure_run(state, trimmed, t.resolved).width});
 }
 
 /* Replaces the end of the last line with an ellipsis so that it fits `width`. */
@@ -127,7 +127,7 @@ static void ellipsize(Text &t, State *state, float width) {
     std::string text = t.lines.back().text;
     for (;;) {
         std::string candidate = std::string(trim_end(text)) + mark;
-        float w = measure_run(state, candidate, t.style).width;
+        float w = measure_run(state, candidate, t.resolved).width;
         if (w <= width || text.empty()) { t.lines.back() = {candidate, w}; return; }
         size_t cut = text.size() - 1;
         while (cut > 0 && ((unsigned char)text[cut] & 0xC0) == 0x80) cut--;
@@ -138,7 +138,8 @@ static void ellipsize(Text &t, State *state, float width) {
 void layout_text(Node *n, float width, bool bounded) {
     Text &t = *n->text;
     State *state = n->state;
-    const TextStyle &style = t.style;
+    t.resolved = effective_text_style(n);
+    const TextStyle &style = t.resolved;
     t.lines.clear();
     Metrics probe = measure_run(state, "Hg", style);
     t.ascent = probe.ascent;
@@ -195,7 +196,7 @@ void layout_text(Node *n, float width, bool bounded) {
     if (style.ellipsis && bounded && (truncated || t.lines.back().width > width + 0.01f)) ellipsize(t, state, width);
 }
 
-static float line_height(const Text &t) { return t.style.size * t.style.line_height; }
+static float line_height(const Text &t) { return t.resolved.size * t.resolved.line_height; }
 
 YGSize measure_text(YGNodeConstRef node, float width, YGMeasureMode width_mode, float, YGMeasureMode) {
     Node *n = node_of(node);
@@ -271,7 +272,7 @@ static void node_text_lines(aqua_call *call) {
     float lh = line_height(t);
     for (size_t i = 0; i < t.lines.size(); i++) {
         const TextLine &line = t.lines[i];
-        float x = left + (t.style.align == ALIGN_CENTER ? (inner - line.width) / 2 : t.style.align == ALIGN_END ? inner - line.width : 0);
+        float x = left + (t.resolved.align == ALIGN_CENTER ? (inner - line.width) / 2 : t.resolved.align == ALIGN_END ? inner - line.width : 0);
         float y = top + (float)i * lh + (lh - t.ascent - t.descent) / 2;
         aqua_value h = aqua_hash_new(rt, 6);
         aqua_hash_set_field(rt, h, "text", aqua_text(rt, line.text.data(), line.text.size()));

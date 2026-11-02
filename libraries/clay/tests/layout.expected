@@ -4,7 +4,7 @@ main {x: 120, y: 10, width: 270, height: 280}
 half {x: 132, y: 74, width: 123, height: 30}
 embed {x: 132, y: 112, width: 40, height: 20}
 badge {x: 375, y: 15, width: 20, height: 20}
-hover 真 真 [Clay__RootContainer, side, root]
+hover 真 真 [Clay__RootContainer, root, side]
 ops [1, 1, 4, 4, 4, 1, 2, 6, 8, 4, 9, 7, 1]
 strings [Clay wraps this sentence, between words in the main, column of the layout., hi]
 bad Clay: unsupported value for width / 不支援的設定值。

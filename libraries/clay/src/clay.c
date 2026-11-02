@@ -31,6 +31,7 @@ typedef struct layout {
     float pointer_x, pointer_y;
     font *fonts; size_t font_count, font_capacity;
     char **strings; size_t string_count, string_capacity;        /* this frame's texts and ids (Clay keeps pointers) */
+    char **previous; size_t previous_count, previous_capacity;   /* the last frame's, which Clay's hover state still names */
     aqua_ref *refs; size_t ref_count, ref_capacity;              /* this frame's images and embed functions */
     char error[512];
     aqua_value self;
@@ -73,9 +74,13 @@ static intptr_t keep_value(layout *l, aqua_value v) {
     l->refs[l->ref_count++] = aqua_retain(l->rt, v);
     return (intptr_t)l->ref_count;   /* 1-based, so 0 means none */
 }
+/* Starts a frame's memory: the last frame's strings are freed, this frame's become the last frame's. */
 static void clear_frame(layout *l) {
-    for (size_t i = 0; i < l->string_count; i++) free(l->strings[i]);
-    l->string_count = 0;
+    for (size_t i = 0; i < l->previous_count; i++) free(l->previous[i]);
+    char **swap = l->previous;
+    size_t capacity = l->previous_capacity;
+    l->previous = l->strings; l->previous_count = l->string_count; l->previous_capacity = l->string_capacity;
+    l->strings = swap; l->string_count = 0; l->string_capacity = capacity;
     for (size_t i = 0; i < l->ref_count; i++) aqua_release(l->rt, l->refs[i]);
     l->ref_count = 0;
 }
@@ -494,7 +499,9 @@ static void layout_finalize(aqua_runtime *rt, void *data) {
     (void)rt;
     if (l->owner && l->owner->current == l) l->owner->current = NULL;
     clear_frame(l);
+    clear_frame(l);
     free(l->strings);
+    free(l->previous);
     free(l->refs);
     for (size_t i = 0; i < l->font_count; i++) free(l->fonts[i].family);
     free(l->fonts);

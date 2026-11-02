@@ -87,10 +87,19 @@ struct Visual {
     float image_width = 0, image_height = 0; /* intrinsic size, 0 when unknown */
     std::string cursor;
     float scroll_x = 0, scroll_y = 0;
+    float transition = 0;                    /* ms over which style changes animate (ReplaceStyle), 0 for none */
+    int easing = 0;                          /* 0 ease-out, 1 linear, 2 ease-in-out, 3 ease-in */
     bool transformed() const { return translate_x != 0 || translate_y != 0 || scale_x != 1 || scale_y != 1 || rotate != 0; }
 };
 
+/* Text properties, inherited by descendants as in CSS: a property a node leaves unset (its bit clear in `set`) comes
+   from the nearest ancestor that sets it. maxLines and textOverflow are not inherited. */
+enum TextBits : uint32_t { TEXT_FAMILY = 1, TEXT_SIZE = 2, TEXT_LINE = 4, TEXT_WEIGHT = 8, TEXT_ALIGN = 16, TEXT_MAX_LINES = 32,
+    TEXT_ITALIC = 64, TEXT_ELLIPSIS = 128, TEXT_NOWRAP = 256, TEXT_COLOR = 512 };
+constexpr uint32_t TEXT_INHERITED = TEXT_FAMILY | TEXT_SIZE | TEXT_LINE | TEXT_WEIGHT | TEXT_ALIGN | TEXT_ITALIC | TEXT_NOWRAP | TEXT_COLOR;
+
 struct TextStyle {
+    uint32_t set = 0;
     std::string family;
     float size = 14, line_height = 1.25f;    /* line_height: a multiple of size */
     int weight = 400, align = ALIGN_START, max_lines = 0;
@@ -102,7 +111,8 @@ struct TextLine { std::string text; float width = 0; };
 
 struct Text {
     std::string content;
-    TextStyle style;
+    TextStyle style;                         /* the node's own properties */
+    TextStyle resolved;                      /* with inherited ones, as the latest layout used them */
     std::vector<TextLine> lines;             /* the latest layout */
     float ascent = 0, descent = 0;
 };
@@ -118,6 +128,8 @@ struct Node {
     aqua_ref config = 0, context = 0, measure = 0, baseline = 0, dirtied = 0, min_content = 0, painter = 0;
     std::unique_ptr<Visual> visual;
     std::unique_ptr<Text> text;
+    std::unique_ptr<Visual> from;            /* where a style transition started (ReplaceStyle), null when none runs */
+    double start = 0;
     Visual &look() { if (!visual) visual = std::make_unique<Visual>(); return *visual; }
 };
 
@@ -136,6 +148,8 @@ struct State {
     aqua_ref measurer = 0;
     std::unordered_map<std::string, Metrics> cache;
     std::string error;
+    double now = 0;                          /* Saturn.SetTime: the clock transitions run on */
+    bool animating = false;                  /* a transition was still running in the last Paint */
 };
 
 extern aqua_class *node_class, *config_class, *value_class;
@@ -158,7 +172,13 @@ bool parse_length(aqua_runtime *rt, aqua_value v, Length *out);
 bool set_layout_style(aqua_call *call, Node *node, std::string_view key, aqua_value v, bool *handled);
 
 /* style.cpp */
-void define_style(aqua_class *node);
+void define_style(aqua_class *module, aqua_class *node);
+/* The node's text properties with inherited ones filled in from its ancestors, then the defaults. */
+TextStyle effective_text_style(Node *node);
+/* After a text property changed: the node's and its descendants' text is measured again. */
+void text_changed(Node *node);
+/* The visual properties to paint now: mid-transition values while one runs (sets *animating). */
+Visual shown_visual(Node *node, bool *animating);
 bool apply_style(aqua_call *call, Node *node, aqua_value style);
 
 /* text.cpp */
