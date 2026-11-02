@@ -1,8 +1,7 @@
 # Math improvements, November 2026
 
-Branch `math/core-improvements` (from `main` 036e9b4), built and tested in the worktree
-`C:\OfficialProjects\AquariusLangTW-math` with its own `.native-build` packs (the pinned toolchain and SDKs are shared
-read-only). Implements the math-handling review of 2026-11-02, step by step, one commit (or two) per step. Not merged.
+Branch `math/core-improvements` (from `main` 036e9b4), built and tested in a separate git worktree with its own
+`.native-build` packs (the pinned toolchain and SDKs are shared read-only). Implements the math-handling review of 2026-11-02, step by step, one commit (or two) per step. Not merged.
 
 ## Commits
 
