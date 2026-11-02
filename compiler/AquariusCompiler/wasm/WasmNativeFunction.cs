@@ -88,8 +88,8 @@ internal sealed class WasmNativeFunction
     }
     internal bool Mutates => WritesOuter || WritesArrays;
     /// <summary>A small leaf (no calls, loops or outer bindings) that changes nothing its caller holds: callers emit
-    /// its body in place of the call. Its only checkpoint is its entry, which the caller tests before choosing the
-    /// inlined body; a failing test takes the ordinary call, which deoptimizes exactly as before.</summary>
+    /// its body in place of the call. Its only checkpoint, its entry, is not run: the caller charges its weight in place
+    /// and tests the budget at its own next loop head or exit.</summary>
     internal bool Inlinable { get; private set; }
     /// <summary>The native recursion depth at which an entry deoptimizes (bounded by the frames' total size).</summary>
     private int DepthLimit => Math.Clamp(262144 / (32 + 8 * (plan.Locals + capacity + Pointers.Length)), 64, 8192);
@@ -1098,10 +1098,10 @@ internal sealed class WasmNativeFunction
         // Errors and deoptimizations leave the body through one handler after it, so loops contain no runtime calls
         // (which would make every value live across them spill).
         var sites = new List<(int Kind, int Block, int[] Operands, int Message)>();
-        // InlineSite: an inlined callee's entry checkpoint; CheckSite: an argument of an 陣列 parameter that is not an array
+        // CheckSite: an argument of an 陣列 parameter that is not an array
         // (the callee's generic body raises the annotation error at its entry).
         // IndexSite: a read outside a loose array in a region (it continues generically at that read).
-        const int ErrorSite = 0, CheckpointSite = 1, CallSite = 2, InlineSite = 3, CheckSite = 4, IndexSite = 5;
+        const int ErrorSite = 0, CheckpointSite = 1, CallSite = 2, CheckSite = 4, IndexSite = 5;
         void ToHandler(int kind, int block, int[] operands, int message) {
             sites.Add((kind, block, operands, message)); I(w, sites.Count - 1); Set(w, site);
             Op(Br); U(w, Label(c => c.End == int.MaxValue) + 1); // Every site sits in one if.
@@ -1707,10 +1707,8 @@ internal sealed class WasmNativeFunction
                             ToHandler(CheckSite, BlockOf(pc + 1), stack.Take(at).ToArray(), pc); Op(End);
                         }
                     if (inlined.Contains(target) && !stack.Skip(at + 1).Contains(AnyValueType)) {
-                        // The callee's entry checkpoint: where it would deoptimize, the handler builds both generic
-                        // frames instead (so the loop around an inlined call holds no call that clobbers registers).
-                        Get(w, depthParameter); I(w, 1); Op(0x6a); I(w, target.DepthLimit); Op(0x4f);
-                        Get(w, budget); Op(0x45, 0x72, If, 0x40); ToHandler(InlineSite, BlockOf(pc + 1), stack.Take(at).ToArray(), pc); Op(End);
+                        // No entry checkpoint: the depth bound limits native frames, which an inlined body adds none of, and
+                        // its fuel is charged in place (Inline), so an exhausted budget yields at the next loop head or exit.
                         Inline(target, stack, at, count);
                         break;
                     }
@@ -1828,20 +1826,19 @@ internal sealed class WasmNativeFunction
             if (region) { RegionExit(block, message); continue; } // A loop head: the generic body continues there and yields.
             // A checkpoint consumed nothing yet; after a call the callee already stored the budget.
             if (kind == CheckpointSite) { SaveBudget(); SaveOuter(); }
-            if (kind is InlineSite or CheckSite) { SaveBudget(); SaveOuter(); EntryFrame(message, kind == InlineSite); message++; }
+            if (kind == CheckSite) { SaveBudget(); SaveOuter(); EntryFrame(message); message++; }
             Materialize(block, message, operands);
             // A checkpoint's frame resumes natively at the same site when the scheduler runs it again.
             Get(w, frame); I(w, SiteOf(message)); Memory(w, I32Store, 2, FrameNativeSite);
-            if (kind is CallSite or InlineSite or CheckSite) { Op(0x23); U(w, signal); Get(w, frame); Memory(w, I32Store, 2, FrameParent); }
+            if (kind is CallSite or CheckSite) { Op(0x23); U(w, signal); Get(w, frame); Memory(w, I32Store, 2, FrameParent); }
             Raise(() => Get(w, frame));
         }
         Zero(); if (!region) I(w, int.MinValue);
         Op(End);
 
         // The generic frame of a callee at its entry (in the signal, like a callee's deoptimization): its arguments in
-        // its parameter slots, resuming natively at its entry (an inlined callee's checkpoint) or running its generic
-        // body (an argument its native code cannot take).
-        void EntryFrame(int pc, bool native) {
+        // its parameter slots, running its generic body (an argument its native code cannot take).
+        void EntryFrame(int pc) {
             var stack = states[pc]; int count = code[pc].Operand, at = stack.Length - count - 1;
             string name = callNames[stack[at] - CallableBase];
             bool own = !OwnPointers.ContainsKey(name);
@@ -1858,7 +1855,7 @@ internal sealed class WasmNativeFunction
                     else AsPayload(to);
                 });
             }
-            Get(w, frame); I(w, native ? 1 : 0); Memory(w, I32Store, 2, FrameNativeSite);
+            Get(w, frame); I(w, 0); Memory(w, I32Store, 2, FrameNativeSite);
             Get(w, frame); Op(0x24); U(w, signal);
         }
         // ---- structs: field access through the Struct* in a local; a null one is the generic runtime's error ----
