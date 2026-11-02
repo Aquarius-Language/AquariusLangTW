@@ -51,7 +51,7 @@ static void packet_encode(ThreadPacket*p,Value v,u32 depth) {
     if(v.tag==ARRAY||v.tag==HASH||v.tag==STRUCT){for(u32 i=0;i<p->count;i++)if(p->refs[i]==v.ref){u32 tag=PACKET_BACKREF;packet_write(p,&tag,4);packet_write(p,&i,4);return;}
         if(p->count==THREAD_GRAPH_LIMIT){p->failed=1;return;}p->refs[p->count++]=v.ref;}
     packet_write(p,&v.tag,4);
-    if(v.tag>=INT&&v.tag<=BOOL)packet_write(p,&v.number,8);
+    if(v.tag>=INT&&v.tag<=BOOL||v.tag==LONG)packet_write(p,&v.number,8);
     else if(v.tag==STRING||v.tag==ERROR){Text*t=pointer(v.ref);packet_write(p,&t->length,4);packet_write(p,t->data,t->length*2);}
     else if(v.tag==ARRAY){Array*a=pointer(v.ref);packet_write(p,&a->count,4);for(u32 i=0;i<a->count&&!p->failed;i++)packet_encode(p,array_get(a,i),depth+1);}
     else if(v.tag==HASH){Hash*h=pointer(v.ref);packet_write(p,&h->count,4);for(u32 i=0;i<h->count&&!p->failed;i++){packet_encode(p,h->pairs[i].key,depth+1);packet_encode(p,h->pairs[i].value,depth+1);}}
@@ -62,7 +62,7 @@ static void packet_encode(ThreadPacket*p,Value v,u32 depth) {
 static Value packet_decode(ThreadPacket*p,u32 depth) {
     if(p->failed||depth>128){p->failed=1;return empty;}u32 tag,n;packet_read(p,&tag,4);Value v=value(tag,0,0);
     if(tag==PACKET_BACKREF){packet_read(p,&n,4);if(n>=p->count){p->failed=1;return empty;}return p->values[n];}
-    if(tag>=INT&&tag<=BOOL)packet_read(p,&v.number,8);
+    if(tag>=INT&&tag<=BOOL||tag==LONG)packet_read(p,&v.number,8);
     else if(tag==STRING||tag==ERROR){packet_read(p,&n,4);if(n>(p->size-p->position)/2){p->failed=1;return empty;}Text*t=pointer(aqua_text(n));packet_read(p,t->data,n*2);v.ref=address(t);}
     else if(tag==ARRAY||tag==HASH){packet_read(p,&n,4);if(n>p->size/4||p->count==THREAD_GRAPH_LIMIT){p->failed=1;return empty;}
         v.ref=tag==ARRAY?aqua_array(n):aqua_hash(n);p->values[p->count++]=v;

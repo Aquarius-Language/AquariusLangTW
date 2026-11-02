@@ -109,6 +109,13 @@ the calling script waits while other tasks keep running. Registering the same C 
 by the same result, for `await` / `等待` and `Promise.All` (see [async functions](async.md)). That needs SDK API version
 2 (`AQUA_API_VERSION`).
 
+SDK API 3 adds 64-bit integers (`長整數` / `long`): the value type `AQUA_LONG`, whose two's complement bits are
+`aqua_value.integer` (the same 8 bytes as `number`), `aqua_long(n)`, `aqua_arg_long(call, i)` and
+`aqua_return_long(call, n)`. `aqua_arg_number` accepts a long (rounded to a double), the `"n"` and `"i"` argument
+kinds accept longs (`"i"` only within 32 bits), and `aqua_is_numeric` / `aqua_number_of` cover every number;
+`aqua_is_number` stays false for a long so code that reads `number` directly never misreads its bits. Libraries built
+for API 2 keep loading.
+
 ```c
 aqua_define_function(module, "Query|查詢", query, "s");
 aqua_define_async(module, "QueryAsync|非同步查詢", query, "s");

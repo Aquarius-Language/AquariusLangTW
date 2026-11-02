@@ -295,7 +295,7 @@ public class LanguageServerTest
     public void IncompleteInputReportsErrorsAndNeverHangsOrCrashesTheServer()
     {
         using var s = Launch();
-        foreach (string text in new[] { "## unterminated", "\"unterminated", "變數 函 = 函式(甲) { 回傳 甲;", "變數 函 = 函式(1) {};", "變數 數字 = 1.5;", "變數 = ;",
+        foreach (string text in new[] { "## unterminated", "\"unterminated", "變數 函 = 函式(甲) { 回傳 甲;", "變數 函 = 函式(1) {};", "變數 數字 = 1.5x;", "變數 數字 = 0xFG;", "變數 = ;",
                      "迴圈 (變數 i = 0; i < 2; i++) 印出(i);", new string('(', 400) + "1" + new string(')', 400) })
             Assert.True(s.Open(text).GetArrayLength() > 0, text);
         NoDiagnostics(s.Open(string.Concat(Enumerable.Repeat("# line\n", 10000)) + "## block ##變數 正常 = 1;"));
@@ -448,7 +448,7 @@ public class LanguageServerTest
         var installation = AquariusInstallation.Current;
         Assert.True(installation is { IsRepository: true }, "Needs the repository checkout (runtime/guest).");
         var tables = new List<(string[] Names, string[][] Members)>();
-        foreach (string header in new[] { "threads.h", "arrays.h", "hashes.h", "texts.h" }) {
+        foreach (string header in new[] { "threads.h", "arrays.h", "hashes.h", "texts.h", "maths.h" }) {
             string text = File.ReadAllText(Path.Combine(installation!.Root, "runtime", "guest", header), Encoding.UTF8);
             var module = Regex.Match(text, @"\w+_module_names\[2\]\s*=\s*\{\s*u""([^""]*)""\s*,\s*u""([^""]*)""\s*\}");
             // A module may declare its functions in several tables (arrays.h: the array functions, then the kernels).
@@ -461,8 +461,15 @@ public class LanguageServerTest
         Assert.Equal(tables.Count, LanguageFacts.PortableModules.Count);
         foreach (var (table, facts) in tables.Zip(LanguageFacts.PortableModules)) {
             Assert.Equal(table.Names, facts.Names);
-            Assert.Equal(table.Members.Select(m => string.Join('|', m)), facts.Members.Select(m => string.Join('|', m.Names)));
+            Assert.Equal(table.Members.Select(m => string.Join('|', m)), facts.Members.Where(m => m.Function).Select(m => string.Join('|', m.Names)));
         }
+        // Constants (maths.h math_constants) follow the functions.
+        string maths = File.ReadAllText(Path.Combine(installation!.Root, "runtime", "guest", "maths.h"), Encoding.UTF8);
+        var constants = Regex.Matches(Regex.Match(maths, @"math_constants\[\w+\]\[2\]\s*=\s*\{(.*?)\};", RegexOptions.Singleline).Groups[1].Value,
+            @"\{\s*u""([^""]*)""\s*,\s*u""([^""]*)""\s*\}").Select(m => m.Groups[1].Value + "|" + m.Groups[2].Value).ToArray();
+        Assert.Equal(5, constants.Length);
+        Assert.Equal(constants, LanguageFacts.PortableModules.Single(m => m.Names[0] == "Math").Members.Where(m => !m.Function).Select(m => string.Join('|', m.Names)));
+        Assert.All(LanguageFacts.PortableModules.Where(m => m.Names[0] != "Math"), m => Assert.All(m.Members, member => Assert.True(member.Function)));
     }
 
     [Fact]
@@ -472,7 +479,7 @@ public class LanguageServerTest
         var installation = AquariusInstallation.Current;
         Assert.True(installation is { IsRepository: true }, "Needs the repository checkout (runtime/guest).");
         var arities = new List<(string Name, int Minimum, int Maximum)>();
-        foreach (string header in new[] { "threads.h", "arrays.h", "hashes.h", "texts.h" }) {
+        foreach (string header in new[] { "threads.h", "arrays.h", "hashes.h", "texts.h", "maths.h" }) {
             string text = File.ReadAllText(Path.Combine(installation!.Root, "runtime", "guest", header), Encoding.UTF8);
             foreach (Match table in Regex.Matches(text, @"(\w+)_names\[\w+\]\[2\]\s*=\s*\{(.*?)\};", RegexOptions.Singleline)) {
                 int[] Counts(string suffix) => Regex.Match(text, table.Groups[1].Value + @"_" + suffix + @"\[\w+\]\s*=\s*\{([^}]*)\}").Groups[1].Value
@@ -483,7 +490,7 @@ public class LanguageServerTest
                 arities.AddRange(names.Select((n, i) => (n, minimum[i], maximum[i])));
             }
         }
-        var members = LanguageFacts.PortableModules.SelectMany(m => m.Members.Select(f => (Module: m.Names[0], Name: f.Names[0]))).ToArray();
+        var members = LanguageFacts.PortableModules.SelectMany(m => m.Members.Where(f => f.Function).Select(f => (Module: m.Names[0], Name: f.Names[0]))).ToArray();
         Assert.Equal(arities.Count, members.Length);
         foreach (var ((name, minimum, maximum), member) in arities.Zip(members)) {
             Assert.Equal(name, member.Name);

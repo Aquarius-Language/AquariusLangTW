@@ -88,13 +88,26 @@ Default value inspection still prints booleans as `真` / `假` and null as `nul
   Compound numeric assignments preserve the left variable's numeric type by
   converting the result back to that type. Prefix/postfix `++` also preserve it.
 - `%` and `%=` compute remainders with the precedence of `*` and `/`. Integer
-  remainders truncate toward zero like integer division; floating operands use
-  floating remainders. Integer remainder by zero is a runtime error.
+  remainders truncate toward zero like integer division; floating operands give the
+  exact IEEE remainder of truncated division (C `fmod`, the dividend's sign: `1e17 % 3` is 1, `-0.0 % 3` is -0,
+  `5 % Infinity` is 5, `x % 0` is NaN). Integer remainder by zero is a runtime error.
 - Integers are 32-bit and identical on every target: `+`, `-`, `*`, negation and `++` wrap around (two's
   complement); integer `/` truncates toward zero and dividing by zero is a runtime error; the minimum integer
   divided by -1 wraps to itself. Converting a float or double to an integer (`整數(x)` / `int(x)`, or a compound
   assignment into an integer variable) truncates toward zero and saturates at the integer range; NaN gives 0.
   Float results are rounded to 32 bits after each operation.
+- Number literals: `42`, `1_000_000` (`_` between digits), `0xFF` and `0b1010` (32-bit patterns: `0xFFFFFFFF` is -1)
+  are integers; `1.5`, `1e-9` and `2d` are doubles (a fraction or exponent without a suffix makes a double); `1.5f`,
+  `2.5e3f` and `2f` are floats; `1.5d` stays a double. Literals outside their type's range and malformed numbers
+  (`0xFG`, `1__0`, `1.5x`) are compile errors. See [numbers](../../docs/math.md#number-literals).
+- `長整數` / `long` is a 64-bit integer: literals end in `L` (`5000000000L`, `0xFFFF_FFFF_FFFF_FFFFL` is -1; an unsuffixed
+  integer stays 32-bit, and one out of range is a compile error suggesting the `L` form). An int with a long gives a
+  long, a long with a float or double gives a double; `+ - *` wrap around (i64), `/` and `%` by zero are errors, bitwise
+  operators work with shift counts masked to 6 bits, and comparisons are exact (`9007199254740993L ==
+  9007199254740992.0d` is false). `長整數(x)` and `整數(long)` truncate and saturate; a compound assignment keeps the
+  variable's type (`n += 5000000000L` saturates an `整數` n). Longs print as plain decimals, `字串.解析長整數` /
+  `String.ParseLong` reads them, hash keys `5` and `5L` differ, `型別` gives `long`, and `長整數[]` arrays hold longs
+  (ints widen into them). See [64-bit integers](../../docs/math.md#64-bit-integers-長整數--long).
 - Optional annotations (`name: type` on declarations, parameters and after a parameter list) fix a binding's type:
   `整數`/`int`, `浮點數`/`float`, `雙精度`/`double`, `布林`/`bool`, `字串`/`string`, arrays such as `整數[]`, and
   `字串[]`/`string[]`, and `陣列`/`array`, an array whose elements may be any values (arrays of arrays, mixed elements;
@@ -133,6 +146,13 @@ Default value inspection still prints booleans as `真` / `假` and null as `nul
 - Boolean `&&` and `||` short-circuit: the right operand runs only when the left one does not decide the result
   (`f != null && f(x)` never calls a null `f`). An operand that runs must be a Boolean, or the operation is an error.
   Both have the same precedence and group from the left, so `a || b && c` is `(a || b) && c`.
+- Integer bitwise operators: `&`, `|`, `^`, `~`, `<<`, `>>` (arithmetic, keeps the sign) and `>>>` (logical, fills
+  with zeros), and the compound forms `&= |= ^= <<= >>= >>>=` on variables, elements and fields. Operands must be
+  integers (a known float, double, Boolean or string is a compile error, any other a runtime error); shift counts use
+  their low 5 bits like Wasm's i32 shifts (`1 << 33` is 2, `1 << -1` is the minimum integer). Precedence follows C# and
+  JavaScript: shifts bind tighter than comparisons and looser than `+`/`-`; `&`, then `^`, then `|` bind looser than
+  `==` and tighter than `&&`/`||`, so `a & b == c` is `a & (b == c)` (write `(a & b) == c`). See
+  [numbers](../../docs/math.md#integer-bitwise-operators).
 - Functions support explicit `回傳` / `return`, a final expression as an implicit result,
   recursion and lexical closures. Assignments update the scope owning a variable.
 - `變數 加法, add = 函式(甲, 乙) { 甲 + 乙; };` gives one function two public
@@ -171,6 +191,10 @@ Default value inspection still prints booleans as `真` / `假` and null as `nul
   provides portable text operations (`轉文字` / `From`, slicing, searching, splitting,
   joining, replacing, trimming, case, code points, integer parsing). `長度` / `len`
   also counts hash entries. See [hash and string libraries](../../docs/hash-and-string.md).
+- The built-in `數學` / `Math` module (`runtime/guest/maths.h`) provides `絕對值` / `Abs`, `最小值` / `Min`,
+  `四捨五入` / `Round` (halves away from zero), `平方根` / `Sqrt`, `正弦` / `Sin`, `次方` / `Pow`, ... with IEEE results
+  (no domain errors), bit-identical on every target, a seeded PCG32 generator and the constants `圓周率` / `PI`, ...
+  See [numbers and the Math module](../../docs/math.md).
 - Imported script modules expose their environment through `ModuleObj`.
   Module member calls evaluate arguments in the caller's environment and execute
   function bodies in their captured environment.

@@ -13,7 +13,7 @@ static void hash_changed(Hash*h) {
     if(h->exposed&&!h->dirty){h->dirty=1;h->dirty_next=pending.dirty_hashes;pending.dirty_hashes=h;}
 }
 static int hash_key(Frame*f,Value k) {
-    if(numeric(k)||k.tag==STRING||k.tag==BOOL)return 1;
+    if(any_number(k)||k.tag==STRING||k.tag==BOOL)return 1;
     named_failure(f,"Unusable as hash key: ",ascii(type_name(k.tag)));return 0;
 }
 /* Hash index: above HASH_INDEX_MIN pairs, an open-addressing (linear probing) table of (position + 1, key hash) slots
@@ -25,6 +25,7 @@ static u32 mix32(u32 h) { h^=h>>16;h*=0x7feb352du;h^=h>>15;h*=0x846ca68bu;h^=h>>
 /* Consistent with equal(a, b, 1): numbers hash by their type and value (0 and -0 alike, every NaN alike). */
 static u32 key_hash(Value k) {
     if(k.tag==STRING)return text_hash(pointer(k.ref));
+    if(k.tag==LONG){uint64_t bits=(uint64_t)long_of(k);return mix32((u32)bits^mix32((u32)(bits>>32)^k.tag));}
     if(numeric(k)||k.tag==BOOL){double n=k.number;uint64_t bits=0;if(n!=n)bits=0x7ff8000000000000ull;else if(n!=0)memcpy(&bits,&n,8);return mix32((u32)bits^mix32((u32)(bits>>32)^k.tag));}
     return mix32(k.ref^k.tag*0x9e3779b9u);
 }

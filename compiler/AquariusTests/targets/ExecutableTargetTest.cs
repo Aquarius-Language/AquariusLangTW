@@ -76,7 +76,7 @@ public class ExecutableTargetTest
         using var t = new TestFolder();
         const string Source = "變數 fib = 函式(n: 整數): 整數 { 如果 (n < 2) { 回傳 n; } 回傳 fib(n - 1) + fib(n - 2); };\n" +
             "變數 sum = 函式(a: 整數[], n: 整數): 整數 { 變數 s: 整數 = 0; 迴圈 (變數 k: 整數 = 0; k < n; k++) { s += a[k] * k; } 回傳 s; };\n" +
-            "變數 a: 整數[] = 陣列.建立(300, 3); 印出(fib(22), sum(a, 300), [1, 2], \"文字\");\n變數 b: 整數[] = 陣列.建立(3, 1); 印出(sum(b, 4));";
+            "變數 a: 整數[] = 陣列.建立(300, 3); 印出(fib(22), sum(a, 300), [1, 2], \"文字\", 5000000000L * 3L);\n變數 b: 整數[] = 陣列.建立(3, 1); 印出(sum(b, 4));";
         string wasm = Compile(t, Source);
         string regular = t.FilePath("regular/app" + Extension), optimized = t.FilePath("optimized/app" + Extension);
         HostTarget().Build(new WasmBuildRequest(wasm, regular));
@@ -86,7 +86,7 @@ public class ExecutableTargetTest
         var run = Launch(optimized);
         Assert.Equal(1, expected.ExitCode);
         Assert.Equal((expected.ExitCode, expected.Output), (run.ExitCode, run.Output));
-        Assert.Contains("17711", run.Output);
+        Assert.Contains("17711", run.Output); Assert.Contains("15000000000", run.Output);
 
         // A library compiled from another application is refused.
         string other = Compile(t, "印出(1);");

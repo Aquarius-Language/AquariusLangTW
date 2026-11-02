@@ -93,15 +93,17 @@ Strings are UTF-16 code-unit sequences; indexes and lengths match `len` and inde
 | 字元碼 | Code | text, index | Code point at index (surrogate pairs combined), or null / 字元碼或空值 |
 | 從字元碼 | FromCode | codePoint | One-character text for 0..0x10FFFF / 由字元碼建立文字 |
 | 解析整數 | ParseInt | text | 32-bit decimal integer, or null when invalid / 32 位元十進位整數或空值 |
+| 解析數字 | ParseNumber | text | Integer within 32 bits, else the exact nearest double (fraction, exponent, Infinity, NaN), or null; see [numbers](math.md#number-literals) / 整數或雙精度數，無效時為空值 |
 
-`轉文字` formats numbers like JavaScript's `Number#toString`: the shortest digits that
-read back as the same value, closest to it, with exponent notation below `1e-6` and
-from `1e21` (`0.1d + 0.2d` → `0.30000000000000004`). Single-precision values use the
-shortest digits for `float`. Booleans become `真` / `假`, null `null`, and arrays and
-hashes use the same nested form as `印出`.
+`轉文字` formats numbers exactly like `印出` (both use `runtime/guest/decimal.h`): the shortest digits that read back
+as the same value, closest to it (ties to even), with exponent notation (`1E+17`, `1E-05`, at least two exponent
+digits) from 10^17 for doubles and 10^9 for floats and below 10^-4, and `-0`, `NaN`, `Infinity`
+(`0.1d + 0.2d` → `0.30000000000000004`). Single-precision values use the shortest digits for `float`. Booleans become
+`真` / `假`, null `null`, and arrays and hashes use the same nested form as `印出`. See
+[numbers](math.md#printing-numbers).
 
-`轉文字` 的數字格式與 JavaScript 相同：取最短且最接近原值的往返數字，`1e-6` 以下與 `1e21`
-以上使用指數表示。單精度數值以 float 的最短位數輸出；布林為 `真`／`假`。
+`轉文字` 的數字格式與 `印出` 完全相同：取最短且最接近原值的往返數字，雙精度 10^17 以上、單精度 10^9 以上與 10^-4 以下使用
+指數表示（`1E+17`、`1E-05`），負零印為 `-0`。單精度數值以 float 的最短位數輸出；布林為 `真`／`假`。
 
 Out-of-range indexes, wrong argument types and invalid counts return a language error
 before any mutation. Tests: `tests/hash-library.json`, `tests/string-library.json` and

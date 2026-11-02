@@ -1,28 +1,11 @@
 # The few GLM functions the cube test uses, written in Aquarius so the test needs only this library (the GLM module
 # itself belongs to the graphics library). Same conventions: 16 numbers, column-major for glUniformMatrix4fv.
-var PI = 3.141592653589793d;
+var PI = Math.PI;
 
-var Sin = function(x) {
-    var a = x * 1.0d;
-    for (var k = 0; a > PI; k += 1) { a -= 2.0d * PI; }
-    for (var k = 0; a < 0.0d - PI; k += 1) { a += 2.0d * PI; }
-    var term = a;
-    var sum = a;
-    for (var n = 1; n < 20; n += 1) {
-        term = 0.0d - term * a * a / ((2 * n) * (2 * n + 1));
-        sum += term;
-    }
-    return sum;
-};
-var Cos = function(x) { return Sin(x + PI / 2.0d); };
+var Sin = Math.Sin;
+var Cos = Math.Cos;
 var Radians = function(degrees) { return degrees * PI / 180.0d; };
-var Sqrt = function(x) {
-    if (x <= 0.0d) { return 0.0d; }
-    var r = x;
-    if (r < 1.0d) { r = 1.0d; }
-    for (var i = 0; i < 60; i += 1) { r = (r + x / r) / 2.0d; }
-    return r;
-};
+var Sqrt = Math.Sqrt;
 var Normalize = function(v) {
     var length = Sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]);
     return [v[0] / length, v[1] / length, v[2] / length];

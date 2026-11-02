@@ -81,6 +81,38 @@ public class ConstantTest
         "const n = 30; var loop = function(): int { var a: int[] = Array.Make(n, 1); var s: int = 0; for (var i: int = 0; i < n; i++) { s += a[i] * n; } return s; }; loop();",
     ];
 
+    /// <summary>64-bit integers (長整數 / long, value tag 17) next to this round's native-tier changes: a long constant is typed
+    /// long but never folded (the native tier takes no longs, so such functions stay generic), counted loops over long
+    /// arrays, long recursion past many quanta and small arrays holding longs all give the generic results.</summary>
+    [Fact]
+    public void LongLiteralConstantsAreTypedLong()
+    {
+        var checker = TypeChecker.Check(Parse("const big = 5000000000L; const small = -3L; var f = function(x: int): int { return x; };"));
+        Assert.Empty(checker.Errors);
+        Assert.NotEmpty(TypeChecker.Check(Parse("const big = 5000000000L; var b: int = big;")).Errors);
+    }
+
+    private static readonly string[] LongPrograms = [
+        "const big = 5000000000L; const n = 200; var sumLong = function(a: long[], m: int): long { var s: long = 0L; for (var k: int = 0; k < m; k++) { s += a[k] * big; } return s; }; " +
+            "var a: long[] = Array.Make(n, 7L); sumLong(a, n);",
+        "const n = 200; var mix = function(x: int): long { var t: long = 5000000000L; for (var k: int = 0; k < n; k++) { t = t * 3L + x; } return t; }; mix(3);",
+        "var deep = function(d: int, acc: long): long { if (d == 0) { return acc; } return deep(d - 1, acc + d); }; deep(100000, 1L);",
+        "var pairs = []; for (var i = 0; i < 1000; i++) { Array.Append(pairs, [i * 4000000000L, i]); } [pairs[999][0], pairs[3], typeOf(pairs[5][0])];",
+        "const big = 5000000000L; var g = function(x: int): int { var s: int = 0; for (var k: int = 0; k < x; k++) { s += k; } return s; }; [g(10), big >> 3, ~big, big * big];",
+    ];
+
+    [RuntimeFact]
+    public void LongsMatchTheGenericEmitterUnderAnyQuantum()
+    {
+        var results = EmitterTiers.AssertSame(LongPrograms);
+        Assert.Equal("7000000000000", results[0].Text);
+        Assert.Equal("5000050001", results[2].Text);
+        string program = string.Join(" ", LongPrograms[0], "print(sumLong(a, n));", LongPrograms[2], "print(deep(70000, 2L));");
+        string expected = WasmTestHost.Run(new AquariusLang.Wasm.WasmCompiler(false).Compile(program)).Succeeded().Output;
+        foreach (string quantum in new[] { "1", "3", "17" })
+            Assert.Equal(expected, WasmTestHost.Run(program, new Dictionary<string, string> { ["AQUARIUS_FUEL_QUANTUM"] = quantum }).Succeeded().Output);
+    }
+
     [RuntimeFact]
     public void FoldedConstantsMatchTheGenericEmitterUnderAnyQuantum()
     {

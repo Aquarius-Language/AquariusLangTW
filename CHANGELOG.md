@@ -12,6 +12,30 @@ Language:
   declaration starts, so programs using them as names keep working. Typed functions and loops written after a constant
   initialized with a number or Boolean literal use the value directly. The language server hovers, completes and
   lists constants, and the VS Code grammar highlights them.
+- The portable `數學` / `Math` module: `Abs`, `Sign`, `Min`, `Max`, `Clamp` (keeping the number type), `Floor`,
+  `Ceil`, `Round` (halves away from zero), `Trunc` and their `*Int` variants, `Sqrt`, `Cbrt`, `Hypot`, `Pow`, `Exp`,
+  `Log`, `Log2`, `Log10`, trigonometric and hyperbolic functions, `IsNaN`, `IsFinite`, `Fmod`, a seeded PCG32 generator
+  (`Random`, `RandomInt`, `Seed`) and the constants `PI`, `E`, `TAU`, `Infinity`, `NaN`, with Chinese names
+  (`平方根`, `正弦`, `次方`, `四捨五入`, `圓周率`, ...). Results follow IEEE 754 (no domain errors) and are bit-identical
+  on every target: the transcendental functions are musl 1.2.5's libm, compiled into the guest runtime. Typed
+  functions compile Math calls natively. Every application is about 39 KB larger. See [numbers](docs/math.md).
+- Number literals: `1.5` and `1e-9` are doubles (unsuffixed decimals used to be a lexical error), `2.5e3f` and `2f`
+  floats, `2d` a double, `0xFF` / `0b1010` integers (32-bit patterns), and `_` separates digits (`1_000_000`).
+  `字串.解析數字` / `String.ParseNumber` reads number text exactly (an integer within 32 bits, else a double, or null).
+- `%` on floats and doubles is the exact IEEE remainder (C `fmod`) in every tier: `1e17 % 3` is 1 (was 0), `-0.0 % 3`
+  is -0 and `5 % Infinity` is 5 (was NaN).
+- `字串.轉文字` / `String.From` prints numbers exactly like `印出` (`1E+17`, `1E-05`, `-0`, `1E+09` for floats) instead
+  of JavaScript's style (`1e+21`, `1e-7`, `0`); both use one exact shortest-digit algorithm, and 印出's own output is
+  unchanged.
+- Integer bitwise operators `&`, `|`, `^`, `~`, `<<`, `>>`, `>>>` and `&= |= ^= <<= >>= >>>=`, with C#/JavaScript
+  precedence and shift counts masked to 5 bits; non-integer operands are errors.
+- 64-bit integers: `長整數` / `long` with `L` literals (`5000000000L`, `0xFFL`), `長整數(x)` / `long(x)`, `長整數[]`,
+  `字串.解析長整數` / `String.ParseLong`. An int with a long gives a long, a long with a float or double a double; `+ - *`
+  wrap like i64, comparisons are exact, bitwise operators mask shift counts to 6 bits, conversions saturate, longs print
+  as plain decimals and `型別` gives `long`. `整數` / `int` stays 32-bit; an out-of-range int literal now suggests its
+  `L` form. Generic compiled code computes proven longs inline as i64; the native tier does not take longs yet. The
+  library SDK moves to API 3 (`AQUA_LONG`, `aqua_long`, `aqua_arg_long`, `aqua_return_long`); API 2 libraries still
+  load.
 - `arityOf` / `參數個數` gives the parameter count of a script or async function (-1 for native ones).
 - Async functions and promises: `async function` / `非同步 函式` returns a promise and runs as its own task, `await` /
   `等待` waits for one (inside async functions and at a script's top level), and the `Promise` / `承諾` module adds `New`,
@@ -23,6 +47,10 @@ Language:
 
 Libraries:
 
+- Graphics: Processing's `sin`, `cos`, `tan`, `asin`, `acos`, `atan`, `atan2`, `exp`, `log`, `pow` and GLM's `Sin`,
+  `Cos` run a vendored copy of musl's libm, so they equal `Math` bit for bit on every target (before, each target's C
+  library computed them). Processing keeps its own conventions (`round` halves up, domain errors). `Models` uses
+  `Math.Sqrt` instead of a Newton loop.
 - Network: a Go-style server layer (`net/http`): `Handle("GET /items/{id}", handler)` patterns with optional methods,
   `{name...}` wildcards, the most specific route winning (literal over parameter over wildcard), `Group(prefix)` routers
   with their own middleware, wrapping middleware `function(request, writer, next)`, `ListenAndServe(":8080", routes)`,

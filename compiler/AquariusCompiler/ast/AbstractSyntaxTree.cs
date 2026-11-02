@@ -1151,7 +1151,7 @@ public class HashLiteral : IExpression {
 }
 
 /// <summary>Element types of optional annotations. The values are the runtime value tags (layout.def).</summary>
-public enum ScalarType { Int = 1, Float = 2, Double = 3, Bool = 4, String = 5 }
+public enum ScalarType { Int = 1, Float = 2, Double = 3, Bool = 4, String = 5, /** 長整數 / long: annotation code 6, value tag 17. */ Long = 6 }
 
 /// <summary>An optional type annotation, <c>name: type</c>: a scalar, an array of scalars (<c>整數[]</c> / <c>int[]</c>) or
 /// an array of any values (<c>陣列</c> / <c>array</c>, element 0). Type names are recognized only in annotation position
@@ -1163,6 +1163,7 @@ public sealed class TypeAnnotation {
         { "雙精度", ScalarType.Double }, { "double", ScalarType.Double },
         { "布林", ScalarType.Bool }, { "bool", ScalarType.Bool },
         { "字串", ScalarType.String }, { "string", ScalarType.String },
+        { "長整數", ScalarType.Long }, { "long", ScalarType.Long },
     };
     public static bool TryParseName(string name, out ScalarType type) => Names.TryGetValue(name, out type);
     /// <summary>The type of an array whose elements may be any values: <c>陣列</c> / <c>array</c>.</summary>

@@ -55,7 +55,11 @@ internal static class RuntimeLayout
     internal static readonly int VoidTag = Get(nameof(VoidTag)), IntTag = Get(nameof(IntTag)), FloatTag = Get(nameof(FloatTag)), DoubleTag = Get(nameof(DoubleTag)), BoolTag = Get(nameof(BoolTag)),
         StringTag = Get(nameof(StringTag)), ArrayTag = Get(nameof(ArrayTag)), HashTag = Get(nameof(HashTag)), ClosureTag = Get(nameof(ClosureTag)), ModuleTag = Get(nameof(ModuleTag)),
         NativeTag = Get(nameof(NativeTag)), NullTag = Get(nameof(NullTag)), BreakTag = Get(nameof(BreakTag)), ErrorTag = Get(nameof(ErrorTag)), BuiltinTag = Get(nameof(BuiltinTag)),
-        StructTag = Get(nameof(StructTag)), StructTypeTag = Get(nameof(StructTypeTag));
+        StructTag = Get(nameof(StructTag)), StructTypeTag = Get(nameof(StructTypeTag)), LongTag = Get(nameof(LongTag));
+    /// <summary>The annotation type code of 長整數 / long (codes keep a scalar type in 4 bits; its value tag is LongTag).</summary>
+    internal const int LongCode = 6;
+    /// <summary>The value tag an annotation code's scalar type (its low 4 bits) proves.</summary>
+    internal static int CodeTag(int code) => (code & 15) == LongCode ? LongTag : code & 15;
     internal static readonly int StructShape = Get(nameof(StructShape)), StructFields = Get(nameof(StructFields)), ShapeId = Get(nameof(ShapeId));
     internal static readonly int StatusRunning = Get(nameof(StatusRunning)), StatusYielded = Get(nameof(StatusYielded)), StatusSuspended = Get(nameof(StatusSuspended)),
         StatusFailed = Get(nameof(StatusFailed)), StatusCompleted = Get(nameof(StatusCompleted));

@@ -1,0 +1,24 @@
+{
+  "valid": [
+    ["Transcendental functions give the correctly rounded musl results", "[Math.Sin(1),Math.Cos(1),Math.Tan(1),Math.Exp(1),Math.Log(10),Math.Log2(8),Math.Log10(1000),Math.Atan2(1,1),Math.Pow(2,0.5d),Math.Hypot(3,4),Math.Tanh(0.5d),Math.Sinh(1),Math.Cosh(1),Math.Asin(1),Math.Acos(-1),Math.Atan(1),Math.Cbrt(27),Math.Sqrt(2)];", "[0.8414709848078965, 0.5403023058681398, 1.5574077246549023, 2.718281828459045, 2.302585092994046, 3, 3, 0.7853981633974483, 1.4142135623730951, 5, 0.46211715726000974, 1.1752011936438014, 1.5430806348152437, 1.5707963267948966, 3.141592653589793, 0.7853981633974483, 3, 1.4142135623730951]"],
+    ["Huge arguments are reduced exactly", "[Math.Sin(10000000000000000000000.0d),Math.Cos(10000000000000000000000.0d)];", "[-0.8522008497671888, 0.523214785395139]"],
+    ["Results follow IEEE 754 without domain errors", "[Math.Log(0),Math.Sqrt(-1),Math.Log(-1),Math.Pow(0,-1),Math.Exp(1000),Math.Exp(-1000),Math.Atan2(0,-1),Math.IsNaN(Math.Sqrt(-1)),Math.IsFinite(Math.Exp(1000)),Math.IsFinite(1)];", "[-Infinity, NaN, NaN, Infinity, Infinity, 0, 3.141592653589793, 真, 假, 真]"],
+    ["Number types are kept: integers stay integers, floats stay floats", "[型別(Math.Abs(-3)),型別(Math.Abs(-2.5f)),型別(Math.Abs(-2.5d)),型別(Math.Min(1,2)),型別(Math.Min(1,2.0f)),型別(Math.Max(1.0f,2.0d)),型別(Math.Floor(3)),型別(Math.Floor(2.5f)),型別(Math.FloorInt(2.5d)),型別(Math.Sqrt(4)),型別(Math.Sqrt(4.0f)),型別(Math.Pow(2.0f,3)),型別(Math.Sign(-2)),型別(Math.Clamp(5,0,3.0f))];", "[integer, float, double, integer, float, double, integer, float, integer, double, float, float, integer, float]"],
+    ["Abs, Sign, Min, Max and Clamp", "[Math.Abs(-3),Math.Abs(-2147483647-1),Math.Sign(-7),Math.Sign(0),Math.Sign(2.5d),Math.Min(3,-2),Math.Max(3,-2),Math.Min(1,Math.NaN),Math.Clamp(5,0,3),Math.Clamp(-1,0,3),Math.Clamp(2.5d,0,3)];", "[3, -2147483648, -1, 0, 1, -2, 3, NaN, 3, 0, 2.5]"],
+    ["Rounding: halves away from zero, integer variants saturate", "[Math.Round(2.5d),Math.Round(-2.5d),Math.Round(0.49999999999999994d),Math.Round(1.5f),Math.Floor(-1.5d),Math.Ceil(-1.5d),Math.Trunc(-1.5d),Math.RoundInt(2.5d),Math.RoundInt(-0.5d),Math.FloorInt(-0.5d),Math.CeilInt(0.2d),Math.TruncInt(-3.7d),Math.RoundInt(10000000000.0d),Math.FloorInt(Math.NaN)];", "[3, -3, 0, 2, -2, -1, -1, 3, -1, -1, 1, -3, 2147483647, 0]"],
+    ["Signed zeros", "變數 z=Math.Round(-0.4d);[1.0d/z,1.0d/Math.Min(0.0d,-(0.0d)),1.0d/Math.Max(-(0.0d),0.0d),1.0d/Math.Sign(-(0.0d))];", "[-Infinity, -Infinity, Infinity, -Infinity]"],
+    ["Fmod is the exact remainder", "[Math.Fmod(100000000000000000.0d,3),Math.Fmod(-7.5d,2),Math.Fmod(5,Math.Infinity),Math.Fmod(5,0)];", "[1, -1.5, 5, NaN]"],
+    ["Constants", "[Math.PI,數學.圓周率==Math.PI,Math.E,Math.TAU,Math.Infinity,-Math.Infinity,Math.NaN==Math.NaN,型別(Math.PI)];", "[3.141592653589793, 真, 2.718281828459045, 6.283185307179586, Infinity, -Infinity, 假, double]"],
+    ["A seed gives the same PCG32 sequence on every target", "Math.Seed(42);[Math.RandomInt(0,1000000),Math.RandomInt(0,1000000),Math.Random(),Math.RandomInt(-2147483647-1,2147483647)];", "[997482, 631766, 0.953676306810913, -1008210114]"],
+    ["Random numbers stay in range and repeat after reseeding", "Math.Seed(-7);變數 a=[Math.RandomInt(0,10),Math.Random()];Math.Seed(-7);變數 b=[Math.RandomInt(0,10),Math.Random()];變數 ok=真;迴圈(變數 i=0;i<1000;i++){變數 r=Math.Random();變數 n=Math.RandomInt(-3,4);如果(r<0||r>=1||n<-3||n>=4){ok=假;}}[a[0],a[1],a[0]==b[0],a[1]==b[1],ok,Math.RandomInt(7,7)];", "[4, 0.43005012185574176, 真, 真, 真, 7]"]
+  ],
+  "invalid": [
+    "Math.Sqrt(\"a\");",
+    "Math.Sqrt();",
+    "Math.Pow(1);",
+    "Math.RandomInt(5,1);",
+    "Math.RandomInt(0.5d,2);",
+    "Math.Seed(1.5d);",
+    "Math.Min(1,真);"
+  ]
+}

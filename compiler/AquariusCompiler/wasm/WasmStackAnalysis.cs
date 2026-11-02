@@ -43,7 +43,7 @@ internal static class WasmStackAnalysis
                 case IrOperation.Duplicate: required = 1; change = 1; break;
                 case IrOperation.Pop: case IrOperation.JumpIfFalse: case IrOperation.LoopCondition:
                     required = 1; change = -1; break;
-                case IrOperation.Declare: case IrOperation.Negate: case IrOperation.Not:
+                case IrOperation.Declare: case IrOperation.Negate: case IrOperation.Not: case IrOperation.BitNot:
                 case IrOperation.CheckHashKey: case IrOperation.CheckType: case IrOperation.Member: case IrOperation.MemberFunction:
                 case IrOperation.ResolveMemberFunction: case IrOperation.JumpIfBreak:
                     required = 1; break;
@@ -51,6 +51,8 @@ internal static class WasmStackAnalysis
                 case IrOperation.Add: case IrOperation.Subtract: case IrOperation.Multiply: case IrOperation.Divide: case IrOperation.Modulo:
                 case IrOperation.Less: case IrOperation.Greater: case IrOperation.LessEqual: case IrOperation.GreaterEqual:
                 case IrOperation.Equal: case IrOperation.NotEqual: case IrOperation.And: case IrOperation.Or:
+                case IrOperation.BitAnd: case IrOperation.BitOr: case IrOperation.BitXor:
+                case IrOperation.ShiftLeft: case IrOperation.ShiftRight: case IrOperation.ShiftRightUnsigned:
                 case IrOperation.Index: case IrOperation.IncrementIndex:
                     required = 2; change = -1; break;
                 case IrOperation.CheckArrayWrite: required = 2; break;

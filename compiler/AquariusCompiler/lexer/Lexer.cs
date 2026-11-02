@@ -122,6 +122,10 @@ namespace AquariusLang.lexer {
                         readChar();
                         string literal = "<=";
                         token = newToken(TokenType.LT_ET, literal);
+                    } else if (peekChar() == '<') {
+                        readChar();
+                        token = peekChar() == '=' ? newToken(TokenType.SHIFT_LEFT_EQ, "<<=") : newToken(TokenType.SHIFT_LEFT, "<<");
+                        if (token.Type == TokenType.SHIFT_LEFT_EQ) readChar();
                     } else {
                         token = newToken(TokenType.LT, ch);
                     }
@@ -132,6 +136,15 @@ namespace AquariusLang.lexer {
                         readChar();
                         string literal = ">=";
                         token = newToken(TokenType.GT_ET, literal);
+                    } else if (peekChar() == '>') {
+                        // >>, >>=, >>> and >>>=.
+                        readChar();
+                        bool logical = peekChar() == '>';
+                        if (logical) readChar();
+                        bool compound = peekChar() == '=';
+                        if (compound) readChar();
+                        token = logical ? newToken(compound ? TokenType.SHIFT_RIGHT_UNSIGNED_EQ : TokenType.SHIFT_RIGHT_UNSIGNED, compound ? ">>>=" : ">>>")
+                            : newToken(compound ? TokenType.SHIFT_RIGHT_EQ : TokenType.SHIFT_RIGHT, compound ? ">>=" : ">>");
                     } else {
                         token = newToken(TokenType.GT, ch);
                     }
@@ -173,26 +186,40 @@ namespace AquariusLang.lexer {
                     token = newToken(TokenType.COLON, ch);
                     break;
                 case '&':
-                    char peekedChar = peekChar();
-                    if (peekedChar == '&') {
+                    if (peekChar() == '&') {
                         readChar();
-                        string literal = "&&";
-                        token = newToken(TokenType.AND_AND, literal);
-                    } else if (peekedChar == ' ') {
-                        // TODO Implement Binary And '&' feature.
+                        token = newToken(TokenType.AND_AND, "&&");
+                    } else if (peekChar() == '=') {
+                        readChar();
+                        token = newToken(TokenType.BIT_AND_EQ, "&=");
+                    } else {
+                        token = newToken(TokenType.BIT_AND, ch);
                     }
 
                     break;
                 case '|':
-                    char _peekedChar = peekChar();
-                    if (_peekedChar == '|') {
+                    if (peekChar() == '|') {
                         readChar();
-                        string literal = "||";
-                        token = newToken(TokenType.OR_OR, literal);
-                    } else if (_peekedChar == ' ') {
-                        // TODO Implement Binary Or '|' feature.
+                        token = newToken(TokenType.OR_OR, "||");
+                    } else if (peekChar() == '=') {
+                        readChar();
+                        token = newToken(TokenType.BIT_OR_EQ, "|=");
+                    } else {
+                        token = newToken(TokenType.BIT_OR, ch);
                     }
 
+                    break;
+                case '^':
+                    if (peekChar() == '=') {
+                        readChar();
+                        token = newToken(TokenType.BIT_XOR_EQ, "^=");
+                    } else {
+                        token = newToken(TokenType.BIT_XOR, ch);
+                    }
+
+                    break;
+                case '~':
+                    token = newToken(TokenType.BIT_NOT, ch);
                     break;
                 case '.':
                     token = newToken(TokenType.DOT, '.');
@@ -306,37 +333,65 @@ namespace AquariusLang.lexer {
             return input.Substring(lastPos, position - lastPos);
         }
 
+        /// <summary>A number literal, as written (the parser converts it): decimal digits with an optional fraction
+        /// (<c>1.5</c>) and exponent (<c>1e-9</c>), then an optional suffix <c>f</c> (float) or <c>d</c> (double); without a
+        /// suffix a fraction or exponent makes a double, else an integer. <c>0x</c> / <c>0b</c> start hexadecimal and binary
+        /// integers. <c>_</c> may separate digits (<c>1_000_000</c>, <c>0xFF_FF</c>). The suffix <c>L</c> makes integer digits a
+        /// 64-bit 長整數 / long (<c>5000000000L</c>, <c>0xFFL</c>).</summary>
         private string readNumber(out string numberType) {
             int lastPos = position;
-
-            bool noDotEncounter = true;
-            while (isDigit(ch) || (ch == '.' && noDotEncounter)) {
-                if (ch == '.') {
-                    noDotEncounter = false;
-                }
-
-                readChar();
-            }
-
-            if (noDotEncounter) {
-                numberType = TokenType.INT;
+            numberType = TokenType.INT;
+            if (ch == '0' && peekChar() is 'x' or 'X' or 'b' or 'B') {
+                int radix = peekChar() is 'x' or 'X' ? 16 : 2;
+                readChar(); readChar();
+                if (!readDigits(radix)) numberType = TokenType.ILLEGAL;
+                else if (ch == 'L') { numberType = TokenType.LONG; readChar(); }
             } else {
-                switch (ch) {
-                    case 'f':
-                        numberType = TokenType.FLOAT;
-                        break;
-                    case 'd':
-                        numberType = TokenType.DOUBLE;
-                        break;
-                    default:
-                        numberType = TokenType.ILLEGAL;
-                        break;
+                bool floating = false, valid = readDigits(10);
+                if (ch == '.' && isDigit(peekChar())) { readChar(); valid &= readDigits(10); floating = true; }
+                // `1.f` and `1.d` (a fraction without digits before a suffix) stay valid as before.
+                else if (ch == '.' && peekChar() is 'f' or 'd' && !isIdentifierCharacter(peekChar(2))) { readChar(); floating = true; }
+                if (ch is 'e' or 'E' && (isDigit(peekChar()) || peekChar() is '+' or '-' && isDigit(peekChar(2)))) {
+                    readChar(); if (ch is '+' or '-') readChar();
+                    valid &= readDigits(10); floating = true;
                 }
-
-                readChar();
+                if (ch == 'L' && !floating) { numberType = TokenType.LONG; readChar(); }
+                else if (ch == 'f') { numberType = TokenType.FLOAT; readChar(); }
+                else if (ch == 'd') { numberType = TokenType.DOUBLE; readChar(); }
+                else if (floating) numberType = TokenType.DOUBLE;
+                if (!valid) numberType = TokenType.ILLEGAL;
             }
+            // A number runs into no letter or digit: `0xFG`, `0b102`, `1.5x` and `2_` are not numbers.
+            if (isIdentifierCharacter(ch) || isDigit(ch)) {
+                while (isIdentifierCharacter(ch) || isDigit(ch)) readChar();
+                numberType = TokenType.ILLEGAL;
+            }
+            string literal = input.Substring(lastPos, position - lastPos);
+            if (numberType == TokenType.ILLEGAL)
+                lexicalErrors.Add(new LexicalError($"無效的數字 {literal} / Invalid number literal {literal}.", lastPos, position - lastPos));
+            return literal;
+        }
 
-            return input.Substring(lastPos, position - lastPos);
+        /// <summary>Digits of a radix with single <c>_</c> separators between them; whether at least one digit was read and
+        /// every separator stood between two digits.</summary>
+        private bool readDigits(int radix) {
+            bool any = false, valid = true;
+            while (true) {
+                if (isRadixDigit(ch, radix)) { any = true; readChar(); }
+                else if (ch == '_' && isRadixDigit(peekChar(), radix)) { valid &= any; readChar(); }
+                else break;
+            }
+            return any && valid;
+        }
+
+        private static bool isRadixDigit(char c, int radix) =>
+            radix == 2 ? c is '0' or '1' : radix == 16 ? c is >= '0' and <= '9' or >= 'a' and <= 'f' or >= 'A' and <= 'F' : c is >= '0' and <= '9';
+
+        private bool isIdentifierCharacter(char c) => c == '_' || char.IsLetter(c);
+
+        private char peekChar(int ahead) {
+            int at = position + ahead;
+            return at < input.Length ? input[at] : (char)0;
         }
 
         private bool isIdentifierStart() {

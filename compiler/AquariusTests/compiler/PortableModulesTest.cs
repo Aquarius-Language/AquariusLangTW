@@ -24,7 +24,7 @@ public class PortableModulesTest {
         using var modulo = ArrayLibraryTest.Vectors("modulo-operator");
         foreach (var item in modulo.RootElement.GetProperty("valid").EnumerateArray())
             cases.Add((item[1].GetString()!, ArrayLibraryTest.TypeOf(item[2].GetString()!), item[2].GetString()!));
-        Assert.Equal(2 * (16 + 15) + 7, cases.Count);
+        Assert.Equal(2 * (16 + 18) + 8, cases.Count);
         Assert.Contains(cases, c => c.Item1.Contains("雜湊.項目列表(") );
         Assert.Contains(cases, c => c.Item1.Contains("字串.解析整數("));
         LanguageCases.Expect(cases.ToArray());
@@ -37,14 +37,14 @@ public class PortableModulesTest {
             using var json = ArrayLibraryTest.Vectors(file);
             sources.AddRange(json.RootElement.GetProperty("invalid").EnumerateArray().Select(i => "變數 a=[1];" + i.GetString()!));
         }
-        Assert.Equal(6 + 8 + 3, sources.Count);
+        Assert.Equal(6 + 10 + 3, sources.Count);
         LanguageCases.ExpectErrors(sources.ToArray());
     }
 
     [RuntimeFact]
     public void ImportAndNamesExposeBothLanguages() {
         var cases = new List<(string, string, string)>();
-        foreach (var (english, chinese, count) in new[] { ("Hash", "雜湊", 10), ("String", "字串", 16) }) {
+        foreach (var (english, chinese, count) in new[] { ("Hash", "雜湊", 10), ("String", "字串", 18) }) {
             var module = ArrayLibraryTest.Module(english);
             Assert.Equal(chinese, module.Chinese);
             Assert.Equal(count, module.Functions.Length);

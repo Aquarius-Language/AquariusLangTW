@@ -25,7 +25,19 @@ set(sources
     src/processing/module.c src/processing/shapes.c src/processing/shaders.c src/processing/text.c
     src/processing/vector.c
     src/modules/fonts.c src/modules/glm.c src/modules/textinput.c src/modules/wgpu.c src/modules/window.c)
-set(include_directories src third_party/stb)
+set(include_directories src third_party/stb third_party/musl)
+# The transcendental functions of Processing and GLM are musl's libm (third_party/musl, pinned), the code the guest
+# runtime's 數學 / Math module runs, renamed by aqua_libm.h so they never meet the C library's libm, and compiled without
+# fused multiply-adds (also where the target has them), so they give the same results on every target.
+set(musl_sources)
+foreach(file sin cos tan asin acos atan atan2 exp log pow __sin __cos __tan __rem_pio2 __rem_pio2_large scalbn exp_data log_data
+        pow_data __math_oflow __math_uflow __math_xflow __math_divzero __math_invalid)
+    list(APPEND musl_sources third_party/musl/src/math/${file}.c)
+endforeach()
+set_source_files_properties(${musl_sources} PROPERTIES
+    INCLUDE_DIRECTORIES "${CMAKE_CURRENT_SOURCE_DIR}/third_party/musl/shim;${CMAKE_CURRENT_SOURCE_DIR}/third_party/musl/src/internal"
+    COMPILE_OPTIONS "-include;${CMAKE_CURRENT_SOURCE_DIR}/third_party/musl/aqua_libm.h;-U__FP_FAST_FMA;-U__FP_FAST_FMAF;-w")
+list(APPEND sources ${musl_sources})
 set(link_libraries "")
 
 # The pinned wgpu-native release of each target (the web uses the host's archive for webgpu.h only).

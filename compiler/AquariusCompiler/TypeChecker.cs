@@ -39,7 +39,7 @@ internal sealed class NativeSignature {
 /// </summary>
 public sealed class TypeChecker {
     /// <summary>Static types: 0 is unknown (untyped), -1 is no value (void), -3 is the null literal, otherwise a type code.</summary>
-    internal const int Dynamic = 0, Void = -1, Null = -3, Int = 1, Float = 2, Double = 3, Bool = 4, String = 5, ArrayFlag = 16, StructFlag = 32;
+    internal const int Dynamic = 0, Void = -1, Null = -3, Int = 1, Float = 2, Double = 3, Bool = 4, String = 5, Long = 6, ArrayFlag = 16, StructFlag = 32;
     internal static bool IsStruct(int code) => code > 0 && (code & StructFlag) != 0;
     /// <summary>The names of struct type codes seen by any check (for messages).</summary>
     private static readonly System.Collections.Concurrent.ConcurrentDictionary<int, string> structNames = new();
@@ -63,7 +63,8 @@ public sealed class TypeChecker {
         internal int Guess;
         internal const int Conflict = -2;
         internal void Observe(int value) {
-            if (value == Conflict) Guess = Conflict;
+            // Longs are never speculated on (no native code holds them yet).
+            if (value == Conflict || value > 0 && value < StructFlag && (value & 15) == Long) Guess = Conflict;
             // Arrays of different element types are arrays of any values.
             else if (value > 0 && Guess != Conflict) Guess = Guess == 0 || Guess == value ? value : IsArrayGuess(Guess) && IsArrayGuess(value) ? ArrayFlag : Conflict;
         }
@@ -138,6 +139,7 @@ public sealed class TypeChecker {
         string suffix = (code & ArrayFlag) != 0 ? "[]" : "";
         return (code & 15) switch {
             Int => $"整數{suffix} int{suffix}", Float => $"浮點數{suffix} float{suffix}", Double => $"雙精度{suffix} double{suffix}",
+            Long => $"長整數{suffix} long{suffix}",
             Bool => $"布林{suffix} bool{suffix}", String => $"字串{suffix} string{suffix}", _ => "?" };
     }
 
@@ -229,8 +231,8 @@ public sealed class TypeChecker {
     private static int Code(TypeAnnotation? type) => type?.Code ?? Dynamic;
     /// <summary>The type of a literal (a negated number too), else 0.</summary>
     private static int LiteralType(IExpression? value) => value switch {
-        IntegerLiteral => Int, FloatLiteral => Float, DoubleLiteral => Double, BooleanLiteral => Bool, StringLiteral => String,
-        PrefixExpression { Operator: "-", Right: IntegerLiteral or FloatLiteral or DoubleLiteral } negated => LiteralType(negated.Right),
+        IntegerLiteral => Int, LongLiteral => Long, FloatLiteral => Float, DoubleLiteral => Double, BooleanLiteral => Bool, StringLiteral => String,
+        PrefixExpression { Operator: "-", Right: IntegerLiteral or LongLiteral or FloatLiteral or DoubleLiteral } negated => LiteralType(negated.Right),
         _ => 0 };
     /// <summary>A constant's value as its declared type holds it (the payload of a number or Boolean) when it is a literal
     /// the native tier can use in place of the binding, else null.</summary>
@@ -286,14 +288,20 @@ public sealed class TypeChecker {
         Error($"型別不符：{subject} 需要 {Name(target)}，卻是 {Name(value)} / Type mismatch: {subject} expects {Name(target)}, got {Name(value)}.", token);
     }
     // Integers widen to float and double, floats to double, and every typed array is an array (陣列 / array).
-    private static bool Widens(int from, int to) => from is Int or Float && to is Float or Double && from < to || to == ArrayFlag && (from & ArrayFlag) != 0;
+    // Integers also widen to long and longs to float and double.
+    private static bool Widens(int from, int to) => from is Int or Float && to is Float or Double && from < to || from == Int && to == Long
+        || from == Long && to is Float or Double || to == ArrayFlag && (from & ArrayFlag) != 0;
     /// <summary>Whether a value of static type value may be stored where target is required without a definite mismatch:
     /// the same type, a widening, null in a struct, or an array of any values in a typed array (checked when it runs).</summary>
     private static bool Compatible(int value, int target) => value == target || Widens(value, target) || value == Null && IsStruct(target)
         || value == ArrayFlag && (target & ArrayFlag) != 0 && !IsStruct(target);
     /// <summary>Whether target op= value can run for values of these static types: numbers, or strings joined with +=.</summary>
-    private static bool Combines(string op, int target, int value) => Numeric(target) && Numeric(value) || op == "+=" && target == String && value == String;
-    private static bool Numeric(int type) => type is Int or Float or Double;
+    private static bool Combines(string op, int target, int value) => Operators.IsBitwise(Operators.Compound(op)) ? Integer(target) && Integer(value)
+        : Numeric(target) && Numeric(value) || op == "+=" && target == String && value == String;
+    private static bool Numeric(int type) => type is Int or Float or Double or Long;
+    private static bool Integer(int type) => type is Int or Long;
+    /// <summary>The type of arithmetic on two numbers: the wider one, except that a long with a float or double gives a double.</summary>
+    private static int Widen(int a, int b) => a == Long || b == Long ? (a is Float or Double || b is Float or Double ? Double : Long) : System.Math.Max(a, b);
 
     // ---- expressions -------------------------------------------------------------------------------
 
@@ -301,6 +309,7 @@ public sealed class TypeChecker {
         switch (expression) {
             case null: return Dynamic;
             case IntegerLiteral: return Int;
+            case LongLiteral: return Long;
             case FloatLiteral: return Float;
             case DoubleLiteral: return Double;
             case BooleanLiteral: return Bool;
@@ -317,6 +326,10 @@ public sealed class TypeChecker {
             case PrefixExpression prefix: {
                 int type = Expression(prefix.Right);
                 if (prefix.Operator == "!") return Bool;
+                if (prefix.Operator == "~") {
+                    if (type != Dynamic && !Integer(type)) Error($"位元運算 ~ 只能用於整數 / The bitwise operator ~ needs an integer, got {Name(type)}.", prefix.Token);
+                    return Integer(type) ? type : Dynamic;
+                }
                 return Numeric(type) ? type : Dynamic;
             }
             case InfixExpression infix: return Infix(infix);
@@ -368,7 +381,7 @@ public sealed class TypeChecker {
             if (infix.Right is CallExpression call) foreach (var a in call.Arguments ?? System.Array.Empty<IExpression>()) Expression(a);
             return Dynamic;
         }
-        if (op is "=" or "+=" or "-=" or "*=" or "/=" or "%=" && infix.Left is IndexExpression element) {
+        if (Operators.IsAssignment(op) && infix.Left is IndexExpression element) {
             // An element of a typed array: definite mismatches are compile errors; the runtime checks every write anyway.
             int array = Expression(element.Left); Expression(element.Index); int value = Expression(infix.Right);
             if ((array & ArrayFlag) == 0 || IsStruct(array) || array == ArrayFlag || array <= 0 || value == Dynamic) return Void;
@@ -376,7 +389,7 @@ public sealed class TypeChecker {
                 Error($"型別不符：{Name(array)} 的元素不能使用 {op} {Name(value)} / Type mismatch: an element of {Name(array)} cannot use {op} with {Name(value)}.", infix.Token);
             return Void;
         }
-        if (op is "=" or "+=" or "-=" or "*=" or "/=" or "%=" && infix.Left is InfixExpression { Operator: "." } target && target.Right is Identifier field) {
+        if (Operators.IsAssignment(op) && infix.Left is InfixExpression { Operator: "." } target && target.Right is Identifier field) {
             // A field assignment: definite mismatches are compile errors; the runtime checks every write anyway.
             int receiver = Expression(target.Left), value = Expression(infix.Right);
             if (!IsStruct(receiver) || !Structs.TryGetValue(receiver, out var shape)) return Void;
@@ -389,7 +402,7 @@ public sealed class TypeChecker {
                 Error($"型別不符：{subject} ({Name(type)}) 不能使用 {op} {Name(value)} / Type mismatch: {subject} ({Name(type)}) cannot use {op} with {Name(value)}.", infix.Token);
             return Void;
         }
-        if (op is "=" or "+=" or "-=" or "*=" or "/=" or "%=") {
+        if (Operators.IsAssignment(op)) {
             int value = Expression(infix.Right);
             if (infix.Left is not Identifier variable) return Void;
             var declaration = Resolve(variable.Value);
@@ -409,7 +422,12 @@ public sealed class TypeChecker {
             case "<": case ">": case "<=": case ">=": case "==": case "!=": case "&&": case "||": return Bool;
             case "+" when left == String && rightType == String: return String;
             case "+": case "-": case "*": case "/": case "%":
-                return Numeric(left) && Numeric(rightType) ? System.Math.Max(left, rightType) : Dynamic;
+                return Numeric(left) && Numeric(rightType) ? Widen(left, rightType) : Dynamic;
+            case "&": case "|": case "^": case "<<": case ">>": case ">>>":
+                // Integers (int or long) only: another known type is a compile error.
+                if (left != Dynamic && !Integer(left) || rightType != Dynamic && !Integer(rightType))
+                    Error($"位元運算 {op} 只能用於整數 / The bitwise operator {op} needs integers, got {Name(left)} {op} {Name(rightType)}.", infix.Token);
+                return Integer(left) && Integer(rightType) ? Widen(left, rightType) : Dynamic;
             default: return Dynamic;
         }
     }
@@ -464,7 +482,7 @@ public sealed class TypeChecker {
         if (declaration == null) {
             // Unshadowed core globals with a known result type.
             return name.Value switch {
-                "int" or "整數" => Int, "float" or "浮點數" => Float, "double" or "雙精度" => Double,
+                "int" or "整數" => Int, "float" or "浮點數" => Float, "double" or "雙精度" => Double, "long" or "長整數" => Long,
                 "len" or "長度" => Int, _ => Dynamic };
         }
         if (declaration.Function is not { } function || declaration.Assigned || declaration.Count != 1) return Dynamic;
@@ -513,9 +531,10 @@ public sealed class TypeChecker {
                 int fill = ScalarOf(arguments[1]);
                 return fill != 0 ? fill | ArrayFlag : 0;
             }
+            case InfixExpression { Operator: "&" or "|" or "^" or "<<" or ">>" or ">>>" }: return Int; // Only integers give a value.
             case InfixExpression { Operator: "+" or "-" or "*" or "/" or "%" } arithmetic: {
                 int left = Known(arithmetic.Left), right = Known(arithmetic.Right);
-                return Numeric(left) && Numeric(right) ? System.Math.Max(left, right) : 0;
+                return Numeric(left) && Numeric(right) ? Widen(left, right) : 0;
             }
             default: return 0;
         }

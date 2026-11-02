@@ -20,7 +20,7 @@ const char *aqua_type_name(aqua_value v) {
     case AQUA_STRING: return "string"; case AQUA_BOOL: return "boolean"; case AQUA_ARRAY: return "array";
     case AQUA_HASH: return "hash"; case AQUA_FUNCTION: case AQUA_BUILTIN: return "function"; case AQUA_MODULE: return "module";
     case AQUA_ERROR: return "error"; case AQUA_NATIVE: return "native";
-    case AQUA_STRUCT: return "struct"; case AQUA_STRUCT_TYPE: return "type";
+    case AQUA_STRUCT: return "struct"; case AQUA_STRUCT_TYPE: return "type"; case AQUA_LONG: return "long";
     default: return "null";
     }
 }
@@ -62,6 +62,13 @@ static bool text_equal(aqua_runtime *rt, uint32_t a, uint32_t b) {
 }
 /* The language's == (typed = false) or a hash key match (typed = true: numeric tags must agree and NaN equals NaN). */
 static bool values_equal(aqua_runtime *rt, aqua_value a, aqua_value b, bool typed) {
+    if ((a.type == AQUA_LONG || b.type == AQUA_LONG) && aqua_is_numeric(a) && aqua_is_numeric(b)) {
+        if (typed && a.type != b.type) return false;
+        if (a.type == AQUA_LONG && b.type == AQUA_LONG) return a.integer == b.integer;
+        /* A long equals a number only with the exact same value. */
+        int64_t l = a.type == AQUA_LONG ? a.integer : b.integer; double d = a.type == AQUA_LONG ? b.number : a.number;
+        return d == floor(d) && d >= -9223372036854775808.0 && d < 9223372036854775808.0 && (int64_t)d == l;
+    }
     if (aqua_is_number(a) && aqua_is_number(b))
         return (!typed || a.type == b.type) && (a.number == b.number || (typed && isnan(a.number) && isnan(b.number)));
     if (a.type != b.type) return false;
@@ -169,7 +176,9 @@ static bool range(aqua_runtime *rt, aqua_value array, uint32_t start, uint32_t c
         const uint8_t *base = guest_base(rt); \
         for (uint32_t i = 0; i < count; i++) { \
             aqua_value v = element_load(base, items, layout, start + i); \
-            if (!aqua_is_number(v) || !(CHECK)) return false; \
+            if (!aqua_is_numeric(v)) return false; \
+            if (v.type == AQUA_LONG) { v.number = (double)v.integer; v.type = AQUA_DOUBLE; } \
+            if (!(CHECK)) return false; \
             out[i] = (T)v.number; \
         } \
         return true; \

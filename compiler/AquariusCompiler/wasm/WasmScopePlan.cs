@@ -22,7 +22,7 @@ internal sealed class WasmScopePlan
     /// <summary>Register slots are reloaded on every entry and stored before every resumable exit.</summary>
     private const int MaxRegisterSlots = 32;
     internal const byte No = 0, Yes = 1, Maybe = 2;
-    internal const int Int = 1, Float = 2, Double = 3, Bool = 4, String = 5, Array = 6, Hash = 7, Closure = 8, Null = 11, Break = 12;
+    internal const int Int = 1, Float = 2, Double = 3, Bool = 4, String = 5, Array = 6, Hash = 7, Closure = 8, Null = 11, Break = 12, Long = 17;
 
     internal sealed class StaticScope
     {
@@ -183,7 +183,9 @@ internal sealed class WasmScopePlan
         var initialDecl = new byte[locals]; var initialSlot = Enumerable.Repeat(Unknown, locals).ToArray();
         if (promotedFunction) for (int p = 0; p < parameters!.Length; p++) initialDecl[p] = Yes;
         Flow(0, 0, System.Array.Empty<int>(), System.Array.Empty<int>(), initialDecl, initialSlot);
-        static int Numeric(int a, int b) => a is >= Int and <= Double && b is >= Int and <= Double ? Math.Max(a, b) : Unknown;
+        // Arithmetic on two numbers gives the wider type, except that a long with a float or double gives a double.
+        static int Numeric(int a, int b) => a is >= Int and <= Double or Long && b is >= Int and <= Double or Long
+            ? a == Long || b == Long ? (a is Float or Double || b is Float or Double ? Double : Long) : Math.Max(a, b) : Unknown;
         while (work.TryDequeue(out int pc)) {
             if (pc == n) continue;
             int depth = depthAt[pc]; var loops = loopsAt[pc]!;
@@ -213,7 +215,7 @@ internal sealed class WasmScopePlan
             switch (op.Code) {
                 case IrOperation.Constant:
                     tags.Add(body.Pool[operand] switch {
-                        IntegerObj => Int, FloatObj => Float, DoubleObj => Double, BooleanObj => Bool, StringObj => String,
+                        IntegerObj => Int, FloatObj => Float, DoubleObj => Double, BooleanObj => Bool, StringObj => String, LongObj => Long,
                         NullObj => Null, BreakObj => Break, _ => Unknown });
                     break;
                 case IrOperation.Void: tags.Add(0); break;
@@ -237,7 +239,7 @@ internal sealed class WasmScopePlan
                 }
                 case IrOperation.IncrementPrefix: case IrOperation.IncrementPostfix: {
                     int tag = Read(accesses[pc]!); Write(accesses[pc]!, 0, true);
-                    tags.Add(tag is >= Int and <= Double ? tag : Unknown); break;
+                    tags.Add(tag is >= Int and <= Double or Long ? tag : Unknown); break;
                 }
                 case IrOperation.Add: case IrOperation.Subtract: case IrOperation.Multiply: case IrOperation.Divide: case IrOperation.Modulo: {
                     if (tags.Count < 2) throw new CompilationException($"Operand stack underflow at instruction {pc}.");
@@ -247,7 +249,14 @@ internal sealed class WasmScopePlan
                 case IrOperation.Less: case IrOperation.Greater: case IrOperation.LessEqual: case IrOperation.GreaterEqual:
                 case IrOperation.Equal: case IrOperation.NotEqual: case IrOperation.And: case IrOperation.Or:
                     Pop(2); tags.Add(Bool); break;
-                case IrOperation.Negate: { if (tags.Count < 1) throw new CompilationException($"Operand stack underflow at instruction {pc}."); int a = Top(); tags[^1] = a is >= Int and <= Double ? a : Unknown; break; }
+                case IrOperation.Negate: { if (tags.Count < 1) throw new CompilationException($"Operand stack underflow at instruction {pc}."); int a = Top(); tags[^1] = a is >= Int and <= Double or Long ? a : Unknown; break; }
+                // Bitwise operators give an integer from integers; anything else is an error.
+                case IrOperation.BitAnd: case IrOperation.BitOr: case IrOperation.BitXor:
+                case IrOperation.ShiftLeft: case IrOperation.ShiftRight: case IrOperation.ShiftRightUnsigned: {
+                    if (tags.Count < 2) throw new CompilationException($"Operand stack underflow at instruction {pc}.");
+                    int a = Top(2), b = Top(); Pop(2); tags.Add(a is Int or Long && b is Int or Long ? (a == Long || b == Long ? Long : Int) : Unknown); break;
+                }
+                case IrOperation.BitNot: if (tags.Count < 1) throw new CompilationException($"Operand stack underflow at instruction {pc}."); tags[^1] = Top() is Int or Long ? Top() : Unknown; break;
                 case IrOperation.Not: if (tags.Count < 1) throw new CompilationException($"Operand stack underflow at instruction {pc}."); tags[^1] = Bool; break;
                 case IrOperation.CheckHashKey: case IrOperation.CheckArrayWrite:
                     if (tags.Count < (op.Code == IrOperation.CheckArrayWrite ? 2 : 1)) throw new CompilationException($"Operand stack underflow at instruction {pc}.");
@@ -255,7 +264,7 @@ internal sealed class WasmScopePlan
                 case IrOperation.CheckType:
                     // A passed annotation check proves the value's tag (arrays: the array tag).
                     if (tags.Count < 1) throw new CompilationException($"Operand stack underflow at instruction {pc}.");
-                    tags[^1] = (operand & 16) != 0 ? Array : operand & 15; break;
+                    tags[^1] = (operand & 16) != 0 ? Array : RuntimeLayout.CodeTag(operand); break;
                 case IrOperation.Member: case IrOperation.MemberFunction:
                     if (tags.Count < 1) throw new CompilationException($"Operand stack underflow at instruction {pc}."); tags[^1] = Unknown; break;
                 case IrOperation.Index: case IrOperation.IncrementIndex: Pop(2); tags.Add(Unknown); break;

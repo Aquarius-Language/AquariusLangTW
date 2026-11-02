@@ -4,6 +4,7 @@
 #include "../graphics.h"
 #include "../common/matrix.h"
 #include <math.h>
+#include "aqua_libm.h" /* sin, cos, ..., pow: musl's, as the guest runtime's 數學 module computes them */
 
 #define PI 3.14159265358979323846
 

@@ -3,10 +3,8 @@
 變數 _null = [][0];
 變數 _error = 函式(message, line) { 回傳 {"ok":假,"error":message,"line":line}; };
 變數 _abs = 函式(x) { 如果(x<0){回傳 -x;} 回傳 x; };
-變數 _sqrt = 函式(x) {
-    如果(x==0){回傳 0.0d;} 變數 r=1.0d; 如果(x>1){r=x;}
-    迴圈(變數 i=0;i<64;i++){r=(r+x/r)*0.5d;} 回傳 r;
-};
+# Square roots are the portable 數學 module's (exact, the same on every target).
+變數 _sqrt = 數學.平方根;
 變數 _normal = 函式(v) {
     變數 d=_sqrt(v[0]*v[0]+v[1]*v[1]+v[2]*v[2]);
     如果(d<0.000000000000001d){回傳 [];}

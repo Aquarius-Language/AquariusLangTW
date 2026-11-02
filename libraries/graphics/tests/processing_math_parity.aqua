@@ -1,0 +1,15 @@
+# Processing's and GLM's transcendental functions run musl's libm natively, the code of the portable 數學 / Math module:
+# every result equals Math's bit for bit, on every target.
+var p = import("Processing");
+var g = import("GLM");
+var mismatches = 0;
+for (var i = 0; i < 3000; i++) {
+    var x = (i - 1500) * 0.0137d + i * 1e-7;
+    var u = (i % 2001 - 1000) / 1000.0d;
+    var v = i * 0.37d + 0.001d;
+    if (p.sin(x) != Math.Sin(x) || p.cos(x) != Math.Cos(x) || p.tan(x) != Math.Tan(x) || p.atan(x) != Math.Atan(x)) { mismatches++; }
+    if (p.atan2(x, 0.7d) != Math.Atan2(x, 0.7d) || p.exp(x / 8) != Math.Exp(x / 8) || p.log(v) != Math.Log(v) || p.pow(v, 0.37d) != Math.Pow(v, 0.37d)) { mismatches++; }
+    if (p.asin(u) != Math.Asin(u) || p.acos(u) != Math.Acos(u) || p.sqrt(v) != Math.Sqrt(v)) { mismatches++; }
+    if (g.Sin(x) != Math.Sin(x) || g.Cos(x) != Math.Cos(x) || g.Sqrt(v) != Math.Sqrt(v)) { mismatches++; }
+}
+print(mismatches, p.sin(1e22) == Math.Sin(1e22), p.sin(1e22), p.cos(1e300), p.pow(2, 0.5d));

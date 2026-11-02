@@ -120,10 +120,13 @@ internal sealed class WasmRuntimeImage
                 for (int c = 0; c < function.Pool.Length; c++)
                 {
                     var literal = function.Pool[c]; int slot = constants + c * 16;
-                    int tag = literal.Type switch { "int" => 1, "float" => 2, "double" => 3, "bool" => 4, "name" or "string" or "assignment" => 5, "function" => 8, "null" => 11, "break" => 12, _ => 0 };
+                    int tag = literal.Type switch { "int" => 1, "float" => 2, "double" => 3, "bool" => 4, "name" or "string" or "assignment" => 5, "function" => 8, "null" => 11, "break" => 12,
+                        "long" => 17, _ => 0 }; // a long's Number holds its 64 bits
                     Int(slot, tag); if (literal.Text != null) Int(slot + 4, Text(literal.Text));
                     double number = literal.Type switch { "function" or "program" => literal.Function, "bool" => literal.Boolean ? 1 : 0,
-                        "assignment" => literal.Operation switch { "Add" => 0, "Subtract" => 1, "Multiply" => 2, "Divide" => 3, "Modulo" => 12, _ => throw new InvalidDataException("Invalid assignment.") }, _ => literal.Number };
+                        "assignment" => literal.Operation switch { "Add" => 0, "Subtract" => 1, "Multiply" => 2, "Divide" => 3, "Modulo" => 12,
+                            "BitAnd" => 13, "BitOr" => 14, "BitXor" => 15, "ShiftLeft" => 16, "ShiftRight" => 17, "ShiftRightUnsigned" => 18,
+                            _ => throw new InvalidDataException("Invalid assignment.") }, _ => literal.Number };
                     Number(slot + 8, number);
                 }
             }

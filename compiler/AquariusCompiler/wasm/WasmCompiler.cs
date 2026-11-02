@@ -76,6 +76,7 @@ public sealed class WasmCompiler
             IntegerObj n => new("int", Number: n.Value),
             FloatObj n => new("float", Number: n.Value),
             DoubleObj n => new("double", Number: n.Value),
+            LongObj n => new("long", Number: BitConverter.Int64BitsToDouble(n.Value)),
             StringObj s => new("string", Text: s.Value),
             BooleanObj b => new("bool", Boolean: b.Value),
             NullObj => new("null"),

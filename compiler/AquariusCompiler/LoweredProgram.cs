@@ -19,7 +19,9 @@ public enum IrOperation : byte {
     StructType, CallNamed, SetMember, CompoundMember, CheckStruct,
     // A compound assignment to an element or hash entry (`陣列[i] += x`): array, index and value on the stack. ++ on an
     // element (operand 1 for prefix) or a field (operand: the name constant << 1 | prefix).
-    CompoundIndex, IncrementIndex, IncrementMember
+    CompoundIndex, IncrementIndex, IncrementMember,
+    // Integer bitwise operators: & | ^ << >> >>> and ~.
+    BitAnd, BitOr, BitXor, ShiftLeft, ShiftRight, ShiftRightUnsigned, BitNot
 }
 
 public readonly struct Instruction {
