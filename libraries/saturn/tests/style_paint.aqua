@@ -1,0 +1,52 @@
+# SetStyle with CSS names, text layout with the built-in measurer, painting into a UI draw list, hit testing, painters
+# and Combine.
+var Saturn = import("Saturn");
+var card = Saturn.Node();
+card.SetStyle({"width": 220, "padding": [12, 16], "gap": 6, "background": "#1e2230", "borderRadius": 10,
+    "borderWidth": 1, "borderColor": "rgba(255, 255, 255, 0.5)", "boxShadow": {"y": 4, "blur": 12, "color": "#00000080"}});
+var title = Saturn.Node();
+title.SetText("Saturn 土星");
+title.SetStyle({"fontSize": 20, "fontWeight": "bold", "color": "white"});
+var body = Saturn.Node();
+body.SetText("Layout trees for every renderer, with text that wraps between words and around 中文字。");
+body.SetStyle({"fontSize": 12, "color": [200, 200, 210], "lineHeight": 1.5d});
+var clipped = Saturn.Node();
+clipped.SetText("A single line that is far too long for the card");
+clipped.SetStyle({"fontSize": 12, "whiteSpace": "nowrap", "textOverflow": "ellipsis", "color": "#ffcc00"});
+var button = Saturn.Node();
+button.SetStyle({"height": 28, "background": {"from": "#4060ff", "to": "#8040ff", "angle": 90}, "borderRadius": 6,
+    "cursor": "pointer", "transform": {"scale": 1.5d}});
+card.SetChildren([title, body, clipped, button]);
+card.CalculateLayout();
+print("card", card.GetComputedLayout());
+print("lines", len(body.GetTextLines()), body.GetComputedHeight());
+var lines = body.GetTextLines();
+for (var i = 0; i < len(lines); i++) { print(" ", lines[i]["text"], int(lines[i]["width"])); }
+print("ellipsis", clipped.GetTextLines()[0]["text"]);
+
+var list = card.Paint(10, 20);
+print("list", list["version"], len(list["commands"]), list["strings"]);
+var ops = [];
+var c = list["commands"];
+var sizes = [0, 12, 16, 14, 14, 17, 8, 0, 6, 0, 5, 8, 9, 20, 1, 0];
+for (var at = 0; at < len(c); at += 1 + sizes[int(c[at])]) { Array.Append(ops, int(c[at])); }
+print("ops", ops);
+
+# Hit testing follows the painted boxes (the button is scaled 1.5x about its center).
+var abs = button.GetAbsoluteLayout();
+print("button", abs);
+print("hits", card.HitTest(-5, -5) == null, card.HitTest(5, 5) == card, card.HitTest(20, 20) == title, card.HitTest(abs["x"] + 2, abs["y"] + 2) == button,
+    card.HitTest(abs["x"] - 20, abs["y"] + 10) == button, button.GetCursor());
+print("path", len(card.HitTestPath(30, 25)));
+
+# A paint callback draws in the node's coordinates; Painter and Combine build lists by hand.
+button.SetPainter(function(painter, w, h) { painter.Line(0, 0, w, h, 2, "red"); });
+var painted = card.Paint();
+var p = Saturn.Painter();
+p.Rect(0, 0, 10, 10, "blue", 2);
+var width = p.Text("hi", 1, 1, {"fontSize": 10, "color": "white"});
+p.Mesh([0, 0, 0, 0, 255, 255, 255, 255, 10, 0, 1, 0, 255, 255, 255, 255, 0, 10, 0, 1, 255, 255, 255, 255], [0, 1, 2]);
+var both = Saturn.Combine([painted, p.Build()]);
+print("combine", len(both["strings"]), len(both["vertices"]), both["indices"], int(width), p.CommandCount());
+var Network = import("Network");
+print(Network.Try(function() { p.Mesh([0, 0, 0, 0, 0, 0, 0, 0], [3]); }).Error.Message);

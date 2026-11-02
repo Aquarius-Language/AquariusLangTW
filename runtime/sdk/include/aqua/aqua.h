@@ -210,6 +210,8 @@ bool aqua_api_bind(aqua_library *library); /* aqua_api_stub.c (native) or always
         if (api_version < AQUA_API_VERSION || !aqua_api_bind(library)) return 0; \
         aqua_library_##name(library); return AQUA_API_VERSION; } \
     static void aqua_library_##name(aqua_library *library)
+#elif defined(__cplusplus)
+#define AQUA_LIBRARY(name) extern "C" void aqua_library_##name(aqua_library *library)
 #else
 #define AQUA_LIBRARY(name) void aqua_library_##name(aqua_library *library)
 #endif

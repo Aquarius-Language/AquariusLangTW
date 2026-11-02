@@ -1,0 +1,75 @@
+# Saturn's Yoga node API, used as in Yoga's C API: a row with a fixed sidebar, a growing body with a measure function,
+# percentages, gaps, margins, absolute positioning, display none, grid, errors and freeing.
+var Saturn = import("Saturn");
+var config = Saturn.Config();
+config.SetPointScaleFactor(1);
+
+var root = Saturn.Node(config);
+root.SetFlexDirection(Saturn.FlexDirectionRow);
+root.SetWidth(400);
+root.SetHeight(200);
+root.SetPadding(Saturn.EdgeAll, 10);
+root.SetGap(Saturn.GutterColumn, 8);
+
+var side = Saturn.Node(config);
+side.SetWidthPercent(25);
+side.SetMargin(Saturn.EdgeTop, 5);
+var body = Saturn.Node(config);
+body.SetFlexGrow(1);
+body.SetAlignSelf("center");
+body.SetMeasureFunc(function(width, widthMode, height, heightMode) { return [120, 40]; });
+root.InsertChild(side, 0);
+root.InsertChild(body, 1);
+root.CalculateLayout(Saturn.Undefined, Saturn.Undefined, Saturn.DirectionLTR);
+print("side", side.GetComputedLeft(), side.GetComputedTop(), side.GetComputedWidth(), side.GetComputedHeight());
+print("body", body.GetComputedLeft(), body.GetComputedTop(), body.GetComputedWidth(), body.GetComputedHeight());
+print("owner", body.GetParent() == root, root.GetChildCount(), root.GetChild(1) == body, root.GetChild(5));
+var w = side.GetWidth();
+print("value", w.value, w.unit == Saturn.UnitPercent, w.unitName, Saturn.EnumName("Align", body.GetAlignSelf()));
+
+# Strings work wherever Yoga takes a value or a constant.
+var badge = Saturn.Node(config);
+badge.SetPositionType("absolute");
+badge.SetPosition(Saturn.EdgeRight, 0);
+badge.SetPosition("bottom", "10%");
+badge.SetWidth("max-content");
+badge.SetMinWidth(30);
+badge.SetHeight(20);
+root.InsertChild(badge);
+var hidden = Saturn.Node(config);
+hidden.SetDisplay(Saturn.DisplayNone);
+hidden.SetWidth(50);
+root.InsertChild(hidden);
+root.CalculateLayout(400, 200);
+print("badge", badge.GetComputedLeft(), badge.GetComputedTop(), badge.GetComputedWidth(), badge.GetComputedHeight());
+print("hidden", hidden.GetComputedWidth(), root.GetComputedLayout());
+
+# CSS grid properties (Yoga stores them; its layout algorithm does not place grid items yet at the pinned commit).
+var grid = Saturn.Node();
+grid.SetDisplay("grid");
+grid.SetStyle({"gridTemplateColumns": "100 1fr minmax(50, 2fr)", "gridTemplateRows": [40, "auto"], "gap": 10});
+var cell = Saturn.Node();
+cell.SetStyle({"gridColumn": "2 / span 2", "gridRow": 1});
+print("grid", Saturn.EnumName("Display", grid.GetDisplay()), cell.GetGridColumnStart(), cell.GetGridColumnEnd(), cell.GetGridRowStart(), grid.GetGap(Saturn.GutterAll).value);
+# Mistakes are errors, not crashes.
+var Network = import("Network");
+var again = Network.Try(function() { root.InsertChild(side); });
+print(again.Success, again.Error.Message);
+var cycle = Network.Try(function() { side.InsertChild(root); });
+print(cycle.Success);
+var leaf = Network.Try(function() { body.InsertChild(Saturn.Node()); });
+print(leaf.Success);
+var failing = Saturn.Node();
+failing.SetMeasureFunc(function(width, widthMode, height, heightMode) { return "big"; });
+print(Network.Try(function() { failing.CalculateLayout(); }).Success);
+
+# Removing, cloning and freeing.
+root.RemoveChild(hidden);
+print("removed", root.GetChildCount(), hidden.GetParent());
+var copy = root.Clone();
+copy.CalculateLayout(400, 200);
+print("clone", copy.GetChildCount(), copy.GetChild(1).GetComputedWidth(), copy.GetChild(0) == side);
+side.Free();
+print("freed", side.IsFreed(), root.GetChildCount(), Network.Try(function() { side.GetComputedWidth(); }).Error.Message);
+root.FreeRecursive();
+print("tree", body.IsFreed(), badge.IsFreed());

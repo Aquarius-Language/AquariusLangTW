@@ -1,0 +1,15 @@
+side 10 15 95 175
+body 113 80 277 40
+owner 真 2 真 null
+value 25 真 percent center
+badge 370 160 30 20
+hidden 0 {left: 0, top: 0, right: 0, bottom: 0, width: 400, height: 200}
+grid grid 2 0 1 10
+假 Saturn.Node.InsertChild: the child already has a parent; remove it first / 子節點已有父節點。
+假
+假
+假
+removed 3 null
+clone 3 277 假
+freed 真 2 Saturn.Node: the node was freed / 節點已釋放。
+tree 真 真
