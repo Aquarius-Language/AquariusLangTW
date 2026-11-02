@@ -115,6 +115,24 @@ public class NativeFunctionTest
         }
     }
 
+    /// <summary>Only loops that allocate (here or in a callee) poll for a pending collection. A loop whose only allocation
+    /// is in a callee must still collect: these programs allocate about 5 GiB in all, more than a Wasm memory holds, and
+    /// the loop after the allocation polls nothing and must leave the armed collection to the next poll.</summary>
+    [RuntimeFact]
+    public void LoopsCollectWhereTheyOrTheirCalleesAllocate()
+    {
+        string program = "var piece = function(n: int): string { var s: string = \"ab\"; for (var i: int = 0; i < n; i++) { s = s + s; } return s; }; " +
+            "var big: string = piece(12); " +
+            "var tag = function(i: int): string { return big + \"!\"; }; " +
+            "var spin = function(n: int): int { var a: int[] = Array.Make(64, 1); var t: int = 0; for (var i: int = 0; i < n; i++) { t += a[i % 64]; } return t; }; " +
+            "var run = function(n: int): int { var total: int = 0; for (var i: int = 0; i < n; i++) { var text: string = tag(i); total += len(text) + spin(3); } return total; }; " +
+            "print(run(320000));";
+        string expected = WasmTestHost.Run(new WasmCompiler(false).Compile(program)).Succeeded().Output;
+        Assert.Equal($"{unchecked((int)(320000L * (8193 + 3)))}", expected.Trim());
+        foreach (string quantum in new[] { "17", "65536", "1048576" })
+            Assert.Equal(expected, WasmTestHost.Run(program, new Dictionary<string, string> { ["AQUARIUS_FUEL_QUANTUM"] = quantum }).Succeeded().Output);
+    }
+
     /// <summary>Native code deoptimizes at every quantum's end and resumes natively at the marked site; when it declines
     /// (no budget left) the generic body continues the frame, and a later resume must not repeat work from the old site.
     /// Two recursive calls per activation make every kind of site resume under many small quanta.</summary>

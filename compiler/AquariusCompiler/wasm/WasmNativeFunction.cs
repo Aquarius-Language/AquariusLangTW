@@ -54,8 +54,11 @@ internal sealed class WasmNativeFunction
     internal bool WritesOuter { get; private set; } = true;
     internal bool WritesArrays { get; private set; } = true;
     /// <summary>Whether the body (or a callee) allocates: concatenates strings, builds array literals or constructs structs.
-    /// Its loop heads then also poll for a pending collection (deoptimizing to the generic checkpoint, which collects).</summary>
+    /// The heads of its loops that allocate (directly or through a call) then also poll for a pending collection
+    /// (deoptimizing to the generic checkpoint, which collects).</summary>
     internal bool Allocates { get; private set; }
+    /// <summary>Where the body itself allocates (a string concatenation, array literal, struct, 陣列.建立 or 陣列.追加).</summary>
+    private readonly HashSet<int> allocations = new();
     /// <summary>Whether the body (or a callee) appends to arrays (陣列.追加 / Array.Append): their counts change too, so every
     /// array local's companions are read again after it (or after a call to it), not only the values pointers.</summary>
     internal bool ResizesArrays { get; private set; }
@@ -541,7 +544,7 @@ internal sealed class WasmNativeFunction
                     if (!Numeric(type)) return Reject(pc);
                     stack.Add(type); break;
                 }
-                case IrOperation.Add when Top() == StringType && Top(2) == StringType: Allocates = true; Pop(2); stack.Add(StringType); break;
+                case IrOperation.Add when Top() == StringType && Top(2) == StringType: Allocates = true; allocations.Add(pc); Pop(2); stack.Add(StringType); break;
                 case IrOperation.Add: case IrOperation.Subtract: case IrOperation.Multiply: case IrOperation.Divide: case IrOperation.Modulo:
                     if (!Numeric(Top()) || !Numeric(Top(2))) return Reject(pc);
                     { int type = Math.Max(Top(), Top(2)); Pop(2); stack.Add(type); }
@@ -587,7 +590,7 @@ internal sealed class WasmNativeFunction
                     if (stack.Count < names.Length + 1 || stack.Contains(MixedType)) return Reject(pc);
                     int callee = stack[stack.Count - names.Length - 1];
                     if (Construction(callee, stack.Skip(stack.Count - names.Length).ToArray(), names) is not int made) return Reject(pc);
-                    Allocates = true;
+                    Allocates = true; allocations.Add(pc);
                     Pop(names.Length + 1); stack.Add(made); break;
                 }
                 case IrOperation.Index:
@@ -629,7 +632,7 @@ internal sealed class WasmNativeFunction
                 case IrOperation.Array:
                     // An array literal of native values is built natively (an array of any values, like the generic one).
                     if (stack.Count < operand || stack.Skip(stack.Count - operand).Any(t => !Value(t) && t != AnyValueType)) return Reject(pc);
-                    Allocates = true; Pop(operand); stack.Add(AnyArrayType); break;
+                    Allocates = true; allocations.Add(pc); Pop(operand); stack.Add(AnyArrayType); break;
                 case IrOperation.JumpIfBreak: break; // Typed values are never a break value.
                 case IrOperation.Break: {
                     int base_ = plan.LoopBase[pc];
@@ -655,7 +658,7 @@ internal sealed class WasmNativeFunction
                         if (count is not (2 or 3) || arguments[0] != IntType || count == 3 && arguments[2] != IntType
                             || arguments[1] is not (IntType or FloatType or DoubleType or BoolType)) return Reject(pc);
                         if (pc + 1 >= n || code[pc + 1].Code != IrOperation.CheckType || (code[pc + 1].Operand & 31) != (16 | arguments[1])) return Reject(pc);
-                        Allocates = true;
+                        Allocates = true; allocations.Add(pc);
                         result = 16 | arguments[1];
                     } else if (callee == BuiltinBase + AppendBuiltin) {
                         // An element the typed array takes (widened like the generic element check) or, for a loose array, of
@@ -663,13 +666,13 @@ internal sealed class WasmNativeFunction
                         if (count != 2 || !IsArray(arguments[0])) return Reject(pc);
                         int element = arguments[0] & 15;
                         if (arguments[1] != element && (IsLoose(arguments[0]) || !Numeric(arguments[1]) || !Widens(arguments[1], element))) return Reject(pc);
-                        Allocates = true; ResizesArrays = true;
+                        Allocates = true; allocations.Add(pc); ResizesArrays = true;
                         result = arguments[0];
                     } else if (callee >= BuiltinBase) {
                         if (count != 1 || !Numeric(arguments[0])) return Reject(pc);
                         result = callee - BuiltinBase - ConvertFirst + IntType;
                     } else if (Construction(callee, arguments, null) is int made) {
-                        Allocates = true;
+                        Allocates = true; allocations.Add(pc);
                         result = made;
                     } else if (callee >= CallableBase && !IsRegion && !StructCallee(callee, out _)) {
                         var target = signatureOf?.Invoke(Signature.Outer[callNames[callee - CallableBase]].Function!);
@@ -1161,6 +1164,15 @@ internal sealed class WasmNativeFunction
         }
 
         int depthLimit = DepthLimit;
+        // Only an allocation arms a collection: a loop that allocates nothing (here or in a callee) never polls, and a
+        // collection armed before it runs at the next checkpoint that does (or in the generic code after the call).
+        bool LoopAllocates(int head) {
+            var loop = this.constructs!.First(c => c.Loop && c.Start == head);
+            bool Inside(int pc) => pc >= loop.Start && pc < loop.End;
+            return allocations.Any(Inside) || states.Any(p => Inside(p.Key) && body.Code[p.Key].Code == IrOperation.Call
+                && p.Value[p.Value.Length - body.Code[p.Key].Operand - 1] is int callee and >= CallableBase and < BuiltinBase && !StructCallee(callee, out _)
+                && natives[OwnPointers.TryGetValue(callNames[callee - CallableBase], out var target) ? target.Callee : Body].Native.Allocates);
+        }
         // The generic checkpoint: yield (here: deoptimize) when the budget is exhausted, a collection is pending or, at
         // the entry, the native depth bound is reached; otherwise consume the weight with saturation. A pending
         // collection is armed only by allocation, which native code never does, so loops need not poll.
@@ -1175,7 +1187,7 @@ internal sealed class WasmNativeFunction
             } else {
                 Get(w, budget); I(w, 0); Op(0x4c);
                 // A loop that allocates leaves for a pending collection too: the generic checkpoint collects.
-                if (Allocates) { Execution(); Memory(w, I32Load, 2, ExecutionPoll); Op(0x72); }
+                if (LoopAllocates(pc)) { Execution(); Memory(w, I32Load, 2, ExecutionPoll); Op(0x72); }
             }
             Op(If, 0x40); ToHandler(CheckpointSite, BlockOf(pc), states[pc], pc); Op(End);
             Get(w, budget); I(w, weight); Op(0x6b); Set(w, budget);
