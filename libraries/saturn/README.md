@@ -190,7 +190,7 @@ widget's inline `style` (a hash or `UI.Style(...)`). Styles take every key of `S
 `UI.Theme(mode: "dark", primary: "#ff7a59", radius: 12, ...)` fills what it leaves out for its mode
 (`UI.ResolveTheme`), and `surface.SetTheme(theme)` switches at run time.
 
-**Surfaces**: `UI.Surface(width, height, root, options)` → `Frame(timeMs)` (rebuild, layout, scrolling),
+**Surfaces**: `UI.Surface(width, height, root, options)` (options `theme`, `sheet`, `transparent: true` for a HUD or a bar over other content) → `Frame(timeMs)` (rebuild, layout, scrolling),
 `Paint()` (the draw list), `Feed(event)` (Interaction events, or hashes with `type`, `x`, `y`, `button`, `dx`, `dy`,
 `key`, `action`, `text`; returns whether the surface used it), `Wants(x, y)`, `Resize`, `SetRoot`, `SetTheme`,
 `Rebuild`, `Cursor()` (for `session.SetCursor`), `ImeRect()`, `NeedsFrame()`. A surface draws nothing and owns no
