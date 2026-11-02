@@ -95,11 +95,14 @@ try {
     foreach ($permission in $Grant) { & $adb shell "pm grant $Package $permission 2>/dev/null" | Out-Null }
     try {
         & $adb logcat -c
+        # Only lines after this run started count: clearing the log is not reliable (it may not take effect, for example
+        # right after the adb server restarted), and an earlier application's output would then read as this one's.
+        $since = ((& $adb shell "date '+%m-%d %H:%M:%S.000'") | Select-Object -Last 1).Trim()
         & $adb shell am start -W -n "$Package/org.aquariuslang.runtime.AquariusActivity" --ei frames $Frames | Out-Null
         $deadline = [DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
         do {
             Start-Sleep -Milliseconds 500
-            $log = @(& $adb logcat -d -v raw -s 'Aquarius:*' 'AndroidRuntime:E' 'DEBUG:F' 'libc:F')
+            $log = @(& $adb logcat -d -T $since -v raw -s 'Aquarius:*' 'AndroidRuntime:E' 'DEBUG:F' 'libc:F')
             $text = $log -join "`n"
         } while ($text -notmatch 'AQUARIUS_ANDROID_(OK|ERROR)|FATAL EXCEPTION|Fatal signal' -and [DateTime]::UtcNow -lt $deadline)
         # The program's output only: the markers become the exit status.

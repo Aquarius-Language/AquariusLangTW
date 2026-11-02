@@ -1,0 +1,17 @@
+{
+  "comment": "Files the tests read that are not committed: scripts/test-libraries.ps1 downloads each (SHA-256 checked) into .native-build/test-downloads and copies it to tests/<file> (git-ignored). The MediaPipe person detection and pose landmark models in ONNX form from OpenCV Zoo, Apache License 2.0 (https://github.com/opencv/opencv_zoo/blob/main/LICENSE; weights from Google MediaPipe).",
+  "files": [
+    {
+      "file": "models/人物偵測.onnx",
+      "url": "https://media.githubusercontent.com/media/opencv/opencv_zoo/8e2b658d1007864a24cc2cf0e5b4288c74b32584/models/person_detection_mediapipe/person_detection_mediapipe_2023mar.onnx",
+      "sha256": "47fd5599d6fa17608f03e0eb0ae230baa6e597d7e8a2c8199fe00abea55a701f",
+      "license": "Apache-2.0 (OpenCV Zoo, Google MediaPipe)"
+    },
+    {
+      "file": "models/姿態.onnx",
+      "url": "https://media.githubusercontent.com/media/opencv/opencv_zoo/1f19f821d68288feff2ef5c53993b33da74b1509/models/pose_estimation_mediapipe/pose_estimation_mediapipe_2023mar.onnx",
+      "sha256": "9d89c599319a18fb7d2e28451a883476164543182bafca5f09eb2cf767ed2f3f",
+      "license": "Apache-2.0 (OpenCV Zoo, Google MediaPipe)"
+    }
+  ]
+}

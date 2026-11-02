@@ -186,4 +186,5 @@ pinned files in `AQUA_ONNX_DOWNLOADS` beforehand; their hashes are checked eithe
   native targets a folder beside the test application): `人物偵測.onnx`
   ([OpenCV Zoo person_detection_mediapipe_2023mar](https://github.com/opencv/opencv_zoo/tree/8e2b658d1007864a24cc2cf0e5b4288c74b32584/models/person_detection_mediapipe),
   SHA-256 `47fd5599…a701f`) and `姿態.onnx` ([pose_estimation_mediapipe_2023mar](https://github.com/opencv/opencv_zoo/tree/1f19f821d68288feff2ef5c53993b33da74b1509/models/pose_estimation_mediapipe),
-  SHA-256 `9d89c599…2f3f`), Apache 2.0.
+  SHA-256 `9d89c599…2f3f`), Apache 2.0. `tests/downloads.json` pins both: `scripts/test-libraries.ps1` downloads them
+  (SHA-256 checked) into `.native-build/test-downloads` and copies them to `tests/models/`, which git ignores.
