@@ -7,12 +7,12 @@ every other executable.
 
 ## Result
 
-| Mode | Language | Score before | Score after | × C# time before | × C# time after |
+| Mode | Language | Score before | After steps 1–11 | After the preemption fix (final) | × C# time before → final |
 | --- | --- | ---: | ---: | ---: | ---: |
-| Standard | Typed 星泉 (Wasmtime) | 57.66 | **68.42** | 1.73× | **1.46×** |
-| Warmed | Typed 星泉 (Wasmtime) | 50.45 | **59.28** | 1.98× | **1.69×** |
-| Standard | Untyped 星泉 (Wasmtime) | 45.98 | 51.60 | 2.17× | 1.94× |
-| Warmed | Untyped 星泉 (Wasmtime) | 40.72 | 43.09 | 2.46× | 2.32× |
+| Standard | Typed 星泉 (Wasmtime) | 57.66 | 68.42 | **66.50** | 1.73× → **1.50×** |
+| Warmed | Typed 星泉 (Wasmtime) | 50.45 | 59.28 | **56.10** | 1.98× → **1.78×** |
+| Standard | Untyped 星泉 (Wasmtime) | 45.98 | 51.60 | 49.92 | 2.17× → 2.00× |
+| Warmed | Untyped 星泉 (Wasmtime) | 40.72 | 43.09 | 43.32 | 2.46× → 2.31× |
 | Standard | Typed 星泉, `--optimize` (wasm2c AOT)¹ | — | **≈89** | — | **≈1.12×** |
 | Warmed | Typed 星泉, `--optimize` (wasm2c AOT)¹ | — | **≈75** | — | **≈1.34×** |
 | Standard | Node.js | 34.56 | 36.42 | | |
@@ -21,7 +21,10 @@ every other executable.
 Scores are C# = 100 (geometric mean over the ten benchmarks), `run_benchmarks.py --profile large`, 5 measured processes
 plus 1 discarded per case, seed 20261010. Before: `results/csharp-parity-baseline/20261102-093609-361106` (main, frozen in
 `../aqua-perf-baseline`). After: `results/csharp-parity-final/20261102-115538-646607` (this branch, frozen in
-`../aqua-perf-final`). Every sample matched the Python reference answers.
+`../aqua-perf-final`). With the preemption fix (commit `0108d29`, "Native preemption" below):
+`results/csharp-parity-final-preempt/20261102-125259-431456` (frozen in `../aqua-perf-final-preempt`); the benchmark README
+shows this run. Every sample of every run matched the Python reference answers. The per-benchmark tables below are the
+run before the fix; the fix changes Ackermann and binary trees (see its section).
 
 ¹ The harness only runs `aqua run`, so AOT executables were timed in the bake-off (below) and divided by the final run's
 C# medians; the bake-off ran on the same machine an hour earlier. Against Node.js in the final run: typed `--optimize`
@@ -91,16 +94,36 @@ Times are warmed medians of interleaved A/B runs (5–11 processes each, large i
 | 10a | Arrays of up to four elements are one heap block | `c8bb86f` | binary trees typed 67.9 → 56.6 (−17%), untyped 62.8 → 55.7 (−11%) | **Kept** | The inline storage has its own header that redirects marking to the owning block, so storage shared by a functional `push` survives the owner. The copy-on-write recount is kept. A new test fails if the redirect is removed. |
 | 10b | Bump-pointer nursery, minor collections, generational collection with a write barrier | — | — | **Not done** | It touches the guest runtime, both emitters, the native tier and every host/SDK write path. That could not be done safely in this round, and binary trees remains the largest allocation gap (1.84× warmed). The old collector would stay selectable for differential tests. |
 
-### Native preemption (found in step 0, decision needed)
+### Native preemption (found in step 0; middle ground applied, commit `0108d29`)
 
-Native entry checkpoints test `budget == 0`, but the native budget is a local that goes below 0 where the generic one
-saturates at 0. A recursion-only native function (Fibonacci, Ackermann, tree builders) that skips past 0 therefore
-never yields again until it returns to a loop head or to generic code. On web and Android that can freeze the UI during
-a long recursive computation, and pending collections wait just as long (memory can grow meanwhile). Testing `budget <= 0` fixes it,
-but costs (A/B against step 4): Ackermann +10.6%, binary trees +53% (collections now run during the deep recursion),
-quicksort +5.5%; at the portable quantum 65536 Ackermann takes 2.06× as long. The fix is not applied, and this is your call:
-responsiveness on web and Android against desktop benchmark speed. A middle ground worth trying: test `<= 0` only at
-entries whose function has no loop.
+Native entry checkpoints tested `budget == 0`, but the native budget is a local that goes below 0 where the generic one
+saturates at 0. So a recursion-only native function (Fibonacci, Ackermann, tree builders) whose budget skipped past 0
+never yielded again until it returned to a loop head or generic code: a long typed recursion froze every other task, and
+the UI on web and Android, and pending collections waited as long. Measured with a test program (an async ticker counting
+while `fib(30)` runs) before the fix: the ticker did not advance on desktop (quanta 65536 and 2^20), in Chromium or on the
+Android emulator.
+
+The owner chose the middle ground: a function **without loops** tests `budget <= 0` at its entry and at its self
+tail-call re-entry, and a function with loops keeps `budget == 0` (it yields at its next loop head, which tests `<= 0`).
+After the fix the ticker advances during `fib(30)` and `ack(3, 8)` on desktop (both quanta), in Chromium and on the Android
+emulator. `NativeFunctionTest.LongTypedRecursionYieldsToOtherTasks` checks this under the portable and the desktop quantum
+with the generic results, and it fails if the fix is removed. Results never change: only where a yield falls changes, and
+generic code yields there too.
+
+Desktop cost, A/B against the build before the fix (large inputs, 7 processes, ms):
+
+| Benchmark | Warmed before → after | Standard before → after |
+| --- | --- | --- |
+| Typed Ackermann | 6.698 → 7.329 (+9%) | 6.925 → 8.299 (+20%) |
+| Typed Fibonacci | 10.725 → 9.967 (−7%, noise) | 10.183 → 10.243 (+1%) |
+| Typed binary trees | 27.168 → 38.518 (+42%) | 45.182 → 55.318 (+22%) |
+| Untyped Ackermann | 6.698 → 7.389 (+10%) | 6.937 → 7.697 (+11%) |
+| Untyped Fibonacci | 9.928 → 10.661 (+7%, noise) | 10.236 → 10.102 (−1%) |
+| Untyped binary trees | 48.235 → 38.947 (−19%, noise) | 52.904 → 50.545 (−5%) |
+
+In these benchmarks every hot function is loop-free recursion, so the middle ground costs what the full fix cost. Typed
+binary trees now collects during its deep tree build, which it never did before. Ackermann now deoptimizes its 2,000-frame
+native stack at each slice's end. Composite scores (full run): typed 68.42 → 66.50 standard and 59.28 → 56.10 warmed.
 
 ## Step 11: desktop ahead-of-time bake-off
 
@@ -179,10 +202,10 @@ the remaining work. Untyped loops already covered by native regions are compiled
 
 | Where | Result |
 | --- | --- |
-| Windows, `dotnet test compiler/AquariusTests` | **875 passed**, 0 failed, 1 skipped (Linux-only) |
+| Windows, `dotnet test compiler/AquariusTests` | **876 passed**, 0 failed, 1 skipped (Linux-only), including the preemption test; codegen goldens updated |
 | Linux (WSL Ubuntu 22.04), `scripts/test-linux.sh` (runtime pack with the pinned LLVM, then the suite) | **857 passed**, 1 failed, 18 skipped. The failure was the `--optimize` test: the toolchain installer cannot `mv` into the Windows drive (`/mnt/c`) from WSL. Rerun with `AQUARIUS_NATIVE_BUILD` on the Linux file system, it **passes** (56 s, toolchain installed on first use). |
-| Library tests, `scripts/test-libraries.ps1` (windows-x64 + web) | **81 passed**, 0 failed, 51 skipped (need a device or window) |
-| Library tests, `-Devices -Targets android-x86_64` (emulator, API 37) | **46 passed**, 2 failed, 18 skipped. The 2 failures are the same environmental ones as earlier rounds: `network/web_client` needs `tests/servers/peer.aqua` running, and `onnx/pose` needs model files that are not on this machine. |
+| Library tests, `scripts/test-libraries.ps1` (windows-x64 + web) | **81 passed**, 0 failed, 51 skipped (need a device or window), before and after the preemption fix |
+| Library tests, `-Devices -Targets android-x86_64` (emulator, API 37) | **46 passed**, 2 failed, 18 skipped, before and after the preemption fix. The 2 failures are the same environmental ones as earlier rounds: `network/web_client` needs `tests/servers/peer.aqua` running, and `onnx/pose` needs model files that are not on this machine. |
 | Web (Chromium, `scripts/web-run.mjs`) | All 20 benchmark programs (typed and untyped, standard inputs) print the same results as desktop. Binary trees at n=16 (the earlier large-heap crash) runs to the correct result. |
 | Android emulator (`scripts/android-run.ps1`) | Typed Ackermann, matrix, spectral norm, N-Queens, binary trees and Fibonacci, plus untyped quicksort, binary trees and matrix: same results as desktop. |
 | VS Code grammar (`node --test test/manifest.test.js`) | 6 passed |
@@ -205,7 +228,6 @@ Codegen goldens were regenerated for steps 5–7 and 10a.
 
 ## Left undone
 
-- Native preemption fix (decision above).
 - Step 8 (no remaining target found), step 9 (ceiling too small), step 10b (nursery and generational collection).
 - Precompiled JIT stencils in AOT executables.
 - `docs/agent-reference.md` / `AGENT_REFERENCE.md` lives on the unmerged branch `claude/project-thread-sn71yp` (commit

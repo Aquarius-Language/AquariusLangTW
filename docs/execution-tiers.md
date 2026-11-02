@@ -195,9 +195,11 @@ Code quality details, all plain Wasm:
   runs no entry checkpoint: the depth bound limits native frames, which it adds none of, and its entry weight is
   charged in place, so an exhausted budget yields at the caller's next loop head or exit.
 - **Checkpoint branches.** The entry checkpoint tests the depth bound and the empty budget as two branches to the one
-  deoptimization site (not two comparisons combined with `or`); a polling loop head likewise. The entry tests
-  `budget == 0` like the generic checkpoint; the native budget may go below 0 where the generic one saturates, so
-  deep native recursion yields only at its next loop head (see `reports/csharp-parity-2026-11.md`).
+  deoptimization site (not two comparisons combined with `or`); a polling loop head likewise. The native budget may go
+  below 0 where the generic one saturates, so loop heads test `budget <= 0`, and so does the entry of a function without
+  loops (recursion only), which would otherwise never yield again; entries of functions with loops test `budget == 0`
+  and yield at their next loop head. A long typed recursion therefore yields to other tasks (and the UI on web and
+  Android) every slice.
 - **Collections are polled by the adapters.** Native code only allocates when it leaves (a deoptimization) or copies an
   array on write, so the entry checkpoint no longer reads `Execution.poll`; the entry adapter sends a call made while a
   collection is pending to the generic body, whose entry checkpoint collects.
