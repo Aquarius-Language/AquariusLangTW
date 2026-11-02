@@ -98,10 +98,12 @@ print("close code", closes);
 var quick = net.ListenAndServeAsync("127.0.0.1:18797", {"GET /": function(request, writer) { writer.Text("quick"); }});
 show("listen and serve", await net.GetAsync("http://127.0.0.1:18797/", null));
 
-# Graceful shutdown: the request in progress finishes, then the server closes.
-server.Handle("GET /slow", async function(request, writer) { await Promise.Delay(100); writer.Text("finished"); });
+# Graceful shutdown: the request in progress finishes, then the server closes. The shutdown starts once the handler
+# runs (not after a fixed delay, which a slow device can exceed before the request even arrives).
+var entered = false;
+server.Handle("GET /slow", async function(request, writer) { entered = true; await Promise.Delay(100); writer.Text("finished"); });
 var slow = get("/slow", null);
-await Promise.Delay(30);
+for (; !entered;) { await Promise.Delay(5); }
 var started = currentTime();
 var drained = await server.ShutdownAsync(5000);
 show("slow", await slow);
