@@ -439,7 +439,9 @@ static void paint_node(Painting &p, Node *n, float ox, float oy) {
         list.op(OP_TRANSFORM_POP, {});
         if (!ok) {
             char *shown = aqua_display(n->rt, result);
-            aqua_fail(p.call, "%s", shown ? shown : "Saturn: a paint callback failed.");
+            const char *text = shown ? shown : "Saturn: a paint callback failed.";
+            while (!strncmp(text, "ERROR: ", 7)) text += 7;
+            aqua_fail(p.call, "%s", text);
             aqua_free(shown);
             p.failed = true;
             return;

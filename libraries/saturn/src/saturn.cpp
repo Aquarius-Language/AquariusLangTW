@@ -120,9 +120,11 @@ static bool report_callback_error(aqua_call *call, State *state) {
 }
 static void remember_error(State *state, aqua_runtime *rt, aqua_value error) {
     if (!state->error.empty()) return;
-    char *text = aqua_display(rt, error);
-    state->error = text ? text : "Saturn: a layout callback failed.";
-    aqua_free(text);
+    char *shown = aqua_display(rt, error);
+    const char *text = shown ? shown : "Saturn: a layout callback failed.";
+    while (!strncmp(text, "ERROR: ", 7)) text += 7;
+    state->error = text;
+    aqua_free(shown);
 }
 
 /* ---- Saturn.Config ---- */

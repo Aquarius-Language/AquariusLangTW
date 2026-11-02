@@ -416,10 +416,13 @@ static void ctx_render(aqua_call *call) {
                 ImVec4 r = cmd.ClipRect;
                 double cx = std::max((double)r.x - origin.x, x), cy = std::max((double)r.y - origin.y, y);
                 double cw = std::min((double)r.z - origin.x, x + w) - cx, ch = std::min((double)r.w - origin.y, y + h) - cy;
-                if (cw <= 0 || ch <= 0) continue;                aqua_value arguments[5] = {aqua_cstring(rt, item.id.c_str()), aqua_double(x), aqua_double(y), aqua_double(w), aqua_double(h)}, result;
+                if (cw <= 0 || ch <= 0) continue;
+                aqua_value arguments[5] = {aqua_cstring(rt, item.id.c_str()), aqua_double(x), aqua_double(y), aqua_double(w), aqua_double(h)}, result;
                 if (!aqua_invoke(rt, embed, arguments, 5, &result)) {
                     char *shown = aqua_display(rt, result);
-                    aqua_fail(call, "%s", shown ? shown : "ImGui.Render: the embed function failed.");
+                    const char *text = shown ? shown : "ImGui.Render: the embed function failed.";
+                    while (!strncmp(text, "ERROR: ", 7)) text += 7;
+                    aqua_fail(call, "%s", text);
                     aqua_free(shown);
                     return;
                 }
@@ -710,7 +713,7 @@ AQUA_LIBRARY(imgui) {
     aqua_define_function(module, "GetCurrentContext|目前情境", module_current, "");
     aqua_define_function(module, "GetVersion|版本", module_version, "");
     aqua_define_function(module, "SystemFontPath|系統字型路徑", module_system_font, "s");
-#define CONSTANT(name) aqua_define_int(module, strncmp(#name, "ImGui", 5) == 0 ? #name + 5 : #name + 2, (int32_t)(name));
+#define CONSTANT(name) aqua_define_int(module, strncmp(#name, "ImGui", 5) == 0 ? &#name[5] : &#name[2], (int32_t)(name));
 #include "constants.def"
 #undef CONSTANT
     aqua_class *c = context_class;
