@@ -89,8 +89,10 @@ try {
     if (-not $Run) { Write-Output $apk; return }
 
     # Run: install, start with an intent extra for frame-limited graphics, follow the log, uninstall.
-    & $adb install -r $apk | Out-Null
-    if ($LASTEXITCODE -ne 0) { throw "Installing $apk failed." }
+    # A copy left by an interrupted run would keep its space and data: start from none.
+    & $adb uninstall $Package 2>$null | Out-Null
+    $installed = (& $adb install -r $apk 2>&1 | Out-String).Trim()
+    if ($LASTEXITCODE -ne 0) { throw "Installing $apk failed: $installed" }
     # Install-time permissions (INTERNET) are granted by installing; pm refuses to grant them, which is not an error.
     foreach ($permission in $Grant) { & $adb shell "pm grant $Package $permission 2>/dev/null" | Out-Null }
     try {
