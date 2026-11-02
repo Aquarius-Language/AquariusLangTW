@@ -145,6 +145,8 @@ void layout_text(Node *n, float width, bool bounded) {
     t.ascent = probe.ascent;
     t.descent = probe.descent;
     bool wrap = bounded && !style.nowrap;
+    /* Yoga rounds boxes to the pixel grid, so the width painted can be a fraction under the width measured. */
+    const float slack = 1.0f;
     bool truncated = false;
     std::string_view content = t.content;
     size_t start = 0;
@@ -155,32 +157,30 @@ void layout_text(Node *n, float width, bool bounded) {
             add_line(t, state, std::string(paragraph));
         } else {
             std::string line;
-            float line_width = 0;
             for (std::string &token : tokens_of(paragraph)) {
-                float full = measure_run(state, token, style).width, fit = measure_run(state, trim_end(token), style).width;
-                if (line.empty() || line_width + fit <= width + 0.01f) {
-                    if (line.empty() && fit > width + 0.01f) {
+                /* The candidate line is measured whole: renderers' boxes are not additive (kerning, overhang). */
+                float fit = measure_run(state, trim_end(token), style).width;
+                float candidate = line.empty() ? fit : measure_run(state, trim_end(line + token), style).width;
+                if (line.empty() || candidate <= width + slack) {
+                    if (line.empty() && fit > width + slack) {
                         /* A word wider than the line breaks between characters. */
                         std::string piece;
                         for (size_t i = 0; i < token.size();) {
                             size_t from = i;
                             next_code_point(token, &i);
                             std::string longer = piece + token.substr(from, i - from);
-                            if (!piece.empty() && measure_run(state, trim_end(longer), style).width > width + 0.01f) {
+                            if (!piece.empty() && measure_run(state, trim_end(longer), style).width > width + slack) {
                                 add_line(t, state, piece);
                                 piece = token.substr(from, i - from);
                             } else piece = longer;
                         }
                         line = piece;
-                        line_width = measure_run(state, line, style).width;
                         continue;
                     }
                     line += token;
-                    line_width += full;
                 } else {
                     add_line(t, state, line);
                     line = token;
-                    line_width = full;
                 }
             }
             add_line(t, state, line);

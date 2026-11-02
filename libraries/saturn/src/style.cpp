@@ -382,8 +382,8 @@ bool apply_style(aqua_call *call, Node *n, aqua_value style) {
         aqua_value key, value;
         aqua_hash_entry(rt, style, i, &key, &value);
         if (key.type != AQUA_STRING) { aqua_fail(call, "Saturn.Node.SetStyle: keys are property names / 鍵必須是屬性名稱。"); return false; }
-        /* Struct fields left out are null: they leave the property as it is. */
-        if (style.type == AQUA_STRUCT && aqua_is_nullish(value)) continue;
+        /* Null values (struct fields left out) leave the property as it is. */
+        if (aqua_is_nullish(value)) continue;
         std::string name = text_of(rt, key);
         bool handled;
         if (!set_layout_style(call, n, name, value, &handled)) return false;

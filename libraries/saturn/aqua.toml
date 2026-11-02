@@ -9,3 +9,6 @@ platforms = ["windows", "linux", "android", "web"]
 
 [native]
 modules = ["Saturn|土星"]
+[[modules]]
+names = "SaturnUI|土星介面"
+source = "aqua/SaturnUI.aqua"

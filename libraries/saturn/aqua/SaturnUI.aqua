@@ -1,0 +1,1180 @@
+# SaturnUI / 土星介面: Flutter-style widgets on Saturn node trees (libraries/saturn/README.md, "SaturnUI").
+#
+# Widgets are struct values built with named fields and nested through child: and children:. A surface keeps an
+# element per widget (reconciled by type and key, holding state and one Saturn node each), styles every element from
+# the theme's style sheet, the app's style sheets, its states (hover, pressed, focused, disabled, checked) and its
+# inline style, lays the tree out with Yoga and paints it into a UI draw list. Event handlers run on input; the
+# surface rebuilds after each one, so there is no setState. Nothing here draws: any renderer draws the list.
+var Saturn = import("Saturn");
+
+# ---- Widgets ----------------------------------------------------------------------------------------------------
+
+struct Box { child; children; style; class; key; onTap; onDoubleTap; onLongPress; onHover; onPress; onRelease; cursor }
+struct Row { children; gap; mainAxis; crossAxis; wrap; style; class; key }
+struct Column { children; gap; mainAxis; crossAxis; wrap; style; class; key }
+struct Stack { children; style; class; key }
+struct Positioned { child; left; top; right; bottom; width; height; key }
+struct Expanded { child; flex; key }
+struct Flexible { child; flex; key }
+struct Spacer { flex; key }
+struct Padding { padding; child; key }
+struct Center { child; key }
+struct Align { alignment; child; key }
+struct SizedBox { width; height; child; key }
+struct AspectRatio { ratio; child; key }
+struct Wrap { children; gap; runGap; style; class; key }
+struct Grid { columns; children; gap; style; class; key }
+struct ScrollView { child; horizontal; style; class; key }
+struct ListView { itemCount; itemBuilder; itemExtent; gap; style; class; key }
+struct Text { text; style; class; key; maxLines; ellipsis; align }
+struct RichText { spans; style; class; key }
+struct Span { text; style }
+struct Image { image; width; height; fit; radius; style; class; key }
+struct Icon { name; size; color; key }
+struct CustomPaint { paint; width; height; child; style; key }
+struct Button { label; child; icon; onPress; variant; disabled; style; class; key }
+struct IconButton { icon; onPress; size; tooltip; disabled; style; class; key }
+struct Checkbox { value; onChanged; label; disabled; key }
+struct Switch { value; onChanged; label; disabled; key }
+struct Radio { value; group; onChanged; label; disabled; key }
+struct Slider { value; min; max; step; onChanged; width; disabled; key }
+struct ProgressBar { value; width; key }
+struct TextField { value; onChanged; onSubmit; placeholder; obscure; width; disabled; style; class; key }
+struct Dropdown { value; options; onChanged; width; key }
+struct Tabs { labels; index; onChanged; key }
+struct Dialog { open; title; content; actions; onDismiss; width; key }
+struct Tooltip { message; child; key }
+struct Divider { thickness; color; vertical; key }
+struct Card { child; children; style; class; key; onTap }
+struct Gesture { child; onTap; onDoubleTap; onLongPress; onHover; onPress; onRelease; onDragStart; onDrag; onDragEnd; cursor; key }
+struct Builder { build; key }
+struct Stateful { init; build; dispose; key }
+struct Immediate { width; height; paint; feed; style; key }
+struct Themed { theme; child; key }
+
+# Style properties, named as Saturn's SetStyle names them (CSS names). Fields left out keep their defaults.
+struct Style {
+    width; height; minWidth; maxWidth; minHeight; maxHeight; aspectRatio; padding; paddingHorizontal; paddingVertical;
+    paddingTop; paddingBottom; paddingLeft; paddingRight; margin; marginHorizontal; marginVertical; marginTop; marginBottom;
+    marginLeft; marginRight; gap; flex; flexGrow; flexShrink; flexBasis; flexDirection; flexWrap; justifyContent; alignItems;
+    alignSelf; alignContent; position; top; left; right; bottom; display; overflow; zIndex; background; borderColor;
+    borderWidth; borderRadius; shadow; opacity; color; fontSize; fontWeight; fontFamily; fontStyle; lineHeight; textAlign;
+    maxLines; textOverflow; whiteSpace; cursor; scale; rotate; translateX; translateY; transition; visibility; pointerEvents
+}
+
+# A theme: colors as "#rrggbb", sizes in logical pixels. Leave fields out for the defaults of the mode.
+struct Theme {
+    mode; primary; primaryHover; primaryPressed; primarySoft; onPrimary; background; surface; surfaceHover; text; muted;
+    border; danger; radius; spacing; fontFamily; fontSize; sheet
+}
+
+# A surface's context, given to Builder and Stateful build functions.
+struct Context { surface; element; theme; width; height; rebuild; focus }
+
+struct Element { widget; type; node; children; parent; surface; state; data; key; extra; overlay }
+
+struct SaturnSurface {
+    width; height; root; theme; sheets; tree; rootNode; overlayNode; dirty; hover; pressed; captured; focus;
+    time; cursor; pressX; pressY; pressTime; lastTap; lastTapTime; tooltip; tooltipAt; pathAt; fontOf; textColor;
+    Frame; Paint; Feed; Resize; SetRoot; SetTheme; Rebuild; Cursor; NeedsFrame; ImeRect; Dispose
+}
+struct DropdownMenu { owner; options; value; key }
+struct TooltipBubble { text; owner; key }
+
+# ---- Themes and style sheets --------------------------------------------------------------------------------------
+
+var pick = function(value, fallback) { if (value == null) { return fallback; } return value; };
+
+# The complete theme: every field filled in for the mode ("light" or "dark").
+var ResolveTheme = function(theme) {
+    var t = theme;
+    if (t == null) { t = Theme(mode: "light"); }
+    var dark = t.mode == "dark";
+    return Theme(
+        mode: if (dark) { "dark"; } else { "light"; },
+        primary: pick(t.primary, if (dark) { "#7c88ff"; } else { "#4f5bd5"; }),
+        primaryHover: pick(t.primaryHover, if (dark) { "#949eff"; } else { "#4250c4"; }),
+        primaryPressed: pick(t.primaryPressed, if (dark) { "#6672f0"; } else { "#3742a8"; }),
+        primarySoft: pick(t.primarySoft, if (dark) { "#7c88ff26"; } else { "#4f5bd51f"; }),
+        onPrimary: pick(t.onPrimary, if (dark) { "#0d0f18"; } else { "#ffffff"; }),
+        background: pick(t.background, if (dark) { "#12141c"; } else { "#f4f5fa"; }),
+        surface: pick(t.surface, if (dark) { "#1d2030"; } else { "#ffffff"; }),
+        surfaceHover: pick(t.surfaceHover, if (dark) { "#262a3d"; } else { "#eef0f7"; }),
+        text: pick(t.text, if (dark) { "#e8eaf2"; } else { "#1b1f2e"; }),
+        muted: pick(t.muted, if (dark) { "#9aa0b8"; } else { "#6b7085"; }),
+        border: pick(t.border, if (dark) { "#343a52"; } else { "#d6d9e4"; }),
+        danger: pick(t.danger, if (dark) { "#ff6b6b"; } else { "#d64545"; }),
+        radius: pick(t.radius, 8),
+        spacing: pick(t.spacing, 8),
+        fontFamily: pick(t.fontFamily, "sans-serif"),
+        fontSize: pick(t.fontSize, 14),
+        sheet: t.sheet
+    );
+};
+
+# The theme's own style sheet: the look of every built-in widget, with its states.
+var ThemeSheet = function(t) {
+    var r = t.radius;
+    var shadow = {"y": 2, "blur": 10, "color": if (t.mode == "dark") { "#00000080"; } else { "#1b1f2e1f"; }};
+    return {
+        "Surface": {"background": t.background, "color": t.text, "fontSize": t.fontSize, "fontFamily": t.fontFamily},
+        "Button": {"flexDirection": "row", "alignItems": "center", "justifyContent": "center", "gap": 6, "paddingHorizontal": 14,
+            "height": 34, "borderRadius": r, "background": t.primary, "color": t.onPrimary, "fontWeight": 600, "cursor": "pointer",
+            "transition": 120, "flexShrink": 0},
+        "Button:hover": {"background": t.primaryHover},
+        "Button:pressed": {"background": t.primaryPressed, "scale": 0.97d},
+        "Button.outline": {"background": "transparent", "borderWidth": 1.5d, "borderColor": t.primary, "color": t.primary},
+        "Button.outline:hover": {"background": t.primarySoft},
+        "Button.outline:pressed": {"background": t.primarySoft},
+        "Button.text": {"background": "transparent", "color": t.primary, "paddingHorizontal": 8},
+        "Button.text:hover": {"background": t.primarySoft},
+        "Button.text:pressed": {"background": t.primarySoft},
+        "Button.tonal": {"background": t.primarySoft, "color": t.primary},
+        "Button.tonal:hover": {"background": t.surfaceHover},
+        "Button.danger": {"background": t.danger, "color": "#ffffff"},
+        "Button:disabled": {"opacity": 0.45d, "cursor": "default"},
+        "IconButton": {"width": 34, "height": 34, "borderRadius": 17, "alignItems": "center", "justifyContent": "center",
+            "cursor": "pointer", "transition": 120, "color": t.text},
+        "IconButton:hover": {"background": t.surfaceHover},
+        "IconButton:pressed": {"background": t.primarySoft},
+        "IconButton:disabled": {"opacity": 0.4d},
+        "Card": {"background": t.surface, "borderRadius": r + 4, "padding": 16, "gap": 10, "shadow": shadow, "transition": 150},
+        "Card:hover": {},
+        "Divider": {"background": t.border, "alignSelf": "stretch"},
+        "TextField": {"height": 36, "paddingHorizontal": 10, "borderWidth": 1, "borderColor": t.border, "borderRadius": r,
+            "background": t.surface, "justifyContent": "center", "cursor": "text", "overflow": "hidden", "transition": 120},
+        "TextField:hover": {"borderColor": t.muted},
+        "TextField:focused": {"borderColor": t.primary, "shadow": {"spread": 2, "color": t.primarySoft}},
+        "TextField:disabled": {"opacity": 0.5d},
+        "Placeholder": {"color": t.muted},
+        "Checkbox": {"flexDirection": "row", "alignItems": "center", "gap": 8, "cursor": "pointer"},
+        "CheckboxBox": {"width": 18, "height": 18, "borderRadius": 5, "borderWidth": 2, "borderColor": t.muted,
+            "alignItems": "center", "justifyContent": "center", "transition": 120},
+        "CheckboxBox:checked": {"background": t.primary, "borderColor": t.primary},
+        "Switch": {"flexDirection": "row", "alignItems": "center", "gap": 8, "cursor": "pointer"},
+        "SwitchTrack": {"width": 38, "height": 22, "borderRadius": 11, "background": t.border, "padding": 3, "transition": 150},
+        "SwitchTrack:checked": {"background": t.primary},
+        "SwitchThumb": {"width": 16, "height": 16, "borderRadius": 8, "background": "#ffffff", "transition": 150,
+            "shadow": {"y": 1, "blur": 3, "color": "#00000040"}},
+        "SwitchThumb:checked": {"translateX": 16},
+        "Radio": {"flexDirection": "row", "alignItems": "center", "gap": 8, "cursor": "pointer"},
+        "RadioRing": {"width": 18, "height": 18, "borderRadius": 9, "borderWidth": 2, "borderColor": t.muted,
+            "alignItems": "center", "justifyContent": "center", "transition": 120},
+        "RadioRing:checked": {"borderColor": t.primary},
+        "RadioDot": {"width": 8, "height": 8, "borderRadius": 4, "background": t.primary, "opacity": 0, "transition": 120},
+        "RadioDot:checked": {"opacity": 1},
+        "Slider": {"height": 24, "justifyContent": "center", "cursor": "pointer"},
+        "SliderTrack": {"height": 4, "borderRadius": 2, "background": t.border},
+        "SliderFill": {"position": "absolute", "left": 0, "top": 10, "height": 4, "borderRadius": 2, "background": t.primary},
+        "SliderThumb": {"position": "absolute", "top": 3, "width": 18, "height": 18, "borderRadius": 9, "background": t.surface,
+            "borderWidth": 2, "borderColor": t.primary, "transition": 100},
+        "SliderThumb:hover": {"scale": 1.15d},
+        "ProgressBar": {"height": 6, "borderRadius": 3, "background": t.border, "overflow": "hidden"},
+        "ProgressFill": {"height": 6, "borderRadius": 3, "background": t.primary, "transition": 200},
+        "Dropdown": {"flexDirection": "row", "alignItems": "center", "justifyContent": "space-between", "height": 36,
+            "paddingHorizontal": 10, "borderWidth": 1, "borderColor": t.border, "borderRadius": r, "background": t.surface,
+            "cursor": "pointer", "gap": 8},
+        "Dropdown:hover": {"borderColor": t.muted},
+        "Menu": {"position": "absolute", "background": t.surface, "borderRadius": r, "padding": 4, "shadow": shadow,
+            "borderWidth": 1, "borderColor": t.border},
+        "MenuItem": {"paddingHorizontal": 10, "height": 30, "justifyContent": "center", "borderRadius": r - 2, "cursor": "pointer"},
+        "MenuItem:hover": {"background": t.primarySoft},
+        "MenuItem:selected": {"color": t.primary, "fontWeight": 600},
+        "Tabs": {"flexDirection": "row", "gap": 4, "borderColor": t.border, "borderBottomWidth": 1},
+        "Tab": {"paddingHorizontal": 14, "height": 36, "justifyContent": "center", "cursor": "pointer", "color": t.muted,
+            "borderBottomWidth": 2, "borderColor": "transparent", "transition": 120},
+        "Tab:hover": {"color": t.text},
+        "Tab:selected": {"color": t.primary, "borderColor": t.primary, "fontWeight": 600},
+        "Scrim": {"position": "absolute", "left": 0, "top": 0, "right": 0, "bottom": 0, "background": "#00000066",
+            "alignItems": "center", "justifyContent": "center"},
+        "DialogCard": {"background": t.surface, "borderRadius": r + 6, "padding": 20, "gap": 14, "maxWidth": "90%",
+            "shadow": {"y": 12, "blur": 32, "color": "#00000059"}},
+        "DialogTitle": {"fontSize": t.fontSize + 4, "fontWeight": 700},
+        "DialogActions": {"flexDirection": "row", "justifyContent": "flex-end", "gap": 8},
+        "TooltipBubble": {"position": "absolute", "background": if (t.mode == "dark") { "#e8eaf2"; } else { "#1b1f2e"; },
+            "color": if (t.mode == "dark") { "#12141c"; } else { "#ffffff"; }, "paddingHorizontal": 8, "paddingVertical": 4,
+            "borderRadius": 6, "fontSize": t.fontSize - 2, "pointerEvents": "none"},
+        "ScrollThumb": {"position": "absolute", "width": 6, "right": 2, "borderRadius": 3, "background": t.muted, "opacity": 0.6d,
+            "pointerEvents": "none"},
+        "Link": {"color": t.primary, "cursor": "pointer"}
+    };
+};
+
+# ---- Small helpers -------------------------------------------------------------------------------------------------
+
+var NL = String.FromCode(10);
+var Network = null;
+
+var isArray = function(v) { return typeOf(v) == "array"; };
+var listOf = function(child, children) {
+    if (children != null) { return children; }
+    if (child != null) { return [child]; }
+    return [];
+};
+var axisValue = function(name) {
+    if (name == null) { return null; }
+    if (name == "start") { return "flex-start"; }
+    if (name == "end") { return "flex-end"; }
+    if (name == "between" || name == "spaceBetween") { return "space-between"; }
+    if (name == "around" || name == "spaceAround") { return "space-around"; }
+    if (name == "evenly" || name == "spaceEvenly") { return "space-evenly"; }
+    return name;
+};
+var alignmentOf = function(name) {
+    # "topLeft" .. "bottomRight", "center": [justifyContent, alignItems] in a column.
+    var vertical = "center";
+    var horizontal = "center";
+    if (String.StartsWith(name, "top")) { vertical = "flex-start"; }
+    if (String.StartsWith(name, "bottom")) { vertical = "flex-end"; }
+    if (String.EndsWith(name, "Left") || name == "left") { horizontal = "flex-start"; }
+    if (String.EndsWith(name, "Right") || name == "right") { horizontal = "flex-end"; }
+    return [vertical, horizontal];
+};
+var clamp = function(v, lo, hi) { if (v < lo) { return lo; } if (v > hi) { return hi; } return v; };
+var Processing_max = function(a, b) { if (a > b) { return a; } return b; };
+var Processing_abs = function(a) { if (a < 0) { return -a; } return a; };
+# A color as [r, g, b, a] (0..255) from "#rgb", "#rrggbb", "#rrggbbaa" or an array.
+var hexDigit = function(text, i) {
+    var c = String.Code(text, i);
+    if (c >= 97) { return c - 87; }
+    if (c >= 65) { return c - 55; }
+    return c - 48;
+};
+var colorArray = function(c) {
+    if (typeOf(c) == "array") { if (len(c) == 3) { return [c[0], c[1], c[2], 255]; } return c; }
+    if (typeOf(c) != "string" || !String.StartsWith(c, "#")) { return [0, 0, 0, 255]; }
+    if (len(c) == 4) { return [hexDigit(c, 1) * 17, hexDigit(c, 2) * 17, hexDigit(c, 3) * 17, 255]; }
+    var a = 255;
+    if (len(c) == 9) { a = hexDigit(c, 7) * 16 + hexDigit(c, 8); }
+    return [hexDigit(c, 1) * 16 + hexDigit(c, 2), hexDigit(c, 3) * 16 + hexDigit(c, 4), hexDigit(c, 5) * 16 + hexDigit(c, 6), a];
+};
+
+# ---- Icons: vector shapes painted with Saturn's painter, colored by the inherited text color --------------------
+
+var iconNames = ["check", "close", "plus", "minus", "chevronLeft", "chevronRight", "chevronUp", "chevronDown", "menu",
+    "search", "star", "heart", "home", "settings", "arrowLeft", "arrowRight", "dot", "circle", "info", "user"];
+var PaintIcon = function(p, name, size, color) {
+    var s = size;
+    var w = s * 0.11d;
+    if (name == "check") { p.Line(s * 0.2d, s * 0.52d, s * 0.42d, s * 0.74d, w, color); p.Line(s * 0.42d, s * 0.74d, s * 0.8d, s * 0.28d, w, color); }
+    elif (name == "close") { p.Line(s * 0.25d, s * 0.25d, s * 0.75d, s * 0.75d, w, color); p.Line(s * 0.75d, s * 0.25d, s * 0.25d, s * 0.75d, w, color); }
+    elif (name == "plus") { p.Line(s * 0.5d, s * 0.2d, s * 0.5d, s * 0.8d, w, color); p.Line(s * 0.2d, s * 0.5d, s * 0.8d, s * 0.5d, w, color); }
+    elif (name == "minus") { p.Line(s * 0.2d, s * 0.5d, s * 0.8d, s * 0.5d, w, color); }
+    elif (name == "chevronLeft") { p.Line(s * 0.62d, s * 0.22d, s * 0.36d, s * 0.5d, w, color); p.Line(s * 0.36d, s * 0.5d, s * 0.62d, s * 0.78d, w, color); }
+    elif (name == "chevronRight") { p.Line(s * 0.38d, s * 0.22d, s * 0.64d, s * 0.5d, w, color); p.Line(s * 0.64d, s * 0.5d, s * 0.38d, s * 0.78d, w, color); }
+    elif (name == "chevronUp") { p.Line(s * 0.22d, s * 0.62d, s * 0.5d, s * 0.36d, w, color); p.Line(s * 0.5d, s * 0.36d, s * 0.78d, s * 0.62d, w, color); }
+    elif (name == "chevronDown") { p.Line(s * 0.22d, s * 0.38d, s * 0.5d, s * 0.64d, w, color); p.Line(s * 0.5d, s * 0.64d, s * 0.78d, s * 0.38d, w, color); }
+    elif (name == "menu") { for (var i = 0; i < 3; i++) { var y = s * (0.28d + 0.22d * i); p.Line(s * 0.2d, y, s * 0.8d, y, w, color); } }
+    elif (name == "search") { p.Border(s * 0.18d, s * 0.18d, s * 0.48d, s * 0.48d, w, color, s * 0.24d); p.Line(s * 0.6d, s * 0.6d, s * 0.82d, s * 0.82d, w, color); }
+    elif (name == "star") {
+        var P = import("Processing");
+        var v = [];
+        var ids = [];
+        for (var k = 0; k < 10; k++) {
+            var r = if (k % 2 == 0) { s * 0.42d; } else { s * 0.18d; };
+            var a = -1.5707963d + k * 0.6283185d;
+            Array.AppendArray(v, [s * 0.5d + r * P.cos(a), s * 0.52d + r * P.sin(a), 0, 0, color[0], color[1], color[2], color[3]]);
+        }
+        Array.AppendArray(v, [s * 0.5d, s * 0.52d, 0, 0, color[0], color[1], color[2], color[3]]);
+        for (var k = 0; k < 10; k++) { Array.AppendArray(ids, [10, k, (k + 1) % 10]); }
+        p.Mesh(v, ids);
+    }
+    elif (name == "heart") {
+        p.Circle(s * 0.35d, s * 0.4d, s * 0.17d, color);
+        p.Circle(s * 0.65d, s * 0.4d, s * 0.17d, color);
+        p.Mesh([s * 0.19d, s * 0.47d, 0, 0, color[0], color[1], color[2], color[3], s * 0.81d, s * 0.47d, 0, 0, color[0], color[1], color[2], color[3],
+            s * 0.5d, s * 0.82d, 0, 0, color[0], color[1], color[2], color[3]], [0, 1, 2]);
+    }
+    elif (name == "home") {
+        p.Line(s * 0.15d, s * 0.5d, s * 0.5d, s * 0.18d, w, color); p.Line(s * 0.5d, s * 0.18d, s * 0.85d, s * 0.5d, w, color);
+        p.Border(s * 0.27d, s * 0.45d, s * 0.46d, s * 0.38d, w, color);
+    }
+    elif (name == "settings") {
+        p.Border(s * 0.32d, s * 0.32d, s * 0.36d, s * 0.36d, w, color, s * 0.18d);
+        for (var k = 0; k < 6; k++) {
+            var P = import("Processing");
+            var a = k * 1.0471976d;
+            p.Line(s * 0.5d + s * 0.2d * P.cos(a), s * 0.5d + s * 0.2d * P.sin(a), s * 0.5d + s * 0.4d * P.cos(a), s * 0.5d + s * 0.4d * P.sin(a), w * 1.4d, color);
+        }
+    }
+    elif (name == "arrowLeft") { p.Line(s * 0.2d, s * 0.5d, s * 0.8d, s * 0.5d, w, color); p.Line(s * 0.2d, s * 0.5d, s * 0.45d, s * 0.25d, w, color); p.Line(s * 0.2d, s * 0.5d, s * 0.45d, s * 0.75d, w, color); }
+    elif (name == "arrowRight") { p.Line(s * 0.2d, s * 0.5d, s * 0.8d, s * 0.5d, w, color); p.Line(s * 0.8d, s * 0.5d, s * 0.55d, s * 0.25d, w, color); p.Line(s * 0.8d, s * 0.5d, s * 0.55d, s * 0.75d, w, color); }
+    elif (name == "dot") { p.Circle(s * 0.5d, s * 0.5d, s * 0.16d, color); }
+    elif (name == "circle") { p.Border(s * 0.15d, s * 0.15d, s * 0.7d, s * 0.7d, w, color, s * 0.35d); }
+    elif (name == "info") { p.Border(s * 0.12d, s * 0.12d, s * 0.76d, s * 0.76d, w, color, s * 0.38d); p.Line(s * 0.5d, s * 0.45d, s * 0.5d, s * 0.7d, w, color); p.Circle(s * 0.5d, s * 0.32d, w * 0.7d, color); }
+    elif (name == "user") { p.Circle(s * 0.5d, s * 0.35d, s * 0.16d, color); p.Rect(s * 0.22d, s * 0.58d, s * 0.56d, s * 0.28d, color, [s * 0.28d, s * 0.28d, 4, 4]); }
+    else { p.Border(s * 0.2d, s * 0.2d, s * 0.6d, s * 0.6d, w, color); }
+};
+
+# ---- Elements: mount, update, unmount ----------------------------------------------------------------------------
+
+var kinds = {};
+var update = null;
+var mount = null;
+
+# The type name of a widget; plain strings and numbers are shorthand for Text widgets.
+var typeOfWidget = function(w) {
+    var t = typeOf(w);
+    if (t == "string" || t == "integer" || t == "double" || t == "float") { return "Text"; }
+    return t;
+};
+var normalize = function(w) {
+    var t = typeOf(w);
+    if (t == "string") { return Text(text: w); }
+    if (t == "integer" || t == "double" || t == "float") { return Text(text: String.From(w)); }
+    return w;
+};
+var keyOf = function(w) {
+    var t = typeOf(w);
+    if (t == "string" || t == "integer" || t == "double" || t == "float" || t == "Span") { return null; }
+    return w.key;
+};
+
+var newNode = function(e) {
+    var node = Saturn.Node();
+    node.SetContext(e);
+    return node;
+};
+
+var dispose = function(e) {
+    for (var i = 0; i < len(e.children); i++) { dispose(e.children[i]); }
+    if (e.type == "Stateful" && e.widget.dispose != null && e.state != null) { e.widget.dispose(e.state); }
+    var s = e.surface;
+    if (s.hover != null && Array.Contains(s.hover, e)) { s.hover = []; }
+    if (s.pressed == e) { s.pressed = null; }
+    if (s.captured == e) { s.captured = null; }
+    if (s.focus == e) { s.focus = null; }
+    if (e.overlay) {
+        var parent = e.node.GetParent();
+        if (parent != null) { parent.RemoveChild(e.node); }
+    }
+};
+
+# The element's style list for ReplaceStyle: base layout from widget fields, theme and app sheets (type, variant and
+# classes, then their state variants), parent data (Expanded, Positioned) and the inline style.
+var stateNames = ["hover", "pressed", "focused", "disabled", "checked", "selected"];
+var styleOf = function(e, base, selectors) {
+    var s = e.surface;
+    var list = [base];
+    var states = [];
+    for (var i = 0; i < len(stateNames); i++) {
+        if (Hash.Get(e.data, stateNames[i], false) == true) { Array.Append(states, stateNames[i]); }
+    }
+    var breakpoint = if (s.width < 600) { "@narrow "; } elif (s.width < 1024) { "@medium "; } else { "@wide "; };
+    for (var k = 0; k < len(s.sheets); k++) {
+        var sheet = s.sheets[k];
+        if (sheet == null) { continue; }
+        for (var i = 0; i < len(selectors); i++) {
+            var name = selectors[i];
+            var entry = sheet[name];
+            if (entry != null) { Array.Append(list, entry); }
+            entry = sheet[breakpoint + name];
+            if (entry != null) { Array.Append(list, entry); }
+            for (var j = 0; j < len(states); j++) {
+                entry = sheet[name + ":" + states[j]];
+                if (entry != null) { Array.Append(list, entry); }
+            }
+        }
+    }
+    if (e.extra != null) { Array.Append(list, e.extra); }
+    return list;
+};
+var selectorsOf = function(type, variant, classes) {
+    var list = [type];
+    if (variant != null) { Array.Append(list, type + "." + variant); }
+    if (classes != null) {
+        var names = String.Split(classes, " ");
+        for (var i = 0; i < len(names); i++) {
+            if (len(names[i]) > 0) { Array.Append(list, names[i]); Array.Append(list, type + "." + names[i]); }
+        }
+    }
+    return list;
+};
+var restyle = function(e, base, selectors, inline) {
+    var list = styleOf(e, base, selectors);
+    if (inline != null) { Array.Append(list, inline); }
+    e.node.ReplaceStyle(list);
+};
+
+# Reconciles an element's children with new child widgets: same type (and key, when given) keeps the element and its
+# state; the rest mount fresh or unmount. Null children are skipped, so `if` expressions can leave a child out.
+var flatten = function(list, out) {
+    for (var i = 0; i < len(list); i++) {
+        var w = list[i];
+        if (w == null) { continue; }
+        if (isArray(w)) { flatten(w, out); } else { Array.Append(out, w); }
+    }
+    return out;
+};
+var reconcile = function(e, given) {
+    var widgets = flatten(given, []);
+    var old = e.children;
+    var used = Array.Make(len(old), false);
+    var result = [];
+    var position = 0;
+    for (var i = 0; i < len(widgets); i++) {
+        var w = widgets[i];        var type = typeOfWidget(w);
+        var key = keyOf(w);
+        var match = null;
+        for (var j = 0; j < len(old); j++) {
+            if (used[j]) { continue; }
+            var candidate = old[j];
+            if (candidate.type != type) { continue; }
+            if (key != null) { if (candidate.key == key) { match = j; break; } }
+            elif (candidate.key == null && j >= position) { match = j; break; }
+        }
+        var child = null;
+        if (match != null) {
+            used[match] = true;
+            position = match + 1;
+            child = old[match];
+            update(child, normalize(w));
+        } else {
+            child = mount(e, normalize(w));
+        }
+        Array.Append(result, child);
+    }
+    for (var j = 0; j < len(old); j++) { if (!used[j]) { dispose(old[j]); } }
+    e.children = result;
+    var nodes = [];
+    for (var i = 0; i < len(result); i++) { if (!result[i].overlay) { Array.Append(nodes, result[i].node); } }
+    e.node.SetChildren(nodes);
+};
+
+mount = function(parent, widget) {
+    var type = typeOfWidget(widget);
+    var kind = kinds[type];
+    if (kind == null) { kind = kinds["Unknown"]; }
+    var e = Element(widget: widget, type: type, node: null, children: [], parent: parent, surface: parent.surface,
+        state: null, data: {}, key: keyOf(widget), extra: null, overlay: kind["overlay"] == true);
+    e.node = newNode(e);
+    if (e.overlay) { e.surface.overlayNode.InsertChild(e.node); }
+    update(e, widget);
+    return e;
+};
+
+update = function(e, widget) {
+    e.widget = widget;
+    var kind = kinds[e.type];
+    if (kind == null) { kind = kinds["Unknown"]; }
+    kind["update"](e, widget);
+};
+
+var contextOf = function(e) {
+    var s = e.surface;
+    return Context(surface: s, element: e, theme: s.theme, width: s.width, height: s.height,
+        rebuild: function() { s.dirty = true; }, focus: function() { s.focus = e; s.dirty = true; });
+};
+
+# ---- Built-in widget kinds -----------------------------------------------------------------------------------------
+
+# Containers whose layout comes from their fields.
+var flexBase = function(direction, w) {
+    return {"flexDirection": direction, "gap": w.gap, "justifyContent": axisValue(w.mainAxis),
+        "alignItems": axisValue(pick(w.crossAxis, "start")), "flexWrap": if (w.wrap == true) { "wrap"; } else { null; }};
+};
+kinds["Row"] = {"update": function(e, w) { restyle(e, flexBase("row", w), selectorsOf("Row", null, w.class), w.style); reconcile(e, listOf(null, w.children)); }};
+kinds["Column"] = {"update": function(e, w) { restyle(e, flexBase("column", w), selectorsOf("Column", null, w.class), w.style); reconcile(e, listOf(null, w.children)); }};
+kinds["Wrap"] = {"update": function(e, w) {
+    restyle(e, {"flexDirection": "row", "flexWrap": "wrap", "columnGap": w.gap, "rowGap": pick(w.runGap, w.gap)}, selectorsOf("Wrap", null, w.class), w.style);
+    reconcile(e, listOf(null, w.children));
+}};
+kinds["Stack"] = {"update": function(e, w) {
+    restyle(e, {"position": "relative"}, selectorsOf("Stack", null, w.class), w.style);
+    reconcile(e, listOf(null, w.children));
+    # Children without Positioned overlap at the top-left.
+    for (var i = 0; i < len(e.children); i++) {
+        var c = e.children[i];
+        if (c.type != "Positioned" && c.extra == null) { c.extra = {"position": "absolute", "left": 0, "top": 0}; update(c, c.widget); }
+    }
+}};
+var parentData = function(e, w, extra) {
+    restyle(e, {"display": "contents"}, [], null);
+    reconcile(e, listOf(w.child, null));
+    for (var i = 0; i < len(e.children); i++) {
+        var c = e.children[i];
+        c.extra = extra;
+        update(c, c.widget);
+    }
+};
+kinds["Positioned"] = {"update": function(e, w) {
+    parentData(e, w, {"position": "absolute", "left": w.left, "top": w.top, "right": w.right, "bottom": w.bottom, "width": w.width, "height": w.height});
+}};
+kinds["Expanded"] = {"update": function(e, w) { parentData(e, w, {"flexGrow": pick(w.flex, 1), "flexShrink": 1, "flexBasis": 0, "alignSelf": "stretch"}); }};
+kinds["Flexible"] = {"update": function(e, w) { parentData(e, w, {"flexGrow": pick(w.flex, 1), "flexShrink": 1}); }};
+kinds["Spacer"] = {"update": function(e, w) { restyle(e, {"flexGrow": pick(w.flex, 1)}, [], null); }};
+kinds["Padding"] = {"update": function(e, w) { restyle(e, {"padding": w.padding}, [], null); reconcile(e, listOf(w.child, null)); }};
+kinds["Center"] = {"update": function(e, w) {
+    restyle(e, {"flexGrow": 1, "alignSelf": "stretch", "alignItems": "center", "justifyContent": "center"}, [], null);
+    reconcile(e, listOf(w.child, null));
+}};
+kinds["Align"] = {"update": function(e, w) {
+    var a = alignmentOf(pick(w.alignment, "center"));
+    restyle(e, {"flexGrow": 1, "alignSelf": "stretch", "justifyContent": a[0], "alignItems": a[1]}, [], null);
+    reconcile(e, listOf(w.child, null));
+}};
+kinds["SizedBox"] = {"update": function(e, w) { restyle(e, {"width": w.width, "height": w.height, "flexShrink": 0}, [], null); reconcile(e, listOf(w.child, null)); }};
+kinds["AspectRatio"] = {"update": function(e, w) { restyle(e, {"aspectRatio": w.ratio, "alignSelf": "stretch"}, [], null); reconcile(e, listOf(w.child, null)); }};
+kinds["Grid"] = {"update": function(e, w) {
+    # Rows of equal flexible cells.
+    var columns = pick(w.columns, 2);
+    var gap = pick(w.gap, 0);
+    var rows = [];
+    var cells = listOf(null, w.children);
+    for (var i = 0; i < len(cells); i += columns) {
+        var row = [];
+        for (var k = 0; k < columns; k++) {
+            var cell = if (i + k < len(cells)) { cells[i + k]; } else { SizedBox(); };
+            Array.Append(row, Expanded(child: cell));
+        }
+        Array.Append(rows, Row(children: row, gap: gap, crossAxis: "stretch", key: "row" + String.From(i)));
+    }
+    restyle(e, {"flexDirection": "column", "gap": gap}, selectorsOf("Grid", null, w.class), w.style);
+    reconcile(e, rows);
+}};
+kinds["Box"] = {"update": function(e, w) {
+    restyle(e, {"cursor": w.cursor}, selectorsOf("Box", null, w.class), w.style);
+    reconcile(e, listOf(w.child, w.children));
+}};
+kinds["Card"] = {"update": function(e, w) {
+    restyle(e, {"cursor": if (w.onTap != null) { "pointer"; } else { null; }}, selectorsOf("Card", null, w.class), w.style);
+    reconcile(e, listOf(w.child, w.children));
+}};
+kinds["Gesture"] = {"update": function(e, w) {
+    restyle(e, {"cursor": w.cursor}, [], null);
+    reconcile(e, listOf(w.child, null));
+}};
+kinds["Divider"] = {"update": function(e, w) {
+    var t = pick(w.thickness, 1);
+    var base = if (w.vertical == true) { {"width": t, "alignSelf": "stretch"}; } else { {"height": t, "alignSelf": "stretch"}; };
+    if (w.color != null) { base["background"] = w.color; }
+    restyle(e, base, ["Divider"], null);
+}};
+kinds["Text"] = {"update": function(e, w) {
+    var base = {"maxLines": w.maxLines, "textAlign": w.align};
+    if (w.ellipsis == true) { base["textOverflow"] = "ellipsis"; }
+    restyle(e, base, selectorsOf("Text", null, w.class), w.style);
+    e.node.SetText(if (w.text == null) { ""; } else { w.text; });
+}};
+kinds["RichText"] = {"update": function(e, w) {
+    # Spans flow as words of their own styles, wrapping like one paragraph.
+    var words = [];
+    var spans = pick(w.spans, []);
+    for (var i = 0; i < len(spans); i++) {
+        var span = spans[i];
+        var parts = String.Split(span.text, " ");
+        for (var k = 0; k < len(parts); k++) {
+            if (len(parts[k]) == 0) { continue; }
+            var last = k == len(parts) - 1 && !String.EndsWith(span.text, " ");
+            Array.Append(words, Text(text: if (last) { parts[k]; } else { parts[k] + " "; }, style: span.style, key: String.From(i) + ":" + String.From(k)));
+        }
+    }
+    restyle(e, {"flexDirection": "row", "flexWrap": "wrap", "alignItems": "baseline"}, selectorsOf("RichText", null, w.class), w.style);
+    reconcile(e, words);
+}};
+kinds["Image"] = {"update": function(e, w) {
+    restyle(e, {"width": w.width, "height": w.height, "image": w.image, "objectFit": pick(w.fit, "cover"), "borderRadius": w.radius,
+        "overflow": "hidden"}, selectorsOf("Image", null, w.class), w.style);
+}};
+kinds["Icon"] = {"update": function(e, w) {
+    var size = pick(w.size, 20);
+    restyle(e, {"width": size, "height": size, "flexShrink": 0}, ["Icon"], null);
+    var color = w.color;
+    e.node.SetPainter(function(p, width, height) {
+        var c = color;
+        if (c == null) { c = e.surface.textColor(e); }
+        PaintIcon(p, w.name, width, colorArray(c));
+    });
+}};
+kinds["CustomPaint"] = {"update": function(e, w) {
+    restyle(e, {"width": w.width, "height": w.height}, ["CustomPaint"], w.style);
+    e.node.SetPainter(w.paint);
+    reconcile(e, listOf(w.child, null));
+}};
+kinds["ScrollView"] = {"update": function(e, w) {
+    restyle(e, {"overflow": "scroll", "flexShrink": 1, "minHeight": 0, "minWidth": 0}, selectorsOf("ScrollView", null, w.class), w.style);
+    var direction = if (w.horizontal == true) { "row"; } else { "column"; };
+    var content = Box(child: w.child, style: {"flexDirection": direction, "flexShrink": 0, "alignSelf": "flex-start", "minWidth": "100%"}, key: "content");
+    var thumb = Box(class: "ScrollThumb", key: "thumb");
+    reconcile(e, [content, thumb]);
+    e.data["scrollable"] = true;
+}};
+kinds["ListView"] = {"update": function(e, w) {
+    restyle(e, {"overflow": "scroll", "flexShrink": 1, "minHeight": 0}, selectorsOf("ListView", null, w.class), w.style);
+    var count = pick(w.itemCount, 0);
+    var extent = w.itemExtent;
+    var gap = pick(w.gap, 0);
+    var items = [];
+    if (extent == null) {
+        for (var i = 0; i < count; i++) { Array.Append(items, Box(child: w.itemBuilder(i), key: i)); }
+        reconcile(e, [Column(children: items, gap: gap, crossAxis: "stretch", key: "content"), Box(class: "ScrollThumb", key: "thumb")]);
+    } else {
+        # Virtualized: only the rows in view (plus one screen) are built, between spacers of the skipped rows.
+        var top = Hash.Get(e.data, "scrollY", 0);
+        var viewport = Hash.Get(e.data, "viewport", e.surface.height);
+        var step = extent + gap;
+        var first = clamp(int((top - viewport) / step), 0, count);
+        var last = clamp(int((top + 2 * viewport) / step) + 1, 0, count);
+        Array.Append(items, SizedBox(height: first * step, key: "before"));
+        for (var i = first; i < last; i++) { Array.Append(items, SizedBox(height: extent, child: w.itemBuilder(i), key: i)); }
+        Array.Append(items, SizedBox(height: (count - last) * step, key: "after"));
+        reconcile(e, [Column(children: items, gap: gap, crossAxis: "stretch", key: "content"), Box(class: "ScrollThumb", key: "thumb")]);
+        e.data["virtual"] = true;
+    }
+    e.data["scrollable"] = true;
+}};
+kinds["Builder"] = {"update": function(e, w) {
+    restyle(e, {"display": "contents"}, [], null);
+    reconcile(e, [w.build(contextOf(e))]);
+}};
+kinds["Stateful"] = {"update": function(e, w) {
+    if (e.state == null && w.init != null) { e.state = w.init(); }
+    restyle(e, {"display": "contents"}, [], null);
+    reconcile(e, [w.build(e.state, contextOf(e))]);
+}};
+kinds["Themed"] = {"update": function(e, w) {
+    # A subtree with its own theme: its colors as inherited text and background, its sheet for the widgets inside.
+    var t = ResolveTheme(w.theme);
+    restyle(e, {"color": t.text, "fontFamily": t.fontFamily, "fontSize": t.fontSize, "background": t.background, "flexGrow": 1}, [], null);
+    var s = e.surface;
+    var saved = s.sheets;
+    s.sheets = [ThemeSheet(t), t.sheet, saved[2]];
+    reconcile(e, listOf(w.child, null));
+    s.sheets = saved;
+}};
+kinds["Immediate"] = {"update": function(e, w) {
+    # Another UI library drawn in this rectangle: paint(x, y, width, height) returns its draw list each frame.
+    restyle(e, {"width": w.width, "height": w.height}, ["Immediate"], w.style);
+    var paint = w.paint;
+    e.node.SetPainter(function(p, width, height) {
+        if (paint == null) { return null; }
+        var box = e.node.GetAbsoluteLayout();
+        var list = paint(box["x"], box["y"], width, height);
+        if (list != null) { p.PushClip(0, 0, width, height); p.Append(list); p.PopClip(); }
+    });
+    e.data["immediate"] = true;
+}};
+kinds["Unknown"] = {"update": function(e, w) {
+    restyle(e, {}, [], null);
+    e.node.SetText("[" + typeOf(w) + "?]");
+}};
+
+# Controls ---------------------------------------------------------------------------------------------------------
+
+var labelOf = function(text) { if (text == null) { return null; } return Text(text: text, key: "label"); };
+kinds["Button"] = {"update": function(e, w) {
+    e.data["disabled"] = w.disabled == true;
+    restyle(e, {}, selectorsOf("Button", w.variant, w.class), w.style);
+    var children = [];
+    if (w.icon != null) { Array.Append(children, Icon(name: w.icon, size: 18, key: "icon")); }
+    if (w.child != null) { Array.Append(children, w.child); }
+    if (w.label != null) { Array.Append(children, labelOf(w.label)); }
+    reconcile(e, children);
+}, "tap": function(e, event) { if (e.widget.onPress != null && e.widget.disabled != true) { e.widget.onPress(); } }};
+kinds["IconButton"] = {"update": function(e, w) {
+    e.data["disabled"] = w.disabled == true;
+    restyle(e, {}, selectorsOf("IconButton", null, w.class), w.style);
+    reconcile(e, [Icon(name: w.icon, size: pick(w.size, 20), key: "icon")]);
+}, "tap": function(e, event) { if (e.widget.onPress != null && e.widget.disabled != true) { e.widget.onPress(); } }};
+kinds["Checkbox"] = {"update": function(e, w) {
+    e.data["disabled"] = w.disabled == true;
+    e.data["checked"] = w.value == true;
+    restyle(e, {}, ["Checkbox"], null);
+    var box = Box(class: "CheckboxBox", key: "box", child: if (w.value == true) { Icon(name: "check", size: 14, color: [255, 255, 255, 255], key: "mark"); } else { null; });
+    reconcile(e, [box, labelOf(w.label)]);
+    e.children[0].data["checked"] = w.value == true;
+    update(e.children[0], e.children[0].widget);
+}, "tap": function(e, event) { if (e.widget.onChanged != null && e.widget.disabled != true) { e.widget.onChanged(e.widget.value != true); } }};
+kinds["Switch"] = {"update": function(e, w) {
+    e.data["disabled"] = w.disabled == true;
+    restyle(e, {}, ["Switch"], null);
+    reconcile(e, [Box(class: "SwitchTrack", key: "track", child: Box(class: "SwitchThumb", key: "thumb")), labelOf(w.label)]);
+    var track = e.children[0];
+    track.data["checked"] = w.value == true;
+    track.children[0].data["checked"] = w.value == true;
+    update(track, track.widget);
+}, "tap": function(e, event) { if (e.widget.onChanged != null && e.widget.disabled != true) { e.widget.onChanged(e.widget.value != true); } }};
+kinds["Radio"] = {"update": function(e, w) {
+    var on = w.value == w.group;
+    e.data["disabled"] = w.disabled == true;
+    restyle(e, {}, ["Radio"], null);
+    reconcile(e, [Box(class: "RadioRing", key: "ring", child: Box(class: "RadioDot", key: "dot")), labelOf(w.label)]);
+    var ring = e.children[0];
+    ring.data["checked"] = on;
+    ring.children[0].data["checked"] = on;
+    update(ring, ring.widget);
+}, "tap": function(e, event) { if (e.widget.onChanged != null && e.widget.disabled != true) { e.widget.onChanged(e.widget.value); } }};
+var sliderFraction = function(w) {
+    var lo = pick(w.min, 0);
+    var hi = pick(w.max, 1);
+    if (hi == lo) { return 0; }
+    return clamp(double(w.value - lo) / (hi - lo), 0.0d, 1.0d);
+};
+kinds["Slider"] = {"update": function(e, w) {
+    e.data["disabled"] = w.disabled == true;
+    restyle(e, {"width": pick(w.width, 200)}, ["Slider"], null);
+    var f = sliderFraction(w) * 100;
+    reconcile(e, [Box(class: "SliderTrack", key: "track"), Box(class: "SliderFill", key: "fill", style: {"width": String.From(f) + "%"}),
+        Box(class: "SliderThumb", key: "thumb", style: {"left": String.From(f) + "%", "marginLeft": -9})]);
+}, "drag": function(e, event, local) {
+    var w = e.widget;
+    if (w.onChanged == null || w.disabled == true) { return null; }
+    var width = e.node.GetComputedWidth();
+    var lo = pick(w.min, 0.0d);
+    var hi = pick(w.max, 1.0d);
+    var v = lo + clamp(local[0] / width, 0.0d, 1.0d) * (hi - lo);
+    if (w.step != null && w.step > 0) { v = lo + int((v - lo) / w.step + 0.5d) * w.step; }
+    w.onChanged(v);
+}};
+kinds["ProgressBar"] = {"update": function(e, w) {
+    restyle(e, {"width": pick(w.width, 200)}, ["ProgressBar"], null);
+    reconcile(e, [Box(class: "ProgressFill", key: "fill", style: {"width": String.From(clamp(pick(w.value, 0) * 100, 0, 100)) + "%"})]);
+}};
+kinds["Tabs"] = {"update": function(e, w) {
+    restyle(e, {}, ["Tabs"], null);
+    var tabs = [];
+    var labels = pick(w.labels, []);
+    for (var i = 0; i < len(labels); i++) { Array.Append(tabs, Box(class: "Tab", key: i, child: Text(text: labels[i]))); }
+    reconcile(e, tabs);
+    for (var i = 0; i < len(e.children); i++) {
+        var tab = e.children[i];
+        tab.data["selected"] = i == pick(w.index, 0);
+        tab.data["tabIndex"] = i;
+        update(tab, tab.widget);
+    }
+}, "tap": function(e, event) {
+    # The tab under the pointer.
+    var path = e.surface.pathAt(event["x"], event["y"]);
+    for (var i = 0; i < len(path); i++) {
+        if (path[i].parent == e && e.widget.onChanged != null) { e.widget.onChanged(path[i].data["tabIndex"]); return null; }
+    }
+}};
+
+# Text fields: the caret is drawn after the text; typing, Backspace, Delete, arrows, Home, End and Enter edit it.
+var TextInput = null;
+kinds["TextField"] = {"update": function(e, w) {
+    e.data["disabled"] = w.disabled == true;
+    e.data["focused"] = e.surface.focus == e;
+    if (Hash.Get(e.data, "caret", null) == null) { e.data["caret"] = len(pick(w.value, "")); }
+    restyle(e, {"width": pick(w.width, 220)}, selectorsOf("TextField", null, w.class), w.style);
+    var value = pick(w.value, "");
+    var shown = value;
+    if (w.obscure == true) { shown = String.Repeat("•", len(value)); }
+    var label = if (len(value) == 0 && w.placeholder != null) { Text(text: w.placeholder, class: "Placeholder", key: "text", style: {"whiteSpace": "nowrap"}); }
+        else { Text(text: shown, key: "text", style: {"whiteSpace": "nowrap"}); };
+    reconcile(e, [label]);
+    e.data["caret"] = clamp(e.data["caret"], 0, len(value));
+    e.node.SetPainter(function(p, width, height) {
+        if (e.surface.focus != e) { return null; }
+        var blink = int(e.surface.time / 530) % 2 == 0;
+        if (!blink) { return null; }
+        var text = e.children[0];
+        var before = String.Slice(shown, 0, clamp(e.data["caret"], 0, len(shown)));
+        var x = text.node.GetComputedLeft() + Saturn.MeasureText(before, e.surface.fontOf(e))["width"];
+        if (len(value) == 0) { x = text.node.GetComputedLeft(); }
+        p.Rect(x, height * 0.22d, 1.5d, height * 0.56d, e.surface.textColor(e));
+    });
+}, "focusable": true,
+"tap": function(e, event) {
+    e.surface.focus = e;
+    # Caret to the nearest character boundary.
+    var text = e.children[0];
+    var value = pick(e.widget.value, "");
+    var x = event["x"] - e.node.GetAbsoluteLayout()["x"] - text.node.GetComputedLeft();
+    var font = e.surface.fontOf(e);
+    var best = len(value);
+    for (var i = 0; i <= len(value); i++) {
+        if (Saturn.MeasureText(String.Slice(value, 0, i), font)["width"] >= x) { best = i; break; }
+    }
+    e.data["caret"] = best;
+},
+"text": function(e, text) {
+    var w = e.widget;
+    if (w.onChanged == null || w.disabled == true) { return null; }
+    var value = pick(w.value, "");
+    var at = e.data["caret"];
+    w.onChanged(String.Slice(value, 0, at) + text + String.Slice(value, at, len(value)));
+    e.data["caret"] = at + len(text);
+},
+"key": function(e, key) {
+    var w = e.widget;
+    var value = pick(w.value, "");
+    var at = e.data["caret"];
+    if (key == 259 && at > 0 && w.onChanged != null) {          # Backspace
+        if (TextInput == null) { TextInput = import("TextInput"); }
+        var head = TextInput.Backspace(String.Slice(value, 0, at));
+        w.onChanged(head + String.Slice(value, at, len(value)));
+        e.data["caret"] = len(head);
+    } elif (key == 261 && at < len(value) && w.onChanged != null) {   # Delete
+        w.onChanged(String.Slice(value, 0, at) + String.Slice(value, at + 1, len(value)));
+    } elif (key == 263) { e.data["caret"] = clamp(at - 1, 0, len(value)); }     # Left
+    elif (key == 262) { e.data["caret"] = clamp(at + 1, 0, len(value)); }      # Right
+    elif (key == 268) { e.data["caret"] = 0; }                                  # Home
+    elif (key == 269) { e.data["caret"] = len(value); }                         # End
+    elif (key == 257 || key == 335) { if (w.onSubmit != null) { w.onSubmit(value); } }   # Enter
+    else { return false; }
+    return true;
+}};
+
+# Overlays: dropdown menus, dialogs and tooltips live above the tree, in the surface's overlay layer.
+kinds["Dropdown"] = {"update": function(e, w) {
+    restyle(e, {"width": pick(w.width, 200)}, ["Dropdown"], null);
+    var options = pick(w.options, []);
+    var label = "";
+    for (var i = 0; i < len(options); i++) { if (options[i] == w.value) { label = String.From(options[i]); } }
+    var open = Hash.Get(e.data, "open", false) == true;
+    var children = [Text(text: label, key: "value"), Icon(name: if (open) { "chevronUp"; } else { "chevronDown"; }, size: 16, key: "chevron")];
+    if (open) { Array.Append(children, DropdownMenu(owner: e, options: options, value: w.value, key: "menu")); }
+    reconcile(e, children);
+}, "tap": function(e, event) { e.data["open"] = !(Hash.Get(e.data, "open", false) == true); }};
+kinds["DropdownMenu"] = {"overlay": true, "update": function(e, w) {
+    var box = w.owner.node.GetAbsoluteLayout();
+    restyle(e, {"left": box["x"], "top": box["y"] + box["height"] + 4, "width": box["width"], "zIndex": 10}, ["Menu"], null);
+    var items = [];
+    for (var i = 0; i < len(w.options); i++) { Array.Append(items, Box(class: "MenuItem", key: i, child: Text(text: String.From(w.options[i])))); }
+    reconcile(e, items);
+    for (var i = 0; i < len(e.children); i++) {
+        e.children[i].data["selected"] = w.options[i] == w.value;
+        e.children[i].data["option"] = i;
+        update(e.children[i], e.children[i].widget);
+    }
+}, "tap": function(e, event) {
+    var path = e.surface.pathAt(event["x"], event["y"]);
+    var owner = e.widget.owner;
+    for (var i = 0; i < len(path); i++) {
+        if (path[i].parent == e) {
+            if (owner.widget.onChanged != null) { owner.widget.onChanged(e.widget.options[path[i].data["option"]]); }
+        }
+    }
+    owner.data["open"] = false;
+}};
+kinds["Dialog"] = {"overlay": true, "update": function(e, w) {
+    if (w.open != true) { restyle(e, {"display": "none"}, [], null); reconcile(e, []); return null; }
+    restyle(e, {"zIndex": 20}, ["Scrim"], null);
+    var body = [];
+    if (w.title != null) { Array.Append(body, Text(text: w.title, class: "DialogTitle", key: "title")); }
+    if (w.content != null) { Array.Append(body, w.content); }
+    if (w.actions != null) { Array.Append(body, Row(children: w.actions, class: "DialogActions", key: "actions")); }
+    reconcile(e, [Column(children: body, class: "DialogCard", style: {"width": pick(w.width, 360)}, crossAxis: "stretch", key: "card")]);
+}, "tap": function(e, event) {
+    # A tap on the scrim (outside the card) dismisses.
+    var path = e.surface.pathAt(event["x"], event["y"]);
+    if (path[len(path) - 1] == e && e.widget.onDismiss != null) { e.widget.onDismiss(); }
+}};
+kinds["Tooltip"] = {"update": function(e, w) {
+    restyle(e, {"display": "contents"}, [], null);
+    var children = [w.child];
+    var s = e.surface;
+    if (s.tooltip == e && s.time - s.tooltipAt > 450) {
+        Array.Append(children, TooltipBubble(text: w.message, owner: e, key: "bubble"));
+    }
+    reconcile(e, children);
+}};
+kinds["TooltipBubble"] = {"overlay": true, "update": function(e, w) {
+    var target = w.owner.children[0].node.GetAbsoluteLayout();
+    restyle(e, {"left": target["x"], "top": target["y"] + target["height"] + 6, "zIndex": 30}, ["TooltipBubble"], null);
+    reconcile(e, [Text(text: w.text, key: "text")]);
+}};
+
+var closeMenus = function(e, path) {
+    if (e.type == "Dropdown" && Hash.Get(e.data, "open", false) == true) {
+        var inside = Array.Contains(path, e);
+        for (var i = 0; i < len(path); i++) { if (path[i].type == "DropdownMenu") { inside = true; } }
+        if (!inside) { e.data["open"] = false; }
+    }
+    for (var i = 0; i < len(e.children); i++) { closeMenus(e.children[i], path); }
+};
+
+
+
+# ---- Surfaces ------------------------------------------------------------------------------------------------------
+
+# The element of the widget whose handler a kind or field offers for an event, from the deepest hit upward.
+var handlerOf = function(path, field) {
+    for (var i = len(path) - 1; i >= 0; i -= 1) {
+        var e = path[i];
+        var kind = kinds[e.type];
+        if (kind != null && kind[field] != null) { return e; }
+        var t = e.type;
+        if ((t == "Box" || t == "Gesture" || t == "Card") && field == "tap" && e.widget.onTap != null) { return e; }
+        if (t == "Gesture" && field == "drag" && (e.widget.onDrag != null || e.widget.onDragStart != null)) { return e; }
+    }
+    return null;
+};
+var scrollableOf = function(path) {
+    for (var i = len(path) - 1; i >= 0; i -= 1) { if (Hash.Get(path[i].data, "scrollable", false) == true) { return path[i]; } }
+    return null;
+};
+var eventOf = function(raw) {
+    if (typeOf(raw) == "hash") { return raw; }
+    return {"type": raw.type, "x": raw.x, "y": raw.y, "button": raw.button, "dx": raw.dx, "dy": raw.dy, "key": raw.key,
+        "text": raw.text, "action": raw.action, "modifiers": raw.modifiers, "count": raw.count, "command": raw.command};
+};
+
+# Surface(width, height, root | options): options {"theme": Theme(...), "sheet": {...}} (the app's style sheet).
+var CreateSurface = function(width, height, root, options) {
+    var theme = ResolveTheme(if (options == null) { null; } else { options["theme"]; });
+    var sheet = if (options == null) { null; } else { options["sheet"]; };
+    var s = SaturnSurface(width: width, height: height, root: root, theme: theme, sheets: [ThemeSheet(theme), theme.sheet, sheet],
+        dirty: true, hover: [], pressed: null, captured: null, focus: null, time: 0, cursor: "arrow", lastTapTime: -1000,
+        tooltip: null, tooltipAt: 0);
+    s.rootNode = Saturn.Node();
+    s.overlayNode = Saturn.Node();
+    s.overlayNode.SetStyle({"position": "absolute", "left": 0, "top": 0, "right": 0, "bottom": 0, "pointerEvents": "none"});
+    var host = Element(widget: null, type: "Surface", node: s.rootNode, children: [], parent: null, surface: s, data: {});
+    s.rootNode.SetContext(host);
+    s.overlayNode.SetContext(host);
+    s.tree = host;
+
+    var build = function() {
+        s.dirty = false;
+        s.rootNode.ReplaceStyle([{"width": s.width, "height": s.height}, s.sheets[0]["Surface"]]);
+        reconcile(host, [s.root]);
+        s.rootNode.InsertChild(s.overlayNode);
+    };
+    s.textColor = null;
+    s.Rebuild = function() { s.dirty = true; };
+    s.SetRoot = function(widget) { s.root = widget; s.dirty = true; };
+    s.SetTheme = function(t) {
+        s.theme = ResolveTheme(t);
+        s.sheets = [ThemeSheet(s.theme), s.theme.sheet, s.sheets[2]];
+        s.dirty = true;
+    };
+    s.Resize = function(w, h) { if (w != s.width || h != s.height) { s.width = w; s.height = h; s.dirty = true; } };
+    s.Cursor = function() { return s.cursor; };
+    s.NeedsFrame = function() { return s.dirty || Saturn.Animating() || s.focus != null || s.tooltip != null; };
+
+    var syncScroll = function(e) {
+        # Clamp scroll offsets to the content and place the scroll thumb.
+        if (Hash.Get(e.data, "scrollable", false) == true && len(e.children) > 0) {
+            var content = e.children[0].node;
+            var viewport = e.node.GetComputedHeight();
+            var extent = content.GetComputedHeight();
+            var y = clamp(Hash.Get(e.data, "scrollY", 0), 0, Processing_max(0, extent - viewport));
+            e.data["scrollY"] = y;
+            e.data["viewport"] = viewport;
+            e.node.SetScrollOffset(0, y);
+            if (len(e.children) > 1) {
+                var thumb = e.children[1];
+                var visible = extent > viewport + 0.5d;
+                var size = if (extent > 0) { viewport * viewport / extent; } else { 0; };
+                thumb.node.SetStyle({"display": if (visible) { "flex"; } else { "none"; }, "top": y + (viewport - size) * (y / Processing_max(1, extent - viewport)), "height": size});
+            }
+        }
+        for (var i = 0; i < len(e.children); i++) { syncScroll(e.children[i]); }
+    };
+
+    s.Frame = function(time) {
+        s.time = time;
+        Saturn.SetTime(time);
+        if (s.tooltip != null && s.time - s.tooltipAt > 450) { s.dirty = true; }
+        if (s.dirty) { build(); }
+        s.rootNode.CalculateLayout(s.width, s.height);
+        syncScroll(host);
+        s.rootNode.CalculateLayout(s.width, s.height);
+    };
+    s.Paint = function() { return s.rootNode.Paint(); };
+
+    s.pathAt = function(x, y) {
+        var nodes = s.rootNode.HitTestPath(x, y);
+        var path = [];
+        for (var i = 0; i < len(nodes); i++) {
+            var e = nodes[i].GetContext();
+            if (e != null && e.type != "Surface") { Array.Append(path, e); }
+        }
+        return path;
+    };
+    s.fontOf = function(e) { return {"fontSize": s.theme.fontSize}; };
+    s.textColor = function(e) {
+        var c = s.theme.text;
+        if (e.type == "Icon" && e.parent != null) {
+            var t = e.parent.type;
+            if (t == "Button" && e.parent.widget.variant == null) { c = s.theme.onPrimary; }
+            if (t == "Button" && e.parent.widget.variant != null && e.parent.widget.variant != "danger") { c = s.theme.primary; }
+        }
+        return c;
+    };
+    var setHover = function(path) {
+        var old = s.hover;
+        for (var i = 0; i < len(old); i++) {
+            if (!Array.Contains(path, old[i])) {
+                old[i].data["hover"] = false;
+                if (old[i].widget != null && (old[i].type == "Box" || old[i].type == "Gesture") && old[i].widget.onHover != null) { old[i].widget.onHover(false); }
+                s.dirty = true;
+            }
+        }
+        for (var i = 0; i < len(path); i++) {
+            if (!Array.Contains(old, path[i])) {
+                path[i].data["hover"] = true;
+                if ((path[i].type == "Box" || path[i].type == "Gesture") && path[i].widget.onHover != null) { path[i].widget.onHover(true); }
+                s.dirty = true;
+            }
+        }
+        s.hover = path;
+        # The cursor of the deepest element that sets one; tooltips start counting.
+        s.cursor = "arrow";
+        var tip = null;
+        for (var i = len(path) - 1; i >= 0; i -= 1) {
+            var c = path[i].node.GetCursor();
+            if (c != null && s.cursor == "arrow") { s.cursor = if (c == "pointer") { "hand"; } else { c; }; }
+            if (path[i].type == "Tooltip" && tip == null) { tip = path[i]; }
+        }
+        if (tip != s.tooltip) { s.tooltip = tip; s.tooltipAt = s.time; s.dirty = true; }
+    };
+    var local = function(e, x, y) {
+        var box = e.node.GetAbsoluteLayout();
+        return [x - box["x"], y - box["y"]];
+    };
+
+    # Feed(event): Interaction events or hashes of the same fields. Returns whether the surface used it (the pointer is
+    # over one of its widgets, or a focused field took a key), so layered UIs pass the rest on.
+    s.Feed = function(raw) {
+        var ev = eventOf(raw);
+        var type = ev["type"];
+        if (s.dirty) { s.Frame(s.time); }
+        if (type == "move" || type == "drag" || type == "dragStart" || type == "dragEnd") {
+            var x = ev["x"];
+            var y = ev["y"];
+            if (s.captured != null) {
+                var kind = kinds[s.captured.type];
+                if (kind != null && kind["drag"] != null) { kind["drag"](s.captured, ev, local(s.captured, x, y)); s.dirty = true; }
+                elif (s.captured.type == "Gesture" && s.captured.widget.onDrag != null) { s.captured.widget.onDrag(ev); s.dirty = true; }
+                elif (Hash.Get(s.captured.data, "scrollable", false) == true) {
+                    s.captured.data["scrollY"] = s.captured.data["dragFrom"] - (y - s.pressY);
+                    s.dirty = true;
+                }
+                return true;
+            }
+            var path = s.pathAt(x, y);
+            setHover(path);
+            if (s.pressed != null && !Array.Contains(path, s.pressed)) { s.pressed.data["pressed"] = false; s.dirty = true; }
+            return len(path) > 0;
+        }
+        if (type == "press") {
+            var path = s.pathAt(ev["x"], ev["y"]);
+            setHover(path);
+            if (len(path) == 0) { if (s.focus != null) { s.focus = null; s.dirty = true; } return false; }
+            s.pressX = ev["x"];
+            s.pressY = ev["y"];
+            s.pressTime = s.time;
+            var target = handlerOf(path, "tap");
+            var dragger = handlerOf(path, "drag");
+            var focus = handlerOf(path, "focusable");
+            if (focus != s.focus) { s.focus = focus; s.dirty = true; }
+            if (target != null) { s.pressed = target; target.data["pressed"] = true; }
+            if (dragger != null) {
+                s.captured = dragger;
+                if (dragger.type == "Gesture" && dragger.widget.onDragStart != null) { dragger.widget.onDragStart(ev); }
+                elif (kinds[dragger.type] != null && kinds[dragger.type]["drag"] != null) { kinds[dragger.type]["drag"](dragger, ev, local(dragger, ev["x"], ev["y"])); }
+            } else {
+                var scroller = scrollableOf(path);
+                if (scroller != null && (target == null || target.type == "Card")) { s.captured = scroller; scroller.data["dragFrom"] = Hash.Get(scroller.data, "scrollY", 0); }
+            }
+            for (var i = len(path) - 1; i >= 0; i -= 1) {
+                if ((path[i].type == "Box" || path[i].type == "Gesture") && path[i].widget.onPress != null) { path[i].widget.onPress(ev); break; }
+            }
+            s.dirty = true;
+            return true;
+        }
+        if (type == "release") {
+            var path = s.pathAt(ev["x"], ev["y"]);
+            var pressed = s.pressed;
+            var captured = s.captured;
+            s.pressed = null;
+            s.captured = null;
+            if (captured != null && captured.type == "Gesture" && captured.widget.onDragEnd != null) { captured.widget.onDragEnd(ev); }
+            for (var i = len(path) - 1; i >= 0; i -= 1) {
+                if ((path[i].type == "Box" || path[i].type == "Gesture") && path[i].widget.onRelease != null) { path[i].widget.onRelease(ev); break; }
+            }
+            if (pressed != null) {
+                pressed.data["pressed"] = false;
+                var moved = Processing_abs(ev["x"] - s.pressX) + Processing_abs(ev["y"] - s.pressY);
+                if (Array.Contains(path, pressed) && (moved < 8 || captured == null || captured == pressed)) {
+                    var kind = kinds[pressed.type];
+                    var again = s.lastTap == pressed && s.time - s.lastTapTime < 400;
+                    var gesture = pressed.type == "Box" || pressed.type == "Gesture";
+                    if (kind != null && kind["tap"] != null) { kind["tap"](pressed, ev); }
+                    elif (gesture && again && pressed.widget.onDoubleTap != null) { pressed.widget.onDoubleTap(); }
+                    elif (pressed.widget.onTap != null) { pressed.widget.onTap(); }
+                    s.lastTap = pressed;
+                    s.lastTapTime = s.time;
+                }
+            }
+            # A tap outside an open dropdown closes it.
+            closeMenus(host, path);
+            s.dirty = true;
+            return len(path) > 0 || pressed != null;
+        }
+        if (type == "longPress") {
+            var path = s.pathAt(ev["x"], ev["y"]);
+            for (var i = len(path) - 1; i >= 0; i -= 1) {
+                if ((path[i].type == "Box" || path[i].type == "Gesture") && path[i].widget.onLongPress != null) { path[i].widget.onLongPress(); s.dirty = true; return true; }
+            }
+            return false;
+        }
+        if (type == "scroll") {
+            var path = s.pathAt(ev["x"], ev["y"]);
+            var scroller = scrollableOf(path);
+            if (scroller == null) { return false; }
+            scroller.data["scrollY"] = Hash.Get(scroller.data, "scrollY", 0) + pick(ev["dy"], 0);
+            if (Hash.Get(scroller.data, "virtual", false) == true) { s.dirty = true; }
+            s.Frame(s.time);
+            return true;
+        }
+        if (type == "text") {
+            if (s.focus == null) { return false; }
+            var kind = kinds[s.focus.type];
+            if (kind["text"] != null && ev["text"] != null) { kind["text"](s.focus, ev["text"]); s.dirty = true; return true; }
+            return false;
+        }
+        if (type == "key") {
+            if (s.focus == null || ev["action"] == 0) { return false; }
+            var kind = kinds[s.focus.type];
+            if (kind["key"] != null && kind["key"](s.focus, ev["key"]) == true) { s.dirty = true; return true; }
+            return false;
+        }
+        return false;
+    };
+    # Where an input method's window should open: {x, y, width, height} of the focused text field, or null.
+    s.ImeRect = function() {
+        if (s.focus == null || s.focus.type != "TextField") { return null; }
+        return s.focus.node.GetAbsoluteLayout();
+    };
+    s.Dispose = function() { dispose(host); };
+    return s;
+};
+# ---- Running an app in a window ------------------------------------------------------------------------------------
+
+# RunApp(root | options): opens a Processing window that shows `root` full screen, feeds it the window's input through
+# Interaction and draws it with drawUI. options: {"width", "height", "title", "theme", "sheet", "setup", "draw"}
+# ("setup(p, surface)" and "draw(p, surface)" run around each frame for drawing of your own).
+var RunApp = function(root, options) {
+    var o = if (options == null) { {}; } else { options; };
+    var p = import("Processing");
+    var Interaction = import("Interaction");
+    var surface = CreateSurface(Hash.Get(o, "width", 960), Hash.Get(o, "height", 640), root, o);
+    var session = null;
+    var setup = function() {
+        p.size(surface.width, surface.height, p.P2D, Hash.Get(o, "title", "Saturn"));
+        Saturn.SetTextMeasurer(p.uiTextMetrics);
+        session = Interaction.Attach(p.platformWindow);
+        session.On("*", function(event) { return surface.Feed(event); });
+        session.TextInput(true);
+        p.on("windowResized", function() { surface.Resize(p.width, p.height); });
+        if (o["setup"] != null) { o["setup"](p, surface); }
+    };
+    var draw = function() {
+        surface.Frame(p.millis());
+        p.background(0);
+        if (o["draw"] != null) { o["draw"](p, surface); }
+        p.drawUI(surface.Paint());
+        session.SetCursor(surface.Cursor());
+        var ime = surface.ImeRect();
+        if (ime != null) { session.TextRect(ime["x"], ime["y"], ime["width"], ime["height"]); }
+    };
+    p.run(setup, draw);
+    # Not the surface: a script ending with RunApp(...) would print it, and its element tree is cyclic.
+    return null;
+};
+
+var Surface = CreateSurface;

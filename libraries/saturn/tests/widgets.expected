@@ -1,0 +1,11 @@
+taps 2 Count 2
+typed >abc 真
+slider 0.25
+menu DropdownMenu 3
+chosen C 2
+keyed [z, y, x] 真
+hover 真 真
+left 假
+dialog 真 400
+dismissed 假
+strings 真
