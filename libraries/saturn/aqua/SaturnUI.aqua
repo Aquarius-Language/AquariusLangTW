@@ -1200,9 +1200,10 @@ var routeImmediate = function(s, ev, type) {
 # ---- Layers: retained and immediate UIs stacked in one window ----------------------------------------------------
 
 # A layer: frame(width, height, time) prepares it, paint() returns its draw list, wants(x, y) tells whether the pointer
-# there is over something of it, feed(event) handles an event (returning whether it used it), cursor() names its cursor.
-struct Layer { name; frame; paint; feed; wants; cursor }
-struct LayerStack { layers; captured; focused; width; height; Frame; Paint; Feed; Cursor }
+# there is over something of it, feed(event) handles an event (returning whether it used it), cursor() names its cursor,
+# text() (optional) gives {x, y, width, height} of its focused text field, or null when it takes no text.
+struct Layer { name; frame; paint; feed; wants; cursor; text }
+struct LayerStack { layers; captured; focused; width; height; Frame; Paint; Feed; Cursor; ImeRect }
 
 # A SaturnUI surface as a layer.
 var SurfaceLayer = function(surface) {
@@ -1211,7 +1212,8 @@ var SurfaceLayer = function(surface) {
         paint: function() { return surface.Paint(); },
         feed: function(event) { return surface.Feed(event); },
         wants: function(x, y) { return surface.Wants(x, y); },
-        cursor: function() { return surface.Cursor(); });
+        cursor: function() { return surface.Cursor(); },
+        text: function() { return surface.ImeRect(); });
 };
 # An ImGui context as a layer: build() declares the frame's windows (ImGui.Begin ... ImGui.End); embed is passed to
 # context.Render for ImGui.Embed items (or null).
@@ -1227,7 +1229,13 @@ var ImGuiLayer = function(context, build, embed) {
         paint: function() { return context.Render(embed); },
         feed: function(event) { return context.Feed(event); },
         wants: function(x, y) { return context.HitTest(x, y); },
-        cursor: function() { var c = context.MouseCursor; if (c == "arrow") { return null; } return c; });
+        cursor: function() { var c = context.MouseCursor; if (c == "arrow") { return null; } return c; },
+        text: function() {
+            if (!context.WantTextInput) { return null; }
+            var r = context.ImeRect();
+            if (r == null) { return {"x": 0, "y": 0, "width": 1, "height": 1}; }
+            return {"x": r[0], "y": r[1], "width": 1, "height": r[2]};
+        });
 };
 # A Clay layout as a layer: build() declares the elements between layout.Begin() and layout.End().
 var ClayLayer = function(layout, build) {
@@ -1280,11 +1288,27 @@ var Layers = function(list) {
         if (target == null) { return false; }
         target.feed(ev);
         return true;
-    };    stack.Cursor = function() {
+    };
+    stack.Cursor = function() {
         for (var i = len(list) - 1; i >= 0; i -= 1) { var c = list[i].cursor(); if (c != null && c != "arrow") { return c; } }
         return "arrow";
     };
+    # The focused layer's text field (where an on-screen keyboard or input method goes), or null.
+    stack.ImeRect = function() {
+        if (stack.focused == null || stack.focused.text == null) { return null; }
+        return stack.focused.text();
+    };
     return stack;
+};
+# TextInputFollower(session): a function(rect) to call once a frame with an ImeRect() result; it turns the window's text
+# input (and an on-screen keyboard) on only while a text field is focused, and places the input method at the field.
+var TextInputFollower = function(session) {
+    var typing = null;
+    return function(rect) {
+        if (typing != (rect != null)) { typing = rect != null; session.TextInput(typing); }
+        if (rect != null) { session.TextRect(rect["x"], rect["y"], rect["width"], rect["height"]); }
+        return null;
+    };
 };
 
 # RunLayers(layers | options): a Processing window showing a layer stack, fed by Interaction; options {"width",
@@ -1294,12 +1318,13 @@ var RunLayers = function(stack, options) {
     var p = import("Processing");
     var Interaction = import("Interaction");
     var session = null;
+    var follow = null;
     var setup = function() {
         p.size(Hash.Get(o, "width", 960), Hash.Get(o, "height", 640), p.P2D, Hash.Get(o, "title", "Saturn"));
         Saturn.SetTextMeasurer(p.uiTextMetrics);
         session = Interaction.Attach(p.platformWindow);
         session.On("*", function(event) { return stack.Feed(event); });
-        session.TextInput(true);
+        follow = TextInputFollower(session);
         if (o["setup"] != null) { o["setup"](p); }
     };
     var draw = function() {
@@ -1309,6 +1334,7 @@ var RunLayers = function(stack, options) {
         stack.Frame(p.width, p.height, p.millis());
         p.drawUI(stack.Paint());
         session.SetCursor(stack.Cursor());
+        follow(stack.ImeRect());
     };
     p.run(setup, draw);
     return null;
@@ -1324,12 +1350,13 @@ var RunApp = function(root, options) {
     var Interaction = import("Interaction");
     var surface = CreateSurface(Hash.Get(o, "width", 960), Hash.Get(o, "height", 640), root, o);
     var session = null;
+    var follow = null;
     var setup = function() {
         p.size(surface.width, surface.height, p.P2D, Hash.Get(o, "title", "Saturn"));
         Saturn.SetTextMeasurer(p.uiTextMetrics);
         session = Interaction.Attach(p.platformWindow);
         session.On("*", function(event) { return surface.Feed(event); });
-        session.TextInput(true);
+        follow = TextInputFollower(session);
         p.on("windowResized", function() { surface.Resize(p.width, p.height); });
         if (o["setup"] != null) { o["setup"](p, surface); }
     };
@@ -1339,8 +1366,7 @@ var RunApp = function(root, options) {
         if (o["draw"] != null) { o["draw"](p, surface); }
         p.drawUI(surface.Paint());
         session.SetCursor(surface.Cursor());
-        var ime = surface.ImeRect();
-        if (ime != null) { session.TextRect(ime["x"], ime["y"], ime["width"], ime["height"]); }
+        follow(surface.ImeRect());
     };
     p.run(setup, draw);
     # Not the surface: a script ending with RunApp(...) would print it, and its element tree is cyclic.

@@ -60,4 +60,4 @@ var sizes = [0, 12, 16, 14, 14, 17, 8, 0, 6, 0, 5, 8, 9, 20, 1, 0];
 var counts = {};
 var c = list["commands"];
 for (var at = 0; at < len(c); at += 1 + sizes[int(c[at])]) { counts[int(c[at])] = Hash.Get(counts, int(c[at]), 0) + 1; }
-print("combined", counts[10] > 0, counts[11] > 0, counts[1] > 2, Array.Contains(list["strings"], "Saturn button"));
+print("combined", counts[10] > 0, counts[11] > 0, counts[1] > 2, Array.Contains(list["strings"], "Saturn button"));print("no text field", stack.ImeRect() == null);

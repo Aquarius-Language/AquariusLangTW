@@ -206,6 +206,11 @@ layout boxes let the pointer through, so a HUD never blocks the scene under it. 
 textures: `UI.Immediate(...)` hosts ImGui or Clay inside a Saturn layout, `ImGui.Embed(id, w, h)` with
 `context.Render(embed)` and Clay elements with `"embed": f(x, y, w, h)` host a Saturn surface's list.
 
+**Text input** follows the focus: `stack.ImeRect()` (or `surface.ImeRect()`) is the focused text field's box or null,
+and `var follow = UI.TextInputFollower(session)` called each frame as `follow(rect)` turns the window's text input on
+only while a field is focused and places the input method there, so phones show their keyboard only when typing.
+`RunApp` and `RunLayers` do this for you. A layer of your own can take part by giving `UI.Layer` a `text()` function.
+
 ## Tests
 
 `tests/node_api` (the Yoga API and its errors), `style_paint` (styles, text, painting, hit testing, painters),

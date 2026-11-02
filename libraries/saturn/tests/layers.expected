@@ -6,3 +6,4 @@ over clay badge 真
 over nothing 假
 immediate [move@7, press@7, move@300, release@300]
 combined 真 真 真 真
+no text field 真
