@@ -214,6 +214,7 @@ static void RadioButton(aqua_call *call) {
         int current = aqua_arg_int(call, 1);
         ImGui::RadioButton(text_arg(call, 0), &current, aqua_arg_int(call, 2));
         RETURN_INT(current);
+        return;
     }
     RETURN_BOOL(ImGui::RadioButton(text_arg(call, 0), bool_arg(call, 1, false)));
 }

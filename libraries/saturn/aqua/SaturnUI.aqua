@@ -203,6 +203,7 @@ var ThemeSheet = function(t) {
 # ---- Small helpers -------------------------------------------------------------------------------------------------
 
 var NL = String.FromCode(10);
+var NBSP = String.FromCode(160);
 var Network = null;
 
 var isArray = function(v) { return typeOf(v) == "array"; };
@@ -562,11 +563,16 @@ kinds["RichText"] = {"update": function(e, w) {
     var spans = pick(w.spans, []);
     for (var i = 0; i < len(spans); i++) {
         var span = spans[i];
+        if (String.StartsWith(span.text, " ") && len(words) > 0) {
+            var previous = words[len(words) - 1];
+            if (!String.EndsWith(previous.text, NBSP)) { previous.text = previous.text + NBSP; }
+        }
         var parts = String.Split(span.text, " ");
         for (var k = 0; k < len(parts); k++) {
             if (len(parts[k]) == 0) { continue; }
+            # The space after a word is a no-break space, so it keeps its width at the end of the word's box.
             var last = k == len(parts) - 1 && !String.EndsWith(span.text, " ");
-            Array.Append(words, Text(text: if (last) { parts[k]; } else { parts[k] + " "; }, style: span.style, key: String.From(i) + ":" + String.From(k)));
+            Array.Append(words, Text(text: if (last) { parts[k]; } else { parts[k] + NBSP; }, style: span.style, key: String.From(i) + ":" + String.From(k)));
         }
     }
     restyle(e, {"flexDirection": "row", "flexWrap": "wrap", "alignItems": "baseline"}, selectorsOf("RichText", null, w.class), w.style);
@@ -923,10 +929,14 @@ var eventOf = function(raw) {
         "text": raw.text, "action": raw.action, "modifiers": raw.modifiers, "count": raw.count, "command": raw.command};
 };
 
-# Surface(width, height, root | options): options {"theme": Theme(...), "sheet": {...}} (the app's style sheet).
+# Surface(width, height, root | options): options {"theme": Theme(...), "sheet": {...} (the app's style sheet),
+# "transparent": true (no background: a HUD over a scene)}.
 var CreateSurface = function(width, height, root, options) {
     var theme = ResolveTheme(if (options == null) { null; } else { options["theme"]; });
     var sheet = if (options == null) { null; } else { options["sheet"]; };
+    # A transparent surface (a HUD over a scene, a bar over another app) paints no background of its own.
+    var clear = null;
+    if (options != null && options["transparent"] == true) { clear = {"background": "transparent"}; }
     var s = SaturnSurface(width: width, height: height, root: root, theme: theme, sheets: [ThemeSheet(theme), theme.sheet, sheet],
         dirty: true, hover: [], pressed: null, captured: null, focus: null, time: 0, cursor: "arrow", lastTapTime: -1000,
         tooltip: null, tooltipAt: 0);
@@ -940,7 +950,7 @@ var CreateSurface = function(width, height, root, options) {
 
     var build = function() {
         s.dirty = false;
-        s.rootNode.ReplaceStyle([{"width": s.width, "height": s.height}, s.sheets[0]["Surface"]]);
+        s.rootNode.ReplaceStyle([{"width": s.width, "height": s.height}, s.sheets[0]["Surface"], clear]);
         reconcile(host, [s.root]);
         s.rootNode.InsertChild(s.overlayNode);
     };

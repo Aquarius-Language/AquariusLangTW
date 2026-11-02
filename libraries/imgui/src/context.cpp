@@ -153,21 +153,25 @@ aqua_value floats_value(aqua_runtime *rt, const float *values, int count) {
 
 enum { OP_CLIP_PUSH = 6, OP_CLIP_POP = 7, OP_TRANSFORM_PUSH = 8, OP_TRANSFORM_POP = 9, OP_MESH = 10, OP_TEXTURE = 11 };
 
+/* The frame's draw list being built. Its values are retained: embed functions run script code, which may collect. */
 struct Builder {
     aqua_runtime *rt;
     std::vector<double> commands, vertices;
     std::vector<int32_t> indices;
-    std::vector<aqua_value> images;            /* reachable during the call */
-    aqua_value extra_strings = aqua_null(), spliced = aqua_null();
+    std::vector<aqua_ref> images;
+    aqua_ref spliced = 0;
+    explicit Builder(aqua_runtime *runtime) : rt(runtime) {}
+    Builder(const Builder &) = delete;
+    ~Builder() { for (aqua_ref ref : images) aqua_release(rt, ref); aqua_release(rt, spliced); }
     void op(int code, std::initializer_list<double> args) { commands.push_back(code); commands.insert(commands.end(), args); }
-    int image(aqua_value v) { images.push_back(v); return (int)images.size() - 1; }
+    int image(aqua_value v) { images.push_back(aqua_retain(rt, v)); return (int)images.size() - 1; }
     aqua_value build() {
         aqua_value h = aqua_hash_new(rt, 6);
         aqua_hash_set_field(rt, h, "version", aqua_int(1));
         aqua_hash_set_field(rt, h, "commands", aqua_array_from_f64(rt, commands.data(), (uint32_t)commands.size(), AQUA_FLOAT));
         aqua_hash_set_field(rt, h, "strings", aqua_array_new(rt, 0));
         aqua_value list = aqua_array_new(rt, (uint32_t)images.size());
-        for (size_t i = 0; i < images.size(); i++) aqua_array_set(rt, list, (uint32_t)i, images[i]);
+        for (size_t i = 0; i < images.size(); i++) aqua_array_set(rt, list, (uint32_t)i, aqua_ref_value(rt, images[i]));
         aqua_hash_set_field(rt, h, "images", list);
         aqua_hash_set_field(rt, h, "vertices", aqua_array_from_f64(rt, vertices.data(), (uint32_t)vertices.size(), AQUA_FLOAT));
         aqua_hash_set_field(rt, h, "indices", aqua_array_from_i32(rt, indices.data(), (uint32_t)indices.size()));
@@ -243,8 +247,8 @@ static bool splice(aqua_call *call, Builder &b, aqua_value list) {
     bool has_strings = aqua_hash_field(rt, list, "strings", &strings) && strings.type == AQUA_ARRAY && aqua_array_length(rt, strings) > 0;
     if (has_strings) {
         /* Text needs the strings: the spliced list keeps them by moving into the frame's (empty) string table. */
-        if (b.spliced.type != AQUA_NULL) { aqua_fail(call, "ImGui.Render: only one embedded list with text per frame is supported; combine them first."); return false; }
-        b.spliced = strings;
+        if (b.spliced) { aqua_fail(call, "ImGui.Render: only one embedded list with text per frame is supported; combine them first."); return false; }
+        b.spliced = aqua_retain(rt, strings);
     }
     for (size_t at = 0; at < in.size();) {
         int code = (int)in[at];
@@ -394,7 +398,7 @@ static void ctx_render(aqua_call *call) {
     if (report_assert(call)) return;
     aqua_runtime *rt = c->rt;
     ImDrawData *data = ImGui::GetDrawData();
-    Builder b{rt};
+    Builder b(rt);
     textures(b, c->state, data);
     ImVec2 origin = data->DisplayPos;
     aqua_value embed = has(call, 0) ? aqua_arg(call, 0) : aqua_null();
@@ -450,7 +454,7 @@ static void ctx_render(aqua_call *call) {
         }
     }
     aqua_value result = b.build();
-    if (b.spliced.type != AQUA_NULL) aqua_hash_set_field(rt, result, "strings", b.spliced);
+    if (b.spliced) aqua_hash_set_field(rt, result, "strings", aqua_ref_value(rt, b.spliced));
     aqua_return(call, result);
 }
 

@@ -679,10 +679,15 @@ static void layout_end(aqua_call *call) {
     if (report(call, l)) return;
     aqua_runtime *rt = l->rt;
     builder b = {rt};
+    /* Retained while the list is built: embed functions run script code, which may collect. */
     b.strings = aqua_array_new(rt, 0);
+    aqua_ref keep_strings = aqua_retain(rt, b.strings);
     b.images = aqua_array_new(rt, 0);
+    aqua_ref keep_images = aqua_retain(rt, b.images);
     b.vertices = aqua_array_new(rt, 0);
+    aqua_ref keep_vertices = aqua_retain(rt, b.vertices);
     b.indices = aqua_array_new(rt, 0);
+    aqua_ref keep_indices = aqua_retain(rt, b.indices);
     for (int32_t i = 0; i < commands.length && !b.failed; i++) {
         Clay_RenderCommand *c = Clay_RenderCommandArray_Get(&commands, i);
         Clay_BoundingBox box = c->boundingBox;
@@ -732,12 +737,18 @@ static void layout_end(aqua_call *call) {
             if (!aqua_invoke(rt, aqua_ref_value(rt, l->refs[index - 1]), arguments, 4, &result)) {
                 fail_with(call, rt, result, "Clay: an embed function failed.");
                 free(b.commands);
+                aqua_release(rt, keep_strings); aqua_release(rt, keep_images); aqua_release(rt, keep_vertices); aqua_release(rt, keep_indices);
                 return;
             }
             if (aqua_is_nullish(result)) break;
             OP(&b, OP_CLIP_PUSH, box.x, box.y, box.width, box.height, 0, 0, 0, 0);
             OP(&b, OP_TRANSFORM_PUSH, 1, 0, 0, 1, box.x, box.y);
-            if (!splice(&b, result)) { aqua_fail(call, "Clay: an embed function must return a UI draw list / 嵌入函式必須回傳繪製清單。"); free(b.commands); return; }
+            if (!splice(&b, result)) {
+                aqua_fail(call, "Clay: an embed function must return a UI draw list / 嵌入函式必須回傳繪製清單。");
+                free(b.commands);
+                aqua_release(rt, keep_strings); aqua_release(rt, keep_images); aqua_release(rt, keep_vertices); aqua_release(rt, keep_indices);
+                return;
+            }
             OP0(&b, OP_TRANSFORM_POP);
             OP0(&b, OP_CLIP_POP);
             break;
@@ -745,6 +756,7 @@ static void layout_end(aqua_call *call) {
         default: break;
         }
     }
+    aqua_release(rt, keep_strings); aqua_release(rt, keep_images); aqua_release(rt, keep_vertices); aqua_release(rt, keep_indices);
     if (b.failed) { free(b.commands); aqua_fail(call, "Clay: out of memory."); return; }
     aqua_value h = aqua_hash_new(rt, 6);
     aqua_hash_set_field(rt, h, "version", aqua_int(1));
