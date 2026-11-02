@@ -75,7 +75,7 @@ struct Element { widget; type; node; children; parent; surface; state; data; key
 
 struct SaturnSurface {
     width; height; root; theme; sheets; tree; rootNode; overlayNode; dirty; hover; pressed; captured; focus;
-    time; cursor; pressX; pressY; pressTime; lastTap; lastTapTime; tooltip; tooltipAt; pathAt; fontOf; textColor;
+    time; cursor; pressX; pressY; pressTime; lastTap; lastTapTime; tooltip; tooltipAt; pathAt; fontOf; textColor; pointer;
     Frame; Paint; Feed; Wants; Resize; SetRoot; SetTheme; Rebuild; Cursor; NeedsFrame; ImeRect; Dispose
 }
 struct DropdownMenu { owner; options; value; key }
@@ -1060,6 +1060,7 @@ var CreateSurface = function(width, height, root, options) {
         if (type == "move" || type == "drag" || type == "dragStart" || type == "dragEnd") {
             var x = ev["x"];
             var y = ev["y"];
+            s.pointer = [x, y];
             if (s.captured != null) {
                 var kind = kinds[s.captured.type];
                 if (kind != null && kind["drag"] != null) { kind["drag"](s.captured, ev, local(s.captured, x, y)); s.dirty = true; }
@@ -1138,7 +1139,11 @@ var CreateSurface = function(width, height, root, options) {
             return false;
         }
         if (type == "scroll") {
-            var path = s.pathAt(ev["x"], ev["y"]);
+            # A wheel event without a position (some platforms) scrolls what is under the last pointer position.
+            var at = s.pointer;
+            if (ev["x"] != null && ev["y"] != null) { at = [ev["x"], ev["y"]]; }
+            if (at == null || at[0] == null) { return false; }
+            var path = s.pathAt(at[0], at[1]);
             var scroller = scrollableOf(path);
             if (scroller == null) { return false; }
             scroller.data["scrollY"] = Hash.Get(scroller.data, "scrollY", 0) + pick(ev["dy"], 0);
