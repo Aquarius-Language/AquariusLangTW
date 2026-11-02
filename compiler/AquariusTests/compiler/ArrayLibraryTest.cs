@@ -117,4 +117,18 @@ public class ArrayLibraryTest {
         Array.Delete(a,0,99);Array.Append(a,8);child[0]=42;
         [a[0][0],a[1],snapshot[0][0],snapshot[100],Array.Len(snapshot)];
         """, "array", "[42, 8, 42, 9, 101]"));
+
+    /// <summary>Arrays of up to four elements keep their first storage in their own block. Storage they share with a
+    /// functional push must survive the owner's death and keep copy-on-write after collections recount its sharers.</summary>
+    [RuntimeFact]
+    public void SmallArraysShareTheirInlineStorageSafely() => LanguageCases.Expect(("""
+        變數 kept=[];
+        迴圈(變數 i=0;i<3000;i++){變數 small=[i,i+1];Array.Append(kept,push(small,i+2));}
+        變數 shared=[5,6];變數 copy=push(shared,7);
+        迴圈(變數 i=0;i<200000;i++){變數 garbage=[i,i,i];}
+        shared[0]=50;Array.Append(copy,8);
+        迴圈(變數 i=0;i<200000;i++){變數 garbage=[i];}
+        變數 total=0;迴圈(變數 i=0;i<3000;i++){total+=kept[i][0]+kept[i][1]*2+kept[i][2]*3;}
+        [total,kept[2999],shared,copy,Array.Len(kept[17])];
+        """, "array", "[27015000, [2999, 3000, 3001], [50, 6], [5, 6, 7, 8], 3]"));
 }
