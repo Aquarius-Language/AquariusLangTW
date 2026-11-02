@@ -95,6 +95,16 @@ public class ExamplesTest
     }
 
     [RuntimeFact]
+    public void MathShowcaseProducesTheExpectedOutput()
+    {
+        // Literals, the Math module, exact %, bitwise operators, seeded random numbers and number text: the same on every
+        // target (the expected file was also checked on the web and Linux runtimes).
+        var result = Run("math_showcase", "main.aqua");
+        string expected = File.ReadAllText(Path.Combine(Examples, "math_showcase", "expected-output.txt")).Replace("\r\n", "\n");
+        Assert.Equal(expected, result.Succeeded().Output);
+    }
+
+    [RuntimeFact]
     public void StarshipExpeditionReturnsValuesOfTheExpectedTypes()
     {
         // The example's final 回傳 makes it a function body: run it as one and check each result's type.
