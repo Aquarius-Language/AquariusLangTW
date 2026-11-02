@@ -1102,10 +1102,12 @@ internal sealed class WasmNativeFunction
         // (the callee's generic body raises the annotation error at its entry).
         // IndexSite: a read outside a loose array in a region (it continues generically at that read).
         const int ErrorSite = 0, CheckpointSite = 1, CallSite = 2, CheckSite = 4, IndexSite = 5;
-        void ToHandler(int kind, int block, int[] operands, int message) {
-            sites.Add((kind, block, operands, message)); I(w, sites.Count - 1); Set(w, site);
+        int Site(int kind, int block, int[] operands, int message) { sites.Add((kind, block, operands, message)); return sites.Count - 1; }
+        void ToSite(int k) {
+            I(w, k); Set(w, site);
             Op(Br); U(w, Label(c => c.End == int.MaxValue) + 1); // Every site sits in one if.
         }
+        void ToHandler(int kind, int block, int[] operands, int message) => ToSite(Site(kind, block, operands, message));
         void Fail(int message) => ToHandler(ErrorSite, 0, Array.Empty<int>(), message);
 
         // An element of an array of any values (operand k) as the generic value it is.
@@ -1176,20 +1178,21 @@ internal sealed class WasmNativeFunction
         // The generic checkpoint: yield (here: deoptimize) when the budget is exhausted, a collection is pending or, at
         // the entry, the native depth bound is reached; otherwise consume the weight with saturation. A pending
         // collection is armed only by allocation, which native code never does, so loops need not poll.
+        // Each condition is its own branch to the one site (two predictable jumps, not flags combined with or).
         void Checkpoint(int pc, bool entry) {
             if (!fuel.TryGetValue(pc, out int weight)) return;
+            int k = Site(CheckpointSite, BlockOf(pc), states[pc], pc);
+            void Leave(Action condition) { condition(); Op(If, 0x40); ToSite(k); Op(End); }
             if (entry) {
                 Get(w, budgetParameter); Set(w, budget);
                 // The adapters check for a pending collection before native code runs; native code only allocates
                 // when it leaves (a deoptimization) or copies an array on write, which loops do not poll for either.
-                Get(w, depthParameter); I(w, depthLimit); Op(0x4f);
-                Get(w, budget); Op(0x45, 0x72);
-            } else {
-                Get(w, budget); I(w, 0); Op(0x4c);
-                // A loop that allocates leaves for a pending collection too: the generic checkpoint collects.
-                if (LoopAllocates(pc)) { Execution(); Memory(w, I32Load, 2, ExecutionPoll); Op(0x72); }
+                Leave(() => { Get(w, depthParameter); I(w, depthLimit); Op(0x4f); });
+                Leave(() => { Get(w, budget); Op(0x45); });
             }
-            Op(If, 0x40); ToHandler(CheckpointSite, BlockOf(pc), states[pc], pc); Op(End);
+            else Leave(() => { Get(w, budget); I(w, 0); Op(0x4c); });
+            // A loop that allocates leaves for a pending collection too: the generic checkpoint collects.
+            if (!entry && LoopAllocates(pc)) Leave(() => { Execution(); Memory(w, I32Load, 2, ExecutionPoll); });
             Get(w, budget); I(w, weight); Op(0x6b); Set(w, budget);
         }
 
