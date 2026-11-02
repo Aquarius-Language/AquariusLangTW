@@ -1,8 +1,7 @@
 /* Builtin IDs 30..45: portable text (string) library. Included after hashes.h.
  * Strings are UTF-16 code-unit sequences; indexes and lengths use code units,
- * matching 長度 and string indexing. Number formatting follows JavaScript's
- * Number#toString (shortest round trip, closest digits) so 轉文字 and the
- * browser 印出 agree. */
+ * matching 長度 and string indexing. Numbers are formatted by decimal.h, which the
+ * hosts' 印出 shares, so 轉文字 and 印出 show every number identically. */
 #include "decimal.h"
 typedef struct { uint16_t *data; u32 length, capacity; } TextBuilder;
 static void tb_reserve(TextBuilder*b,u32 extra) {
@@ -27,30 +26,7 @@ static int text_find(Text*t,Text*needle,u32 from) {
 }
 
 static void format_double(TextBuilder*b,double x,int single) {
-    if(x!=x){tb_ascii(b,"NaN");return;}
-    if(x==0){tb_unit(b,'0');return;}
-    if(x<0){tb_unit(b,'-');x=-x;}
-    if(x>1.7976931348623157e308){tb_ascii(b,"Infinity");return;}
-    char digits[40];int length=0,k=0;
-    if(single){
-        float s=(float)x;uint32_t bits;memcpy(&bits,&s,4);
-        uint32_t mantissa=bits&0x7FFFFFu,biased=(bits>>23)&0xFFu;
-        if(biased)length=shortest_digits(mantissa|0x800000u,(int)biased-150,mantissa==0&&biased>1,1,digits,&k);
-        else length=shortest_digits(mantissa,-149,0,1,digits,&k);
-    } else {
-        uint64_t bits;memcpy(&bits,&x,8);
-        uint64_t mantissa=bits&0xFFFFFFFFFFFFFull;u32 biased=(u32)(bits>>52)&0x7FFu;
-        if(biased)length=shortest_digits(mantissa|0x10000000000000ull,(int)biased-1075,mantissa==0&&biased>1,0,digits,&k);
-        else length=shortest_digits(mantissa,-1074,0,0,digits,&k);
-    }
-    int point=k;
-    if(length<=point&&point<=21){for(int i=0;i<length;i++)tb_unit(b,(uint16_t)digits[i]);for(int i=length;i<point;i++)tb_unit(b,'0');return;}
-    if(0<point&&point<=21){for(int i=0;i<length;i++){if(i==point)tb_unit(b,'.');tb_unit(b,(uint16_t)digits[i]);}return;}
-    if(-6<point&&point<=0){tb_ascii(b,"0.");for(int i=point;i<0;i++)tb_unit(b,'0');for(int i=0;i<length;i++)tb_unit(b,(uint16_t)digits[i]);return;}
-    tb_unit(b,(uint16_t)digits[0]);
-    if(length>1){tb_unit(b,'.');for(int i=1;i<length;i++)tb_unit(b,(uint16_t)digits[i]);}
-    int e=point-1;tb_unit(b,'e');tb_unit(b,e<0?'-':'+');if(e<0)e=-e;
-    char rev[8];int r=0;do{rev[r++]=(char)('0'+e%10);e/=10;}while(e);while(r)tb_unit(b,(uint16_t)rev[--r]);
+    char text[32];int n=format_number_text(text,x,single);for(int i=0;i<n;i++)tb_unit(b,(uint16_t)text[i]);
 }
 static void format_int(TextBuilder*b,double n) {
     long long v=(long long)n;if(v<0){tb_unit(b,'-');v=-v;}

@@ -1,11 +1,14 @@
 /* Exact conversions between binary floating point and decimal text, with small fixed-size bignums: the shortest digits
- * that read back to a double or float (printing), and the double nearest to a decimal number (String.ParseNumber).
+ * that read back to a double or float and the language's number text (印出, String.From), and the double nearest to a
+ * decimal number (String.ParseNumber).
  * Freestanding C (only <stdint.h>), so the guest runtime and the host's 印出 (runtime/host/format.c) share it and print
  * every number identically on every target. */
 #ifndef AQUA_DECIMAL_H
 #define AQUA_DECIMAL_H
 #include <stdint.h>
 
+static double decimal_bits_double(uint64_t bits) { union { uint64_t i; double d; } u;u.i=bits;return u.d; }
+static uint64_t decimal_double_bits(double d) { union { double d; uint64_t i; } u;u.d=d;return u.i; }
 /* Little-endian base-2^32 naturals of up to 5120 bits: enough for 780 decimal digits times 2^1075 or 10^1100. */
 #define BIG_WORDS 160u
 typedef struct { uint32_t n; uint32_t w[BIG_WORDS]; } Big;
@@ -42,9 +45,9 @@ static void big_pow10(Big*a,uint32_t n) { for(;n>=9;n-=9)big_mul_small(a,1000000
  * Produces the shortest digit string that reads back as the same value and, among
  * those, the one closest to it — the digits ECMAScript Number#toString prints. */
 /* value = f * 2^e; lower_closer marks exact powers of two above the smallest normal.
- * Exact ties between two shortest candidates go to the even digit (Number#toString),
- * or upward for single precision (the hosts print floats through toPrecision). */
-static int shortest_digits(uint64_t f,int e,int lower_closer,int ties_up,char*digits,int*k) {
+ * Exact ties between two shortest candidates go to the even digit (Number#toString, and the
+ * hosts' earlier printf-based 印出 for floats and doubles alike). */
+static int shortest_digits(uint64_t f,int e,int lower_closer,char*digits,int*k) {
     Big r,s,mplus,mminus;int even=!(f&1);
     if(e>=0){
         big_set(&r,f);big_shift(&r,(uint32_t)e+(lower_closer?2:1));big_set(&s,lower_closer?4:2);
@@ -66,18 +69,52 @@ static int shortest_digits(uint64_t f,int e,int lower_closer,int ties_up,char*di
         int low=even?big_compare(&r,&mminus)<=0:big_compare(&r,&mminus)<0;
         big_add(&high,&r,&mplus);int up=even?big_compare(&high,&s)>=0:big_compare(&high,&s)>0;
         if(!low&&!up){digits[length++]=(char)('0'+digit);big_mul_small(&r,10);big_mul_small(&mplus,10);big_mul_small(&mminus,10);continue;}
-        if(low&&up){Big twice=r;big_shift(&twice,1);int cmp=big_compare(&twice,&s);if(cmp>0||(cmp==0&&(ties_up||(digit&1))))digit++;}
+        if(low&&up){Big twice=r;big_shift(&twice,1);int cmp=big_compare(&twice,&s);if(cmp>0||(cmp==0&&(digit&1)))digit++;}
         else if(up)digit++;
         digits[length++]=(char)('0'+digit);return length;
     }
+}
+
+/* The display text of a float (single) or double, as 印出 and String.From show it on every target: the shortest digits
+ * that read back to the same value; scientific notation (1E+17, 1E-05: at least two exponent digits) from 10^17 for
+ * doubles and 10^9 for floats, and below 10^-4 (the language's earlier .NET host); NaN, Infinity, -Infinity, -0.
+ * Writes at most 32 ASCII characters to out and returns the length. */
+static int format_number_text(char*out,double x,int single) {
+    int n=0;
+    if(x!=x){out[0]='N';out[1]='a';out[2]='N';return 3;}
+    uint64_t bits=decimal_double_bits(x);
+    if(bits>>63){out[n++]='-';x=-x;}
+    if(x==0){out[n++]='0';return n;}
+    if(x>1.7976931348623157e308){const char*inf="Infinity";while(*inf)out[n++]=*inf++;return n;}
+    char digits[40];int length=0,point=0;
+    if(single){
+        union { float f; uint32_t i; } s;s.f=(float)x;
+        uint32_t mantissa=s.i&0x7FFFFFu,biased=(s.i>>23)&0xFFu;
+        if(biased)length=shortest_digits(mantissa|0x800000u,(int)biased-150,mantissa==0&&biased>1,digits,&point);
+        else length=shortest_digits(mantissa,-149,0,digits,&point);
+    } else {
+        uint64_t mantissa=decimal_double_bits(x)&0xFFFFFFFFFFFFFull;uint32_t biased=(uint32_t)(decimal_double_bits(x)>>52)&0x7FFu;
+        if(biased)length=shortest_digits(mantissa|0x10000000000000ull,(int)biased-1075,mantissa==0&&biased>1,digits,&point);
+        else length=shortest_digits(mantissa,-1074,0,digits,&point);
+    }
+    int exponent=point-1;
+    if(exponent>=(single?9:17)||exponent<-4){
+        out[n++]=digits[0];
+        if(length>1){out[n++]='.';for(int i=1;i<length;i++)out[n++]=digits[i];}
+        out[n++]='E';out[n++]=exponent<0?'-':'+';if(exponent<0)exponent=-exponent;
+        if(exponent>=100)out[n++]=(char)('0'+exponent/100);
+        out[n++]=(char)('0'+exponent/10%10);out[n++]=(char)('0'+exponent%10);
+        return n;
+    }
+    if(exponent<0){out[n++]='0';out[n++]='.';for(int i=-1;i>exponent;i--)out[n++]='0';for(int i=0;i<length;i++)out[n++]=digits[i];return n;}
+    for(int i=0;i<length||i<=exponent;i++){if(i==exponent+1)out[n++]='.';out[n++]=i<length?digits[i]:'0';}
+    return n;
 }
 
 /* ---- Decimal to double, correctly rounded (to nearest, ties to even) ----
  * value = D × 10^exponent, D the count decimal digits (no leading zeros). A first guess from the leading 19 digits is
  * corrected by comparing the exact value with the midpoints next to the guess, so the result is exact for any input. */
 #define DECIMAL_DIGITS 780
-static double decimal_bits_double(uint64_t bits) { union { uint64_t i; double d; } u;u.i=bits;return u.d; }
-static uint64_t decimal_double_bits(double d) { union { double d; uint64_t i; } u;u.d=d;return u.i; }
 /* Sign of D × 10^exponent - (2m + 1 - 2·below) × 2^k, for m and k of a candidate midpoint. */
 static int decimal_compare(const char*digits,int count,int exponent,uint64_t odd,int k) {
     Big lhs,rhs;big_set(&lhs,0);

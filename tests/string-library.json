@@ -11,9 +11,9 @@
       "[12, -7, 2.5, 0.1, 1.1, 真, [1, a, {k: 假}]]"
     ],
     [
-      "From uses shortest round-trip digits",
+      "From uses shortest round-trip digits and the text of print",
       "[String.From(1.0d/3),String.From(0.1d+0.2d),String.From(100000000000000000000.0d),String.From(1000000000000000000000.0d),String.From(0.000001d),String.From(0.0000001d)];",
-      "[0.3333333333333333, 0.30000000000000004, 100000000000000000000, 1e+21, 0.000001, 1e-7]"
+      "[0.3333333333333333, 0.30000000000000004, 1E+20, 1E+21, 1E-06, 1E-07]"
     ],
     [
       "From concatenates with text",

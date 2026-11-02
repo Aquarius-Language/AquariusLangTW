@@ -1,8 +1,8 @@
-/* Display text of values, as print/印出 and the result of a script show them on every platform. Numbers use the
-   shortest text that reads back to the same value; scientific notation (1E+17, 1E-05) starts at the same exponents as
-   the language's earlier .NET host: 10^17 for doubles, 10^9 for floats, and below 10^-4. */
+/* Display text of values, as print/印出 and the result of a script show them on every platform. Numbers are formatted
+   by the guest runtime's decimal.h (exact shortest digits; scientific notation such as 1E+17 and 1E-05 from the same
+   exponents as the language's earlier .NET host), so 印出 and String.From agree on every target. */
 #include "host.h"
-#include <math.h>
+#include "../guest/decimal.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -19,52 +19,11 @@ static void put(text_builder *b, const char *s, size_t n) {
 }
 static void puts_(text_builder *b, const char *s) { put(b, s, strlen(s)); }
 
-/* Shortest round-trip digits of |n| (no leading/trailing zeros) and the exponent of the first digit. */
-static int shortest_digits(double n, bool single, char *digits, int *exponent) {
-    char buffer[40];
-    int limit = single ? 9 : 17;
-    for (int precision = 1; precision <= limit; precision++) {
-        snprintf(buffer, sizeof buffer, "%.*e", precision - 1, n);
-        bool exact = single ? (float)strtod(buffer, NULL) == (float)n : strtod(buffer, NULL) == n;
-        if (exact || precision == limit) break;
-    }
-    /* buffer is d[.ddd]e±x */
-    int count = 0;
-    char *p = buffer;
-    for (; *p && *p != 'e'; p++) if (*p >= '0' && *p <= '9') digits[count++] = *p;
-    *exponent = atoi(p + 1);
-    while (count > 1 && digits[count - 1] == '0') count--;
-    digits[count] = 0;
-    return count;
-}
-
 void format_number(char *out, size_t size, double n, aqua_type type) {
     if (type == AQUA_INT) { snprintf(out, size, "%d", (int32_t)n); return; }
-    if (isnan(n)) { snprintf(out, size, "NaN"); return; }
-    if (isinf(n)) { snprintf(out, size, n < 0 ? "-Infinity" : "Infinity"); return; }
-    if (n == 0) { snprintf(out, size, signbit(n) ? "-0" : "0"); return; }
-    bool single = type == AQUA_FLOAT;
-    char digits[24]; int exponent;
-    int count = shortest_digits(fabs(n), single, digits, &exponent);
-    text_builder b = {0};
-    if (n < 0) puts_(&b, "-");
-    if (exponent >= (single ? 9 : 17) || exponent < -4) {
-        put(&b, digits, 1);
-        if (count > 1) { puts_(&b, "."); put(&b, digits + 1, (size_t)count - 1); }
-        char tail[8];
-        snprintf(tail, sizeof tail, "E%c%02d", exponent < 0 ? '-' : '+', exponent < 0 ? -exponent : exponent);
-        puts_(&b, tail);
-    } else if (exponent < 0) {
-        puts_(&b, "0.");
-        for (int i = -1; i > exponent; i--) puts_(&b, "0");
-        put(&b, digits, (size_t)count);
-    } else {
-        int whole = exponent + 1;
-        if (count <= whole) { put(&b, digits, (size_t)count); for (int i = count; i < whole; i++) puts_(&b, "0"); }
-        else { put(&b, digits, (size_t)whole); puts_(&b, "."); put(&b, digits + whole, (size_t)(count - whole)); }
-    }
-    snprintf(out, size, "%s", b.data);
-    free(b.data);
+    char text[32];
+    int length = format_number_text(text, n, type == AQUA_FLOAT);
+    snprintf(out, size, "%.*s", length, text);
 }
 
 static void format_into(aqua_runtime *rt, text_builder *b, aqua_value v, int depth) {

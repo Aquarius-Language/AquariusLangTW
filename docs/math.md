@@ -24,6 +24,31 @@ text within 32 bits gives an integer, any other number a double (`"2147483648"`,
 else null (`"0x10"`, `"1e"`, `""`). The conversion is exact (the double nearest to the text, ties to even, any
 number of digits), so `String.ParseNumber(String.From(x)) == x` for every double printed by 印出 or `String.From`.
 
+## Printing numbers
+
+`印出` / `print` (the host, `runtime/host/format.c`) and `字串.轉文字` / `String.From` (the guest, `texts.h`) format numbers
+with the same code, `runtime/guest/decimal.h`, so a number has one text on every target and in both places:
+
+- the shortest digits that read back to the same double (or float, for floats), the closest such digits, exact ties
+  to the even digit (an exact bignum algorithm, Burger & Dybvig);
+- fixed notation from 10^-4 up to 10^17 for doubles and 10^9 for floats, otherwise `d.dddE±XX` with at least two
+  exponent digits: `1E+17`, `1E-05`, `1.5E+300`, `1E+09` (a float);
+- `-0`, `NaN`, `Infinity`, `-Infinity`; integers as plain decimals.
+
+This is the style 印出 always had. Before, `String.From` followed JavaScript (`1e+21`, `1e-7`, -0 shown as `0`, plain
+digits up to 10^21), and the host found its digits by trying `printf` precisions until `strtod` read the value back,
+which depended on each C library's rounding. On 8,154 random doubles and floats 印出 prints exactly what it printed
+before; `String.From` changed only in the style above (and for floats on an exact tie, where it rounded up).
+
+| Value | 印出 before and now | String.From before | String.From now |
+| --- | --- | --- | --- |
+| `100000000000000000.0d` | `1E+17` | `100000000000000000` | `1E+17` |
+| `0.00001d` | `1E-05` | `0.00001` | `1E-05` |
+| `1e21` | `1E+21` | `1e+21` | `1E+21` |
+| `-(0.0d)` | `-0` | `0` | `-0` |
+| `1000000000.0f` | `1E+09` | `1000000000` | `1E+09` |
+| `3047523.25f` | `3047523.2` | `3047523.3` | `3047523.2` |
+
 ## The 數學 / Math module
 
 `數學` / `Math` is a portable module like `陣列` / `Array`: a global in both languages, also reachable through
