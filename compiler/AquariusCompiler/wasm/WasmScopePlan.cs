@@ -269,7 +269,9 @@ internal sealed class WasmScopePlan
                     if (tags.Count < 1) throw new CompilationException($"Operand stack underflow at instruction {pc}."); tags[^1] = Unknown; break;
                 case IrOperation.Index: case IrOperation.IncrementIndex: Pop(2); tags.Add(Unknown); break;
                 case IrOperation.IncrementMember: if (tags.Count < 1) throw new CompilationException($"Operand stack underflow at instruction {pc}."); tags[^1] = Unknown; break;
-                case IrOperation.StructType: tags.Add(Unknown); break;
+                case IrOperation.StructType: Pop(body.StructDefaults(operand)); tags.Add(Unknown); break;
+                case IrOperation.IsMissing: if (tags.Count < 1) throw new CompilationException($"Operand stack underflow at instruction {pc}."); tags[^1] = Bool; break;
+                case IrOperation.Append: case IrOperation.AppendAll: Pop(2); tags.Add(Array); break;
                 case IrOperation.CheckStruct:
                     if (tags.Count < 1) throw new CompilationException($"Operand stack underflow at instruction {pc}.");
                     tags[^1] = Unknown; break;

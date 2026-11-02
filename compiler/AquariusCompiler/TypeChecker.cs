@@ -197,6 +197,8 @@ public sealed class TypeChecker {
             case IndexExpression index: DeclareIn(index.Left); DeclareIn(index.Index); break;
             case ArrayLiteral array: foreach (var e in array.Elements ?? System.Array.Empty<IExpression>()) DeclareIn(e); break;
             case HashLiteral hash: foreach (var pair in hash.Pairs) { DeclareIn(pair.Key); DeclareIn(pair.Value); } break;
+            case SpreadElement spread: DeclareIn(spread.Value); break;
+            case CollectionIf element: DeclareIn(element.Condition); DeclareIn(element.Then); DeclareIn(element.Else); break;
         }
     }
     private void Add(Identifier name, FunctionLiteral? function, LetStatement? let = null, bool direct = false) {
@@ -271,6 +273,15 @@ public sealed class TypeChecker {
             }
             case ExpressionStatement expression: Expression(expression.Expression); break;
             case BlockStatement block: foreach (var s in block.Statements) Statement(s); break;
+            case StructStatement shape:
+                // Defaults are evaluated where the declaration runs; one that cannot fit its field is an error.
+                foreach (var field in shape.Fields) {
+                    if (field.Default == null) continue;
+                    int value = Expression(field.Default), type = Code(field.Type);
+                    if (type != Dynamic && value != Dynamic && !Compatible(value, type))
+                        Error($"型別不符：{shape.Name.Value}.{field.Value} 需要 {Name(type)}，預設值卻是 {Name(value)} / Type mismatch: {shape.Name.Value}.{field.Value} expects {Name(type)}, its default is {Name(value)}.", field.Token);
+                }
+                break;
         }
     }
 
@@ -361,6 +372,9 @@ public sealed class TypeChecker {
             case FunctionLiteral function: Function(function); return Dynamic;
             case CallExpression call: return Call(call);
             case ArrayLiteral array: foreach (var e in array.Elements ?? System.Array.Empty<IExpression>()) Expression(e); return Dynamic;
+            case SpreadElement spread: Expression(spread.Value); return Dynamic;
+            case CollectionIf element: Expression(element.Condition); Expression(element.Then); Expression(element.Else); return Dynamic;
+            case CollectionFor element: Expression(element.Loop); return Dynamic;
             case HashLiteral hash: foreach (var pair in hash.Pairs) { Expression(pair.Key); Expression(pair.Value); } return Dynamic;
             case IndexExpression index: {
                 int left = Expression(index.Left), position = Expression(index.Index);
@@ -448,22 +462,23 @@ public sealed class TypeChecker {
     /// of compatible type, and every field that cannot hold null (a typed number, Boolean, string or array) is given.</summary>
     private int Construct(CallExpression call, StructStatement shape, int[] arguments, Token token) {
         var given = new HashSet<string>(System.StringComparer.Ordinal);
-        if (call.ArgumentNames == null && arguments.Length > shape.Fields.Length)
+        int positional = call.ArgumentNames?.Count(n => n.Length == 0) ?? arguments.Length;
+        if (positional > shape.Fields.Length)
             Error($"{shape.Name.Value} 只有 {shape.Fields.Length} 個欄位 / {shape.Name.Value} has only {shape.Fields.Length} fields.", token);
         for (int i = 0; i < arguments.Length; i++) {
-            var field = call.ArgumentNames == null ? (i < shape.Fields.Length ? shape.Fields[i] : null)
-                : shape.Fields.FirstOrDefault(f => f.Value == call.ArgumentNames[i]);
+            string? named = call.ArgumentNames is { } names && names[i].Length > 0 ? names[i] : null;
+            var field = named == null ? (i < shape.Fields.Length ? shape.Fields[i] : null) : shape.Fields.FirstOrDefault(f => f.Value == named);
             if (field == null) {
-                if (call.ArgumentNames != null) Error($"{shape.Name.Value} 沒有欄位 {call.ArgumentNames[i]} / {shape.Name.Value} has no field {call.ArgumentNames[i]}.", token);
+                if (named != null) Error($"{shape.Name.Value} 沒有欄位 {named} / {shape.Name.Value} has no field {named}.", token);
                 continue;
             }
-            given.Add(field.Value);
+            if (!given.Add(field.Value)) Error($"{shape.Name.Value}.{field.Value} 給了兩次 / {shape.Name.Value}.{field.Value} is given twice.", token);
             int type = Code(field.Type), value = arguments[i];
             if (type != Dynamic && value != Dynamic && !Compatible(value, type))
                 Error($"型別不符：{shape.Name.Value}.{field.Value} 需要 {Name(type)}，卻是 {Name(value)} / Type mismatch: {shape.Name.Value}.{field.Value} expects {Name(type)}, got {Name(value)}.", token);
         }
         foreach (var field in shape.Fields)
-            if (!given.Contains(field.Value) && field.Type != null && !IsStruct(field.Type.Code))
+            if (!given.Contains(field.Value) && field.Default == null && field.Type != null && !IsStruct(field.Type.Code))
                 Error($"{shape.Name.Value}.{field.Value}（{Name(field.Type.Code)}）必須給值 / {shape.Name.Value}.{field.Value} ({Name(field.Type.Code)}) needs a value.", token);
         return StructFlag | shape.Id << 6;
     }
@@ -477,8 +492,6 @@ public sealed class TypeChecker {
             Structs[code] = shape; structNames[code] = shape.Name.Value;
             return code;
         }
-        if (call.ArgumentNames != null && declaration?.Function != null)
-            Error($"具名引數只能用於建立結構 / Named arguments construct structs; {name.Value} is a function.", name.Token);
         if (declaration == null) {
             // Unshadowed core globals with a known result type.
             return name.Value switch {
@@ -487,6 +500,24 @@ public sealed class TypeChecker {
         }
         if (declaration.Function is not { } function || declaration.Assigned || declaration.Count != 1) return Dynamic;
         var parameters = function.Parameters ?? System.Array.Empty<Identifier>();
+        if (call.ArgumentNames is { } names) {
+            // Named arguments: each names a parameter, and every parameter without a default gets a value.
+            var given = new HashSet<string>(System.StringComparer.Ordinal);
+            for (int i = 0; i < names.Length; i++) {
+                var parameter = names[i].Length == 0 ? (i < parameters.Length ? parameters[i] : null) : parameters.FirstOrDefault(p => p.Value == names[i]);
+                if (parameter == null) {
+                    if (names[i].Length > 0) Error($"{name.Value} 沒有參數 {names[i]} / {name.Value} has no parameter {names[i]}.", name.Token);
+                    continue;
+                }
+                if (!given.Add(parameter.Value)) Error($"參數 {parameter.Value} 給了兩次 / The parameter {parameter.Value} is given twice.", name.Token);
+                if (parameter.Type is { } type && arguments[i] != Dynamic && !Compatible(arguments[i], type.Code))
+                    Error($"型別不符：參數 {parameter.Value} 需要 {Name(type.Code)}，卻是 {Name(arguments[i])} / Type mismatch: parameter {parameter.Value} expects {Name(type.Code)}, got {Name(arguments[i])}.", name.Token);
+            }
+            foreach (var parameter in parameters)
+                if (parameter.Default == null && !given.Contains(parameter.Value))
+                    Error($"呼叫 {name.Value} 缺少參數 {parameter.Value} / The call of {name.Value} gives no value for the parameter {parameter.Value}.", name.Token);
+            return Code(function.ReturnType);
+        }
         if (parameters.Length == arguments.Length)
             for (int i = 0; i < arguments.Length; i++)
                 if (arguments[i] != Dynamic || Source(call.Arguments![i]) is not { } source) this.arguments.Add((function, i, arguments[i] == Dynamic ? GuessOf(call.Arguments![i]) : arguments[i]));
@@ -554,7 +585,10 @@ public sealed class TypeChecker {
         var parameterTypes = (function.Parameters ?? System.Array.Empty<Identifier>()).Select(p => Code(p.Type)).ToArray();
         // Numbers, Booleans, typed arrays and arrays of any values; string parameters or results keep the function generic.
         static bool NativeType(int t) => (t & 15) is Int or Float or Double or Bool || t == String || t == ArrayFlag || IsStruct(t);
-        NativeSignature? native = function.ReturnType != null && parameterTypes.All(NativeType) && NativeType(Code(function.ReturnType))
+        // Parameters with defaults may be left out, which only the generic call fills in.
+        bool defaults = (function.Parameters ?? System.Array.Empty<Identifier>()).Any(p => p.Default != null);
+        NativeSignature? native = defaults ? null
+            : function.ReturnType != null && parameterTypes.All(NativeType) && NativeType(Code(function.ReturnType))
             ? new NativeSignature(parameterTypes, Code(function.ReturnType), outer)
             : function.ReturnType == null && parameterTypes.All(t => t == Dynamic) ? new NativeSignature(new int[parameterTypes.Length], 0, outer, clone: true) : null;
         var uses = new Dictionary<string, (Declaration, Scope, bool)>(System.StringComparer.Ordinal);
@@ -562,6 +596,13 @@ public sealed class TypeChecker {
         if (native != null) { Natives[function] = native; pending.Add((native, uses)); }
         foreach (var parameter in function.Parameters ?? System.Array.Empty<Identifier>()) Add(parameter, null);
         parameterDeclarations[function] = (function.Parameters ?? System.Array.Empty<Identifier>()).Select(p => scope.Names[p.Value]).ToArray();
+        // A default runs in the function's scope when its argument is left out, before the parameter's annotation check.
+        foreach (var parameter in function.Parameters ?? System.Array.Empty<Identifier>()) {
+            if (parameter.Default == null) continue;
+            int value = Expression(parameter.Default);
+            if (parameter.Type is { } type && value != Dynamic && !Compatible(value, type.Code))
+                Error($"型別不符：參數 {parameter.Value} 需要 {Name(type.Code)}，預設值卻是 {Name(value)} / Type mismatch: parameter {parameter.Value} expects {Name(type.Code)}, its default is {Name(value)}.", parameter.Token);
+        }
         var statements = function.Body?.Statements ?? System.Array.Empty<IStatement>();
         Declare(statements);
         returns.Push(function.ReturnType);

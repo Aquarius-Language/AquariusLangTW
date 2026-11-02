@@ -24,9 +24,10 @@ typedef struct { u32 references,capacity,used,layout; _Alignas(16) unsigned char
 typedef struct Array { u32 count, capacity; void *values; struct Array *dirty_next; uint16_t dirty, kind; u32 exposed; ArrayStorage *storage; u32 element; } Array;
 typedef struct { Value key, value; } Pair;
 /* A struct type (結構 / struct), made when its declaration runs: its program-wide id (the annotation code is
-   32 | id << 6), name and fields, each with its annotation code (0: any value) and type name (for messages). */
+   32 | id << 6), name and fields, each with its annotation code (0: any value) and type name (for messages). defaults
+   holds each field's default (evaluated when the declaration ran; null for none), or is 0 when no field has one. */
 typedef struct { Text *name; u32 code; Text *type; u32 pad; } ShapeField;
-typedef struct { u32 id, count; Text *name; u32 pad; ShapeField fields[]; } Shape;
+typedef struct { u32 id, count; Text *name; Array *defaults; ShapeField fields[]; } Shape;
 /* A struct value: its type and one value per field, in one block. */
 typedef struct { Shape *shape; u32 count, pad0, pad1; Value fields[]; } Struct;
 /* pairs[0..count) are dense in insertion order (hosts read them directly). Above HASH_INDEX_MIN pairs, index is an
@@ -38,6 +39,11 @@ typedef struct { u32 table, arity, capacity, wrap_return; Text **parameters; Val
    the frame's scope is the closure scope itself. Only closure-free bodies are promoted, so no other
    frame, closure or host can observe the replaced lexical scope. */
 enum { PROMOTED_SCOPE=1, NATIVE_TIER=2 }; /* NATIVE_TIER: numeric_table is a native adapter, numeric_table+1 its resume adapter. */
+/* Bits 2..7: how many trailing parameters have defaults. A call may leave them out; they then hold MISSING, which the
+   body's prologue (rt_isMissing) replaces with the default. */
+#define OPTIONAL_PARAMETERS(fn) (((fn)->flags>>2)&63u)
+#define MISSING_REF 0x6d697373u
+#define MISSING ((Value){VOID,MISSING_REF,0})
 /* Runtime-only speculation statistics in the upper bits of Function.flags (instance memory). */
 #define NUMERIC_HITS(fn) (((fn)->flags>>16)&0xff)
 #define NUMERIC_MISSES(fn) ((fn)->flags>>24)
@@ -509,13 +515,15 @@ static int run_callee(Frame*f) {
 u32 aqua_execute(u32 p,u32 id,u32 s,u32 context) { Execution*e=allocate(sizeof(Execution),EXECUTIONS);e->next=executions;executions=e;e->poll=gc_armed;((Scope*)pointer(s))->captured=1;e->current=frame(e,0,pointer(p),id,pointer(s),context);return address(e); }
 u32 aqua_invoke(u32 closure,u32 arguments,u32 count) {
     Closure*c=pointer(closure);Function*fn=c->program->functions+c->function;Value*a=pointer(arguments);
+    // A callback may leave out parameters that have defaults.
+    int fits=count<=fn->arity&&count+OPTIONAL_PARAMETERS(fn)>=fn->arity;
     if(fn->flags&PROMOTED_SCOPE){Execution*e=pointer(aqua_execute(address(c->program),c->function,address(c->scope),c->context));
-        if(count!=fn->arity){failure(e->current,"Incorrect callback argument count.");return address(e);}
-        e->current->binding_cache=closure_cache(c,fn);for(u32 i=0;i<count;i++)e->current->values[i]=a[i];return address(e);}
+        if(!fits){failure(e->current,"Incorrect callback argument count.");return address(e);}
+        e->current->binding_cache=closure_cache(c,fn);for(u32 i=0;i<fn->arity;i++)e->current->values[i]=i<count?a[i]:MISSING;return address(e);}
     Execution*e=pointer(aqua_execute(address(c->program),c->function,address(scope(c->scope)),c->context));
     e->current->scope->captured=0;
-    if(count!=fn->arity){failure(e->current,"Incorrect callback argument count.");return address(e);}
-    for(u32 i=0;i<count;i++)declare(e->current->scope,fn->parameters[i],a[i]);return address(e);
+    if(!fits){failure(e->current,"Incorrect callback argument count.");return address(e);}
+    for(u32 i=0;i<fn->arity;i++)declare(e->current->scope,fn->parameters[i],i<count?a[i]:MISSING);return address(e);
 }
 /* A Thread worker runs without the main program's host: it reaches the builtins every host defines, Thread.Sleep
    and Thread.IsCancellationRequested; anything else is a language error. Every host's worker therefore implements
@@ -655,6 +663,7 @@ static Value flood_fill(Frame*f,Value*args) {
     }}release(stack);if(a->exposed&&!a->dirty){a->dirty=1;a->dirty_next=pending.dirty_arrays;pending.dirty_arrays=a;}return number(changed,INT);
 }
 static Value struct_new(Frame*f,Shape*s,Value*args,u32 n,Text*names);
+static int call_closure(Frame*f,u32 base,Value callee,Value*args,int n);
 int rt_call(Frame*f,int n) {
     if(n<0||(u32)n>=f->sp){failure(f,"Invalid compiled call.");return 1;}u32 base=f->sp-n-1;Value callee=f->values[base];Value*args=f->values+base+1;
     if(callee.tag==BUILTIN&&callee.ref>=THREAD_FIRST_ID&&callee.ref<THREAD_FIRST_ID+THREAD_COUNT){
@@ -680,7 +689,19 @@ int rt_call(Frame*f,int n) {
             else{Array*y=append_array(x,args[1]);out=value(ARRAY,address(y),0);}}
         f->sp=base;push(f,out);}
     else if(callee.tag==STRUCT_TYPE){Value out=struct_new(f,pointer(callee.ref),args,(u32)n,0);f->sp=base;if(!f->execution->status)push(f,out);}
-    else if(callee.tag==CLOSURE){Closure*c=pointer(callee.ref);Function*fn=c->program->functions+c->function;if(fn->arity!=(u32)n){Text*t=concat(ascii("Function expects "),decimal(fn->arity));t=concat(t,ascii(" arguments, got "));t=concat(t,decimal(n));fail(f,concat(t,ascii(".")));return 1;}
+    else if(callee.tag==CLOSURE)return call_closure(f,base,callee,args,n);
+    else if(callee.tag==NATIVE){Value out=empty;int pending=host_service(1,f->context,callee.ref,0,address(args),n,address(&out));f->sp=base;if(pending==1){f->pending_base=base;f->pending_count=n+1;f->execution->status=2;}else push(f,out);}
+    else named_failure(f,"Not a function: ",ascii(type_name(callee.tag)));return f->execution->status!=0;
+}
+/* A call of a closure with n arguments (the callee's slot is f->values[base]); parameters with defaults that the call
+   leaves out get MISSING. args may be the caller's operands or a copy (rt_callNamed): they are copied before anything
+   can collect. Returns like rt_call. */
+static int call_closure(Frame*f,u32 base,Value callee,Value*args,int n) {
+    {Closure*c=pointer(callee.ref);Function*fn=c->program->functions+c->function;
+        if(fn->arity!=(u32)n&&((u32)n>fn->arity||(u32)n+OPTIONAL_PARAMETERS(fn)<fn->arity)){
+            Text*t=concat(ascii("Function expects "),decimal(fn->arity));t=concat(t,ascii(" arguments, got "));t=concat(t,decimal(n));fail(f,concat(t,ascii(".")));return 1;}
+        Value filled[fn->arity>(u32)n?fn->arity:1];
+        if((u32)n<fn->arity){for(u32 i=0;i<fn->arity;i++)filled[i]=i<(u32)n?args[i]:MISSING;args=filled;n=(int)fn->arity;}
         // Closed scalar functions have no heap/capability/captured-write effects.
         // A failed fast attempt can therefore restart on the resumable path.
         // Speculation that keeps failing its argument guards (e.g. always non-numeric arguments) is skipped.
@@ -698,10 +719,8 @@ int rt_call(Frame*f,int n) {
                 f->execution->budget=saved_budget;
             }
         }
-        if(fn->flags&PROMOTED_SCOPE){Frame*callee=frame(f->execution,f,c->program,c->function,c->scope,c->context);callee->binding_cache=closure_cache(c,fn);for(int i=0;i<n;i++)callee->values[i]=args[i];f->sp=base;f->execution->current=callee;return run_callee(f);}
+        if(fn->flags&PROMOTED_SCOPE){Frame*next=frame(f->execution,f,c->program,c->function,c->scope,c->context);next->binding_cache=closure_cache(c,fn);for(int i=0;i<n;i++)next->values[i]=args[i];f->sp=base;f->execution->current=next;return run_callee(f);}
         Scope*s=scope(c->scope);for(int i=0;i<n;i++)declare(s,fn->parameters[i],args[i]);f->sp=base;f->execution->current=frame(f->execution,f,c->program,c->function,s,c->context);return run_callee(f);}
-    else if(callee.tag==NATIVE){Value out=empty;int pending=host_service(1,f->context,callee.ref,0,address(args),n,address(&out));f->sp=base;if(pending==1){f->pending_base=base;f->pending_count=n+1;f->execution->status=2;}else push(f,out);}
-    else named_failure(f,"Not a function: ",ascii(type_name(callee.tag)));return f->execution->status!=0;
 }
 int rt_returned(Frame*f,int n){f->returned=1;return 0;}
 /* Deoptimization of a proven integer specialization: a generic frame of the closure being specialized,
@@ -806,36 +825,70 @@ static int field_fits(Frame*f,Shape*s,u32 i,Value*v) {
     if(fits(v,s->fields[i].code))return 1;
     mismatch(f,concat(concat(s->name,ascii(".")),s->fields[i].name),code_name(s->fields[i].code,s->fields[i].type),*v);return 0;
 }
-/* A struct declaration: descriptor "id\1name\1field\2code\2type\1..." (an untyped field has code 0). */
+/* A struct declaration: descriptor "id\1name\1field\2code\2type\2default\1..." (an untyped field has code 0; default 1
+   when the field's default is on the stack, the defaults in field order under the descriptor's operand). */
 int rt_structType(Frame*f,int n) {
     Text*d=name(f,(u32)n);u32 at=0,count=0;for(u32 i=0;i<d->length;i++)if(d->data[i]==1)count++;count--;
-    Shape*s=allocate(sizeof(Shape)+count*sizeof(ShapeField),SHAPES);s->id=decimal_value(piece(d,&at,2));s->name=piece(d,&at,2);s->count=count;
-    for(u32 i=0;i<count;i++){s->fields[i].name=piece(d,&at,2);s->fields[i].code=decimal_value(piece(d,&at,2));s->fields[i].type=piece(d,&at,2);}
+    Shape*s=allocate(sizeof(Shape)+count*sizeof(ShapeField),SHAPES);s->id=decimal_value(piece(d,&at,2));s->name=piece(d,&at,2);s->count=count;s->defaults=0;
+    u32 defaults=0;unsigned char has[256]={0};
+    for(u32 i=0;i<count;i++){s->fields[i].name=piece(d,&at,2);s->fields[i].code=decimal_value(piece(d,&at,2));s->fields[i].type=piece(d,&at,2);
+        if(decimal_value(piece(d,&at,2))){defaults++;if(i<256)has[i]=1;}}
+    if(defaults){if(defaults>f->sp||count>256){failure(f,"Invalid compiled struct.");return 0;}
+        Array*a=array(count);for(u32 i=0;i<count;i++)array_put(a,i,value(NULL_VALUE,0,0));
+        Value*from=f->values+f->sp-defaults;for(u32 i=0,k=0;i<count;i++)if(has[i])array_put(a,i,from[k++]);
+        f->sp-=defaults;s->defaults=a;}
     push(f,value(STRUCT_TYPE,address(s),0));return 0;
 }
-/* A new struct of type s from n arguments: field[i] gets args[i], or args by name when names (a descriptor of field names)
-   is given. Fields without an argument are null, which only untyped and struct-typed fields may hold. */
+/* A new struct of type s from n arguments: field[i] gets args[i], or args by name when names (a descriptor of the
+   arguments' names, empty for the positional ones before the named) is given. A field without an argument gets its
+   default (a copy of an array or hash default, so structs never share one), else null, which only untyped and
+   struct-typed fields may hold. */
 static Value struct_new(Frame*f,Shape*s,Value*args,u32 n,Text*names) {
-    if(!names&&n>s->count){fail(f,concat(concat(ascii("Too many fields for "),s->name),ascii(".")));return empty;}
     Struct*x=allocate(sizeof(Struct)+s->count*sizeof(Value),STRUCTS);x->shape=s;x->count=s->count;
     for(u32 i=0;i<s->count;i++)x->fields[i]=value(NULL_VALUE,0,0);
     u32 at=0;unsigned char given[256]={0};
-    for(u32 i=0;i<n;i++){int k=(int)i;
-        if(names){Text*field=piece(names,&at,2);k=field_index(s,field);
-            if(k<0){unknown_field(f,s,field);return empty;}
-            if(k<256&&given[k]++){fail(f,concat(concat(concat(ascii("Field given twice for "),s->name),ascii(": ")),field));return empty;}}
+    for(u32 i=0;i<n;i++){int k=(int)i;Text*field=names?piece(names,&at,2):0;
+        if(field&&field->length){k=field_index(s,field);if(k<0){unknown_field(f,s,field);return empty;}}
+        else if(i>=s->count){fail(f,concat(concat(ascii("Too many fields for "),s->name),ascii(".")));return empty;}
+        if(k<256&&given[k]++){fail(f,concat(concat(concat(ascii("Field given twice for "),s->name),ascii(": ")),s->fields[k].name));return empty;}
         Value v=args[i];if(!field_fits(f,s,(u32)k,&v))return empty;x->fields[k]=v;}
+    if(s->defaults)for(u32 i=0;i<s->count&&i<256;i++){
+        Value v=array_get(s->defaults,i);if(given[i]||v.tag==NULL_VALUE)continue;
+        if(v.tag==ARRAY)v=array_call(f,ARRAY_FIRST_ID+7,&v,1);else if(v.tag==HASH)v=hash_call(f,HASH_FIRST_ID+6,&v,1);
+        if(f->execution->status||!field_fits(f,s,i,&v))return empty;x->fields[i]=v;}
     for(u32 i=0;i<s->count;i++)if(x->fields[i].tag==NULL_VALUE&&!fits(&x->fields[i],s->fields[i].code)){Value v=x->fields[i];field_fits(f,s,i,&v);return empty;}
     return value(STRUCT,address(x),0);
 }
-/* A construction with named arguments: 節點(左: a, 右: b); n names the constant listing the field names in order. */
+/* A call with named arguments, after any positional ones (節點(a, 右: b), 按鈕("確定", 樣式: s)); n names the constant
+   listing the arguments' names (empty for the positional ones). A struct type takes them as fields; a function as its
+   parameters by name, those left out being ones with defaults. Returns like rt_call. */
 int rt_callNamed(Frame*f,int n) {
     Text*names=name(f,(u32)n);u32 count=1;for(u32 i=0;i<names->length;i++)if(names->data[i]==1)count++;
-    if(count>=f->sp){failure(f,"Invalid compiled call.");return 0;}
-    u32 base=f->sp-count-1;Value callee=f->values[base];
-    if(callee.tag!=STRUCT_TYPE){fail(f,concat(ascii("Named arguments need a struct type, got "),value_type(callee)));return 0;}
-    Value out=struct_new(f,pointer(callee.ref),f->values+base+1,count,names);f->sp=base;if(!f->execution->status)push(f,out);return 0;
+    if(count>=f->sp){failure(f,"Invalid compiled call.");return 1;}
+    u32 base=f->sp-count-1;Value callee=f->values[base];Value*args=f->values+base+1;
+    if(callee.tag==STRUCT_TYPE){Value out=struct_new(f,pointer(callee.ref),args,count,names);f->sp=base;if(!f->execution->status)push(f,out);return f->execution->status!=0;}
+    if(callee.tag!=CLOSURE){fail(f,concat(ascii("Named arguments need a struct type or a function, got "),value_type(callee)));return 1;}
+    Closure*c=pointer(callee.ref);Function*fn=c->program->functions+c->function;
+    if(fn->arity>256){failure(f,"Too many parameters for named arguments.");return 1;}
+    Value ordered[fn->arity?fn->arity:1];for(u32 i=0;i<fn->arity;i++)ordered[i]=MISSING;
+    u32 at=0;
+    for(u32 i=0;i<count;i++){Text*field=piece(names,&at,2);int k=(int)i;
+        if(field->length){k=-1;for(u32 p=0;p<fn->arity;p++)if(text_equal(fn->parameters[p],field)){k=(int)p;break;}
+            if(k<0){fail(f,concat(ascii("The function has no parameter "),field));return 1;}}
+        else if(i>=fn->arity){Text*t=concat(ascii("Function expects "),decimal(fn->arity));fail(f,concat(concat(t,ascii(" arguments, got ")),decimal(count)));return 1;}
+        if(!(ordered[k].tag==VOID&&ordered[k].ref==MISSING_REF)){fail(f,concat(ascii("The parameter is given twice: "),fn->parameters[k]));return 1;}
+        ordered[k]=args[i];}
+    for(u32 p=0;p+OPTIONAL_PARAMETERS(fn)<fn->arity;p++)
+        if(ordered[p].tag==VOID&&ordered[p].ref==MISSING_REF){fail(f,concat(ascii("The call gives no value for the parameter "),fn->parameters[p]));return 1;}
+    return call_closure(f,base,callee,ordered,(int)fn->arity);
 }
+/* The prologue of a parameter with a default: whether the call left it out. */
+int rt_isMissing(Frame*f,int n){Value v=pop(f);push(f,value(BOOL,0,v.tag==VOID&&v.ref==MISSING_REF));return 0;}
+/* An element of an array literal with ...spread, if or for elements, appended to the array being built (it stays). */
+int rt_appendElement(Frame*f,int n){Value v=pop(f);Value args[2]={f->values[f->sp-1],v};array_call(f,ARRAY_FIRST_ID+4,args,2);return 0;}
+int rt_appendElements(Frame*f,int n){Value v=pop(f);
+    if(v.tag!=ARRAY){named_failure(f,"... spreads an array, got / ... 只能展開陣列，卻是 ",ascii(type_name(v.tag)));return 0;}
+    Value args[2]={f->values[f->sp-1],v};array_call(f,ARRAY_FIRST_ID+5,args,2);return 0;}
 /* obj.field = value (the value stays on the stack, like an assignment). */
 int rt_setMember(Frame*f,int n) {
     Value v=pop(f),m=pop(f);Text*t=name(f,(u32)n);
@@ -947,7 +1000,7 @@ u32 aqua_collect(void){memset(member_cache,0,sizeof member_cache);
         case EXECUTIONS:{Execution*e=p;mark_ref(e->current);mark_value(e->result);break;}
         case PINS:mark_value(((Pin*)p)->value);break;
         case STRUCTS:{Struct*x=p;mark_ref(x->shape);for(u32 i=0;i<x->count;i++)mark_value(x->fields[i]);break;}
-        case SHAPES:{Shape*x=p;mark_ref(x->name);for(u32 i=0;i<x->count;i++){mark_ref(x->fields[i].name);mark_ref(x->fields[i].type);}break;}
+        case SHAPES:{Shape*x=p;mark_ref(x->name);mark_ref(x->defaults);for(u32 i=0;i<x->count;i++){mark_ref(x->fields[i].name);mark_ref(x->fields[i].type);}break;}
     }}u32 reclaimed=0,live=0;
     // One pass sweeps, clears survivor marks and rebuilds the segregated free lists, so tiny scopes
     // cannot consume reusable frames.

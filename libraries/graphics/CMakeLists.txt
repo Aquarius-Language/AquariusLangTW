@@ -22,7 +22,7 @@ set(sources
     src/gpu/texture.c
     src/processing/canvas.c src/processing/color.c src/processing/data.c src/processing/drawing.c src/processing/geometry.c
     src/processing/image.c src/processing/input.c src/processing/lifecycle.c src/processing/math.c
-    src/processing/module.c src/processing/shapes.c src/processing/shaders.c src/processing/text.c
+    src/processing/module.c src/processing/shapes.c src/processing/shaders.c src/processing/text.c src/processing/ui.c
     src/processing/vector.c
     src/modules/fonts.c src/modules/glm.c src/modules/textinput.c src/modules/wgpu.c src/modules/window.c)
 set(include_directories src third_party/stb third_party/musl)

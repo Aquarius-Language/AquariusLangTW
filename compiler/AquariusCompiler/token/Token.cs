@@ -53,6 +53,8 @@ namespace AquariusLang.token {
         public const string SHIFT_RIGHT_EQ = ">>=";
         public const string SHIFT_RIGHT_UNSIGNED_EQ = ">>>=";
         public const string DOT = ".";
+        public const string ARROW = "=>";
+        public const string ELLIPSIS = "...";
 
         // Delimiters
         public const string COMMA = ",";

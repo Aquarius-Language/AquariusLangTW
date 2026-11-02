@@ -30,6 +30,16 @@ namespace AquariusLang.lexer {
             return l;
         }
 
+        /// <summary>The token NextToken would return, without consuming it (the parser looks past a <c>)</c> for <c>=&gt;</c>).</summary>
+        public Token Peek() {
+            int savedPosition = position, savedRead = readPosition, savedErrors = lexicalErrors.Count;
+            char savedChar = ch;
+            Token token = NextToken();
+            position = savedPosition; readPosition = savedRead; ch = savedChar;
+            lexicalErrors.RemoveRange(savedErrors, lexicalErrors.Count - savedErrors);
+            return token;
+        }
+
         public Token NextToken() {
             // Avoid recursive comment skipping in large documents.
             skipWhitespace();
@@ -49,6 +59,10 @@ namespace AquariusLang.lexer {
                         readChar();
                         string literal = "==";
                         token = newToken(TokenType.EQ, literal);
+                    } else if (peekChar() == '>') {
+                        // => starts a short function's body: (a, b) => a + b.
+                        readChar();
+                        token = newToken(TokenType.ARROW, "=>");
                     } else {
                         token = newToken(TokenType.ASSIGN, ch);
                     }
@@ -222,7 +236,9 @@ namespace AquariusLang.lexer {
                     token = newToken(TokenType.BIT_NOT, ch);
                     break;
                 case '.':
-                    token = newToken(TokenType.DOT, '.');
+                    // ... spreads an array into an array literal: [first, ...rest].
+                    if (peekChar() == '.' && peekChar(2) == '.') { readChar(); readChar(); token = newToken(TokenType.ELLIPSIS, "..."); }
+                    else token = newToken(TokenType.DOT, '.');
                     break;
                 case (char)0:
                     token = newToken(TokenType.EOF, "");

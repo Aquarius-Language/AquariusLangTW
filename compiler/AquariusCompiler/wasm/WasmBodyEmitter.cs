@@ -608,7 +608,7 @@ internal sealed class WasmBodyEmitter
                     if (top == Unknown || top == BreakTag) { leaders.Add(op.Operand); leaders.Add(i + 1); }
                     break;
                 }
-                case IrOperation.Call: case IrOperation.ResolveMemberFunction: case IrOperation.Return: case IrOperation.Error:
+                case IrOperation.Call: case IrOperation.CallNamed: case IrOperation.ResolveMemberFunction: case IrOperation.Return: case IrOperation.Error:
                     leaders.Add(i + 1); break;
             }
         }
@@ -812,14 +812,23 @@ internal sealed class WasmBodyEmitter
             case IrOperation.Array: Helper("array", n, d, n); return false;
             case IrOperation.Hash: Helper("hash", n, d, n * 2); return false;
             case IrOperation.CheckHashKey: Helper("checkHashKey", n, d, 0); return false;
-            case IrOperation.StructType: Helper("structType", n, d, 0); return false;
+            case IrOperation.StructType: Helper("structType", n, d, body.StructDefaults(n)); return false;
+            case IrOperation.IsMissing: Helper("isMissing", 0, d, 1); return false;
+            case IrOperation.Append: Helper("appendElement", 0, d, 2); return false;
+            case IrOperation.AppendAll: Helper("appendElements", 0, d, 2); return false;
             case IrOperation.CheckStruct: Helper("checkStruct", n, d, 1); return false;
             case IrOperation.SetMember: if (inlineCaches) SetStructField(n, d); else Helper("setMember", n, d, 2); return false;
             case IrOperation.CompoundMember: Helper("compoundMember", n, d, 2); return false;
             case IrOperation.CompoundIndex: Helper("compoundIndex", n, d, 3); return false;
             case IrOperation.IncrementIndex: Helper("incrementIndex", n, d, 2); return false;
             case IrOperation.IncrementMember: Helper("incrementMember", n, d, 1); return false;
-            case IrOperation.CallNamed: Helper("callNamed", n, d, body.NamedArguments(n) + 1); return false;
+            case IrOperation.CallNamed: {
+                // A construction, or a call of a function with arguments by name: it may start the callee's frame like Call.
+                int count = body.NamedArguments(n);
+                ShadowWriteBack(); SpillAll(d); StoreSp(d); Get(F); I32(n); Call("callNamed");
+                If(); WriteBack(); Resume(BlockOf(pc + 1)); End(); Forget(d - count - 1); InvalidateAddresses();
+                GoBlock(pc + 1); return true;
+            }
             case IrOperation.CheckType: CheckType(n, d); return false;
             case IrOperation.Member: if (inlineCaches) StructField(n, d); else Helper("member", n, d, 1); return false;
             case IrOperation.MemberFunction: Helper("member", n, d, 1); return false;

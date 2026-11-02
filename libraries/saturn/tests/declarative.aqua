@@ -1,0 +1,74 @@
+# SaturnUI written in the declarative style the language supports: the main argument first and options by name, field
+# defaults, short functions for handlers, and if / for / ... elements in children lists. A component of your own takes
+# defaults and named arguments like the built-in widgets.
+var UI = import("SaturnUI");
+struct Todo { title; done = false }
+struct AppState { todos = []; filter = "all"; draft = "" }
+var filters = ["all", "open", "done"];
+
+# A component: a function with defaults, called like a widget.
+var Badge = function(label, tone = "#5b6cff", onTap = null) {
+    return UI.Box(onTap: onTap, style: {"background": tone, "borderRadius": 999, "paddingHorizontal": 8}, child: UI.Text(label));
+};
+
+var app = UI.Stateful(
+    init: () => AppState(todos: [Todo("Design"), Todo("Build", done: true), Todo("Ship")]),
+    build: (s, context) => UI.Column(gap: 6, style: {"padding": 10}, children: [
+        UI.Row(gap: 6, key: "filters", children: [
+            for (var i = 0; i < len(filters); i++) Badge(filters[i], onTap: () => s.filter = filters[i]),
+        ]),
+        for (var i = 0; i < len(s.todos); i++)
+            if (s.filter == "all" || (s.filter == "done") == s.todos[i].done)
+                UI.Row(gap: 8, crossAxis: "center", key: s.todos[i].title, children: [
+                    UI.Checkbox(value: s.todos[i].done, onChanged: v => s.todos[i].done = v),
+                    UI.Text(s.todos[i].title),
+                    if (s.todos[i].done) Badge("done", tone: "#2e9d5b"),
+                ]),
+        ...[UI.Divider(), UI.Text("Total " + String.From(len(s.todos)), key: "total")],
+    ]),
+);
+
+var surface = UI.Surface(300, 300, app, null);
+surface.Frame(0);
+var column = surface.tree.children[0].children[0];
+var keys = (e) => {
+    var out = [];
+    for (var i = 0; i < len(e.children); i++) { Array.Append(out, e.children[i].key); }
+    out;
+};
+var tap = (e) => {
+    var b = e.node.GetAbsoluteLayout();
+    var x = b["x"] + b["width"] / 2;
+    var y = b["y"] + b["height"] / 2;
+    surface.Feed({"type": "move", "x": x, "y": y});
+    surface.Feed({"type": "press", "x": x, "y": y, "button": 0});
+    surface.Feed({"type": "release", "x": x, "y": y, "button": 0});
+    surface.Frame(surface.time + 16);
+};
+print("rows", keys(column));
+print("badges", len(column.children[2].children));
+tap(column.children[0].children[2]);
+print("done filter", keys(column));
+tap(column.children[0].children[1]);
+print("open filter", keys(column));
+tap(column.children[0].children[0]);
+tap(column.children[1].children[0]);
+print("after check", keys(column), len(column.children[1].children));
+
+# A vertical ScrollView lays its content out at its own width, so wrapped text gives the real extent to scroll.
+var scroller = UI.Surface(200, 100, UI.ScrollView(style: {"flexGrow": 1}, child: UI.Column(children: [
+    for (var i = 0; i < 3; i++) UI.Text("Words that wrap over several lines in a narrow view", key: i),
+])), null);
+scroller.Frame(0);
+var view = scroller.tree.children[0];
+print("scroll extent fits", view.children[0].node.GetComputedHeight() < 400, view.children[0].node.GetComputedWidth() == 200);
+# A ListView fills the card it is in, whatever its 10,000 rows add up to, and scrolls by the wheel.
+var listSurface = UI.Surface(400, 300, UI.Row(style: {"flexGrow": 1, "padding": 10}, crossAxis: "stretch", children: [
+    UI.Expanded(child: UI.Card(style: {"padding": 0}, children: [UI.ListView(itemCount: 10000, itemExtent: 30, itemBuilder: i => UI.Text("#" + String.From(i)))])),
+]), null);
+listSurface.Frame(0);
+var list = listSurface.tree.children[0].children[0].children[0].children[0];
+listSurface.Feed({"type": "move", "x": 200, "y": 150});
+listSurface.Feed({"type": "scroll", "x": 200, "y": 150, "dy": 600});
+listSurface.Frame(16);
+print("list fits", list.type, list.node.GetComputedHeight() < 300, list.data["scrollY"]);

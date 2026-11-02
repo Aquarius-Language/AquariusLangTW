@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Linq;
 using AquariusLang.ast;
 using AquariusLang.lexer;
 using AquariusLang.token;
@@ -354,6 +355,7 @@ namespace AquariusLang.parser {
                     field.Type = parseTypeAnnotation();
                     if (field.Type == null) return null;
                 }
+                if (peekTokenIs(TokenType.ASSIGN) && (field.Default = parseDefault()) == null) return null;
                 fields.Add(field);
                 if (peekTokenIs(TokenType.SEMICOLON) || peekTokenIs(TokenType.COMMA)) nextToken();
                 else if (!peekTokenIs(TokenType.RBRACE)) { expectPeek(TokenType.RBRACE); return null; }
@@ -492,6 +494,12 @@ namespace AquariusLang.parser {
                     return parseFunction(true) is FunctionLiteral function ? new AsyncFunctionExpression(keyword, function) : null;
                 }
                 if (currToken.Literal is "等待" or "await" && startsAwaitOperand()) return parseAwaitExpression();
+                // x => x * 2: a short function of one parameter.
+                if (peekTokenIs(TokenType.ARROW)) {
+                    var parameter = new Identifier(currToken, currToken.Literal);
+                    declared(parameter.Value);
+                    return parseArrowFunction(currToken, new[] { parameter });
+                }
             }
             return new Identifier(currToken, currToken.Literal);
         }
@@ -679,8 +687,39 @@ namespace AquariusLang.parser {
         /// </summary>
         /// <returns></returns>
         private IExpression parseGroupedExpression() {
+            Token open = currToken;
+            // () => ...: a short function without parameters.
+            if (peekTokenIs(TokenType.RPAREN)) {
+                nextToken();
+                if (!peekTokenIs(TokenType.ARROW)) { peekError(TokenType.ARROW); return null; }
+                return parseArrowFunction(open, System.Array.Empty<Identifier>());
+            }
             nextToken();
             IExpression expression = parseExpression((int)Precedence.OperatorPrecedence.LOWEST);
+
+            // (a, b) => ..., (a: int) => ... and (a = 1) => ...: a parenthesized expression has no comma or annotation, and
+            // one followed by => is a parameter list.
+            if (peekTokenIs(TokenType.COMMA) || peekTokenIs(TokenType.COLON) || peekTokenIs(TokenType.RPAREN) && arrowAfterParenthesis()) {
+                var parameters = new List<Identifier>();
+                if (!(expression is Identifier or InfixExpression { Operator: "=", Left: Identifier })) {
+                    addError("短函式的參數必須是名稱 / The parameters of a short function must be names.", open);
+                    return null;
+                }
+                var first = expression as Identifier ?? (Identifier)((InfixExpression)expression).Left;
+                var firstDefault = (expression as InfixExpression)?.Right;
+                first = new Identifier(first.Token, first.Value);
+                if (!addParameter(parameters, first)) return null;
+                if (firstDefault != null) first.Default = firstDefault;
+                while (peekTokenIs(TokenType.COMMA)) {
+                    nextToken();
+                    if (peekTokenIs(TokenType.RPAREN)) break;
+                    if (!expectPeek(TokenType.IDENT)) return null;
+                    if (!addParameter(parameters, new Identifier(currToken, currToken.Literal))) return null;
+                }
+                if (!expectPeek(TokenType.RPAREN)) return null;
+                if (!peekTokenIs(TokenType.ARROW)) { peekError(TokenType.ARROW); return null; }
+                return parseArrowFunction(open, parameters.ToArray());
+            }
 
             if (!expectPeek(TokenType.RPAREN)) {
                 return null;
@@ -688,6 +727,9 @@ namespace AquariusLang.parser {
 
             return expression;
         }
+
+        /// <summary>Whether <c>)</c> (the peek token) is followed by <c>=&gt;</c>. The lexer is copied, so nothing is consumed.</summary>
+        private bool arrowAfterParenthesis() => lexer.Peek().Type == TokenType.ARROW;
 
         /// <summary>
         /// If expression example in Monkey:
@@ -725,6 +767,11 @@ namespace AquariusLang.parser {
                 return null;
             }
 
+            return parseIfRest(expression);
+        }
+
+        /// <summary>The rest of an if expression after its condition's <c>)</c>: the block and its alternatives.</summary>
+        private IExpression parseIfRest(IfExpression expression) {
             if (!expectPeek(TokenType.LBRACE)) {
                 return null;
             }
@@ -795,6 +842,14 @@ namespace AquariusLang.parser {
         }
 
         private IExpression parseForLoopLiteral() {
+            var loop = parseForHeader();
+            if (loop == null || !expectPeek(TokenType.LBRACE)) return null;
+            loop.Body = parseBlockStatement();
+            return loop;
+        }
+
+        /// <summary>A loop's <c>迴圈 (宣告; 條件; 更新)</c>, leaving its <c>)</c> current; the caller parses the body.</summary>
+        private ForLoopLiteral parseForHeader() {
             ForLoopLiteral forLoopLiteral = new ForLoopLiteral(currToken);
             if (!expectPeek(TokenType.LPAREN)) {
                 return null;
@@ -820,9 +875,6 @@ namespace AquariusLang.parser {
                 forLoopLiteral.ValueChangeStatement = parseStatement();
             }
             if (!expectPeek(TokenType.RPAREN)) return null;
-            if (!expectPeek(TokenType.LBRACE)) return null;
-            forLoopLiteral.Body = parseBlockStatement();
-
             return forLoopLiteral;
         }
 
@@ -853,36 +905,19 @@ namespace AquariusLang.parser {
             return functionLiteral;
         }
 
+        /// <summary>A parameter list after its <c>(</c>: names with optional annotations and defaults (<c>名稱: 型別 = 值</c>),
+        /// a trailing comma allowed; leaves the <c>)</c> current.</summary>
         private Identifier[] parseFunctionParameters() {
             List<Identifier> identifiers = new List<Identifier>();
-            if (peekTokenIs(TokenType.RPAREN)) {
-                nextToken();
-                return identifiers.ToArray();
-            }
-
-            nextToken();
-            if (!currTokenIs(TokenType.IDENT)) {
-                addError("Expected a parameter name.", currToken);
-                return null;
-            }
-            Identifier identifier = new Identifier(currToken, currToken.Literal);
-            declared(identifier.Value);
-            identifiers.Add(identifier);
-            if (peekTokenIs(TokenType.COLON) && (identifier.Type = parseTypeAnnotation()) == null) return null;
-
-            while (peekTokenIs(TokenType.COMMA)) {
-                nextToken();
+            while (!peekTokenIs(TokenType.RPAREN)) {
                 nextToken();
                 if (!currTokenIs(TokenType.IDENT)) {
                     addError("Expected a parameter name.", currToken);
                     return null;
                 }
-                identifier = new Identifier(currToken, currToken.Literal);
-                declared(identifier.Value);
-                if (identifiers.Exists(p => p.Value == identifier.Value))
-                    addError($"參數 {identifier.Value} 重複 / Duplicate parameter {identifier.Value}.", currToken);
-                identifiers.Add(identifier);
-                if (peekTokenIs(TokenType.COLON) && (identifier.Type = parseTypeAnnotation()) == null) return null;
+                if (!addParameter(identifiers, new Identifier(currToken, currToken.Literal))) return null;
+                if (!peekTokenIs(TokenType.COMMA)) break;
+                nextToken();
             }
 
             if (!expectPeek(TokenType.RPAREN)) {
@@ -890,6 +925,46 @@ namespace AquariusLang.parser {
             }
 
             return identifiers.ToArray();
+        }
+
+        /// <summary>Adds a parameter whose name is the current token, then its annotation and default when they follow.
+        /// Once a parameter has a default, every later one needs one too, so leaving out arguments leaves out the last ones.</summary>
+        private bool addParameter(List<Identifier> identifiers, Identifier identifier) {
+            declared(identifier.Value);
+            if (identifiers.Exists(p => p.Value == identifier.Value))
+                addError($"參數 {identifier.Value} 重複 / Duplicate parameter {identifier.Value}.", identifier.Token);
+            identifiers.Add(identifier);
+            if (peekTokenIs(TokenType.COLON) && (identifier.Type = parseTypeAnnotation()) == null) return false;
+            if (peekTokenIs(TokenType.ASSIGN) && (identifier.Default = parseDefault()) == null) return false;
+            if (identifier.Default != null && identifiers.Count(p => p.Default != null) > 63)
+                addError("一個函式最多 63 個參數有預設值 / A function has at most 63 parameters with defaults.", identifier.Token);
+            if (identifier.Default == null && identifiers.Count > 1 && identifiers[^2].Default != null)
+                addError($"參數 {identifier.Value} 需要預設值：有預設值的參數之後都要有預設值 / Parameter {identifier.Value} needs a default: every parameter after one with a default has one.", identifier.Token);
+            return true;
+        }
+
+        /// <summary>The default value after a parameter or field (<c>= 值</c>), with the <c>=</c> as the peek token.</summary>
+        private IExpression parseDefault() {
+            nextToken();
+            nextToken();
+            return parseExpression((int)Precedence.OperatorPrecedence.LOWEST);
+        }
+
+        /// <summary>A short function after its parameter list, with the <c>=&gt;</c> as the peek token: <c>(a, b) =&gt; a + b</c>
+        /// returns the expression's value, <c>() =&gt; { ... }</c> runs a block like a function body (a hash result is written
+        /// in parentheses: <c>() =&gt; ({"a": 1})</c>).</summary>
+        private IExpression parseArrowFunction(Token token, Identifier[] parameters) {
+            nextToken();
+            var function = new FunctionLiteral(token) { Parameters = parameters };
+            functions.Push(false);
+            try {
+                if (peekTokenIs(TokenType.LBRACE)) { nextToken(); function.Body = parseBlockStatement(); return function; }
+                nextToken();
+                var body = new ExpressionStatement(currToken) { Expression = parseExpression((int)Precedence.OperatorPrecedence.LOWEST) };
+                if (body.Expression == null) return null;
+                function.Body = new BlockStatement(token) { Statements = new IStatement[] { body } };
+                return function;
+            } finally { functions.Pop(); }
         }
 
         /// <summary>
@@ -927,58 +1002,81 @@ namespace AquariusLang.parser {
 
         private IExpression parseCallExpression(IExpression function) {
             CallExpression callExpression = new CallExpression(currToken, function);
-            // Arguments, all positional or all named (名稱: 值, a struct construction).
-            var arguments = new List<IExpression>(); var names = new List<string>();
-            if (peekTokenIs(TokenType.RPAREN)) { nextToken(); callExpression.Arguments = arguments.ToArray(); return callExpression; }
-            do {
+            // Positional arguments, then named ones (名稱: 值): a struct's fields or a function's parameters by name. A
+            // trailing comma is allowed.
+            var arguments = new List<IExpression>(); var names = new List<string>(); bool named = false;
+            while (!peekTokenIs(TokenType.RPAREN)) {
                 nextToken();
                 var argument = parseExpression((int)Precedence.OperatorPrecedence.LOWEST);
                 if (argument is Identifier name && peekTokenIs(TokenType.COLON)) {
-                    if (arguments.Count > names.Count) { addError("具名與位置引數不能混用 / Named and positional arguments cannot be mixed.", name.Token); return null; }
                     if (names.Contains(name.Value)) addError($"引數 {name.Value} 重複 / Duplicate argument {name.Value}.", name.Token);
                     nextToken(); nextToken();
-                    names.Add(name.Value);
+                    names.Add(name.Value); named = true;
                     argument = parseExpression((int)Precedence.OperatorPrecedence.LOWEST);
-                } else if (names.Count > 0) { addError("具名與位置引數不能混用 / Named and positional arguments cannot be mixed.", currToken); return null; }
+                } else if (named) { addError("位置引數必須寫在具名引數之前 / Positional arguments come before named arguments.", currToken); return null; }
+                else names.Add("");
                 arguments.Add(argument);
-            } while (peekTokenIs(TokenType.COMMA) && advance());
+                if (!peekTokenIs(TokenType.COMMA)) break;
+                nextToken();
+            }
             if (!expectPeek(TokenType.RPAREN)) return null;
             callExpression.Arguments = arguments.ToArray();
-            if (names.Count > 0) callExpression.ArgumentNames = names.ToArray();
+            // The positional arguments have the empty name.
+            if (named) callExpression.ArgumentNames = names.ToArray();
             return callExpression;
         }
-        private bool advance() { nextToken(); return true; }
 
         private IExpression parseArrayLiteral() {
             ArrayLiteral array = new ArrayLiteral(currToken);
-            array.Elements = parseExpressionList(TokenType.RBRACKET);
+            var elements = new List<IExpression>();
+            while (!peekTokenIs(TokenType.RBRACKET)) {
+                nextToken();
+                var element = parseElement();
+                if (element == null) return null;
+                elements.Add(element);
+                if (!peekTokenIs(TokenType.COMMA)) break;
+                nextToken();
+            }
+            if (!expectPeek(TokenType.RBRACKET)) return null;
+            array.Elements = elements.ToArray();
             return array;
         }
 
-        private IExpression[] parseExpressionList(string endTokenType, bool checkEndToken = true) {
-            List<IExpression> list = new List<IExpression>();
-
-            if (peekTokenIs(endTokenType)) {
+        /// <summary>An element of an array literal: an expression, <c>...陣列</c> (its elements), <c>如果 (條件) 元素 否則 元素</c>
+        /// or <c>迴圈 (...) 元素</c> (the element for each iteration). An <c>如果</c> or <c>迴圈</c> followed by a block is the
+        /// ordinary expression.</summary>
+        private IExpression parseElement() {
+            if (currTokenIs(TokenType.ELLIPSIS)) {
+                Token token = currToken;
                 nextToken();
-                return list.ToArray();
+                var value = parseExpression((int)Precedence.OperatorPrecedence.LOWEST);
+                return value == null ? null : new SpreadElement(token, value);
             }
-
-            nextToken();
-            list.Add(parseExpression((int)Precedence.OperatorPrecedence.LOWEST));
-
-            while (peekTokenIs(TokenType.COMMA)) {
+            if (currTokenIs(TokenType.IF) || currTokenIs(TokenType.ELSE_IF)) {
+                Token token = currToken;
+                if (!expectPeek(TokenType.LPAREN)) return null;
                 nextToken();
+                var condition = parseExpression((int)Precedence.OperatorPrecedence.LOWEST);
+                if (!expectPeek(TokenType.RPAREN)) return null;
+                if (peekTokenIs(TokenType.LBRACE) && token.Type == TokenType.IF) return parseIfRest(new IfExpression(token) { Condition = condition });
+                var element = new CollectionIf(token) { Condition = condition };
                 nextToken();
-                list.Add(parseExpression((int)Precedence.OperatorPrecedence.LOWEST));
+                if ((element.Then = parseElement()) == null) return null;
+                if (peekTokenIs(TokenType.ELSE_IF)) { nextToken(); return (element.Else = parseElement()) == null ? null : element; }
+                if (peekTokenIs(TokenType.ELSE)) { nextToken(); nextToken(); if ((element.Else = parseElement()) == null) return null; }
+                return element;
             }
-
-            if (checkEndToken) {
-                if (!expectPeek(endTokenType)) {
-                    return null;
-                }
+            if (currTokenIs(TokenType.FOR)) {
+                var loop = parseForHeader();
+                if (loop == null) return null;
+                if (peekTokenIs(TokenType.LBRACE)) { nextToken(); loop.Body = parseBlockStatement(); return loop; }
+                nextToken();
+                var element = parseElement();
+                if (element == null) return null;
+                loop.Body = new BlockStatement(loop.Token) { Statements = new IStatement[] { new ExpressionStatement(loop.Token, element) } };
+                return new CollectionFor(loop.Token) { Loop = loop, Element = element };
             }
-
-            return list.ToArray();
+            return parseExpression((int)Precedence.OperatorPrecedence.LOWEST);
         }
 
         private IExpression parseIndexExpression(IExpression left) {

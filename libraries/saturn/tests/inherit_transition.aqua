@@ -1,0 +1,46 @@
+# Text properties inherit as in CSS; ReplaceStyle swaps a node's whole style (properties left out return to their
+# defaults) without dirtying unchanged layout; "transition" animates visual properties on Saturn's clock.
+var Saturn = import("Saturn");
+var root = Saturn.Node();
+root.SetStyle({"width": 300, "fontSize": 20, "color": "#336699", "fontWeight": "bold"});
+var box = Saturn.Node();
+box.SetStyle({"padding": 4});
+var label = Saturn.Node();
+label.SetText("Inherited text");
+box.InsertChild(label);
+root.InsertChild(box);
+root.CalculateLayout();
+var first = label.GetComputedHeight();
+var list = root.Paint();
+var c = list["commands"];
+print("inherited", first, c[7], c[8], c[11], c[12], c[13]);       # size, weight, color of the text op
+root.ReplaceStyle({"width": 300, "fontSize": 10});
+root.CalculateLayout();
+c = root.Paint()["commands"];
+print("replaced", label.GetComputedHeight() < first, c[7], c[8], c[11], c[12], c[13]);
+
+# Unchanged layout stays clean; a change dirties it.
+root.CalculateLayout();
+box.ReplaceStyle([{"padding": 4}, {"background": "red"}]);
+print("clean", root.IsDirty(), box.IsDirty());
+box.ReplaceStyle({"padding": 8});
+print("dirty", root.IsDirty());
+
+# Transitions: from red to half-transparent blue over 100 ms.
+var swatch = Saturn.Node();
+swatch.SetStyle({"width": 10, "height": 10});
+swatch.CalculateLayout();
+Saturn.SetTime(1000);
+swatch.ReplaceStyle({"width": 10, "height": 10, "background": "#ff0000"});
+swatch.ReplaceStyle({"width": 10, "height": 10, "background": "#0000ff", "opacity": 0.5d, "transition": {"duration": 100, "easing": "linear"}});
+var sample = function(time) {
+    Saturn.SetTime(time);
+    var k = swatch.Paint()["commands"];
+    var opacity = 1.0d;
+    var at = 0;
+    if (int(k[0]) == 14) { opacity = k[1]; at = 2; }
+    return [Saturn.Animating(), opacity, int(k[at + 9]), int(k[at + 11])];
+};
+print("t0", sample(1000));
+print("t50", sample(1050));
+print("t100", sample(1100));

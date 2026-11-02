@@ -1,0 +1,63 @@
+# ImGui without a window: frames of widgets fed by events and rendered into a UI draw list; editors return new values,
+# a click reaches its button, Embed splices another library's list, and misuse is an error, not a crash.
+var ImGui = import("ImGui");
+var Saturn = import("Saturn");
+var Network = import("Network");
+var gui = ImGui.CreateContext({"theme": "light"});
+print("outside", Network.Try(function() { ImGui.Button("x"); }).Error.Message);
+
+var speed = 2.0d;
+var on = false;
+var name = "Saturn";
+var color = [1, 0.5d, 0.25d];
+var pick = 2;
+var clicks = 0;
+var button = [0, 0];
+var embedded = [];
+var frame = function() {
+    gui.NewFrame(400, 300, 1.0d / 60);
+    ImGui.SetNextWindowPos(10, 10);
+    ImGui.SetNextWindowSize(300, 260);
+    ImGui.Begin("Panel");
+    if (ImGui.Button("Press me")) { clicks++; }
+    var min = ImGui.GetItemRectMin();
+    var max = ImGui.GetItemRectMax();
+    button = [(min[0] + max[0]) / 2, (min[1] + max[1]) / 2];
+    speed = ImGui.SliderFloat("speed", speed, 0, 10);
+    on = ImGui.Checkbox("on", on);
+    name = ImGui.InputText("name", name);
+    color = ImGui.ColorEdit3("color", color);
+    pick = ImGui.Combo("pick", pick, ["a", "b", "c"]);
+    ImGui.Embed("slot", 64, 32);
+    ImGui.End();
+    return gui.Render(function(id, x, y, w, h) {
+        Array.Append(embedded, id);
+        var p = Saturn.Painter();
+        p.Rect(0, 0, w, h, "#ff0000");
+        return p.Build();
+    });
+};
+var sizes = [0, 12, 16, 14, 14, 17, 8, 0, 6, 0, 5, 8, 9, 20, 1, 0];
+var count = function(list, code) {
+    var c = list["commands"];
+    var n = 0;
+    for (var at = 0; at < len(c); at += 1 + sizes[int(c[at])]) { if (int(c[at]) == code) { n++; } }
+    return n;
+};
+var first = frame();
+print("first frame", count(first, 11) > 0, count(first, 10) > 0, count(first, 1), len(first["vertices"]) % 8, embedded);
+
+# Move onto the button, press, release: one click.
+gui.Feed({"type": "move", "x": button[0], "y": button[1]});
+frame();
+print("over", gui.WantCaptureMouse, gui.Feed({"type": "press", "x": button[0], "y": button[1], "button": 0}));
+frame();
+gui.Feed({"type": "release", "x": button[0], "y": button[1], "button": 0});
+var last = frame();
+print("clicks", clicks, count(last, 11));
+gui.Feed({"type": "move", "x": 380, "y": 290});
+frame();
+print("outside window", gui.WantCaptureMouse);
+print("values", speed, on, name, color, pick, ImGui.GetVersion());
+gui.NewFrame(400, 300);
+print("recovered", Network.Try(function() { ImGui.End(); gui.Render(); }).Success);

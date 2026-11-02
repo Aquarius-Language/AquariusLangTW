@@ -1,0 +1,88 @@
+# SaturnUI without a window: a Stateful app reconciled across rebuilds (state kept, keyed children reordered), taps,
+# a text field typed into, a slider dragged, a dropdown chosen from, a dialog opened and dismissed, hover styles and
+# scrolling, with the built-in text measurer.
+var UI = import("SaturnUI");
+struct AppState { count; name; volume; choice; open; items; hovered }
+var app = UI.Stateful(
+    init: function() { return AppState(count: 0, name: "ab", volume: 0.5d, choice: "B", open: false, items: ["x", "y", "z"], hovered: false); },
+    build: function(s, context) {
+        var rows = [];
+        for (var i = 0; i < len(s.items); i++) { Array.Append(rows, UI.Text(text: s.items[i], key: s.items[i])); }
+        return UI.Column(gap: 8, crossAxis: "stretch", style: {"padding": 10}, children: [
+            UI.Button(label: "Count " + String.From(s.count), key: "count", onPress: function() { s.count += 1; }),
+            UI.TextField(value: s.name, key: "name", onChanged: function(v) { s.name = v; }),
+            UI.Slider(value: s.volume, width: 200, key: "volume", onChanged: function(v) { s.volume = v; }),
+            UI.Dropdown(value: s.choice, options: ["A", "B", "C"], key: "choice", onChanged: function(v) { s.choice = v; }),
+            UI.Button(label: "Reverse", key: "reverse", onPress: function() { Array.Reverse(s.items); }),
+            UI.Box(key: "hover", style: {"height": 20}, onHover: function(on) { s.hovered = on; }),
+            UI.Column(children: rows, key: "rows"),
+            UI.Button(label: "Open", key: "open", onPress: function() { s.open = true; }),
+            UI.Dialog(open: s.open, title: "Dialog", key: "dialog", onDismiss: function() { s.open = false; })
+        ]);
+    }
+);
+var s = UI.Surface(400, 400, app, null);
+s.Frame(0);
+var column = s.tree.children[0].children[0];
+var child = function(key) {
+    for (var i = 0; i < len(column.children); i++) { if (column.children[i].key == key) { return column.children[i]; } }
+    return null;
+};
+var center = function(e) {
+    var b = e.node.GetAbsoluteLayout();
+    return [b["x"] + b["width"] / 2, b["y"] + b["height"] / 2];
+};
+var tap = function(e) {
+    var c = center(e);
+    s.Feed({"type": "move", "x": c[0], "y": c[1]});
+    s.Feed({"type": "press", "x": c[0], "y": c[1], "button": 0});
+    s.Feed({"type": "release", "x": c[0], "y": c[1], "button": 0});
+    s.Frame(s.time + 16);
+};
+var state = column.parent.state;
+
+tap(child("count"));
+tap(child("count"));
+print("taps", state.count, child("count").children[0].node.GetText());
+
+tap(child("name"));
+s.Feed({"type": "key", "key": 269, "action": 1});
+s.Feed({"type": "text", "text": "c土"});
+s.Feed({"type": "key", "key": 259, "action": 1});
+s.Feed({"type": "key", "key": 268, "action": 1});
+s.Feed({"type": "text", "text": ">"});
+s.Frame(s.time + 16);
+print("typed", state.name, child("name").data["focused"]);
+
+var slider = child("volume");
+var box = slider.node.GetAbsoluteLayout();
+s.Feed({"type": "press", "x": box["x"] + 150, "y": box["y"] + 10, "button": 0});
+s.Feed({"type": "move", "x": box["x"] + 50, "y": box["y"] + 10});
+s.Feed({"type": "release", "x": box["x"] + 50, "y": box["y"] + 10, "button": 0});
+s.Frame(s.time + 16);
+print("slider", state.volume);
+
+tap(child("choice"));
+var menu = child("choice").children[2];
+print("menu", menu.type, len(menu.children));
+tap(menu.children[2]);
+print("chosen", state.choice, len(child("choice").children));
+
+var before = child("rows").children[0];
+tap(child("reverse"));
+print("keyed", state.items, child("rows").children[2] == before);
+
+var hover = center(child("hover"));
+s.Feed({"type": "move", "x": hover[0], "y": hover[1]});
+print("hover", state.hovered, child("hover").data["hover"]);
+s.Feed({"type": "move", "x": 1, "y": 399});
+print("left", state.hovered);
+
+tap(child("open"));
+var dialog = child("dialog");
+print("dialog", state.open, dialog.node.GetComputedWidth());
+s.Feed({"type": "press", "x": 5, "y": 5, "button": 0});
+s.Feed({"type": "release", "x": 5, "y": 5, "button": 0});
+s.Frame(s.time + 16);
+print("dismissed", state.open);
+print("strings", len(s.Paint()["strings"]) > 5);

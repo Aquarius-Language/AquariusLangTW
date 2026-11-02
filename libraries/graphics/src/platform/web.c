@@ -19,9 +19,13 @@ static bool generic(const char *family) {
     return strcmp(family, "sans-serif") == 0 || strcmp(family, "serif") == 0 || strcmp(family, "monospace") == 0;
 }
 
-/* `<size>px <family>[, <fallback>]`, quoting named families as CSS strings. */
-static int css_font(char *out, size_t size, const char *family, float pixels, const char *fallback) {
-    int n = snprintf(out, size, "%gpx ", pixels);
+/* `[italic ]<weight> <size>px <family>[, <fallback>]`, quoting named families as CSS strings. */
+static int css_font(char *out, size_t size, const char *spec, float pixels, const char *fallback) {
+    char family[256];
+    int weight;
+    bool italic;
+    gfx_font_parse(spec, family, sizeof family, &weight, &italic);
+    int n = snprintf(out, size, "%s%d %gpx ", italic ? "italic " : "", weight, pixels);
     if (generic(family)) n += snprintf(out + n, size - (size_t)n, "%s", family);
     else {
         out[n++] = '"';

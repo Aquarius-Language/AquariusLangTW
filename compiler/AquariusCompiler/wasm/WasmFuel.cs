@@ -26,7 +26,7 @@ internal static class WasmFuel
                 if (op.Operand <= i) checkpoints.Add(op.Operand);
             }
             if (op.Code is IrOperation.Jump or IrOperation.JumpIfFalse or IrOperation.JumpIfBreak or IrOperation.LoopCondition or IrOperation.Break
-                or IrOperation.Call or IrOperation.ResolveMemberFunction or IrOperation.Return) leaders.Add(i + 1);
+                or IrOperation.Call or IrOperation.CallNamed or IrOperation.ResolveMemberFunction or IrOperation.Return) leaders.Add(i + 1);
         }
         var starts = leaders.ToArray();
         int Block(int position) => Array.BinarySearch(starts, position);

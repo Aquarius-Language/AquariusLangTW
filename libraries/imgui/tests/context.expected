@@ -1,0 +1,7 @@
+outside ImGui: call widgets between context.NewFrame() and context.Render() / 請在 NewFrame 與 Render 之間呼叫。
+first frame 真 真 1 0 [slot]
+over 真 真
+clicks 1 0
+outside window 假
+values 2 假 Saturn [1, 0.5, 0.25] 2 1.93.0
+recovered 真

@@ -1,0 +1,63 @@
+# Mixing: a SaturnUI surface at the bottom, an ImGui window and a Clay badge above it, stacked with UI.Layers. Each
+# event goes to the top layer that uses it, a press keeps its layer until the release, lower layers see the pointer
+# leave, and the frame is one combined draw list. An Immediate widget hosts the Clay layout inside the Saturn tree.
+var UI = import("SaturnUI");
+var ImGui = import("ImGui");
+var Clay = import("Clay");
+struct S { taps; slider; immediate }
+var state = S(taps: 0, slider: 0.25d, immediate: []);
+var app = UI.Column(style: {"padding": 20, "gap": 10, "flexGrow": 1}, children: [
+    UI.Button(label: "Saturn button", key: "b", onPress: function() { state.taps += 1; }),
+    UI.Immediate(width: 120, height: 40, key: "imm", paint: function(x, y, w, h) {
+        var p = import("Saturn").Painter();
+        p.Rect(0, 0, w, h, "#00ff00");
+        return p.Build();
+    }, feed: function(event) { Array.Append(state.immediate, event["type"] + "@" + String.From(int(event["x"]))); return true; })
+]);
+var surface = UI.Surface(400, 300, app, null);
+var gui = ImGui.CreateContext();
+var guiLayer = UI.ImGuiLayer(gui, function() {
+    ImGui.SetNextWindowPos(200, 150);
+    ImGui.SetNextWindowSize(180, 120);
+    ImGui.Begin("Tools");
+    state.slider = ImGui.SliderFloat("v", state.slider, 0, 1);
+    ImGui.End();
+}, null);
+var layout = Clay.Create(400, 300);
+var clayLayer = UI.ClayLayer(layout, function() {
+    Clay.Element({"id": "screen", "width": "grow", "height": "grow"}, function() {
+        Clay.Element({"id": "badge", "floating": {"attachTo": "root", "offset": [340, 10]}, "width": Clay.Fixed(50), "height": Clay.Fixed(20), "background": "#ff0000"});
+    });
+});
+var stack = UI.Layers([UI.SurfaceLayer(surface), guiLayer, clayLayer]);
+var frame = function(t) { stack.Frame(400, 300, t); return stack.Paint(); };
+var list = frame(0);
+frame(16);
+
+var button = surface.tree.children[0].children[0].node.GetAbsoluteLayout();
+var bx = button["x"] + 10;
+var by = button["y"] + 10;
+print("over saturn", stack.Feed({"type": "move", "x": bx, "y": by}), gui.WantCaptureMouse);
+stack.Feed({"type": "press", "x": bx, "y": by, "button": 0});
+stack.Feed({"type": "release", "x": bx, "y": by, "button": 0});
+frame(32);
+print("saturn tap", state.taps);
+
+print("over imgui", stack.Feed({"type": "move", "x": 250, "y": 200}));
+frame(48);
+print("imgui wants", gui.WantCaptureMouse, stack.Feed({"type": "move", "x": 251, "y": 200}));
+print("over clay badge", stack.Feed({"type": "move", "x": 360, "y": 18}));
+print("over nothing", stack.Feed({"type": "move", "x": 390, "y": 290}));
+
+var imm = surface.tree.children[0].children[1].node.GetAbsoluteLayout();
+stack.Feed({"type": "move", "x": imm["x"] + 7, "y": imm["y"] + 5});
+stack.Feed({"type": "press", "x": imm["x"] + 7, "y": imm["y"] + 5, "button": 0});
+stack.Feed({"type": "move", "x": imm["x"] + 300, "y": imm["y"] + 5});
+stack.Feed({"type": "release", "x": imm["x"] + 300, "y": imm["y"] + 5, "button": 0});
+print("immediate", state.immediate);
+
+var sizes = [0, 12, 16, 14, 14, 17, 8, 0, 6, 0, 5, 8, 9, 20, 1, 0];
+var counts = {};
+var c = list["commands"];
+for (var at = 0; at < len(c); at += 1 + sizes[int(c[at])]) { counts[int(c[at])] = Hash.Get(counts, int(c[at]), 0) + 1; }
+print("combined", counts[10] > 0, counts[11] > 0, counts[1] > 2, Array.Contains(list["strings"], "Saturn button"));print("no text field", stack.ImeRect() == null);

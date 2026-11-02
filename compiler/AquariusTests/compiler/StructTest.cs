@@ -57,7 +57,7 @@ public class StructTest
     [InlineData("struct P { x: int }; var p = P(1, 2);")]
     [InlineData("var f = function(t: Missing): int { 1; };")]
     [InlineData("struct P { x: int }; struct Q { x: int }; var f = function(t: P): int { 1; }; f(Q(x: 1));")]
-    [InlineData("var f = function(a) { a; }; f(a: 1);")]
+    [InlineData("var f = function(a) { a; }; f(b: 1);")]
     [InlineData("struct P { s: string }; var p: P = P(s: \"a\"); p.s -= 1;")]
     public void DefiniteMistakesAreCompileErrors(string source)
     {
@@ -109,7 +109,7 @@ public class StructTest
             "struct P { x } var p = P(); p.y = 1;",
             "struct P { x } var p = P(); var h = {}; h[p] = 1;",
             "var g = function(v) { v; }; var x = g(5); x.field;",
-            "var f = function(a) { a; }; var g = function(v) { v; }; g(f)(a: 1);",
+            "var g = function(v) { v; }; g(5)(a: 1);",
             "struct P { x: int } var f = function(t: P): int { if (typeOf(t) == \"null\") { return -1; } t.x; }; var p = P(x: 4); [f(p), f(p.x == 4 && false ? p : P(x: 9))];",
         ]);
         Assert.Contains("P.x expects int, got STRING", results[0].Message);
@@ -122,7 +122,7 @@ public class StructTest
         Assert.Contains("Unknown field of P: y", results[7].Message);
         Assert.Contains("Unusable as hash key", results[8].Message);
         Assert.Contains("Cannot access member of INTEGER", results[9].Message);
-        Assert.Contains("Named arguments need a struct type", results[10].Message);
+        Assert.Contains("Named arguments need a struct type or a function", results[10].Message);
     }
 
     [RuntimeFact]
@@ -137,6 +137,19 @@ public class StructTest
         var run = WasmTestHost.RunModules(modules, "main.aqua");
         Assert.Equal(0, run.ExitCode);
         Assert.Equal("Point{x: 3, y: 4} 25 Point{x: 0, y: 0} 3 Point", run.Lines[0]);
+    }
+
+    [RuntimeFact]
+    public void NamedArgumentsThroughAModuleMemberFillFieldsByName()
+    {
+        // `module.Struct(b: ..., a: ...)` used to fill the fields in the order written; it must match them by name.
+        var modules = new Dictionary<string, string> {
+            ["ui.aqua"] = "struct Column { children; gap; padding }",
+            ["main.aqua"] = "var ui = import(\"ui.aqua\"); var c = ui.Column(gap: 8, children: [1, 2]); print(c, c.padding, len(c.children));",
+        };
+        var run = WasmTestHost.RunModules(modules, "main.aqua");
+        Assert.Equal(0, run.ExitCode);
+        Assert.Equal("Column{children: [1, 2], gap: 8, padding: null} null 2", run.Lines[0]);
     }
 
     [RuntimeFact]

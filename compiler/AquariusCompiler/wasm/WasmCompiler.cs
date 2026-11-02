@@ -87,8 +87,13 @@ public sealed class WasmCompiler
             _ => throw new ArgumentException($"Unsupported constant {value.GetType().Name}")
         };
         var parameters = new Dictionary<LoweredProgram, string[]>();
+        // The number of trailing parameters with defaults (Function.flags bits 2..7): calls may leave them out.
+        var optional = new Dictionary<LoweredProgram, int>();
         foreach (var body in bodies) foreach (var item in body.Constants)
-            if (item is FunctionCode function) parameters[function.BodyCode] = function.Parameters.Select(p => p.Value).ToArray();
+            if (item is FunctionCode function) {
+                parameters[function.BodyCode] = function.Parameters.Select(p => p.Value).ToArray();
+                optional[function.BodyCode] = function.Parameters.Count(p => p.Default != null);
+            }
         // WasmScopePlan resolves every identifier: closure-free lexical scopes become frame slots (promotion), and the
         // remaining names get cached binding candidates. Unoptimized compilation keeps every scope dynamic.
         var runtime = new WasmRuntimeImage();
@@ -104,7 +109,7 @@ public sealed class WasmCompiler
             // Promoted calls share one binding cache per closure, so free-name lookups are cached across calls.
             parameters.GetValueOrDefault(b, System.Array.Empty<string>()), capacities[f],
             b.Code.Any(op => op.Code == IrOperation.EnterLoop) || plans[f].PromotedFunction,
-            Locals: plans[f].Locals, PromotedScope: plans[f].PromotedFunction, Prelude: prelude.GetValueOrDefault(f))).ToArray();
+            Locals: plans[f].Locals, PromotedScope: plans[f].PromotedFunction, Prelude: prelude.GetValueOrDefault(f), Optional: optional.GetValueOrDefault(b))).ToArray();
         // Loops of untyped bodies whose code is native-eligible become native regions, entered from their loop heads.
         // Their functions follow the bodies, so their indices are known before the bodies are emitted.
         var codes = new FunctionCode?[bodies.Count];

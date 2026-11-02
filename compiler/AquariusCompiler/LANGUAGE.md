@@ -120,9 +120,12 @@ Default value inspection still prints booleans as `真` / `假` and null as `nul
   and double, floats to double, and narrowing needs `整數(x)`, `浮點數(x)` or `雙精度(x)`. Typed parameters are
   checked on entry, typed results at each return and at the implicit final value.
 - `結構 名稱 { 欄位: 型別; 欄位 }` / `struct Name { field: type; field }` declares a struct type (`StructStatement`;
-  `結構` and `struct` are keywords only where a declaration starts). Calling the type constructs a value, with named
-  (`名稱(欄位: 值)`, a `CallNamed`) or positional arguments; fields left out are `null`, and annotated number, Boolean,
-  string and array fields must be given. Struct names are annotations; the TypeChecker checks constructions, field
+  `結構` and `struct` are keywords only where a declaration starts). Calling the type constructs a value, with
+  positional arguments, named ones (`名稱(欄位: 值)`, a `CallNamed`) or positional ones followed by named ones
+  (`文字("嗨", 大小: 20)`). A field may have a default (`struct Style { size: double = 14.0d; color = "text" }`):
+  `rt_structType` evaluates it once, when the declaration runs, and a construction that leaves the field out gets it
+  (an array or hash default is copied for each new struct). Other fields left out are `null`, and annotated number,
+  Boolean, string and array fields without a default must be given. Struct names are annotations; the TypeChecker checks constructions, field
   reads and writes of annotated values, and lowers `CheckStruct` where values come from untyped code. Field writes
   (`SetMember`, `CompoundMember`) are checked against the field's annotation at run time. Structs are reference
   values compared by identity; `型別()` returns the declared name. See [structs](../../docs/structs.md).
@@ -155,6 +158,23 @@ Default value inspection still prints booleans as `真` / `假` and null as `nul
   [numbers](../../docs/math.md#integer-bitwise-operators).
 - Functions support explicit `回傳` / `return`, a final expression as an implicit result,
   recursion and lexical closures. Assignments update the scope owning a variable.
+- Parameters may have defaults, and once one has, every later one has one too:
+  `變數 標籤 = 函式(文字, 色調 = "accent", 按下 = 空值) { ... }`. A call may leave out trailing parameters with defaults
+  and may pass any parameter by name after its positional arguments (`標籤("新", 按下: f)`); a parameter without a
+  default must be given, and each one at most once. Left-out parameters hold a marker that the body's prologue
+  (`IsMissing`) replaces with the default, evaluated in the function's scope on each call before the parameter's
+  annotation check. `Function.flags` bits 2..7 count the parameters with defaults, so callbacks from libraries may also
+  leave them out. Functions with defaults stay on the generic tier.
+- Short functions: `x => x * 2`, `(a, b) => a + b`, `() => 狀態.計數 += 1` return their expression's value;
+  `(a, b = 1) => { ... }` runs a block like a function body (write a hash result in parentheses: `() => ({"a": 1})`).
+  Parameters may be annotated and have defaults as in `函式`.
+- Trailing commas are allowed in arrays, hashes, calls, parameter lists and struct fields, so long literals and
+  widget trees can be written one item per line.
+- Array literals may contain `...陣列` (every element of the array), `如果 (條件) 元素 否則 元素` (the else part is
+  optional; `否則如果` chains) and `迴圈 (變數 i = 0; i < n; i++) 元素` (one element per iteration), nested in any
+  combination: `[標題(), 如果 (登入) 個人() 否則 登入頁(), 迴圈 (變數 i = 0; i < n; i++) 項目(i), ...頁尾]`. An `如果` or
+  `迴圈` followed by a block is the ordinary expression. The lowering builds such a literal in a hidden variable with
+  `Append` and `AppendAll`.
 - `變數 加法, add = 函式(甲, 乙) { 甲 + 乙; };` gives one function two public
   names, in either order. A single name continues to work. Two-name declarations
   require a function literal and distinct identifiers. Both bindings receive the
