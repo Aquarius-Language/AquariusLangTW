@@ -248,6 +248,8 @@ var flags: bool[] = Array.Make(10, true);
 
 `struct Node { left: Node; right: Node; value: int }` declares a struct type; `Node(left: a, value: 3)` or
 `Node(a, b, 3)` constructs one (fields left out are `null`) and `tree.value` reads or writes a field.
+`const size: int = 150;` / `常數 尺寸: 整數 = 150;` declares a constant: assigning it again is a compile error, and
+typed functions written after it use the literal directly (no lookup per use).
 Type names only mean something after `:`; they are not reserved words. A mismatch
 the compiler can see is a compile error, anything else is checked at run time.
 Integers widen to float and double automatically; the other direction needs

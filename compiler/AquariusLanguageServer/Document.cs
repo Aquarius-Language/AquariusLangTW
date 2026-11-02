@@ -157,8 +157,9 @@ internal sealed class Document
             case LetStatement let:
                 var function = let.Value as FunctionLiteral ?? (let.Value as AsyncFunctionExpression)?.Literal;
                 string names = let.Alias == null ? let.Name?.Value ?? "" : $"{let.Name?.Value} / {let.Alias.Value}";
-                string detail = function == null ? $"變數 {names}{Annotation(let.Name?.Type)}" : $"{names}{Signature(function)}";
-                Declare(let.Name, scope, function == null ? 13 : 12, detail, function == null ? null : End(function.Body), let.Value);
+                string detail = let.Constant && function == null ? $"常數 const {names}{Annotation(let.Name?.Type)} = {let.Value?.String()}"
+                    : function == null ? $"變數 {names}{Annotation(let.Name?.Type)}" : $"{names}{Signature(function)}";
+                Declare(let.Name, scope, function == null ? let.Constant ? ConstantKind : 13 : 12, detail, function == null ? null : End(function.Body), let.Value);
                 Declare(let.Alias, scope, 12, detail, function == null ? null : End(function.Body), let.Value);
                 Walk(let.Value, scope);
                 break;
@@ -211,8 +212,8 @@ internal sealed class Document
         $"({string.Join(", ", (function.Parameters ?? []).Select(p => p.Value + Annotation(p.Type)))}){Annotation(function.ReturnType)}{(function.IsAsync ? " → 承諾 Promise (非同步 async)" : "")}";
     private static FunctionLiteral? FunctionOf(IExpression? value) => value as FunctionLiteral ?? (value as AsyncFunctionExpression)?.Literal;
 
-    // LSP symbol kinds of struct types and their fields.
-    private const int StructKind = 23, FieldKind = 8;
+    // LSP symbol kinds of struct types, their fields and constants (常數 / const).
+    private const int StructKind = 23, FieldKind = 8, ConstantKind = 14;
 
     // A type name in annotation position: the token after an annotation's colon (or that colon itself), not a hash
     // literal's. An annotation follows a declared name (變數 x:), a parameter (函式(a, b:), a parameter list (函式(...):)
@@ -225,7 +226,7 @@ internal sealed class Document
         var before = tokens[colon - 1];
         if (before.Type == TokenType.RPAREN) return true;
         if (before.Type != TokenType.IDENT || colon < 2) return false;
-        if (tokens[colon - 2].Type == TokenType.LET) return true;
+        if (tokens[colon - 2].Type == TokenType.LET || tokens[colon - 2].Literal is "常數" or "const") return true;
         // A parameter: the innermost open parenthesis belongs to a function literal.
         int depth = 0;
         for (int i = colon - 2; i >= 0; i--) {
@@ -414,7 +415,7 @@ internal sealed class Document
         foreach (var entry in LanguageFacts.Builtins)
             items[entry.Key] = new { label = entry.Key, kind = entry.Key is "目前工作目錄" or "currWorkingDir" ? 6 : 3, detail = entry.Value };
         foreach (var declaration in Visible(offset))
-            items[declaration.Token.Literal] = new { label = declaration.Token.Literal, kind = declaration.Kind switch { 12 => 3, StructKind => 22, _ => 6 }, detail = declaration.Detail };
+            items[declaration.Token.Literal] = new { label = declaration.Token.Literal, kind = declaration.Kind switch { 12 => 3, StructKind => 22, ConstantKind => 21, _ => 6 }, detail = declaration.Detail };
         return items.Where(item => item.Key.StartsWith(prefix, StringComparison.Ordinal)).Select(item => item.Value).ToArray();
     }
 

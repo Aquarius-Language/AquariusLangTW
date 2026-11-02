@@ -43,6 +43,7 @@ map to the same token types, AST nodes and WebAssembly semantics.
 | Traditional Chinese | English | Meaning |
 | --- | --- | --- |
 | `變數` | `var` | Mutable variable declaration |
+| `常數` | `const` | Constant declaration: assigned once, never written again |
 | `函式` | `function` | Function expression / closure |
 | `回傳` | `return` | Return a function result |
 | `如果` | `if` | Conditional expression |
@@ -112,6 +113,15 @@ Default value inspection still prints booleans as `真` / `假` and null as `nul
   reads and writes of annotated values, and lowers `CheckStruct` where values come from untyped code. Field writes
   (`SetMember`, `CompoundMember`) are checked against the field's annotation at run time. Structs are reference
   values compared by identity; `型別()` returns the declared name. See [structs](../../docs/structs.md).
+- `常數 名稱 = 值;` / `const name = value;` declares a constant (`LetStatement.Constant`; `常數` and `const` are keywords
+  only where a declaration starts, like `結構` / `struct`). It is declared and initialized like `變數` / `var` and may be
+  annotated; an unannotated constant initialized with a number, Boolean or string literal has the literal's type. The
+  TypeChecker rejects every write (`=`, compound assignments, `++`) and a second declaration of the name in the same
+  scope; inner scopes may shadow it, and the elements of a constant array or fields of a constant struct stay writable.
+  A constant declared directly in a scope's statements (not inside a conditional's block) with a number or Boolean
+  literal is folded by the native tier into every typed function and loop written after it: the value becomes an
+  instruction operand, with no binding to pass or check. A function written before the declaration reads the binding
+  as before, so calling it before the declaration has run is still the `Identifier not found` error.
 - `++值` returns the updated number; `值++` returns the original number. The operand is a numeric variable, an array
   element or hash entry (`計數[鍵]++`, `IncrementIndex`) or a struct field (`點.x++`, `IncrementMember`); the value keeps
   its numeric type.

@@ -98,6 +98,9 @@ public class LetStatement : IStatement {
     /// <summary>Optional second public name for the same function value.</summary>
     public Identifier? Alias { get; set; }
 
+    /// <summary>A constant (<c>常數</c> / <c>const</c>): the binding is assigned once, here, and never written again.</summary>
+    public bool Constant { get; set; }
+
     public IExpression Value {
         get => value;
         set => this.value = value;

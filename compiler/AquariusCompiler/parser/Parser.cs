@@ -260,6 +260,12 @@ namespace AquariusLang.parser {
                 // so programs using these words as names keep working.
                 case TokenType.IDENT when currToken.Literal is "結構" or "struct" && peekTokenIs(TokenType.IDENT):
                     return parseStructStatement();
+                // 常數 / const likewise: a declaration like 變數 / var whose binding is never written again.
+                case TokenType.IDENT when currToken.Literal is "常數" or "const" && peekTokenIs(TokenType.IDENT): {
+                    var constant = parseLetStatement();
+                    if (constant != null) constant.Constant = true;
+                    return constant;
+                }
                 default:
                     return parseExpressionStatement();
             }

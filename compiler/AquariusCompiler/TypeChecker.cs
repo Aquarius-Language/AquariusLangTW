@@ -14,7 +14,8 @@ internal sealed record TypeCheck(int Code, string Subject);
 /// candidate for the native tier. <see cref="Outer"/> holds the names its body resolves outside itself, with the
 /// declaration they resolve to; names it does not resolve (core globals such as 整數 or 長度) are absent.</summary>
 internal sealed class NativeSignature {
-    internal sealed record OuterName(int Type, FunctionLiteral? Function, bool Assigned, bool Sibling, StructStatement? Struct = null, int Guess = 0);
+    internal sealed record OuterName(int Type, FunctionLiteral? Function, bool Assigned, bool Sibling, StructStatement? Struct = null, int Guess = 0,
+        double? Constant = null);
     /// <summary>The struct types the program's annotations name, by code (shared by every signature of a program).</summary>
     internal IReadOnlyDictionary<int, StructStatement> Structs = new Dictionary<int, StructStatement>();
     internal readonly int[] Parameters;
@@ -51,6 +52,11 @@ public sealed class TypeChecker {
         internal StructStatement? Struct;
         internal int Count;
         internal bool Assigned;
+        /// <summary>A constant's declaration (常數 / const); writes to it are compile errors.</summary>
+        internal LetStatement? Constant;
+        /// <summary>Declared directly in its scope's statements (not in a conditional's block), so it runs before every
+        /// later statement of the scope; and, for a constant, whether the check has passed its declaration yet.</summary>
+        internal bool Direct, Initialized;
         /// <summary>An untyped binding's likely type, a guess the native tier may speculate on behind a tag check: the
         /// static type of every value its declaration and plain assignments give it when they agree (0 when none is
         /// known, Conflict when they disagree).</summary>
@@ -74,8 +80,8 @@ public sealed class TypeChecker {
     /// <summary>Every loop as a candidate native region of untyped code (no parameters, no result).</summary>
     internal readonly Dictionary<ForLoopLiteral, NativeSignature> Loops = new(ReferenceEqualityComparer.Instance);
     // Each function and loop being checked: its own scope and the outer names its body uses.
-    private readonly Stack<(Scope Own, NativeSignature? Native, Dictionary<string, (Declaration, Scope)> Uses)> functions = new();
-    private readonly List<(NativeSignature Native, Dictionary<string, (Declaration, Scope)> Uses)> pending = new();
+    private readonly Stack<(Scope Own, NativeSignature? Native, Dictionary<string, (Declaration, Scope, bool)> Uses)> functions = new();
+    private readonly List<(NativeSignature Native, Dictionary<string, (Declaration, Scope, bool)> Uses)> pending = new();
     private readonly List<ParseError> errors = new();
     // Guesses for untyped parameters: the static argument types of every direct call, merged like Declaration.Observe.
     private readonly Dictionary<FunctionLiteral, Declaration[]> parameterDeclarations = new(ReferenceEqualityComparer.Instance);
@@ -110,10 +116,10 @@ public sealed class TypeChecker {
             }
         }
         foreach (var (native, uses) in checker.pending)
-            foreach (var (name, (declaration, owner)) in uses)
+            foreach (var (name, (declaration, owner, initialized)) in uses)
                 native.Outer[name] = new NativeSignature.OuterName(Code(declaration.Type), declaration.Count == 1 ? declaration.Function : null,
                     declaration.Assigned || declaration.Count != 1, owner == native.DefiningScope, declaration.Count == 1 ? declaration.Struct : null,
-                    declaration.Count == 1 && declaration.Guess > 0 ? declaration.Guess : 0);
+                    declaration.Count == 1 && declaration.Guess > 0 ? declaration.Guess : 0, initialized ? Folded(declaration) : null);
         foreach (var (native, _) in checker.pending) native.Structs = checker.Structs;
         // A clone's parameters are their guesses: numbers, Booleans and arrays of one of them.
         foreach (var (function, native) in checker.Natives)
@@ -141,12 +147,12 @@ public sealed class TypeChecker {
 
     /// <summary>Records the declarations a scope owns: its statements, through blocks and conditionals but not into
     /// functions or loops, which own their own scopes.</summary>
-    private void Declare(IEnumerable<IStatement> statements) {
+    private void Declare(IEnumerable<IStatement> statements, bool direct = true) {
         // Struct types first, so annotations anywhere in the scope (and struct fields, recursively) can name them.
         var list = statements.ToList();
         foreach (var declaration in list.OfType<StructStatement>()) AddStruct(declaration);
         foreach (var declaration in list.OfType<StructStatement>()) foreach (var field in declaration.Fields) Bind(field.Type);
-        foreach (var statement in list) DeclareIn(statement);
+        foreach (var statement in list) DeclareIn(statement, direct);
     }
     private void AddStruct(StructStatement declaration) {
         if (scope.Names.ContainsKey(declaration.Name.Value)) {
@@ -167,17 +173,17 @@ public sealed class TypeChecker {
             }
         Error($"未知的型別 {type.StructName}（可用：整數、浮點數、雙精度、布林、字串、陣列或結構名稱）/ Unknown type {type.StructName} (use int, float, double, bool, string, array or a struct name).", type.Token);
     }
-    private void DeclareIn(INode? node) {
+    private void DeclareIn(INode? node, bool direct = false) {
         switch (node) {
             case StructStatement: break;
             case LetStatement let:
                 Bind(let.Name.Type);
-                Add(let.Name, let.Value as FunctionLiteral);
-                if (let.Alias != null) Add(let.Alias, let.Value as FunctionLiteral);
+                Add(let.Name, let.Value as FunctionLiteral, let, direct);
+                if (let.Alias != null) Add(let.Alias, let.Value as FunctionLiteral, let, direct);
                 DeclareIn(let.Value); break;
             case ExpressionStatement statement: DeclareIn(statement.Expression); break;
             case ReturnStatement returned: DeclareIn(returned.ReturnValue); break;
-            case BlockStatement block: Declare(block.Statements); break;
+            case BlockStatement block: Declare(block.Statements, false); break;
             case IfExpression conditional:
                 DeclareIn(conditional.Condition); DeclareIn(conditional.Consequence);
                 foreach (var c in conditional.AlternativeConditions ?? System.Array.Empty<IExpression>()) DeclareIn(c);
@@ -191,12 +197,18 @@ public sealed class TypeChecker {
             case HashLiteral hash: foreach (var pair in hash.Pairs) { DeclareIn(pair.Key); DeclareIn(pair.Value); } break;
         }
     }
-    private void Add(Identifier name, FunctionLiteral? function) {
+    private void Add(Identifier name, FunctionLiteral? function, LetStatement? let = null, bool direct = false) {
+        var constant = let is { Constant: true } ? let : null;
         if (!scope.Names.TryGetValue(name.Value, out var declaration)) {
-            scope.Names[name.Value] = new Declaration { Type = name.Type, Function = function, Count = 1 };
+            // An unannotated constant initialized with a literal has the literal's type.
+            var type = name.Type ?? (constant != null && LiteralType(constant.Value) is > 0 and var code
+                ? new TypeAnnotation(name.Token, (ScalarType)code, false) : null);
+            scope.Names[name.Value] = new Declaration { Type = type, Function = function, Count = 1, Constant = constant, Direct = direct };
             return;
         }
-        if (Code(declaration.Type) != Code(name.Type))
+        if (constant != null || declaration.Constant != null)
+            Error($"常數 {name.Value} 不能在同一範圍重複宣告 / The constant {name.Value} cannot be declared twice in the same scope.", name.Token);
+        else if (Code(declaration.Type) != Code(name.Type))
             Error($"{name.Value} 在同一範圍以不同型別宣告 / {name.Value} is declared with different types in the same scope.", name.Token);
         declaration.Count++; declaration.Function = null;
     }
@@ -205,7 +217,9 @@ public sealed class TypeChecker {
         int passed = 0; // enclosing functions and loops (innermost first) whose own scope the walk has left
         for (var s = scope; s != null; s = s.Outer) {
             if (s.Names.TryGetValue(name, out var declaration)) {
-                foreach (var region in functions.Take(passed)) region.Uses.TryAdd(name, (declaration, s));
+                // The check walks the program in source order: a constant it has already passed was set before any
+                // function or loop after it can run (it is declared directly in an enclosing scope, ahead of them).
+                foreach (var region in functions.Take(passed)) region.Uses.TryAdd(name, (declaration, s, declaration.Initialized));
                 return declaration;
             }
             while (passed < functions.Count && functions.ElementAt(passed).Own == s) passed++;
@@ -213,6 +227,28 @@ public sealed class TypeChecker {
         return null;
     }
     private static int Code(TypeAnnotation? type) => type?.Code ?? Dynamic;
+    /// <summary>The type of a literal (a negated number too), else 0.</summary>
+    private static int LiteralType(IExpression? value) => value switch {
+        IntegerLiteral => Int, FloatLiteral => Float, DoubleLiteral => Double, BooleanLiteral => Bool, StringLiteral => String,
+        PrefixExpression { Operator: "-", Right: IntegerLiteral or FloatLiteral or DoubleLiteral } negated => LiteralType(negated.Right),
+        _ => 0 };
+    /// <summary>A constant's value as its declared type holds it (the payload of a number or Boolean) when it is a literal
+    /// the native tier can use in place of the binding, else null.</summary>
+    private static double? Folded(Declaration declaration) {
+        if (declaration.Constant is not { } let || declaration.Count != 1 || !declaration.Direct) return null;
+        var value = let.Value; double sign = 1;
+        if (value is PrefixExpression { Operator: "-", Right: var right }) { value = right; sign = -1; }
+        double? number = value switch {
+            IntegerLiteral i => i.Value, FloatLiteral f => f.Value, DoubleLiteral d => d.Value,
+            BooleanLiteral b when sign > 0 => b.Value ? 1 : 0, _ => null };
+        if (number is not { } n) return null;
+        int literal = LiteralType(let.Value), type = Code(declaration.Type);
+        return type switch {
+            Int or Bool when literal == type => sign * n,
+            Float when literal is Int or Float => (float)(sign * n),
+            Double when literal is Int or Float or Double => sign * n,
+            _ => null };
+    }
 
     // ---- statements --------------------------------------------------------------------------------
 
@@ -222,6 +258,7 @@ public sealed class TypeChecker {
                 int value = Expression(let.Value);
                 if (let.Name.Type != null) Require(let.Name.Type.Code, value, let, let.Name.Value, let.Name.Token);
                 else if (scope.Names.TryGetValue(let.Name.Value, out var declared)) Guess(declared, null, 0, value, let.Value);
+                if (let.Constant && scope.Names.TryGetValue(let.Name.Value, out var constant) && constant.Direct) constant.Initialized = true;
                 break;
             }
             case ReturnStatement returned: {
@@ -271,6 +308,7 @@ public sealed class TypeChecker {
             case StringLiteral: return String;
             case Identifier identifier: return Code(Resolve(identifier.Value)?.Type);
             case IncrementExpression increment: {
+                if (increment.Operand is Identifier counter && Resolve(counter.Value) is { Constant: not null }) ConstantWrite(counter);
                 // Only annotations are checked at compile time; untyped mistakes stay runtime errors as before.
                 int type = Expression(increment.Operand);
                 if (type != Dynamic && !Numeric(type)) Error($"++ 需要數字 / ++ requires a number, got {Name(type)}.", increment.Token);
@@ -292,7 +330,7 @@ public sealed class TypeChecker {
             case ForLoopLiteral loop: {
                 var outer = scope; scope = new Scope(outer);
                 var region = new NativeSignature(System.Array.Empty<int>(), 0, outer);
-                var uses = new Dictionary<string, (Declaration, Scope)>(System.StringComparer.Ordinal);
+                var uses = new Dictionary<string, (Declaration, Scope, bool)>(System.StringComparer.Ordinal);
                 Loops[loop] = region; pending.Add((region, uses)); functions.Push((scope, region, uses));
                 var parts = new List<IStatement>();
                 if (loop.DeclareStatement != null) parts.Add(loop.DeclareStatement);
@@ -356,6 +394,7 @@ public sealed class TypeChecker {
             if (infix.Left is not Identifier variable) return Void;
             var declaration = Resolve(variable.Value);
             if (declaration == null) return Void;
+            if (declaration.Constant != null) { ConstantWrite(variable); return Void; }
             if (op == "=") declaration.Assigned = true;
             if (declaration.Type is not { } type) { if (op == "=") Guess(declaration, null, 0, value, infix.Right); return Void; }
             if (op == "=") Require(type.Code, value, infix, variable.Value, variable.Token);
@@ -374,6 +413,9 @@ public sealed class TypeChecker {
             default: return Dynamic;
         }
     }
+
+    private void ConstantWrite(Identifier name) =>
+        Error($"{name.Value} 是常數，不能再賦值 / {name.Value} is a constant and cannot be assigned.", name.Token);
 
     private int FieldType(StructStatement shape, Identifier field) {
         var declared = shape.Fields.FirstOrDefault(f => f.Value == field.Value);
@@ -496,7 +538,7 @@ public sealed class TypeChecker {
         NativeSignature? native = function.ReturnType != null && parameterTypes.All(NativeType) && NativeType(Code(function.ReturnType))
             ? new NativeSignature(parameterTypes, Code(function.ReturnType), outer)
             : function.ReturnType == null && parameterTypes.All(t => t == Dynamic) ? new NativeSignature(new int[parameterTypes.Length], 0, outer, clone: true) : null;
-        var uses = new Dictionary<string, (Declaration, Scope)>(System.StringComparer.Ordinal);
+        var uses = new Dictionary<string, (Declaration, Scope, bool)>(System.StringComparer.Ordinal);
         functions.Push((scope, native, uses));
         if (native != null) { Natives[function] = native; pending.Add((native, uses)); }
         foreach (var parameter in function.Parameters ?? System.Array.Empty<Identifier>()) Add(parameter, null);

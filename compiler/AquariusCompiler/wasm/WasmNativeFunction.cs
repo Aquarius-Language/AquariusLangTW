@@ -96,6 +96,9 @@ internal sealed class WasmNativeFunction
     private readonly int[] slotTypes;
     private readonly Dictionary<int, int[]> states = new();
     private readonly List<string> callNames = new();
+    /// <summary>Outer constants (常數 / const) with a literal value the body uses in place of the binding: no pointer, no
+    /// entry check (TypeChecker.Folded).</summary>
+    private readonly Dictionary<string, double> constants = new(StringComparer.Ordinal);
     private int capacity = 1;
 
     /// <summary>A native region: one loop of an untyped body, [Start, Stop] = its EnterLoop and LeaveLoop, entered and
@@ -339,6 +342,7 @@ internal sealed class WasmNativeFunction
     private int Outer(string name, Func<AquariusLang.ast.FunctionLiteral, int> nativeBody)
     {
         if (Signature.Outer.TryGetValue(name, out var outer)) {
+            if (outer.Constant is { } constant && outer.Type is IntType or FloatType or DoubleType or BoolType) { constants[name] = constant; return outer.Type; }
             // A region resolves its outer bindings by name from the frame's scope chain (guarded by tag), so any depth works;
             // a native function receives pointers from its caller, so only bindings of its defining scope do.
             if (!outer.Sibling && !IsRegion) return Unknown;
@@ -487,7 +491,7 @@ internal sealed class WasmNativeFunction
             int Target(WasmScopePlan.Access access, string name) {
                 int slot = SlotAt(pc, access);
                 if (slot >= 0) return slotTypes[slot];
-                if (slot == -2) return Unknown;
+                if (slot == -2 || Signature.Outer.TryGetValue(name, out var target) && target.Constant != null) return Unknown;
                 int type = Outer(name, nativeBody);
                 if (!Value(type)) return Unknown;
                 Written.Add(name); return type;
@@ -1354,6 +1358,10 @@ internal sealed class WasmNativeFunction
                         Set(w, StackI(depth));
                     }
                     else if (slot >= 0) { Local(type, SlotI(slot), SlotF(slot)); PopStack(type, depth); CopyCompanions(type, SlotCount(slot), StackCount(depth)); }
+                    else if (cur.constants.TryGetValue(cur.NameOf(operand), out double constant)) {
+                        if (Wide(type)) F(w, constant); else I(w, (int)constant);
+                        PopStack(type, depth);
+                    }
                     else if (Value(type)) {
                         ReadOuter(cur.NameOf(operand), type); PopStack(type, depth);
                         CopyCompanions(type, CacheCount(CacheOf(cur.NameOf(operand))), StackCount(depth));
