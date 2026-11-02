@@ -152,21 +152,28 @@ id across lists (ImGui sends its font atlas once and then only updated regions);
 
 ```aqua
 var UI = import("SaturnUI");
-struct CounterState { count }
+struct CounterState { count = 0; history = [] }
 var counter = UI.Stateful(
-    init: function() { return CounterState(count: 0); },
-    build: function(state, context) {
-        return UI.Column(gap: 12, crossAxis: "center", style: {"padding": 24}, children: [
-            UI.Text(text: "Taps: " + String.From(state.count), style: {"fontSize": 22, "fontWeight": 700}),
-            UI.Button(label: "+1", onPress: function() { state.count += 1; }),
-            UI.Button(label: "Reset", variant: "outline", onPress: function() { state.count = 0; })
-        ]);
-    });
+    init: () => CounterState(),
+    build: (state, context) => UI.Column(gap: 12, crossAxis: "center", style: {"padding": 24}, children: [
+        UI.Text("Taps: " + String.From(state.count), style: {"fontSize": 22, "fontWeight": 700}),
+        UI.Row(gap: 8, children: [
+            UI.Button("+1", onPress: () => state.count += 1),
+            UI.Button("Reset", variant: "outline", onPress: () => state.count = 0),
+        ]),
+        if (state.count > 9) UI.Text("Double digits!", style: {"color": "#2e9d5b"}),
+        for (var i = 0; i < len(state.history); i++) UI.Text(state.history[i]),
+    ]),
+);
 UI.RunApp(counter, {"title": "Counter", "theme": UI.Theme(mode: "dark")});
 ```
 
-Widgets are structs: build them with named fields, nest them with `child:` and `children:` (null children are skipped
-and nested arrays flatten, so `if` expressions and loops build lists). A surface keeps an element per widget,
+Widgets are structs: the main field comes first and can be given by position (`UI.Text("Hi")`, `UI.Button("OK")`,
+`UI.Row([a, b])`, `UI.Icon("star")`), the rest by name, and every field has a sensible default. Nest them with `child:`
+and `children:`; inside a children list, `if (...) widget`, `for (...) widget` and `...list` add widgets conditionally,
+repeatedly or from another list (null children are skipped and nested arrays flatten too). A component of your own is
+a function with defaults, called the same way: `var Badge = function(label, tone = "accent") { ... }; Badge("New")`.
+Handlers are short functions: `onPress: () => state.count += 1`, `onChanged: v => state.name = v`. A surface keeps an element per widget,
 matched by type and `key` across rebuilds, with its state and one Saturn node. Every event handler that runs rebuilds
 the surface afterwards, so there is no `setState`; `context.rebuild()` covers timers and asynchronous results.
 

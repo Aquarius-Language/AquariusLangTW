@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Text;
 using AquariusLang.ast;
 
@@ -21,7 +22,10 @@ public enum IrOperation : byte {
     // element (operand 1 for prefix) or a field (operand: the name constant << 1 | prefix).
     CompoundIndex, IncrementIndex, IncrementMember,
     // Integer bitwise operators: & | ^ << >> >>> and ~.
-    BitAnd, BitOr, BitXor, ShiftLeft, ShiftRight, ShiftRightUnsigned, BitNot
+    BitAnd, BitOr, BitXor, ShiftLeft, ShiftRight, ShiftRightUnsigned, BitNot,
+    // Whether a parameter was left out of its call (its default then runs); appending an element, or every element of an
+    // array, to an array literal being built (array and value on the stack, the array stays).
+    IsMissing, Append, AppendAll
 }
 
 public readonly struct Instruction {
@@ -34,8 +38,10 @@ public readonly struct Instruction {
 /// <summary>Immutable lowered intermediate representation consumed by the WebAssembly emitter.</summary>
 public sealed class LoweredProgram {
     internal Instruction[] Code { get; }
-    /// <summary>The number of named arguments of a CallNamed instruction (its constant lists the names).</summary>
+    /// <summary>The number of arguments of a CallNamed instruction (its constant lists their names, empty for positional ones).</summary>
     internal int NamedArguments(int operand) => ((string)Pool[operand]).Split('').Length;
+    /// <summary>The number of field defaults a StructType instruction takes from the stack (its descriptor marks them).</summary>
+    internal int StructDefaults(int operand) => ((string)Pool[operand]).Split('').Skip(2).Count(field => field.EndsWith("1", StringComparison.Ordinal));
     internal object[] Pool { get; }
     internal bool WrapReturn { get; }
     public IReadOnlyList<Instruction> Instructions { get; }

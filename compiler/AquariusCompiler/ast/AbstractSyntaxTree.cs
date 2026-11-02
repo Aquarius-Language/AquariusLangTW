@@ -312,7 +312,47 @@ public class Identifier : IExpression {
     /// <summary>The optional annotation of a declared name or parameter (<c>name: type</c>).</summary>
     public TypeAnnotation? Type { get; set; }
 
-    internal string Declared() => Type == null ? value : value + ": " + Type.String();
+    /// <summary>The default value of a parameter or struct field (<c>size = 14</c>), used when a call or construction
+    /// leaves it out; null when it has none.</summary>
+    public IExpression? Default { get; set; }
+
+    internal string Declared() => (Type == null ? value : value + ": " + Type.String()) + (Default == null ? "" : " = " + Default.String());
+}
+
+/// <summary><c>...陣列</c> / <c>...array</c> in an array literal: every element of the array, in order.</summary>
+public sealed class SpreadElement : IExpression {
+    public Token Token { get; set; }
+    public IExpression Value { get; set; }
+    public SpreadElement(Token token, IExpression value) { Token = token; Value = value; }
+    public string TokenLiteral() => Token.Literal;
+    public void ExpressionNode() { }
+    public string String() => "..." + Value?.String();
+}
+
+/// <summary><c>如果 (條件) 元素 否則 元素</c> / <c>if (condition) element else element</c> in an array literal: the first
+/// element when the condition holds, else the second one or nothing.</summary>
+public sealed class CollectionIf : IExpression {
+    public Token Token { get; set; }
+    public IExpression Condition { get; set; } = null!;
+    public IExpression Then { get; set; } = null!;
+    public IExpression? Else { get; set; }
+    public CollectionIf(Token token) { Token = token; }
+    public string TokenLiteral() => Token.Literal;
+    public void ExpressionNode() { }
+    public string String() => $"if ({Condition?.String()}) {Then?.String()}" + (Else == null ? "" : " else " + Else.String());
+}
+
+/// <summary><c>迴圈 (變數 i = 0; i &lt; n; i++) 元素</c> / <c>for (var i = 0; i &lt; n; i++) element</c> in an array literal:
+/// the element once per iteration. <see cref="Loop"/> is the loop with the element as its body's one statement, so every
+/// pass over loops (scopes, types) sees it as a loop.</summary>
+public sealed class CollectionFor : IExpression {
+    public Token Token { get; set; }
+    public ForLoopLiteral Loop { get; set; } = null!;
+    public IExpression Element { get; set; } = null!;
+    public CollectionFor(Token token) { Token = token; }
+    public string TokenLiteral() => Token.Literal;
+    public void ExpressionNode() { }
+    public string String() => $"for ({Loop?.DeclareStatement?.String()} {Loop?.ConditionalExpression?.String()}; {Loop?.ValueChangeStatement?.String()}) {Element?.String()}";
 }
 
 public class IncrementExpression : IExpression {
@@ -884,7 +924,7 @@ public class CallExpression : IExpression {
 
         List<string> args = new List<string>();
         for (int i = 0; i < arguments.Length; i++) {
-            args.Add((ArgumentNames != null ? ArgumentNames[i] + ": " : "") + arguments[i].String());
+            args.Add((ArgumentNames is { } names && names[i].Length > 0 ? names[i] + ": " : "") + arguments[i].String());
         }
         
         builder.Append(function.String())
@@ -913,7 +953,8 @@ public class CallExpression : IExpression {
         set => arguments = value;
     }
 
-    /// <summary>The names of named arguments (<c>節點(左: a, 值: 3)</c>, a struct construction), or null.</summary>
+    /// <summary>The name of each argument when any is named (<c>節點(a, 值: 3)</c>: a struct's fields or a function's
+    /// parameters), the empty string for the positional ones before them; null when every argument is positional.</summary>
     public string[]? ArgumentNames { get; set; }
 }
 

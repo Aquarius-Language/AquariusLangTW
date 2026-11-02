@@ -166,6 +166,7 @@ internal sealed class Document
             case FunctionLiteral fn:
                 var fnScope = Child(fn.Token.Start, End(fn.Body), scope);
                 foreach (var parameter in fn.Parameters ?? []) Declare(parameter, fnScope, 13, $"參數 {parameter.Value}{Annotation(parameter.Type)}");
+                foreach (var parameter in fn.Parameters ?? []) Walk(parameter.Default, fnScope);
                 Walk(fn.Body, fnScope);
                 break;
             case ForLoopLiteral loop:
@@ -177,7 +178,11 @@ internal sealed class Document
                 break;
             case StructStatement shape:
                 Declare(shape.Name, scope, StructKind, shape.String(), End(shape), shape: shape);
+                foreach (var field in shape.Fields) Walk(field.Default, scope);
                 break;
+            case SpreadElement spread: Walk(spread.Value, scope); break;
+            case CollectionIf element: Walk(element.Condition, scope); Walk(element.Then, scope); Walk(element.Else, scope); break;
+            case CollectionFor element: Walk(element.Loop, scope); break;
             case ExpressionStatement expression: Walk(expression.Expression, scope); break;
             case ReturnStatement statement: Walk(statement.ReturnValue, scope); break;
             case PrefixExpression prefix: Walk(prefix.Right, scope); break;
@@ -209,7 +214,7 @@ internal sealed class Document
     // Optional annotations as written (": 整數", ": double[]", ": 陣列").
     private static string Annotation(TypeAnnotation? type) => type == null ? "" : ": " + type.String();
     private static string Signature(FunctionLiteral function) =>
-        $"({string.Join(", ", (function.Parameters ?? []).Select(p => p.Value + Annotation(p.Type)))}){Annotation(function.ReturnType)}{(function.IsAsync ? " → 承諾 Promise (非同步 async)" : "")}";
+        $"({string.Join(", ", (function.Parameters ?? []).Select(p => p.Value + Annotation(p.Type) + (p.Default == null ? "" : " = " + p.Default.String())))}){Annotation(function.ReturnType)}{(function.IsAsync ? " → 承諾 Promise (非同步 async)" : "")}";
     private static FunctionLiteral? FunctionOf(IExpression? value) => value as FunctionLiteral ?? (value as AsyncFunctionExpression)?.Literal;
 
     // LSP symbol kinds of struct types, their fields and constants (常數 / const).

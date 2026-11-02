@@ -186,6 +186,9 @@ internal static class AsyncChecks
                     scopes.RemoveAt(scopes.Count - 1);
                     break;
                 case ArrayLiteral array: foreach (var element in array.Elements ?? []) Expect(element, Use.Value); break;
+                case SpreadElement spread: Expect(spread.Value, Use.Operand); break;
+                case CollectionIf element: Expect(element.Condition, Use.Condition); Expect(element.Then, Use.Value); Expect(element.Else, Use.Value); break;
+                case CollectionFor element: Walk(element.Loop, Use.Value); break;
                 case HashLiteral hash: foreach (var pair in hash.Pairs ?? []) { Expect(pair.Key, Use.Operand); Expect(pair.Value, Use.Value); } break;
                 case IndexExpression index: Expect(index.Left, Use.Operand); Expect(index.Index, Use.Operand); break;
             }
@@ -233,6 +236,9 @@ internal static class AsyncChecks
                 case ForLoopLiteral loop: return MakesPromises(loop.DeclareStatement) || MakesPromises(loop.ConditionalExpression) || MakesPromises(loop.ValueChangeStatement) || MakesPromises(loop.Body);
                 case FunctionLiteral function: return MakesPromises(function.Body);
                 case ArrayLiteral array: return (array.Elements ?? []).Any(MakesPromises);
+                case SpreadElement spread: return MakesPromises(spread.Value);
+                case CollectionIf element: return MakesPromises(element.Condition) || MakesPromises(element.Then) || MakesPromises(element.Else);
+                case CollectionFor element: return MakesPromises(element.Loop);
                 case HashLiteral hash: return (hash.Pairs ?? []).Any(p => MakesPromises(p.Key) || MakesPromises(p.Value));
                 case IndexExpression index: return MakesPromises(index.Left) || MakesPromises(index.Index);
                 default: return false;

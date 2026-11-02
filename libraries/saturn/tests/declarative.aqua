@@ -1,0 +1,56 @@
+# SaturnUI written in the declarative style the language supports: the main argument first and options by name, field
+# defaults, short functions for handlers, and if / for / ... elements in children lists. A component of your own takes
+# defaults and named arguments like the built-in widgets.
+var UI = import("SaturnUI");
+struct Todo { title; done = false }
+struct AppState { todos = []; filter = "all"; draft = "" }
+var filters = ["all", "open", "done"];
+
+# A component: a function with defaults, called like a widget.
+var Badge = function(label, tone = "#5b6cff", onTap = null) {
+    return UI.Box(onTap: onTap, style: {"background": tone, "borderRadius": 999, "paddingHorizontal": 8}, child: UI.Text(label));
+};
+
+var app = UI.Stateful(
+    init: () => AppState(todos: [Todo("Design"), Todo("Build", done: true), Todo("Ship")]),
+    build: (s, context) => UI.Column(gap: 6, style: {"padding": 10}, children: [
+        UI.Row(gap: 6, key: "filters", children: [
+            for (var i = 0; i < len(filters); i++) Badge(filters[i], onTap: () => s.filter = filters[i]),
+        ]),
+        for (var i = 0; i < len(s.todos); i++)
+            if (s.filter == "all" || (s.filter == "done") == s.todos[i].done)
+                UI.Row(gap: 8, crossAxis: "center", key: s.todos[i].title, children: [
+                    UI.Checkbox(value: s.todos[i].done, onChanged: v => s.todos[i].done = v),
+                    UI.Text(s.todos[i].title),
+                    if (s.todos[i].done) Badge("done", tone: "#2e9d5b"),
+                ]),
+        ...[UI.Divider(), UI.Text("Total " + String.From(len(s.todos)), key: "total")],
+    ]),
+);
+
+var surface = UI.Surface(300, 300, app, null);
+surface.Frame(0);
+var column = surface.tree.children[0].children[0];
+var keys = (e) => {
+    var out = [];
+    for (var i = 0; i < len(e.children); i++) { Array.Append(out, e.children[i].key); }
+    out;
+};
+var tap = (e) => {
+    var b = e.node.GetAbsoluteLayout();
+    var x = b["x"] + b["width"] / 2;
+    var y = b["y"] + b["height"] / 2;
+    surface.Feed({"type": "move", "x": x, "y": y});
+    surface.Feed({"type": "press", "x": x, "y": y, "button": 0});
+    surface.Feed({"type": "release", "x": x, "y": y, "button": 0});
+    surface.Frame(surface.time + 16);
+};
+print("rows", keys(column));
+print("badges", len(column.children[2].children));
+tap(column.children[0].children[2]);
+print("done filter", keys(column));
+tap(column.children[0].children[1]);
+print("open filter", keys(column));
+tap(column.children[0].children[0]);
+tap(column.children[1].children[0]);
+print("after check", keys(column), len(column.children[1].children));

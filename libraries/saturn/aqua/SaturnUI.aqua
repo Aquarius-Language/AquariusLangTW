@@ -10,41 +10,41 @@ var Saturn = import("Saturn");
 # ---- Widgets ----------------------------------------------------------------------------------------------------
 
 struct Box { child; children; style; class; key; onTap; onDoubleTap; onLongPress; onHover; onPress; onRelease; cursor }
-struct Row { children; gap; mainAxis; crossAxis; wrap; style; class; key }
-struct Column { children; gap; mainAxis; crossAxis; wrap; style; class; key }
+struct Row { children = []; gap; mainAxis; crossAxis = "start"; wrap; style; class; key }
+struct Column { children = []; gap; mainAxis; crossAxis = "start"; wrap; style; class; key }
 struct Stack { children; style; class; key }
 struct Positioned { child; left; top; right; bottom; width; height; key }
-struct Expanded { child; flex; key }
-struct Flexible { child; flex; key }
-struct Spacer { flex; key }
+struct Expanded { child; flex = 1; key }
+struct Flexible { child; flex = 1; key }
+struct Spacer { flex = 1; key }
 struct Padding { padding; child; key }
 struct Center { child; key }
-struct Align { alignment; child; key }
+struct Align { alignment = "center"; child; key }
 struct SizedBox { width; height; child; key }
 struct AspectRatio { ratio; child; key }
 struct Wrap { children; gap; runGap; style; class; key }
-struct Grid { columns; children; gap; style; class; key }
+struct Grid { columns = 2; children = []; gap = 0; style; class; key }
 struct ScrollView { child; horizontal; style; class; key }
-struct ListView { itemCount; itemBuilder; itemExtent; gap; style; class; key }
+struct ListView { itemCount = 0; itemBuilder; itemExtent; gap = 0; style; class; key }
 struct Text { text; style; class; key; maxLines; ellipsis; align }
-struct RichText { spans; style; class; key }
+struct RichText { spans = []; style; class; key }
 struct Span { text; style }
-struct Image { image; width; height; fit; radius; style; class; key }
-struct Icon { name; size; color; key }
+struct Image { image; width; height; fit = "cover"; radius; style; class; key }
+struct Icon { name; size = 20; color; key }
 struct CustomPaint { paint; width; height; child; style; key }
 struct Button { label; child; icon; onPress; variant; disabled; style; class; key }
-struct IconButton { icon; onPress; size; tooltip; disabled; style; class; key }
+struct IconButton { icon; onPress; size = 20; tooltip; disabled = false; style; class; key }
 struct Checkbox { value; onChanged; label; disabled; key }
 struct Switch { value; onChanged; label; disabled; key }
 struct Radio { value; group; onChanged; label; disabled; key }
-struct Slider { value; min; max; step; onChanged; width; disabled; key }
-struct ProgressBar { value; width; key }
-struct TextField { value; onChanged; onSubmit; placeholder; obscure; width; disabled; style; class; key }
-struct Dropdown { value; options; onChanged; width; key }
-struct Tabs { labels; index; onChanged; key }
-struct Dialog { open; title; content; actions; onDismiss; width; key }
+struct Slider { value = 0; min = 0; max = 1; step; onChanged; width = 200; disabled = false; key }
+struct ProgressBar { value = 0; width = 200; key }
+struct TextField { value = ""; onChanged; onSubmit; placeholder; obscure = false; width = 220; disabled = false; style; class; key }
+struct Dropdown { value; options = []; onChanged; width = 200; key }
+struct Tabs { labels = []; index = 0; onChanged; key }
+struct Dialog { open = false; title; content; actions = []; onDismiss; width = 360; key }
 struct Tooltip { message; child; key }
-struct Divider { thickness; color; vertical; key }
+struct Divider { thickness = 1; color; vertical = false; key }
 struct Card { child; children; style; class; key; onTap }
 struct Gesture { child; onTap; onDoubleTap; onLongPress; onHover; onPress; onRelease; onDragStart; onDrag; onDragEnd; cursor; key }
 struct Builder { build; key }
@@ -472,7 +472,7 @@ var contextOf = function(e) {
 # Containers whose layout comes from their fields.
 var flexBase = function(direction, w) {
     return {"flexDirection": direction, "gap": w.gap, "justifyContent": axisValue(w.mainAxis),
-        "alignItems": axisValue(pick(w.crossAxis, "start")), "flexWrap": if (w.wrap == true) { "wrap"; } else { null; }};
+        "alignItems": axisValue(w.crossAxis), "flexWrap": if (w.wrap == true) { "wrap"; } else { null; }};
 };
 kinds["Row"] = {"update": function(e, w) { restyle(e, flexBase("row", w), selectorsOf("Row", null, w.class), w.style); reconcile(e, listOf(null, w.children)); }};
 kinds["Column"] = {"update": function(e, w) { restyle(e, flexBase("column", w), selectorsOf("Column", null, w.class), w.style); reconcile(e, listOf(null, w.children)); }};
@@ -501,16 +501,16 @@ var parentData = function(e, w, extra) {
 kinds["Positioned"] = {"update": function(e, w) {
     parentData(e, w, {"position": "absolute", "left": w.left, "top": w.top, "right": w.right, "bottom": w.bottom, "width": w.width, "height": w.height});
 }};
-kinds["Expanded"] = {"update": function(e, w) { parentData(e, w, {"flexGrow": pick(w.flex, 1), "flexShrink": 1, "flexBasis": 0, "alignSelf": "stretch"}); }};
-kinds["Flexible"] = {"update": function(e, w) { parentData(e, w, {"flexGrow": pick(w.flex, 1), "flexShrink": 1}); }};
-kinds["Spacer"] = {"update": function(e, w) { restyle(e, {"flexGrow": pick(w.flex, 1)}, [], null); }};
+kinds["Expanded"] = {"update": function(e, w) { parentData(e, w, {"flexGrow": w.flex, "flexShrink": 1, "flexBasis": 0, "alignSelf": "stretch"}); }};
+kinds["Flexible"] = {"update": function(e, w) { parentData(e, w, {"flexGrow": w.flex, "flexShrink": 1}); }};
+kinds["Spacer"] = {"update": function(e, w) { restyle(e, {"flexGrow": w.flex}, [], null); }};
 kinds["Padding"] = {"update": function(e, w) { restyle(e, {"padding": w.padding}, [], null); reconcile(e, listOf(w.child, null)); }};
 kinds["Center"] = {"update": function(e, w) {
     restyle(e, {"flexGrow": 1, "alignSelf": "stretch", "alignItems": "center", "justifyContent": "center"}, [], null);
     reconcile(e, listOf(w.child, null));
 }};
 kinds["Align"] = {"update": function(e, w) {
-    var a = alignmentOf(pick(w.alignment, "center"));
+    var a = alignmentOf(w.alignment);
     restyle(e, {"flexGrow": 1, "alignSelf": "stretch", "justifyContent": a[0], "alignItems": a[1]}, [], null);
     reconcile(e, listOf(w.child, null));
 }};
@@ -518,7 +518,7 @@ kinds["SizedBox"] = {"update": function(e, w) { restyle(e, {"width": w.width, "h
 kinds["AspectRatio"] = {"update": function(e, w) { restyle(e, {"aspectRatio": w.ratio, "alignSelf": "stretch"}, [], null); reconcile(e, listOf(w.child, null)); }};
 kinds["Grid"] = {"update": function(e, w) {
     # Rows of equal flexible cells.
-    var columns = pick(w.columns, 2);
+    var columns = w.columns;
     var gap = pick(w.gap, 0);
     var rows = [];
     var cells = listOf(null, w.children);
@@ -546,7 +546,7 @@ kinds["Gesture"] = {"update": function(e, w) {
     reconcile(e, listOf(w.child, null));
 }};
 kinds["Divider"] = {"update": function(e, w) {
-    var t = pick(w.thickness, 1);
+    var t = w.thickness;
     var base = if (w.vertical == true) { {"width": t, "alignSelf": "stretch"}; } else { {"height": t, "alignSelf": "stretch"}; };
     if (w.color != null) { base["background"] = w.color; }
     restyle(e, base, ["Divider"], null);
@@ -560,7 +560,7 @@ kinds["Text"] = {"update": function(e, w) {
 kinds["RichText"] = {"update": function(e, w) {
     # Spans flow as words of their own styles, wrapping like one paragraph.
     var words = [];
-    var spans = pick(w.spans, []);
+    var spans = w.spans;
     for (var i = 0; i < len(spans); i++) {
         var span = spans[i];
         if (String.StartsWith(span.text, " ") && len(words) > 0) {
@@ -579,11 +579,11 @@ kinds["RichText"] = {"update": function(e, w) {
     reconcile(e, words);
 }};
 kinds["Image"] = {"update": function(e, w) {
-    restyle(e, {"width": w.width, "height": w.height, "image": w.image, "objectFit": pick(w.fit, "cover"), "borderRadius": w.radius,
+    restyle(e, {"width": w.width, "height": w.height, "image": w.image, "objectFit": w.fit, "borderRadius": w.radius,
         "overflow": "hidden"}, selectorsOf("Image", null, w.class), w.style);
 }};
 kinds["Icon"] = {"update": function(e, w) {
-    var size = pick(w.size, 20);
+    var size = w.size;
     restyle(e, {"width": size, "height": size, "flexShrink": 0}, ["Icon"], null);
     var color = w.color;
     e.node.SetPainter(function(p, width, height) {
@@ -607,7 +607,7 @@ kinds["ScrollView"] = {"update": function(e, w) {
 }};
 kinds["ListView"] = {"update": function(e, w) {
     restyle(e, {"overflow": "scroll", "flexShrink": 1, "minHeight": 0}, selectorsOf("ListView", null, w.class), w.style);
-    var count = pick(w.itemCount, 0);
+    var count = w.itemCount;
     var extent = w.itemExtent;
     var gap = pick(w.gap, 0);
     var items = [];
@@ -680,7 +680,7 @@ kinds["Button"] = {"update": function(e, w) {
 kinds["IconButton"] = {"update": function(e, w) {
     e.data["disabled"] = w.disabled == true;
     restyle(e, {}, selectorsOf("IconButton", null, w.class), w.style);
-    reconcile(e, [Icon(name: w.icon, size: pick(w.size, 20), key: "icon")]);
+    reconcile(e, [Icon(name: w.icon, size: w.size, key: "icon")]);
 }, "tap": function(e, event) { if (e.widget.onPress != null && e.widget.disabled != true) { e.widget.onPress(); } }};
 kinds["Checkbox"] = {"update": function(e, w) {
     e.data["disabled"] = w.disabled == true;
@@ -711,14 +711,14 @@ kinds["Radio"] = {"update": function(e, w) {
     update(ring, ring.widget);
 }, "tap": function(e, event) { if (e.widget.onChanged != null && e.widget.disabled != true) { e.widget.onChanged(e.widget.value); } }};
 var sliderFraction = function(w) {
-    var lo = pick(w.min, 0);
-    var hi = pick(w.max, 1);
+    var lo = w.min;
+    var hi = w.max;
     if (hi == lo) { return 0; }
     return clamp(double(w.value - lo) / (hi - lo), 0.0d, 1.0d);
 };
 kinds["Slider"] = {"update": function(e, w) {
     e.data["disabled"] = w.disabled == true;
-    restyle(e, {"width": pick(w.width, 200)}, ["Slider"], null);
+    restyle(e, {"width": w.width}, ["Slider"], null);
     var f = sliderFraction(w) * 100;
     reconcile(e, [Box(class: "SliderTrack", key: "track"), Box(class: "SliderFill", key: "fill", style: {"width": String.From(f) + "%"}),
         Box(class: "SliderThumb", key: "thumb", style: {"left": String.From(f) + "%", "marginLeft": -9})]);
@@ -726,25 +726,25 @@ kinds["Slider"] = {"update": function(e, w) {
     var w = e.widget;
     if (w.onChanged == null || w.disabled == true) { return null; }
     var width = e.node.GetComputedWidth();
-    var lo = pick(w.min, 0.0d);
-    var hi = pick(w.max, 1.0d);
+    var lo = double(w.min);
+    var hi = double(w.max);
     var v = lo + clamp(local[0] / width, 0.0d, 1.0d) * (hi - lo);
     if (w.step != null && w.step > 0) { v = lo + int((v - lo) / w.step + 0.5d) * w.step; }
     w.onChanged(v);
 }};
 kinds["ProgressBar"] = {"update": function(e, w) {
-    restyle(e, {"width": pick(w.width, 200)}, ["ProgressBar"], null);
+    restyle(e, {"width": w.width}, ["ProgressBar"], null);
     reconcile(e, [Box(class: "ProgressFill", key: "fill", style: {"width": String.From(clamp(pick(w.value, 0) * 100, 0, 100)) + "%"})]);
 }};
 kinds["Tabs"] = {"update": function(e, w) {
     restyle(e, {}, ["Tabs"], null);
     var tabs = [];
-    var labels = pick(w.labels, []);
+    var labels = w.labels;
     for (var i = 0; i < len(labels); i++) { Array.Append(tabs, Box(class: "Tab", key: i, child: Text(text: labels[i]))); }
     reconcile(e, tabs);
     for (var i = 0; i < len(e.children); i++) {
         var tab = e.children[i];
-        tab.data["selected"] = i == pick(w.index, 0);
+        tab.data["selected"] = i == w.index;
         tab.data["tabIndex"] = i;
         update(tab, tab.widget);
     }
@@ -762,7 +762,7 @@ kinds["TextField"] = {"update": function(e, w) {
     e.data["disabled"] = w.disabled == true;
     e.data["focused"] = e.surface.focus == e;
     if (Hash.Get(e.data, "caret", null) == null) { e.data["caret"] = len(pick(w.value, "")); }
-    restyle(e, {"width": pick(w.width, 220)}, selectorsOf("TextField", null, w.class), w.style);
+    restyle(e, {"width": w.width}, selectorsOf("TextField", null, w.class), w.style);
     var value = pick(w.value, "");
     var shown = value;
     if (w.obscure == true) { shown = String.Repeat("•", len(value)); }
@@ -824,8 +824,8 @@ kinds["TextField"] = {"update": function(e, w) {
 
 # Overlays: dropdown menus, dialogs and tooltips live above the tree, in the surface's overlay layer.
 kinds["Dropdown"] = {"update": function(e, w) {
-    restyle(e, {"width": pick(w.width, 200)}, ["Dropdown"], null);
-    var options = pick(w.options, []);
+    restyle(e, {"width": w.width}, ["Dropdown"], null);
+    var options = w.options;
     var label = "";
     for (var i = 0; i < len(options); i++) { if (options[i] == w.value) { label = String.From(options[i]); } }
     var open = Hash.Get(e.data, "open", false) == true;
@@ -861,7 +861,7 @@ kinds["Dialog"] = {"overlay": true, "update": function(e, w) {
     if (w.title != null) { Array.Append(body, Text(text: w.title, class: "DialogTitle", key: "title")); }
     if (w.content != null) { Array.Append(body, w.content); }
     if (w.actions != null) { Array.Append(body, Row(children: w.actions, class: "DialogActions", key: "actions")); }
-    reconcile(e, [Column(children: body, class: "DialogCard", style: {"width": pick(w.width, 360)}, crossAxis: "stretch", key: "card")]);
+    reconcile(e, [Column(children: body, class: "DialogCard", style: {"width": w.width}, crossAxis: "stretch", key: "card")]);
 }, "tap": function(e, event) {
     # A tap on the scrim (outside the card) dismisses.
     var path = e.surface.pathAt(event["x"], event["y"]);

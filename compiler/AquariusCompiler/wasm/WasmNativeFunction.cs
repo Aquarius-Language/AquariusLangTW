@@ -404,13 +404,15 @@ internal sealed partial class WasmNativeFunction
         if (Shape(code) is not { } shape || names == null && arguments.Length > shape.Fields.Length) return null;
         var fields = new int[arguments.Length];
         for (int i = 0; i < arguments.Length; i++) {
-            int index = names == null ? i : Array.FindIndex(shape.Fields, f => f.Value == names[i]);
+            int index = names == null || names[i].Length == 0 ? i : Array.FindIndex(shape.Fields, f => f.Value == names[i]);
+            if (index >= shape.Fields.Length) return null;
             if (index < 0 || !FieldAccepts(shape.Fields[index].Type?.Code ?? 0, arguments[i])) return null;
             fields[i] = index;
         }
-        // Fields left out are null: only untyped and struct-typed fields may be.
+        // Fields left out are null: only untyped and struct-typed fields may be. A left-out field with a default is filled by
+        // the generic construction.
         for (int f = 0; f < shape.Fields.Length; f++)
-            if (Array.IndexOf(fields, f) < 0 && shape.Fields[f].Type is { } type && !IsStructType(type.Code)) return null;
+            if (Array.IndexOf(fields, f) < 0 && (shape.Fields[f].Default != null || shape.Fields[f].Type is { } type && !IsStructType(type.Code))) return null;
         return fields;
     }
     private int? Construction(int callee, int[] arguments, string[]? names) =>

@@ -52,6 +52,18 @@ public sealed class LoweringCompiler {
     /// <summary>A function body: typed parameters are checked on entry and the implicit result like a return.</summary>
     internal LoweredProgram CompileFunction(FunctionLiteral function) {
         code.Clear(); constants.Clear(); names.Clear(); breaks.Clear(); continues.Clear(); loops.Clear();
+        // A parameter left out of the call holds the missing marker (rt_isMissing) until its default replaces it.
+        foreach (var parameter in function.Parameters ?? Array.Empty<Identifier>()) {
+            if (parameter.Default == null) continue;
+            Emit(IrOperation.Load, Name(parameter.Value));
+            Emit(IrOperation.IsMissing);
+            int given = Emit(IrOperation.JumpIfFalse);
+            Emit(IrOperation.Load, Name(parameter.Value));
+            Node(parameter.Default);
+            Emit(IrOperation.Assign, Name(parameter.Value));
+            Emit(IrOperation.Pop);
+            Patch(given);
+        }
         foreach (var parameter in function.Parameters ?? Array.Empty<Identifier>()) {
             if (parameter.Type == null) continue;
             // Assign consumes the target's loaded value below the new value, like `p = p`.
@@ -119,9 +131,11 @@ public sealed class LoweringCompiler {
                 break;
             case ReturnStatement returned: Node(returned.ReturnValue); Check(returned); Emit(IrOperation.Return); break;
             case StructStatement shape:
-                // "id\1name\1field\2code\2type\1...": the runtime's struct type descriptor (rt_structType).
+                // The defaults, in field order, then "id\1name\1field\2code\2type\2default\1...": the runtime's struct type
+                // descriptor (rt_structType), default 1 for a field whose default is on the stack.
+                foreach (var field in shape.Fields) if (field.Default != null) Node(field.Default);
                 Emit(IrOperation.StructType, Constant($"{shape.Id}\u0001{shape.Name.Value}" + string.Concat(shape.Fields.Select(f =>
-                    $"\u0001{f.Value}\u0002{f.Type?.Code ?? 0}\u0002{f.Type?.String() ?? ""}"))));
+                    $"\u0001{f.Value}\u0002{f.Type?.Code ?? 0}\u0002{f.Type?.String() ?? ""}\u0002{(f.Default != null ? 1 : 0)}"))));
                 Emit(IrOperation.Declare, Name(shape.Name.Value));
                 break;
             case ContinueStatement:
@@ -166,6 +180,7 @@ public sealed class LoweringCompiler {
                 if (call.ArgumentNames != null) Emit(IrOperation.CallNamed, Constant(string.Join("\u0001", call.ArgumentNames)));
                 else Emit(IrOperation.Call, call.Arguments.Length);
                 break;
+            case ArrayLiteral array when array.Elements.Any(e => e is SpreadElement or CollectionIf or CollectionFor): Collection(array); break;
             case ArrayLiteral array: Arguments(array.Elements); Emit(IrOperation.Array, array.Elements.Length); break;
             case HashLiteral hash:
                 foreach (var pair in hash.Pairs) { Node(pair.Key); Emit(IrOperation.CheckHashKey); Node(pair.Value); }
@@ -176,6 +191,33 @@ public sealed class LoweringCompiler {
     }
 
     private void Arguments(IExpression[] arguments) { foreach (var argument in arguments) Node(argument); }
+
+    // Array literals with ...spread, if or for elements are built in a variable no source can name, one per literal of a
+    // body, which their elements append to (loops reach it through their own scopes).
+    private int collections;
+    private void Collection(ArrayLiteral array) {
+        int list = Name($"collection@{collections++}");
+        Emit(IrOperation.Array, 0); Emit(IrOperation.Declare, list); Emit(IrOperation.Pop);
+        foreach (var element in array.Elements) Element(element, list);
+        Emit(IrOperation.Load, list);
+    }
+    private void Element(IExpression element, int list) {
+        switch (element) {
+            case SpreadElement spread: Emit(IrOperation.Load, list); Node(spread.Value); Emit(IrOperation.AppendAll); Emit(IrOperation.Pop); break;
+            case CollectionIf conditional: {
+                Node(conditional.Condition);
+                int otherwise = Emit(IrOperation.JumpIfFalse);
+                Element(conditional.Then, list);
+                int end = Emit(IrOperation.Jump);
+                Patch(otherwise);
+                if (conditional.Else != null) Element(conditional.Else, list);
+                Patch(end);
+                break;
+            }
+            case CollectionFor repeated: Loop(repeated.Loop, () => { Element(repeated.Element, list); Emit(IrOperation.Void); }); Emit(IrOperation.Pop); break;
+            default: Emit(IrOperation.Load, list); Node(element); Emit(IrOperation.Append); Emit(IrOperation.Pop); break;
+        }
+    }
 
     private void Infix(InfixExpression expression) {
         string op = expression.Operator;
@@ -260,7 +302,8 @@ public sealed class LoweringCompiler {
         foreach (int ending in endings) Patch(ending);
     }
 
-    private void Loop(ForLoopLiteral loop) {
+    // A loop's body is its block, or, for an array literal's for element, the code that appends the element.
+    private void Loop(ForLoopLiteral loop, Action? body = null) {
         int enter = Emit(IrOperation.EnterLoop, loop.DeclareStatement == null ? -1 : Name(loop.DeclareStatement.Name.Value));
         if (loop.DeclareStatement != null) { Node(loop.DeclareStatement); Emit(IrOperation.Pop); }
         int condition = code.Count;
@@ -268,7 +311,8 @@ public sealed class LoweringCompiler {
         if (loop.ConditionalExpression != null) Node(loop.ConditionalExpression); else Value(RepeatedPrimitives.TRUE);
         int end = Emit(IrOperation.LoopCondition);
         breaks.Push(new List<int>()); continues.Push(new List<int>());
-        if (loop.Body != null) { Node(loop.Body); breaks.Peek().Add(Emit(IrOperation.JumpIfBreak)); Emit(IrOperation.Pop); }
+        if (body != null) { body(); Emit(IrOperation.Pop); }
+        else if (loop.Body != null) { Node(loop.Body); breaks.Peek().Add(Emit(IrOperation.JumpIfBreak)); Emit(IrOperation.Pop); }
         // The next iteration starts before the update, so closures made in this iteration keep its value of the loop
         // variable (迴圈 (變數 i = 0; ...; i++) makes closures that see 0, 1, 2, ...).
         foreach (int jump in continues.Pop()) Patch(jump);
