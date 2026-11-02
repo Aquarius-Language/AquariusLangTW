@@ -243,6 +243,8 @@ struct processing {
     gfx_map text_cache;
     int64_t text_frame;
     size_t text_bytes;
+    /* drawUI textures (ui.c) */
+    struct ui_texture *ui_textures; size_t ui_texture_count, ui_texture_capacity;
     /* geometry */
     geo geometry;
 };
@@ -257,6 +259,9 @@ void gfx_shape_finalize(aqua_runtime *rt, void *data);
 void gfx_shader_finalize(aqua_runtime *rt, void *data);
 void gfx_font_finalize(aqua_runtime *rt, void *data);
 bool gfx_text_measure_line(const char *font, float size, const char *text, size_t length, int *width, int *height);
+bool gfx_text_draw_line(aqua_call *call, processing *p, canvas *c, const char *font, float size, const char *text, size_t length,
+                        float x, float y, vec4 color);
+void gfx_ui_clear(processing *p);
 
 /* Registration of each file's members onto the module and the PGraphics class. */
 void gfx_drawing_register(aqua_class *module, aqua_class *canvas);
@@ -269,6 +274,7 @@ void gfx_data_register(aqua_class *module);
 void gfx_vector_register(aqua_class *module, aqua_class *vector);
 void gfx_lifecycle_register(aqua_class *module, aqua_class *canvas);
 void gfx_input_register(aqua_class *module);
+void gfx_ui_register(aqua_class *module, aqua_class *canvas);
 
 /* input.c */
 void gfx_input_attach(processing *p);

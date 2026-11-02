@@ -16,11 +16,15 @@ static wchar_t *wide(const char *text, size_t length, int *count) {
     return w;
 }
 
-static HFONT font_of(const char *name, float size) {
+static HFONT font_of(const char *spec, float size) {
+    char name[256];
+    int weight;
+    bool italic;
+    gfx_font_parse(spec, name, sizeof name, &weight, &italic);
     const char *face = strcmp(name, "sans-serif") == 0 ? "Segoe UI" : strcmp(name, "monospace") == 0 ? "Consolas" : name;
     int count;
     wchar_t *w = wide(face, strlen(face), &count);
-    HFONT font = CreateFontW(-(int)ceilf(size), 0, 0, 0, 400, 0, 0, 0, DEFAULT_CHARSET, 0, 0, ANTIALIASED_QUALITY, 0, w);
+    HFONT font = CreateFontW(-(int)ceilf(size), 0, 0, 0, weight, italic, 0, 0, DEFAULT_CHARSET, 0, 0, ANTIALIASED_QUALITY, 0, w);
     free(w);
     return font;
 }

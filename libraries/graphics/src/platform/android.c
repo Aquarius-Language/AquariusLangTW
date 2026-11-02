@@ -119,12 +119,23 @@ static jobject typeface(JNIEnv *env, const char *family) {
     return failed(env) ? NULL : result;
 }
 
-/* A Paint for the family at `size` pixels. */
-static jobject paint(JNIEnv *env, const char *family, float size) {
+/* A Paint for the family (with any ":weight" / ":italic", platform.h) at `size` pixels. */
+static jobject paint(JNIEnv *env, const char *spec, float size) {
+    char family[256];
+    int weight;
+    bool italic;
+    gfx_font_parse(spec, family, sizeof family, &weight, &italic);
     jclass paint_class = (*env)->FindClass(env, "android/graphics/Paint");
     jobject p = (*env)->NewObject(env, paint_class, (*env)->GetMethodID(env, paint_class, "<init>", "(I)V"), 1 /* ANTI_ALIAS_FLAG */);
     if (failed(env) || !p) return NULL;
     jobject face = typeface(env, family);
+    if (face && (weight != 400 || italic)) {
+        /* Typeface.create(Typeface, int weight, boolean italic), API 28. */
+        jclass typeface_class = (*env)->FindClass(env, "android/graphics/Typeface");
+        jmethodID styled = (*env)->GetStaticMethodID(env, typeface_class, "create", "(Landroid/graphics/Typeface;IZ)Landroid/graphics/Typeface;");
+        jobject variant = (*env)->CallStaticObjectMethod(env, typeface_class, styled, face, (jint)weight, (jboolean)italic);
+        if (!failed(env) && variant) face = variant;
+    }
     if (face) (*env)->CallObjectMethod(env, p, (*env)->GetMethodID(env, paint_class, "setTypeface", "(Landroid/graphics/Typeface;)Landroid/graphics/Typeface;"), face);
     (*env)->CallVoidMethod(env, p, (*env)->GetMethodID(env, paint_class, "setTextSize", "(F)V"), (jfloat)size);
     return failed(env) ? NULL : p;

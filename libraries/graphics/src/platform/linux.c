@@ -31,6 +31,8 @@ typedef struct pango_rectangle { int x, y, width, height; } pango_rectangle;
     X(pango, void, pango_font_description_free, (void *description)) \
     X(pango, void, pango_font_description_set_family, (void *description, const char *family)) \
     X(pango, void, pango_font_description_set_absolute_size, (void *description, double size)) \
+    X(pango, void, pango_font_description_set_weight, (void *description, int weight)) \
+    X(pango, void, pango_font_description_set_style, (void *description, int style)) \
     X(pango, void, pango_layout_set_font_description, (void *layout, void *description)) \
     X(pango, void, pango_layout_set_text, (void *layout, const char *text, int length)) \
     X(pango, void, pango_layout_get_pixel_extents, (void *layout, pango_rectangle *ink, pango_rectangle *logical)) \
@@ -72,8 +74,12 @@ static void layout_free(layout *l) {
     if (l->surface) api.cairo_surface_destroy(l->surface);
 }
 
-static bool layout_make(layout *l, const char *font, float size, const char *text, size_t length) {
+static bool layout_make(layout *l, const char *spec, float size, const char *text, size_t length) {
     memset(l, 0, sizeof *l);
+    char font[256];
+    int weight;
+    bool italic;
+    gfx_font_parse(spec, font, sizeof font, &weight, &italic);
     if (!load() || length > 4096 * 4) return false;
     l->surface = api.cairo_image_surface_create(0, 1, 1);
     l->context = api.cairo_create(l->surface);
@@ -82,6 +88,8 @@ static bool layout_make(layout *l, const char *font, float size, const char *tex
     l->description = api.pango_font_description_new();
     api.pango_font_description_set_family(l->description, font);
     api.pango_font_description_set_absolute_size(l->description, size * 1024.0);
+    api.pango_font_description_set_weight(l->description, weight);
+    if (italic) api.pango_font_description_set_style(l->description, 2 /* PANGO_STYLE_ITALIC */);
     api.pango_layout_set_font_description(l->handle, l->description);
     api.pango_layout_set_text(l->handle, text, (int)length);
     pango_rectangle ink, logical;

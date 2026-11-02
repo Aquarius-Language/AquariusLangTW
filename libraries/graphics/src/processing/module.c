@@ -40,6 +40,7 @@ void gfx_processing_destroy(processing *p) {
     free(p->raw); free(p->queue); free(p->textures);
     free(p->input_text); free(p->composition_text); free(p->error_message); free(p->failure);
     gfx_text_clear(p);
+    gfx_ui_clear(p);
     gfx_map_clear(&p->text_cache);
     gfx_geo_free(&p->geometry);
     free(p);
@@ -170,4 +171,5 @@ void gfx_processing_register(aqua_library *library) {
     gfx_vector_register(module, vector);
     gfx_lifecycle_register(module, canvas);
     gfx_input_register(module);
+    gfx_ui_register(module, canvas);
 }

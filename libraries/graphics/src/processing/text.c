@@ -412,6 +412,24 @@ void gfx_text_register(aqua_class *module, aqua_class *canvas, aqua_class *font)
     aqua_define_property(font, "size", font_size);
 }
 
+/* One line with its box's top-left at (x, y), as text() draws it, in `color` (drawUI, ui.c). */
+bool gfx_text_draw_line(aqua_call *call, processing *p, canvas *c, const char *font, float size, const char *text, size_t length,
+                        float x, float y, vec4 color) {
+    int w, h;
+    if (!measure(call, font, size, text, length, &w, &h)) return false;
+    float density = raster_scale(c, x, y);
+    pimage *image = cached_raster(call, p, text, length, font, size * density);
+    if (!image) return false;
+    style saved = c->style;
+    c->style.tint = color;
+    c->style.image_mode = 0;
+    float draw_x = x, draw_y = y, draw_w = (float)w, draw_h = (float)h;
+    align_to_pixels(c, &draw_x, &draw_y, &draw_w, &draw_h, image->width, image->height, density);
+    bool ok = gfx_canvas_image(call, c, image, draw_x, draw_y, &draw_w, &draw_h);
+    c->style = saved;
+    return ok;
+}
+
 /* Fonts.Measure and Fonts.Selection measure with the same layer (modules/fonts.c). */
 bool gfx_text_measure_line(const char *font, float size, const char *text, size_t length, int *width, int *height) {
     return line_box(font, size, text, length, width, height);

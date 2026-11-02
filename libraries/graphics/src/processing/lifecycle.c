@@ -43,6 +43,7 @@ void gfx_processing_close(processing *p) {
     for (pshader *s = p->shaders; s; s = s->next) gfx_shader_dispose(s);
     for (pimage *i = p->images; i; i = i->next) gfx_image_dispose(i);
     gfx_text_clear(p);
+    gfx_ui_clear(p);
     void gfx_texture_object_dispose(aqua_runtime *rt, aqua_value value);
     for (size_t i = 0; i < p->texture_count; i++) { gfx_texture_object_dispose(p->rt, aqua_ref_value(p->rt, p->textures[i])); aqua_release(p->rt, p->textures[i]); }
     p->texture_count = 0;
