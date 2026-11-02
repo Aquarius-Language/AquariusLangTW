@@ -25,7 +25,7 @@ namespace AquariusLang.Wasm;
 /// unshadowed core conversions) and the argument types before any effect, and otherwise leaves the call to the generic
 /// body (status 0).
 /// </summary>
-internal sealed class WasmNativeFunction
+internal sealed partial class WasmNativeFunction
 {
     private const int Unknown = -1, VoidType = 0, IntType = 1, FloatType = 2, DoubleType = 3, BoolType = 4, NullType = 11;
     // Struct type codes (32 | id << 6, id < 2^23) stay below the compile-time-only operand codes.
@@ -941,7 +941,8 @@ internal sealed class WasmNativeFunction
         // array's count and values pointer. They are copied with the array and loaded only where an array enters a
         // local from memory, so loops index arrays without reloading their headers. Native code never resizes an
         // array; a copy-on-write (rt_nativeWritable) or a callee can replace an array's values, so both refresh them.
-        int i32Own = slots * 2 + cap + 8 + cached.Length + 2 * (slots + cap + cached.Length), f64Own = slots + cap + 3 + cached.Length;
+        // Then two for versioned loops (the counter's start, a test's result).
+        int i32Own = slots * 2 + cap + 8 + cached.Length + 2 * (slots + cap + cached.Length) + 2, f64Own = slots + cap + 3 + cached.Length;
         // Each inlined callee gets its own slots, flags, operands and companions after this body's locals.
         var inlined = new List<WasmNativeFunction>();
         foreach (var (at, operands) in states)
@@ -968,6 +969,7 @@ internal sealed class WasmNativeFunction
         int SlotCount(int s) => slotCountBase + 2 * s;
         int StackCount(int k) => stackCountBase + 2 * k;
         int CacheCount(int c) => companions + 2 * (slots + cap + c);
+        int loopStart = companions + 2 * (slots + cap + cached.Length), versionTest = loopStart + 1;
         // The local may go negative where the generic checkpoint saturates at 0: both yield at the next checkpoint, and
         // the stored budget is clamped to the generic value.
         void SaveBudget() { Execution(); Get(w, budget); I(w, 0); Get(w, budget); I(w, 0); Op(0x4a, 0x1b); Memory(w, I32Store, 2, ExecutionBudget); }
@@ -978,7 +980,9 @@ internal sealed class WasmNativeFunction
         int StackF(int k) => stackFBase + k;
         int resultF = f64First + slots + cap, tempF = resultF + 1, tempG = resultF + 2;
         int CacheF(int c) => resultF + 3 + c;
-        U(w, 2); U(w, i32Count); w.Write((byte)0x7f); U(w, f64Count); w.Write((byte)0x7c);
+        // One i64 for versioned loops' tests.
+        U(w, 3); U(w, i32Count); w.Write((byte)0x7f); U(w, f64Count); w.Write((byte)0x7c); U(w, 1); w.Write((byte)0x7e);
+        int wide = f64First + f64Count;
         // A region's results: the generic block to continue at, -1 to run the generic body now (no budget left or a
         // collection pending), -2 when a binding or slot has another type (generic from now on), -3 after an error.
         void RegionExit(int block, int pc) { WriteSlots(pc); SaveOuter(); SaveBudget(); I(w, block); Op(Return); }
@@ -1200,6 +1204,9 @@ internal sealed class WasmNativeFunction
         var constructs = this.constructs!;
         // While an inlined callee is emitted: where its result goes (instead of returning).
         Action<int, int>? inlineReturn = null;
+        // Loops emitted twice (WasmLoopVersioning), and the one whose fast copy is being emitted.
+        var versions = VersionedLoops(natives);
+        VersionedLoop? fastLoop = null;
         // The outermost block is the handler's entry.
         var open = new List<(int Start, int End, bool Loop)> { (-1, int.MaxValue, false) };
         int Label(Func<(int Start, int End, bool Loop), bool> match) {
@@ -1337,11 +1344,13 @@ internal sealed class WasmNativeFunction
             while (open.Count > 1 && open[^1].End == pc) { open.RemoveAt(open.Count - 1); Op(End); }
             // Arriving at the resumed target ends the skipping.
             if (inlineReturn == null && resume && Array.IndexOf(targets, pc) >= 0) { Get(w, resumeAt); I(w, SiteOf(pc)); Op(0x46, If, 0x40); I(w, 0); Set(w, resumeAt); Op(End); }
+            // A versioned loop: the fast copy when the test before it passes, else (the if's else) the original below.
+            if (inlineReturn == null && fastLoop == null && versions.TryGetValue(pc, out var version)) FastLoop(version);
             foreach (var c in constructs.Where(c => c.Start == pc).OrderByDescending(c => c.End).ThenBy(c => c.Loop)) {
                 if (c.End > open[^1].End) throw new InvalidOperationException("Native control flow is not structured.");
                 open.Add(c); Op(c.Loop ? Loop : Block, 0x40);
                 if (inlineReturn == null) OpenSkips(constructs.IndexOf(c));
-                if (c.Loop) Checkpoint(pc, false);
+                if (c.Loop && fastLoop?.Head != pc) Checkpoint(pc, false);
             }
             if (!cur.states.TryGetValue(pc, out var stack)) continue;
             int depth = stack.Length, top = depth - 1, below = depth - 2;
@@ -1770,6 +1779,30 @@ internal sealed class WasmNativeFunction
         }
         }
         EmitOps(Start, Stop);
+
+        // ---- versioned loops (WasmLoopVersioning) ---------------------------------------------------------------------
+        void FastLoop(VersionedLoop loop) {
+            int counter = SlotI(loop.Counter);
+            void Leaf(int pc) {
+                if (code[pc].Code == IrOperation.Constant) { I(w, ((IntegerObj)body.Pool[code[pc].Operand]).Value); return; }
+                int slot = SlotOf(pc); string name = NameOf(code[pc].Operand);
+                if (slot >= 0) Get(w, SlotI(slot)); else if (constants.TryGetValue(name, out double value)) I(w, (int)value); else ReadOuter(name, IntType);
+            }
+            Get(w, counter); Set(w, loopStart);
+            // Fuel: the budget covers (trips + 1) iterations at their heaviest.
+            Get(w, budget); Op(0xac);
+            Leaf(loop.Bound); Op(0xac); Get(w, counter); Op(0xac); Op(0x7d); Set(w, wide);
+            Get(w, wide); L(w, 0); Get(w, wide); L(w, 0); Op(0x55, 0x1b);
+            L(w, 1); Op(0x7c); L(w, loop.PerIteration); Op(0x7e); Op(0x55); Set(w, versionTest);
+            Get(w, versionTest); Op(If, 0x40); open.Add((-5, loop.End, false));
+            fastLoop = loop;
+            EmitOps(loop.Head, loop.End - 1);
+            fastLoop = null;
+            while (open[^1].Start != -5) { open.RemoveAt(open.Count - 1); Op(End); }
+            // The heads it ran: k - k0 + 1.
+            Get(w, budget); Get(w, counter); Get(w, loopStart); Op(0x6b); I(w, 1); Op(0x6a); I(w, loop.Weight); Op(0x6c); Op(0x6b); Set(w, budget);
+            Op(Else);
+        }
 
         // The result of the current body: returned, or (inlined) left in the caller's operand and continued after it.
         void Exit(int type, int k) {
