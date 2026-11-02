@@ -151,3 +151,21 @@ The generic runtime (`binary` in `runtime.c`, `rt_bitNot`), generic compiled cod
 operands are proven integers, the runtime otherwise) and native code (typed and cloned functions, loops) give identical
 results; `BitwiseOperatorTest` compares them. Compound bitwise assignments of module globals go through the runtime
 rather than the integer shadows the generic emitter keeps for `+=`.
+
+## Processing, GLM and library code
+
+The graphics library's Processing (`繪圖`) and `GLM` modules are native C. Their transcendental functions (`sin`, `cos`,
+`tan`, `asin`, `acos`, `atan`, `atan2`, `exp`, `log`, `pow`; GLM `Sin`, `Cos`) now run the same musl code as `數學` /
+`Math`, vendored into the library (`libraries/graphics/third_party/musl`, renamed `aqua_graphics_*`, compiled without
+fused multiply-adds), so `p.sin(x) == Math.Sin(x)` for every `x` on every target (`tests/processing_math_parity.aqua`);
+before, each target's C library computed them and could differ in the last bit. `sqrt` was already exact everywhere.
+Every existing expected output stays the same.
+
+Processing keeps its documented conventions, which differ from `Math` on purpose: `round` rounds halves up
+(`floor(x + 0.5)`: `round(-2.5)` is -2, `Math.Round(-2.5)` is -3), a result outside a function's domain (`sqrt(-1)`,
+`log(0)`) is an error rather than NaN or -Infinity, `min` / `max` take any number of finite numbers or an array, and
+`random` / `randomSeed` keep their own generator (a clone of .NET's `System.Random`).
+
+The `Models` module (`libraries/graphics/aqua/Models.aqua`) and the OpenGL cube test's GLM helpers
+(`libraries/opengl/tests/support/glm.aqua`) used hand-written Newton square roots and a Taylor-series sine; they now call
+`數學.平方根` / `Math.Sqrt`, `Math.Sin` and `Math.Cos`.

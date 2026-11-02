@@ -3,6 +3,7 @@
    uses the same permutation shuffle and octave sum. */
 #include "processing.h"
 #include <math.h>
+#include "aqua_libm.h" /* sin, cos, ..., pow: musl's, as the guest runtime's 數學 module computes them */
 #include <time.h>
 
 /* ---- System.Random (seeded) ---- */

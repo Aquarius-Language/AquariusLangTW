@@ -30,6 +30,7 @@ src/processing/      Processing: module.c (registration, fields), lifecycle.c (s
 src/modules/         wgpu.c, glm.c, textinput.c, window.c, fonts.c
 src/platform/        the per-OS text layer (one line of text: its box and an alpha mask; installed fonts)
 third_party/stb/     stb_image 2.30 and stb_image_write 1.16 (MIT / public domain), compiled privately into codecs.c
+third_party/musl/    musl 1.2.5 libm subset (MIT): Processing/GLM sin, cos, ..., pow as the 數學 module computes them
 tests/               <case>.aqua + <case>.expected (+ <case>.<target>.expected where a target differs)
 ```
 
@@ -44,6 +45,10 @@ Every global symbol carries the `gfx_` (or `gpu_`) prefix, since default librari
   with `llvm-objcopy` so the runtime can link it next to Wasmtime. The web build only takes `webgpu.h` from the host's
   archive. `AQUA_GRAPHICS_DOWNLOADS` points several build directories at one download folder.
 - **stb_image 2.30 / stb_image_write 1.16** (vendored, `third_party/stb/LICENSE`).
+- **musl 1.2.5 libm subset** (vendored and pinned, MIT, `third_party/musl/COPYRIGHT`): the transcendental functions of
+  Processing and GLM, renamed `aqua_graphics_*`, so they equal the portable `數學` / `Math` module bit for bit on every
+  target (`third_party/musl/README.md`). Processing keeps its own conventions on top: `round` rounds halves up
+  (`floor(x + 0.5)`), results outside a function's domain are errors, and `min` / `max` take any count of finite numbers.
 - Android emulator: its GFXStream Vulkan driver (`vulkan.ranchu.so`, API 37 images) crashes on wgpu's submissions
   that mix a binary wait with a timeline signal. Instead of rebuilding wgpu-native with the earlier wgpu-hal patch,
   `src/platform/android_vulkan.c` pads both timeline value arrays of each such `vkQueueSubmit` on emulators only:
