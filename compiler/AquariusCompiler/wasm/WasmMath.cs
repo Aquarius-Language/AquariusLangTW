@@ -43,7 +43,7 @@ internal static class WasmMath
     {
         const int Int = 1, Float = 2, Double = 3, Bool = 4;
         if (k < 0 || k >= Functions.Length || arguments.Length != Functions[k].Arity || arguments.Any(a => a is not (Int or Float or Double))) return 0;
-        int widest = arguments.Max();
+        int widest = arguments.DefaultIfEmpty(Int).Max();
         return (Function)k switch {
             Function.Random or Function.RandomInt or Function.Seed => 0,
             <= Function.Trunc => widest,

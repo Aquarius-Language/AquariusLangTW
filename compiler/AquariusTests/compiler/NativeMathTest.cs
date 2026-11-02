@@ -25,6 +25,7 @@ public class NativeMathTest
         // Calls native code leaves to the runtime: a wrong argument count (an error), Random and Seed.
         "var bad = function(x: double): double { return Math.Pow(x); }; bad(2.0d);",
         "var rnd = function(n: int): double { Math.Seed(n); return Math.Random() + Math.RandomInt(0, 10); }; [rnd(1), rnd(1), rnd(2)];",
+        "var draw = function() { return Math.Random() < 1.0d; }; [draw(), draw()];",
     ];
 
     [RuntimeFact]
