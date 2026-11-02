@@ -3,11 +3,11 @@ using AquariusTests.Wasm;
 
 namespace AquariusTests.Compiler;
 
-/// <summary>Versioned loops (WasmLoopVersioning): an innermost counted loop runs a fast copy without its head's fuel
-/// checkpoint only when a test before the loop proves the budget lasts. Every program must give the generic emitter's
-/// result: out-of-range indices (at either end, with negative coefficients or through 32-bit wrapping) raise the same
-/// error, and breaks, continues, inlined calls, outer bounds, empty ranges and writes behave as before, under any
-/// quantum.</summary>
+/// <summary>Versioned loops (WasmLoopVersioning): an innermost counted loop runs a fast copy, without its head's fuel
+/// checkpoint and with indices proven in range unchecked, only when a test before the loop proves both. Every program
+/// must give the generic emitter's result: out-of-range indices (at either end, with negative coefficients or through
+/// 32-bit wrapping) fall back to the checked loop and raise the same error, and breaks, continues, inlined calls, outer
+/// bounds, empty ranges and writes behave as before, under any quantum.</summary>
 public class LoopVersioningTest
 {
     private const string Sum = "var sum = function(a: int[], n: int): int { var s: int = 0; for (var k: int = 0; k < n; k++) { s += a[k] * 3 + a[n - 1 - k]; } return s; }; ";

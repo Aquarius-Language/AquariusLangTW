@@ -1581,16 +1581,19 @@ internal sealed partial class WasmNativeFunction
                 }
                 case IrOperation.Index: {
                     // Typed reads are checked: an index outside the array is an error, not null. Outside a loose array the
-                    // region leaves at this read (a generic block), so the generic code reads it.
-                    Get(w, StackI(top)); Get(w, StackCount(below)); Op(0x49, 0x45, If, 0x40);
-                    if (IsLoose(TopType(2))) ToHandler(IndexSite, BlockOf(pc), stack, pc); else Fail(2);
-                    Op(End);
+                    // region leaves at this read (a generic block), so the generic code reads it. A versioned loop's fast
+                    // copy proved some indices in range before the loop.
+                    if (!Proven(pc)) {
+                        Get(w, StackI(top)); Get(w, StackCount(below)); Op(0x49, 0x45, If, 0x40);
+                        if (IsLoose(TopType(2))) ToHandler(IndexSite, BlockOf(pc), stack, pc); else Fail(2);
+                        Op(End);
+                    }
                     int element = TopType(2) & 15;
                     ElementAt(StackCount(below) + 1, StackI(top), TopType(2)); LoadElement(TopType(2));
                     PopStack(element, below); break;
                 }
                 case IrOperation.CheckArrayWrite:
-                    Get(w, StackI(top)); Get(w, StackCount(below)); Op(0x49, 0x45, If, 0x40); Fail(3); Op(End);
+                    if (!Proven(pc)) { Get(w, StackI(top)); Get(w, StackCount(below)); Op(0x49, 0x45, If, 0x40); Fail(3); Op(End); }
                     break;
                 case IrOperation.WriteIndex: {
                     int array = depth - 3, index = depth - 2, type = TopType();
@@ -1781,12 +1784,22 @@ internal sealed partial class WasmNativeFunction
         EmitOps(Start, Stop);
 
         // ---- versioned loops (WasmLoopVersioning) ---------------------------------------------------------------------
+        bool Proven(int pc) => fastLoop != null && cur == this && fastLoop.Proven.ContainsKey(pc);
         void FastLoop(VersionedLoop loop) {
             int counter = SlotI(loop.Counter);
+            void Test() { Get(w, versionTest); Op(0x71); Set(w, versionTest); }
             void Leaf(int pc) {
                 if (code[pc].Code == IrOperation.Constant) { I(w, ((IntegerObj)body.Pool[code[pc].Operand]).Value); return; }
                 int slot = SlotOf(pc); string name = NameOf(code[pc].Operand);
                 if (slot >= 0) Get(w, SlotI(slot)); else if (constants.TryGetValue(name, out double value)) I(w, (int)value); else ReadOuter(name, IntType);
+            }
+            // A term's value as an i64 (with the counter's from counterValue); every intermediate value must fit an int.
+            void Evaluate(Term term, Action counterValue) {
+                if (term.Operation == IrOperation.IncrementPostfix) { counterValue(); return; }
+                if (term.Left == null) { Leaf(term.Pc); Op(0xac); return; }
+                Evaluate(term.Left, counterValue); Evaluate(term.Right!, counterValue);
+                Op(term.Operation switch { IrOperation.Add => (byte)0x7c, IrOperation.Subtract => (byte)0x7d, _ => (byte)0x7e });
+                Set(w, wide); Get(w, wide); L(w, 1L << 31); Op(0x7c); L(w, 1L << 32); Op(0x54); Test(); Get(w, wide);
             }
             Get(w, counter); Set(w, loopStart);
             // Fuel: the budget covers (trips + 1) iterations at their heaviest.
@@ -1794,6 +1807,19 @@ internal sealed partial class WasmNativeFunction
             Leaf(loop.Bound); Op(0xac); Get(w, counter); Op(0xac); Op(0x7d); Set(w, wide);
             Get(w, wide); L(w, 0); Get(w, wide); L(w, 0); Op(0x55, 0x1b);
             L(w, 1); Op(0x7c); L(w, loop.PerIteration); Op(0x7e); Op(0x55); Set(w, versionTest);
+            // Bounds: each proven index at the first and the last counter value lies in its array.
+            if (loop.Proven.Count > 0) {
+                Leaf(loop.Bound); Get(w, counter); Op(0x4a, If, 0x40);
+                foreach (var (array, index) in loop.Proven.Values)
+                    foreach (Action end in new Action[] { () => { Get(w, counter); Op(0xac); }, () => { Leaf(loop.Bound); Op(0xac); L(w, 1); Op(0x7d); } }) {
+                        Evaluate(index, end); Set(w, wide);
+                        Get(w, wide);
+                        int slot = SlotOf(array);
+                        Get(w, slot >= 0 ? SlotCount(slot) : CacheCount(CacheOf(NameOf(code[array].Operand)))); Op(0xad);
+                        Op(0x54); Test();
+                    }
+                Op(End);
+            }
             Get(w, versionTest); Op(If, 0x40); open.Add((-5, loop.End, false));
             fastLoop = loop;
             EmitOps(loop.Head, loop.End - 1);
