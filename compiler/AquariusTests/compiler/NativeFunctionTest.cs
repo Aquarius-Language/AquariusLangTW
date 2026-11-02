@@ -62,13 +62,18 @@ public class NativeFunctionTest
 
     /// <summary>Calls whose result a native function returns at once are Wasm tail calls (return_call): the callee takes
     /// over the activation, so tail recursion runs natively at any depth, and a callee that deoptimizes or fails returns
-    /// straight to the tail caller's caller.</summary>
+    /// straight to the tail caller's caller. A self tail call jumps back to the body's start instead, with the entry
+    /// checkpoint's fuel test and charge (it may deoptimize there, with the new arguments).</summary>
     private static readonly string[] TailPrograms = [
         "var loop = function(n: int, acc: int): int { if (n == 0) { return acc; } return loop(n - 1, acc + n % 7); }; loop(1000000, 0);",
         "var odd = function(n: int): bool { if (n == 0) { return false; } return even(n - 1); }; var even = function(n: int): bool { if (n == 0) { return true; } return odd(n - 1); }; [even(100001), odd(77777)];",
         "var step = function(n: int, d: double): double { if (n == 0) { return d; } return step(n - 1, d * 0.5d + 1.0d); }; var outer = function(k: int): double { return step(k, 0.0d) + 1.0d; }; outer(300000);",
         "var div = function(a: int, b: int): int { return a / b; }; var down = function(n: int): int { if (n == 0) { return div(1, n); } return down(n - 1); }; down(50000);",
         "var ack = function(m: int, n: int): int { if (m == 0) { return n + 1; } if (n == 0) { return ack(m - 1, 1); } return ack(m - 1, ack(m, n - 1)); }; ack(3, 6);",
+        "var fill = function(a: int[], i: int, s: double): double { if (i == len(a)) { return s; } a[i] = i * 3; return fill(a, i + 1, i); }; var a = Array.Make(70000, 0); [fill(a, 0, 0.5d), a[69999]];",
+        "var grow = function(a: int[], n: int): int { if (n == 0) { return len(a); } Array.Append(a, n); return grow(a, n - 1); }; grow([1, 2], 20000);",
+        "var halve = function(n: int, f: float): float { if (n == 0) { return f; } return halve(n - 1, f / 2.0f + n); }; halve(40000, 1.0f);",
+        "var count = function(n: int): int { if (n == 3) { return 10 / (n - 3); } return count(n - 1); }; count(90000);",
     ];
 
     [RuntimeFact]
@@ -78,11 +83,15 @@ public class NativeFunctionTest
         Assert.Equal("[假, 真]", results[1].Text);
         Assert.True(results[3].IsError);
         Assert.Equal(509, results[4].Integer);
+        Assert.Equal("[69999, 209997]", results[5].Text);
+        Assert.Equal(20002, results[6].Integer);
+        Assert.True(results[8].IsError);
         string program = "var loop = function(n: int, acc: int): int { if (n == 0) { return acc; } return loop(n - 1, acc + n % 7); }; " +
             "var odd = function(n: int): bool { if (n == 0) { return false; } return even(n - 1); }; var even = function(n: int): bool { if (n == 0) { return true; } return odd(n - 1); }; " +
-            "print(loop(200000, 0), even(30001));";
+            "var ack = function(m: int, n: int): int { if (m == 0) { return n + 1; } if (n == 0) { return ack(m - 1, 1); } return ack(m - 1, ack(m, n - 1)); }; " +
+            "print(loop(200000, 0), even(30001), ack(2, 300));";
         string expected = WasmTestHost.Run(new WasmCompiler(false).Compile(program)).Succeeded().Output;
-        foreach (string quantum in new[] { "1", "7", "4096" })
+        foreach (string quantum in new[] { "1", "3", "7", "17", "4096" })
             Assert.Equal(expected, WasmTestHost.Run(program, new Dictionary<string, string> { ["AQUARIUS_FUEL_QUANTUM"] = quantum }).Succeeded().Output);
     }
 

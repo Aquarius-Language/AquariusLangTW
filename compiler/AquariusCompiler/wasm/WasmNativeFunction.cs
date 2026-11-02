@@ -736,6 +736,12 @@ internal sealed class WasmNativeFunction
     private int[] ResumeTargets => LoopHeads.Concat(states.Where(p => p.Key < body.Code.Length && body.Code[p.Key].Code == IrOperation.Call
         && p.Value[p.Value.Length - body.Code[p.Key].Operand - 1] is >= CallableBase and < BuiltinBase).Select(p => p.Key + 1)).Distinct().OrderBy(pc => pc).ToArray();
     private int SiteOf(int pc) => pc == 0 ? 1 : 2 + Array.IndexOf(ResumeTargets, pc);
+    /// <summary>A call at pc to this very function whose result the body returns at once: compiled as a jump back to the
+    /// start of the body with the arguments as the parameters (the generic call's entry checkpoint is kept).</summary>
+    private bool SelfTail(int pc) => !IsRegion && pc + 1 < body.Code.Length && body.Code[pc].Code == IrOperation.Call
+        && body.Code[pc + 1].Code == IrOperation.Return && states.TryGetValue(pc, out var stack)
+        && stack[stack.Length - body.Code[pc].Operand - 1] is int callee and >= CallableBase and < BuiltinBase
+        && callNames[callee - CallableBase] is var name && ClosureGuards.ContainsKey(name) && !OwnPointers.ContainsKey(name);
     /// <summary>A region's loop heads and the site its function resumes at for each.</summary>
     internal (int Head, int Site)[] HeadSites => LoopHeads.Select(h => (h, SiteOf(h))).ToArray();
 
@@ -1301,6 +1307,10 @@ internal sealed class WasmNativeFunction
         Op(Block, 0x40);
         if (region) LoadBudget(); else if (resume) { Get(w, budgetParameter); Set(w, budget); } else Checkpoint(0, true);
         LoadOuter();
+        // A self tail call jumps back here with its arguments in the parameter slots (see SelfTail) instead of a
+        // return_call, which would tear the frame down and build it again.
+        bool selfLoop = !region && states.Keys.Any(SelfTail);
+        if (selfLoop) { open.Add((-4, int.MaxValue - 2, true)); Op(Loop, 0x40); }
         OpenSkips(-1);
 
         void EmitOps(int startPc, int stopPc) {
@@ -1689,6 +1699,25 @@ internal sealed class WasmNativeFunction
                     // body's caller, which is what this body's frame would have done after the call.
                     bool tail = inlineReturn == null && pc + 1 < n && code[pc + 1].Code == IrOperation.Return && cur == this
                         && target.Signature.Result == Signature.Result;
+                    if (tail && target == this && SelfTail(pc)) {
+                        // A self tail call: the arguments become the parameters and the body starts again, at the same
+                        // depth, after the entry checkpoint's budget test and charge (its depth test passed at the entry).
+                        for (int a = 0; a < count; a++) {
+                            int from = stack[at + 1 + a], to = Signature.Parameters[a], slot = a;
+                            if (from == AnyValueType || IsRef(from)) Get(w, StackI(at + 1 + a));
+                            else if (from == to) PushStack(from, at + 1 + a);
+                            else { AsDouble(from, at + 1 + a); if (to == FloatType) RoundFloat(); }
+                            SetLocal(slotTypes[slot], SlotI(slot), SlotF(slot));
+                            if (IsRef(slotTypes[slot])) Describe(SlotI(slot), SlotCount(slot));
+                        }
+                        for (int s = 0; s < slots; s++) { I(w, s < Signature.Parameters.Length ? 1 : 0); Set(w, Flag(s)); }
+                        if (fuel.TryGetValue(0, out int entryWeight)) {
+                            Get(w, budget); Op(0x45, If, 0x40); ToHandler(CheckpointSite, BlockOf(0), states[0], 0); Op(End);
+                            Get(w, budget); I(w, entryWeight); Op(0x6b); Set(w, budget);
+                        }
+                        Op(Br); U(w, Label(c => c.Start == -4));
+                        break;
+                    }
                     Get(w, depthParameter); if (!tail) { I(w, 1); Op(0x6a); } Get(w, budget);
                     // The callee's closure: this activation's own for a recursive call, else loaded from its binding.
                     if (ClosureGuards.ContainsKey(name) && !OwnPointers.ContainsKey(name)) Get(w, selfParameter); else { Get(w, PointerOf(name)); Memory(w, I32Load, 2, ValueRef); }
