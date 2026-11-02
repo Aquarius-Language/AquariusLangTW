@@ -582,6 +582,20 @@ static void ctx_feed(aqua_call *call) {
     aqua_return_bool(call, wanted);
 }
 
+/* HitTest(x, y): whether a window, popup or menu of the last frame covers the point (layered interfaces route the
+   pointer with it before feeding anything). */
+static void ctx_hit_test(aqua_call *call) {
+    Context *c = self_context(call);
+    if (!c) return;
+    ImVec2 point((float)aqua_arg_number(call, 0), (float)aqua_arg_number(call, 1));
+    bool hit = false;
+    for (ImGuiWindow *w : c->imgui->Windows) {
+        if (!w->WasActive || w->Hidden || (w->Flags & ImGuiWindowFlags_NoMouseInputs)) continue;
+        if ((w->Flags & ImGuiWindowFlags_NoBackground) && (w->Flags & ImGuiWindowFlags_NoTitleBar) && w->DockNodeAsHost) continue;
+        if (w->Rect().Contains(point)) { hit = true; break; }
+    }
+    aqua_return_bool(call, hit || c->imgui->ActiveId != 0);
+}
 static void ctx_want_mouse(aqua_call *call) { if (self_context(call)) aqua_return_bool(call, ImGui::GetIO().WantCaptureMouse); }
 static void ctx_want_keyboard(aqua_call *call) { if (self_context(call)) aqua_return_bool(call, ImGui::GetIO().WantCaptureKeyboard); }
 static void ctx_want_text(aqua_call *call) { if (self_context(call)) aqua_return_bool(call, ImGui::GetIO().WantTextInput); }
@@ -734,6 +748,7 @@ AQUA_LIBRARY(imgui) {
     aqua_define_function(c, "AddDefaultFont|加入預設字型", ctx_add_default_font, "|n");
     aqua_define_function(c, "SetClipboardHandlers|設定剪貼簿", ctx_set_clipboard, "|vv");
     aqua_define_function(c, "ImeRect|輸入法位置", ctx_ime_rect, "");
+    aqua_define_function(c, "HitTest|命中測試", ctx_hit_test, "nn");
     aqua_define_property(c, "WantCaptureMouse|需要滑鼠", ctx_want_mouse);
     aqua_define_property(c, "WantCaptureKeyboard|需要鍵盤", ctx_want_keyboard);
     aqua_define_property(c, "WantTextInput|需要文字輸入", ctx_want_text);

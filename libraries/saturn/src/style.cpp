@@ -493,6 +493,22 @@ static void node_replace_style(aqua_call *call) {
     }
     YGNodeFree(scratch.yg);
 }
+/* Whether the node paints something itself: a background, a gradient, a visible border, an image, text or a paint
+   callback (layers let the pointer through nodes that do not). */
+static void node_paints(aqua_call *call) {
+    Node *n = self_node(call);
+    if (!n) return;
+    bool paints = is_text(n) || n->painter != 0;
+    if (n->visual) {
+        const Visual &v = *n->visual;
+        paints = paints || v.background.visible() || v.gradient || v.image;
+        for (int i = 0; i < 4 && !paints; i++) {
+            YGEdge edges[4] = {YGEdgeLeft, YGEdgeTop, YGEdgeRight, YGEdgeBottom};
+            paints = v.border[i].visible() && YGNodeLayoutGetBorder(n->yg, edges[i]) > 0;
+        }
+    }
+    aqua_return_bool(call, paints);
+}
 static void module_set_time(aqua_call *call) { static_cast<State *>(aqua_state(call))->now = aqua_arg_number(call, 0); }
 static void module_animating(aqua_call *call) { aqua_return_bool(call, static_cast<State *>(aqua_state(call))->animating); }
 static void node_set_style(aqua_call *call) { if (Node *n = self_node(call)) apply_style(call, n, aqua_arg(call, 0)); }
@@ -523,6 +539,7 @@ void define_style(aqua_class *module, aqua_class *node) {
     aqua_define_function(module, "SetTime|設定時間", module_set_time, "n");
     aqua_define_function(module, "Animating|動畫中", module_animating, "");
     aqua_define_function(node, "ReplaceStyle|取代樣式", node_replace_style, "v");
+    aqua_define_function(node, "Paints|有繪製內容", node_paints, "");
     aqua_define_function(node, "SetStyle|設定樣式", node_set_style, "v");
     aqua_define_function(node, "SetScrollOffset|設定捲動位置", node_set_scroll, "nn");
     aqua_define_function(node, "GetScrollX|取得水平捲動", node_scroll_x, "");

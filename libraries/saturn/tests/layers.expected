@@ -1,0 +1,8 @@
+over saturn 真 假
+saturn tap 1
+over imgui 真
+imgui wants 真 真
+over clay badge 真
+over nothing 假
+immediate [move@7, press@7, move@300, release@300]
+combined 真 真 真 真

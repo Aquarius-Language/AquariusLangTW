@@ -76,7 +76,7 @@ struct Element { widget; type; node; children; parent; surface; state; data; key
 struct SaturnSurface {
     width; height; root; theme; sheets; tree; rootNode; overlayNode; dirty; hover; pressed; captured; focus;
     time; cursor; pressX; pressY; pressTime; lastTap; lastTapTime; tooltip; tooltipAt; pathAt; fontOf; textColor;
-    Frame; Paint; Feed; Resize; SetRoot; SetTheme; Rebuild; Cursor; NeedsFrame; ImeRect; Dispose
+    Frame; Paint; Feed; Wants; Resize; SetRoot; SetTheme; Rebuild; Cursor; NeedsFrame; ImeRect; Dispose
 }
 struct DropdownMenu { owner; options; value; key }
 struct TooltipBubble { text; owner; key }
@@ -905,6 +905,18 @@ var scrollableOf = function(path) {
     for (var i = len(path) - 1; i >= 0; i -= 1) { if (Hash.Get(path[i].data, "scrollable", false) == true) { return path[i]; } }
     return null;
 };
+# Whether the pointer is over something of the surface: a widget that paints (a background, text, an image) or takes
+# input. Transparent layout boxes let it through to what lies below (other layers, a 3D scene).
+var solid = function(path) {
+    for (var i = 0; i < len(path); i++) {
+        var e = path[i];
+        if (e.node.Paints()) { return true; }
+        if (kinds[e.type] != null) { if (kinds[e.type]["tap"] != null) { return true; } }
+        if ((e.type == "Box" || e.type == "Gesture" || e.type == "Card") && e.widget.onTap != null) { return true; }
+        if (Hash.Get(e.data, "scrollable", false) == true) { return true; }
+    }
+    return false;
+};
 var eventOf = function(raw) {
     if (typeOf(raw) == "hash") { return raw; }
     return {"type": raw.type, "x": raw.x, "y": raw.y, "button": raw.button, "dx": raw.dx, "dy": raw.dy, "key": raw.key,
@@ -1032,6 +1044,9 @@ var CreateSurface = function(width, height, root, options) {
         var ev = eventOf(raw);
         var type = ev["type"];
         if (s.dirty) { s.Frame(s.time); }
+        # Events over (or captured by) an Immediate widget go to its feed function in its own coordinates.
+        var embedded = routeImmediate(s, ev, type);
+        if (embedded != null) { return embedded; }
         if (type == "move" || type == "drag" || type == "dragStart" || type == "dragEnd") {
             var x = ev["x"];
             var y = ev["y"];
@@ -1048,12 +1063,12 @@ var CreateSurface = function(width, height, root, options) {
             var path = s.pathAt(x, y);
             setHover(path);
             if (s.pressed != null && !Array.Contains(path, s.pressed)) { s.pressed.data["pressed"] = false; s.dirty = true; }
-            return len(path) > 0;
+            return solid(path);
         }
         if (type == "press") {
             var path = s.pathAt(ev["x"], ev["y"]);
             setHover(path);
-            if (len(path) == 0) { if (s.focus != null) { s.focus = null; s.dirty = true; } return false; }
+            if (!solid(path)) { if (s.focus != null) { s.focus = null; s.dirty = true; } return false; }
             s.pressX = ev["x"];
             s.pressY = ev["y"];
             s.pressTime = s.time;
@@ -1103,7 +1118,7 @@ var CreateSurface = function(width, height, root, options) {
             # A tap outside an open dropdown closes it.
             closeMenus(host, path);
             s.dirty = true;
-            return len(path) > 0 || pressed != null;
+            return solid(path) || pressed != null;
         }
         if (type == "longPress") {
             var path = s.pathAt(ev["x"], ev["y"]);
@@ -1141,7 +1156,152 @@ var CreateSurface = function(width, height, root, options) {
         return s.focus.node.GetAbsoluteLayout();
     };
     s.Dispose = function() { dispose(host); };
+    s.Wants = function(x, y) { if (s.dirty) { s.Frame(s.time); } return solid(s.pathAt(x, y)); };
     return s;
+};
+# The Immediate element an event belongs to: the one holding the pointer capture, under the pointer, or focused for
+# keys; its feed(event) gets the event with x and y relative to it. Returns null when none takes the event.
+var immediateIn = function(path) {
+    for (var i = len(path) - 1; i >= 0; i -= 1) { if (path[i].type == "Immediate" && path[i].widget.feed != null) { return path[i]; } }
+    return null;
+};
+var routeImmediate = function(s, ev, type) {
+    var target = null;
+    if (type == "key" || type == "text") {
+        if (s.focus != null && s.focus.type == "Immediate") { target = s.focus; }
+    } elif (ev["x"] != null && ev["y"] != null) {
+        if (s.captured != null) { if (s.captured.type == "Immediate") { target = s.captured; } else { return null; } }
+        else { target = immediateIn(s.pathAt(ev["x"], ev["y"])); }
+    }
+    if (target == null) { return null; }
+    var copy = Hash.Clone(ev);
+    if (ev["x"] != null) {
+        var box = target.node.GetAbsoluteLayout();
+        copy["x"] = ev["x"] - box["x"];
+        copy["y"] = ev["y"] - box["y"];
+    }
+    if (type == "press") { s.captured = target; s.focus = target; }
+    if (type == "release") { s.captured = null; }
+    var used = target.widget.feed(copy);
+    s.dirty = true;
+    return used == true || type == "release" || type == "press";
+};
+
+# ---- Layers: retained and immediate UIs stacked in one window ----------------------------------------------------
+
+# A layer: frame(width, height, time) prepares it, paint() returns its draw list, wants(x, y) tells whether the pointer
+# there is over something of it, feed(event) handles an event (returning whether it used it), cursor() names its cursor.
+struct Layer { name; frame; paint; feed; wants; cursor }
+struct LayerStack { layers; captured; focused; width; height; Frame; Paint; Feed; Cursor }
+
+# A SaturnUI surface as a layer.
+var SurfaceLayer = function(surface) {
+    return Layer(name: "saturn",
+        frame: function(width, height, time) { surface.Resize(width, height); surface.Frame(time); },
+        paint: function() { return surface.Paint(); },
+        feed: function(event) { return surface.Feed(event); },
+        wants: function(x, y) { return surface.Wants(x, y); },
+        cursor: function() { return surface.Cursor(); });
+};
+# An ImGui context as a layer: build() declares the frame's windows (ImGui.Begin ... ImGui.End); embed is passed to
+# context.Render for ImGui.Embed items (or null).
+var ImGuiLayer = function(context, build, embed) {
+    var last = -1.0d;
+    return Layer(name: "imgui",
+        frame: function(width, height, time) {
+            var dt = if (last < 0) { 1.0d / 60; } else { (time - last) / 1000.0d; };
+            last = time;
+            context.NewFrame(width, height, dt);
+            build();
+        },
+        paint: function() { return context.Render(embed); },
+        feed: function(event) { return context.Feed(event); },
+        wants: function(x, y) { return context.HitTest(x, y); },
+        cursor: function() { var c = context.MouseCursor; if (c == "arrow") { return null; } return c; });
+};
+# A Clay layout as a layer: build() declares the elements between layout.Begin() and layout.End().
+var ClayLayer = function(layout, build) {
+    var list = null;
+    return Layer(name: "clay",
+        frame: function(width, height, time) { layout.SetDimensions(width, height); layout.Begin(); build(); list = layout.End(); },
+        paint: function() { return list; },
+        feed: function(event) { return layout.Feed(event); },
+        wants: function(x, y) { return layout.Feed({"type": "move", "x": x, "y": y}); },
+        cursor: function() { return null; });
+};
+
+# Layers(list): layers bottom to top. An event goes to the top layer that uses it; the layer a press lands on keeps
+# the pointer until the release and takes the keyboard after it; layers below a layer that took a move see the
+# pointer leave, so hover never shows twice. Paint() draws them all in order.
+var Layers = function(list) {
+    var stack = LayerStack(layers: list, captured: null, focused: null, width: 0, height: 0);
+    var away = {"type": "move", "x": -100000, "y": -100000};
+    stack.Frame = function(width, height, time) {
+        stack.width = width;
+        stack.height = height;
+        for (var i = 0; i < len(list); i++) { list[i].frame(width, height, time); }
+    };
+    stack.Paint = function() {
+        var lists = [];
+        for (var i = 0; i < len(list); i++) { Array.Append(lists, list[i].paint()); }
+        return Saturn.Combine(lists);
+    };
+    stack.Feed = function(raw) {
+        var ev = eventOf(raw);
+        var type = ev["type"];
+        if (type == "key" || type == "text" || type == "composition" || type == "command") {
+            if (stack.focused != null) { return stack.focused.feed(ev); }
+            for (var i = len(list) - 1; i >= 0; i -= 1) { if (list[i].feed(ev)) { return true; } }
+            return false;
+        }
+        if (ev["x"] == null || ev["y"] == null) {
+            for (var i = len(list) - 1; i >= 0; i -= 1) { if (list[i].feed(ev)) { return true; } }
+            return false;
+        }
+        # The pointer belongs to the layer holding the capture, else to the top layer that wants the point; the others
+        # see it leave.
+        var target = stack.captured;
+        if (target == null) {
+            for (var i = len(list) - 1; i >= 0; i -= 1) { if (list[i].wants(ev["x"], ev["y"])) { target = list[i]; break; } }
+        }
+        for (var i = 0; i < len(list); i++) { if (list[i] != target && type != "press" && type != "release") { list[i].feed(away); } }
+        if (type == "press") { stack.captured = target; stack.focused = target; }
+        if (type == "release") { stack.captured = null; }
+        if (target == null) { return false; }
+        target.feed(ev);
+        return true;
+    };    stack.Cursor = function() {
+        for (var i = len(list) - 1; i >= 0; i -= 1) { var c = list[i].cursor(); if (c != null && c != "arrow") { return c; } }
+        return "arrow";
+    };
+    return stack;
+};
+
+# RunLayers(layers | options): a Processing window showing a layer stack, fed by Interaction; options {"width",
+# "height", "title", "background": [r, g, b], "setup": f(p), "draw": f(p) (before the layers)}.
+var RunLayers = function(stack, options) {
+    var o = if (options == null) { {}; } else { options; };
+    var p = import("Processing");
+    var Interaction = import("Interaction");
+    var session = null;
+    var setup = function() {
+        p.size(Hash.Get(o, "width", 960), Hash.Get(o, "height", 640), p.P2D, Hash.Get(o, "title", "Saturn"));
+        Saturn.SetTextMeasurer(p.uiTextMetrics);
+        session = Interaction.Attach(p.platformWindow);
+        session.On("*", function(event) { return stack.Feed(event); });
+        session.TextInput(true);
+        if (o["setup"] != null) { o["setup"](p); }
+    };
+    var draw = function() {
+        var bg = Hash.Get(o, "background", [24, 26, 34]);
+        p.background(bg[0], bg[1], bg[2]);
+        if (o["draw"] != null) { o["draw"](p); }
+        stack.Frame(p.width, p.height, p.millis());
+        p.drawUI(stack.Paint());
+        session.SetCursor(stack.Cursor());
+    };
+    p.run(setup, draw);
+    return null;
 };
 # ---- Running an app in a window ------------------------------------------------------------------------------------
 

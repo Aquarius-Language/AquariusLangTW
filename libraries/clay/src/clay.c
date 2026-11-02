@@ -34,6 +34,8 @@ typedef struct layout {
     char **previous; size_t previous_count, previous_capacity;   /* the last frame's, which Clay's hover state still names */
     aqua_ref *refs; size_t ref_count, ref_capacity;              /* this frame's images and embed functions */
     char error[512];
+    uint32_t *solid; size_t solid_count, solid_capacity;          /* ids of visible elements this frame (Feed's capture test) */
+    uint32_t *shown; size_t shown_count, shown_capacity;          /* those of the last frame */
     aqua_value self;
 } layout;
 
@@ -396,6 +398,10 @@ static bool open(aqua_call *call, layout *l, aqua_value declaration) {
     Clay__OpenElement();
     if (d.clip.horizontal || d.clip.vertical) d.clip.childOffset = Clay_GetScrollOffset();
     Clay__ConfigureOpenElement(d);
+    /* Elements that show something take the pointer (Feed); bare layout boxes let it through to layers below. */
+    bool visible = d.backgroundColor.a > 0 || d.image.imageData || d.custom.customData || d.border.width.left || d.border.width.top ||
+                   d.border.width.right || d.border.width.bottom;
+    if (visible && d.id.id && grow((void **)&l->solid, &l->solid_capacity, l->solid_count, sizeof *l->solid)) l->solid[l->solid_count++] = d.id.id;
     return true;
 }
 static void module_open(aqua_call *call) {
@@ -503,6 +509,8 @@ static void layout_finalize(aqua_runtime *rt, void *data) {
     free(l->strings);
     free(l->previous);
     free(l->refs);
+    free(l->solid);
+    free(l->shown);
     for (size_t i = 0; i < l->font_count; i++) free(l->fonts[i].family);
     free(l->fonts);
     free(l->memory);
@@ -581,13 +589,24 @@ static void layout_feed(aqua_call *call) {
         aqua_value dx = event_field(rt, e, "dx"), dy = event_field(rt, e, "dy");
         Clay_UpdateScrollContainers(false, (Clay_Vector2){aqua_is_numeric(dx) ? -(float)aqua_number_of(dx) : 0, aqua_is_numeric(dy) ? -(float)aqua_number_of(dy) : 0}, 1.0f / 60.0f);
     }
-    aqua_return_bool(call, Clay_GetPointerOverIds().length > 0);
+    /* Over something the last frame showed (layout boxes without a look let the pointer through). */
+    Clay_ElementIdArray ids = Clay_GetPointerOverIds();
+    const uint32_t *shown = l->in_frame ? l->shown : l->solid;
+    size_t count = l->in_frame ? l->shown_count : l->solid_count;
+    bool over = false;
+    for (int32_t i = 0; i < ids.length && !over; i++)
+        for (size_t k = 0; k < count && !over; k++) over = ids.internalArray[i].id == shown[k];
+    aqua_return_bool(call, over);
 }
 static void layout_begin(aqua_call *call) {
     layout *l = self_layout(call);
     if (l->in_frame) { Clay_EndLayout(); }
     clear_frame(l);
     l->error[0] = 0;
+    uint32_t *swap = l->shown;
+    size_t capacity = l->shown_capacity;
+    l->shown = l->solid; l->shown_count = l->solid_count; l->shown_capacity = l->solid_capacity;
+    l->solid = swap; l->solid_count = 0; l->solid_capacity = capacity;
     Clay_BeginLayout();
     l->in_frame = true;
     l->owner->current = l;
