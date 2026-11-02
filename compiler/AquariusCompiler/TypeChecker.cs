@@ -255,7 +255,8 @@ public sealed class TypeChecker {
     private static bool Compatible(int value, int target) => value == target || Widens(value, target) || value == Null && IsStruct(target)
         || value == ArrayFlag && (target & ArrayFlag) != 0 && !IsStruct(target);
     /// <summary>Whether target op= value can run for values of these static types: numbers, or strings joined with +=.</summary>
-    private static bool Combines(string op, int target, int value) => Numeric(target) && Numeric(value) || op == "+=" && target == String && value == String;
+    private static bool Combines(string op, int target, int value) => Operators.IsBitwise(Operators.Compound(op)) ? target == Int && value == Int
+        : Numeric(target) && Numeric(value) || op == "+=" && target == String && value == String;
     private static bool Numeric(int type) => type is Int or Float or Double;
 
     // ---- expressions -------------------------------------------------------------------------------
@@ -279,6 +280,10 @@ public sealed class TypeChecker {
             case PrefixExpression prefix: {
                 int type = Expression(prefix.Right);
                 if (prefix.Operator == "!") return Bool;
+                if (prefix.Operator == "~") {
+                    if (type != Dynamic && type != Int) Error($"位元運算 ~ 只能用於整數 / The bitwise operator ~ needs an integer, got {Name(type)}.", prefix.Token);
+                    return type == Int ? Int : Dynamic;
+                }
                 return Numeric(type) ? type : Dynamic;
             }
             case InfixExpression infix: return Infix(infix);
@@ -330,7 +335,7 @@ public sealed class TypeChecker {
             if (infix.Right is CallExpression call) foreach (var a in call.Arguments ?? System.Array.Empty<IExpression>()) Expression(a);
             return Dynamic;
         }
-        if (op is "=" or "+=" or "-=" or "*=" or "/=" or "%=" && infix.Left is IndexExpression element) {
+        if (Operators.IsAssignment(op) && infix.Left is IndexExpression element) {
             // An element of a typed array: definite mismatches are compile errors; the runtime checks every write anyway.
             int array = Expression(element.Left); Expression(element.Index); int value = Expression(infix.Right);
             if ((array & ArrayFlag) == 0 || IsStruct(array) || array == ArrayFlag || array <= 0 || value == Dynamic) return Void;
@@ -338,7 +343,7 @@ public sealed class TypeChecker {
                 Error($"型別不符：{Name(array)} 的元素不能使用 {op} {Name(value)} / Type mismatch: an element of {Name(array)} cannot use {op} with {Name(value)}.", infix.Token);
             return Void;
         }
-        if (op is "=" or "+=" or "-=" or "*=" or "/=" or "%=" && infix.Left is InfixExpression { Operator: "." } target && target.Right is Identifier field) {
+        if (Operators.IsAssignment(op) && infix.Left is InfixExpression { Operator: "." } target && target.Right is Identifier field) {
             // A field assignment: definite mismatches are compile errors; the runtime checks every write anyway.
             int receiver = Expression(target.Left), value = Expression(infix.Right);
             if (!IsStruct(receiver) || !Structs.TryGetValue(receiver, out var shape)) return Void;
@@ -351,7 +356,7 @@ public sealed class TypeChecker {
                 Error($"型別不符：{subject} ({Name(type)}) 不能使用 {op} {Name(value)} / Type mismatch: {subject} ({Name(type)}) cannot use {op} with {Name(value)}.", infix.Token);
             return Void;
         }
-        if (op is "=" or "+=" or "-=" or "*=" or "/=" or "%=") {
+        if (Operators.IsAssignment(op)) {
             int value = Expression(infix.Right);
             if (infix.Left is not Identifier variable) return Void;
             var declaration = Resolve(variable.Value);
@@ -371,6 +376,11 @@ public sealed class TypeChecker {
             case "+" when left == String && rightType == String: return String;
             case "+": case "-": case "*": case "/": case "%":
                 return Numeric(left) && Numeric(rightType) ? System.Math.Max(left, rightType) : Dynamic;
+            case "&": case "|": case "^": case "<<": case ">>": case ">>>":
+                // Integers only: another known type is a compile error.
+                if (left != Dynamic && left != Int || rightType != Dynamic && rightType != Int)
+                    Error($"位元運算 {op} 只能用於整數 / The bitwise operator {op} needs integers, got {Name(left)} {op} {Name(rightType)}.", infix.Token);
+                return left == Int && rightType == Int ? Int : Dynamic;
             default: return Dynamic;
         }
     }
@@ -471,6 +481,7 @@ public sealed class TypeChecker {
                 int fill = ScalarOf(arguments[1]);
                 return fill != 0 ? fill | ArrayFlag : 0;
             }
+            case InfixExpression { Operator: "&" or "|" or "^" or "<<" or ">>" or ">>>" }: return Int; // Only integers give a value.
             case InfixExpression { Operator: "+" or "-" or "*" or "/" or "%" } arithmetic: {
                 int left = Known(arithmetic.Left), right = Known(arithmetic.Right);
                 return Numeric(left) && Numeric(right) ? System.Math.Max(left, right) : 0;

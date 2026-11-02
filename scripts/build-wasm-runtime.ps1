@@ -16,7 +16,7 @@ Get-ChildItem -LiteralPath (Split-Path $runtimeSource) -Filter *.h | Sort-Object
 $musl = Join-Path (Split-Path $runtimeSource) 'third_party/musl'
 $mathSources = @(Get-ChildItem -LiteralPath (Join-Path $musl 'src/math') -Filter *.c | ForEach-Object { $_.FullName }); [Array]::Sort($mathSources, [StringComparer]::Ordinal)
 $names = @([regex]::Matches($sourceText, '\b(?:u32|int|double)\s+((?:aqua_|rt_)\w+)\s*\(') | ForEach-Object { $_.Groups[1].Value })
-$names += @('add','subtract','multiply','divide','less','greater','lessEqual','greaterEqual','equal','notEqual','and','or','modulo') | ForEach-Object { 'rt_' + $_ }
+$names += @('add','subtract','multiply','divide','less','greater','lessEqual','greaterEqual','equal','notEqual','and','or','modulo','bitAnd','bitOr','bitXor','shiftLeft','shiftRight','shiftRightUnsigned') | ForEach-Object { 'rt_' + $_ }
 $names = [string[]]($names | Select-Object -Unique); [Array]::Sort($names, [StringComparer]::Ordinal)
 $exports = $names | ForEach-Object { '-Wl,--export=' + $_ }
 & $AquaToolchain.Clang --target=wasm32-unknown-unknown @AquaWasmCpu -mbulk-memory -O3 -g0 -std=c11 -fno-builtin -nostdlib `

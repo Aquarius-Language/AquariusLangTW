@@ -244,9 +244,12 @@ static Value successor(Value v) { return v.tag==INT?integer((int64_t)v.number+1)
 double rt_remainder(double x,double y); /* maths.h */
 static int equal(Value a,Value b,int typed) { if(numeric(a)&&numeric(b))return (!typed||a.tag==b.tag)&&(a.number==b.number||(typed&&a.number!=a.number&&b.number!=b.number));if(a.tag!=b.tag)return 0;if(a.tag==STRING)return text_equal(pointer(a.ref),pointer(b.ref));if(a.tag==BOOL)return a.number==b.number;return a.ref==b.ref; }
 static Value binary(Frame*f,int op,Value a,Value b,int compound) {
-    static const char *symbols[]={"+","-","*","/","<",">","<=",">=","==","!=","&&","||","%"};
-    if(a.tag==INT&&b.tag==INT&&(op<=3||op==12)){
+    static const char *symbols[]={"+","-","*","/","<",">","<=",">=","==","!=","&&","||","%","&","|","^","<<",">>",">>>"};
+    if(a.tag==INT&&b.tag==INT&&(op<=3||op>=12)){
         int32_t x=(int32_t)a.number,y=(int32_t)b.number;
+        /* Bitwise operators (13..18) of integers; shift counts use their low 5 bits, like i32.shl. */
+        if(op>=13){u32 s=(u32)y&31u;switch(op){case 13:return integer(x&y);case 14:return integer(x|y);case 15:return integer(x^y);
+            case 16:return integer((int32_t)((u32)x<<s));case 17:return integer(x>>s);default:return integer((int32_t)((u32)x>>s));}}
         if(op==0)return integer((int64_t)x+y);
         if(op==1)return integer((int64_t)x-y);
         if(op==2)return integer((int64_t)x*y);
@@ -262,6 +265,8 @@ static Value binary(Frame*f,int op,Value a,Value b,int compound) {
             if(tag==INT&&y==0){failure(f,"Integer remainder by zero / 整數不能對零取餘數。");return empty;}
             return number(rt_remainder(x,y),tag);}
     }
+    if(op>=13){Text*t=concat(ascii("Bitwise operators need integers / 位元運算需要整數: "),ascii(type_name(a.tag)));
+        t=concat(concat(concat(t,ascii(" ")),ascii(symbols[op])),ascii(" "));fail(f,concat(t,ascii(type_name(b.tag))));return empty;}
     if(op==8||op==9)return value(BOOL,0,equal(a,b,0)^(op==9));
     if((op==10||op==11)&&a.tag==BOOL&&b.tag==BOOL)return value(BOOL,0,op==10?(a.number&&b.number):(a.number||b.number));
     if(op==0&&a.tag==STRING&&b.tag==STRING)return value(STRING,address(concat(pointer(a.ref),pointer(b.ref))),0);
@@ -578,7 +583,9 @@ int rt_assign(Frame*f,int n) { Value v=pop(f);pop(f);Binding*b=cached_binding(f,
 int rt_compoundAssign(Frame*f,int n) { Value c=constant(f,n),r=pop(f);pop(f);Binding*b=cached_binding(f,n);if(!b)named_failure(f,"Identifier not found: ",pointer(c.ref));else b->value=binary(f,(int)c.number,b->value,r,1);push(f,empty);return 0; }
 #define BINARY(NAME,OP) int rt_##NAME(Frame*f,int n){Value r=pop(f),l=pop(f);push(f,binary(f,OP,l,r,0));return 0;}
 BINARY(add,0) BINARY(subtract,1) BINARY(multiply,2) BINARY(divide,3) BINARY(less,4) BINARY(greater,5) BINARY(lessEqual,6) BINARY(greaterEqual,7) BINARY(equal,8) BINARY(notEqual,9) BINARY(and,10) BINARY(or,11) BINARY(modulo,12)
+BINARY(bitAnd,13) BINARY(bitOr,14) BINARY(bitXor,15) BINARY(shiftLeft,16) BINARY(shiftRight,17) BINARY(shiftRightUnsigned,18)
 int rt_negate(Frame*f,int n) { Value v=pop(f);if(numeric(v))push(f,v.tag==INT?integer(-(int64_t)v.number):number(-v.number,v.tag));else named_failure(f,"Unknown operator: -",ascii(type_name(v.tag)));return 0; }
+int rt_bitNot(Frame*f,int n) { Value v=pop(f);if(v.tag==INT)push(f,integer(~(int32_t)v.number));else named_failure(f,"Bitwise operators need integers / 位元運算需要整數: ~",ascii(type_name(v.tag)));return 0; }
 int rt_not(Frame*f,int n) { Value v=pop(f);push(f,value(BOOL,0,v.tag==BOOL?!v.number:v.tag==NULL_VALUE));return 0; }
 static int increment(Frame*f,int n,int prefix) { Binding*b=cached_binding(f,n);if(!b){named_failure(f,"Identifier not found: ",name(f,n));return 0;}Value old=b->value;if(!numeric(old)){failure(f,"Increment requires a number.");return 0;}b->value=successor(old);push(f,prefix?b->value:old);return 0; }
 /* Promoted locals are frame slots rather than named bindings; these helpers receive the slot address. */

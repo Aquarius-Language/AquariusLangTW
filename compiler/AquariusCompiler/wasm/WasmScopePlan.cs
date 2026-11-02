@@ -248,6 +248,13 @@ internal sealed class WasmScopePlan
                 case IrOperation.Equal: case IrOperation.NotEqual: case IrOperation.And: case IrOperation.Or:
                     Pop(2); tags.Add(Bool); break;
                 case IrOperation.Negate: { if (tags.Count < 1) throw new CompilationException($"Operand stack underflow at instruction {pc}."); int a = Top(); tags[^1] = a is >= Int and <= Double ? a : Unknown; break; }
+                // Bitwise operators give an integer from integers; anything else is an error.
+                case IrOperation.BitAnd: case IrOperation.BitOr: case IrOperation.BitXor:
+                case IrOperation.ShiftLeft: case IrOperation.ShiftRight: case IrOperation.ShiftRightUnsigned: {
+                    if (tags.Count < 2) throw new CompilationException($"Operand stack underflow at instruction {pc}.");
+                    int a = Top(2), b = Top(); Pop(2); tags.Add(a == Int && b == Int ? Int : Unknown); break;
+                }
+                case IrOperation.BitNot: if (tags.Count < 1) throw new CompilationException($"Operand stack underflow at instruction {pc}."); tags[^1] = Top() == Int ? Int : Unknown; break;
                 case IrOperation.Not: if (tags.Count < 1) throw new CompilationException($"Operand stack underflow at instruction {pc}."); tags[^1] = Bool; break;
                 case IrOperation.CheckHashKey: case IrOperation.CheckArrayWrite:
                     if (tags.Count < (op.Code == IrOperation.CheckArrayWrite ? 2 : 1)) throw new CompilationException($"Operand stack underflow at instruction {pc}.");

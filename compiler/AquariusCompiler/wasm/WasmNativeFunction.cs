@@ -253,6 +253,7 @@ internal sealed class WasmNativeFunction
     private const int ArrayLimit = 33554431; // ARRAY_LIMIT in runtime/guest/arrays.h
     private static bool Widens(int from, int to) => from == to || from is IntType or FloatType && to is FloatType or DoubleType && from < to
         || to == AnyArrayType && IsArray(from);
+    private static bool Bitwise(IrOperation operation) => WasmBodyEmitter.IsBitwise(operation);
     private static int BuiltinOf(string name) => name switch {
         "int" or "整數" => ConvertFirst, "float" or "浮點數" => ConvertFirst + 1, "double" or "雙精度" => ConvertFirst + 2,
         "len" or "長度" => LengthBuiltin, "Array" or "陣列" => ArrayModule, "Math" or "數學" => MathModule, _ => -1 };
@@ -541,6 +542,7 @@ internal sealed class WasmNativeFunction
                 }
                 case IrOperation.CompoundAssign: {
                     if (stack.Count < 2 || !Numeric(Top()) || !Numeric(Target(plan.Accesses[pc]!, NameOf(operand)))) return Reject(pc);
+                    if (Bitwise(((Assignment)body.Pool[operand]).Operation) && (Top() != IntType || Target(plan.Accesses[pc]!, NameOf(operand)) != IntType)) return Reject(pc);
                     Pop(2); stack.Add(VoidType); break;
                 }
                 case IrOperation.IncrementPrefix: case IrOperation.IncrementPostfix: {
@@ -565,6 +567,12 @@ internal sealed class WasmNativeFunction
                     if (Top() != BoolType || Top(2) != BoolType) return Reject(pc);
                     Pop(2); stack.Add(BoolType); break;
                 case IrOperation.Negate: if (!Numeric(Top())) return Reject(pc); break;
+                // Bitwise operators of integers (anything else is the generic code's error).
+                case IrOperation.BitAnd: case IrOperation.BitOr: case IrOperation.BitXor:
+                case IrOperation.ShiftLeft: case IrOperation.ShiftRight: case IrOperation.ShiftRightUnsigned:
+                    if (Top() != IntType || Top(2) != IntType) return Reject(pc);
+                    Pop(2); stack.Add(IntType); break;
+                case IrOperation.BitNot: if (Top() != IntType) return Reject(pc); break;
                 case IrOperation.Not: if (Top() != BoolType) return Reject(pc); break;
                 case IrOperation.CheckType: {
                     int want = operand & 31;
@@ -584,6 +592,7 @@ internal sealed class WasmNativeFunction
                 }
                 case IrOperation.CompoundMember: {
                     if (stack.Count < 2 || StructField(Top(2), ((Assignment)body.Pool[operand]).Name) is not { } field || !Numeric(field.Code) || !Numeric(Top())) return Reject(pc);
+                    if (Bitwise(((Assignment)body.Pool[operand]).Operation) && (field.Code != IntType || Top() != IntType)) return Reject(pc);
                     Pop(2); stack.Add(VoidType); break;
                 }
                 case IrOperation.CheckStruct:
@@ -619,6 +628,7 @@ internal sealed class WasmNativeFunction
                 case IrOperation.CompoundIndex:
                     // A number element keeps its type; anything else (strings, Booleans, other arrays) stays generic.
                     if (stack.Count < 3 || !IsArray(Top(3)) || Top(2) != IntType || !Numeric(Top(3) & 15) || !Numeric(Top())) return Reject(pc);
+                    if (Bitwise(((Assignment)body.Pool[operand]).Operation) && ((Top(3) & 15) != IntType || Top() != IntType)) return Reject(pc);
                     Pop(3); stack.Add(VoidType); break;
                 case IrOperation.IncrementIndex:
                     if (!IsArray(Top(2)) || Top() != IntType || !Numeric(Top(2) & 15)) return Reject(pc);
@@ -1458,6 +1468,10 @@ internal sealed class WasmNativeFunction
                     else { Get(w, StackF(top)); Op(0x9a); Set(w, StackF(top)); }
                     break;
                 case IrOperation.Not: Get(w, StackI(top)); Op(0x45); Set(w, StackI(top)); break;
+                case IrOperation.BitAnd: case IrOperation.BitOr: case IrOperation.BitXor:
+                case IrOperation.ShiftLeft: case IrOperation.ShiftRight: case IrOperation.ShiftRightUnsigned:
+                    IntOperation(op.Code, () => PushStack(IntType, below), () => PushStack(IntType, top)); Set(w, StackI(below)); break;
+                case IrOperation.BitNot: Get(w, StackI(top)); I(w, -1); Op(0x73); Set(w, StackI(top)); break;
                 case IrOperation.Member when TopType() == BuiltinBase + MathModule:
                     F(w, WasmMath.Constants[WasmMath.ConstantIndex(cur.NameOf(operand))].Value); Set(w, StackF(top)); break;
                 case IrOperation.Member: {
@@ -1920,6 +1934,13 @@ internal sealed class WasmNativeFunction
                 case IrOperation.Add: left(); right(); Op(0x6a); break;
                 case IrOperation.Subtract: left(); right(); Op(0x6b); break;
                 case IrOperation.Multiply: left(); right(); Op(0x6c); break;
+                // Bitwise operators; i32 shifts use the count's low 5 bits like the runtime.
+                case IrOperation.BitAnd: left(); right(); Op(0x71); break;
+                case IrOperation.BitOr: left(); right(); Op(0x72); break;
+                case IrOperation.BitXor: left(); right(); Op(0x73); break;
+                case IrOperation.ShiftLeft: left(); right(); Op(0x74); break;
+                case IrOperation.ShiftRight: left(); right(); Op(0x75); break;
+                case IrOperation.ShiftRightUnsigned: left(); right(); Op(0x76); break;
                 case IrOperation.Divide:
                     // The minimum integer divided by -1 wraps to itself (i32.div_s would trap).
                     left(); Set(w, tempI); right(); Set(w, tempJ);

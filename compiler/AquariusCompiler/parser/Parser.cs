@@ -22,15 +22,21 @@ namespace AquariusLang.parser {
             PLUS_EQ = 2,
             ASSIGN = 3,
             AND_AND = 4,
-            EQUALS = 5,
-            LESS_GREATER = 6,
-            SUM = 7,
-            PRODUCT = 8,
-            PREFIX = 9,
-            DOT = 10, // For accessing functions in module.
-            CALL = 11,
-            INDEX = 12, //  array[index].
-            POSTFIX = 13,
+            // Integer bitwise operators bind like C# and JavaScript: | below ^ below & below equality, shifts between
+            // comparisons and sums.
+            BIT_OR = 5,
+            BIT_XOR = 6,
+            BIT_AND = 7,
+            EQUALS = 8,
+            LESS_GREATER = 9,
+            SHIFT = 10,
+            SUM = 11,
+            PRODUCT = 12,
+            PREFIX = 13,
+            DOT = 14, // For accessing functions in module.
+            CALL = 15,
+            INDEX = 16, //  array[index].
+            POSTFIX = 17,
         }
 
         /// <summary>
@@ -59,6 +65,18 @@ namespace AquariusLang.parser {
             { TokenType.PERCENT_EQ, OperatorPrecedence.PLUS_EQ },
             { TokenType.AND_AND, OperatorPrecedence.AND_AND },
             { TokenType.OR_OR, OperatorPrecedence.AND_AND },
+            { TokenType.BIT_OR, OperatorPrecedence.BIT_OR },
+            { TokenType.BIT_XOR, OperatorPrecedence.BIT_XOR },
+            { TokenType.BIT_AND, OperatorPrecedence.BIT_AND },
+            { TokenType.SHIFT_LEFT, OperatorPrecedence.SHIFT },
+            { TokenType.SHIFT_RIGHT, OperatorPrecedence.SHIFT },
+            { TokenType.SHIFT_RIGHT_UNSIGNED, OperatorPrecedence.SHIFT },
+            { TokenType.BIT_AND_EQ, OperatorPrecedence.PLUS_EQ },
+            { TokenType.BIT_OR_EQ, OperatorPrecedence.PLUS_EQ },
+            { TokenType.BIT_XOR_EQ, OperatorPrecedence.PLUS_EQ },
+            { TokenType.SHIFT_LEFT_EQ, OperatorPrecedence.PLUS_EQ },
+            { TokenType.SHIFT_RIGHT_EQ, OperatorPrecedence.PLUS_EQ },
+            { TokenType.SHIFT_RIGHT_UNSIGNED_EQ, OperatorPrecedence.PLUS_EQ },
             { TokenType.DOT, OperatorPrecedence.DOT },
             { TokenType.INCREMENT, OperatorPrecedence.POSTFIX },
         };
@@ -135,6 +153,7 @@ namespace AquariusLang.parser {
             parser.registerPrefix(TokenType.DOUBLE, parser.parseDoubleLiteral);
             parser.registerPrefix(TokenType.BANG, parser.parsePrefixExpression);
             parser.registerPrefix(TokenType.MINUS, parser.parsePrefixExpression);
+            parser.registerPrefix(TokenType.BIT_NOT, parser.parsePrefixExpression);
             parser.registerPrefix(TokenType.INCREMENT, parser.parsePrefixIncrementExpression);
             parser.registerPrefix(TokenType.TRUE, parser.parseBoolean);
             parser.registerPrefix(TokenType.FALSE, parser.parseBoolean);
@@ -170,6 +189,10 @@ namespace AquariusLang.parser {
             parser.registerInfix(TokenType.PERCENT_EQ, parser.parseInfixExpression);
             parser.registerInfix(TokenType.AND_AND, parser.parseInfixExpression);
             parser.registerInfix(TokenType.OR_OR, parser.parseInfixExpression);
+            foreach (string bitwise in new[] { TokenType.BIT_AND, TokenType.BIT_OR, TokenType.BIT_XOR, TokenType.SHIFT_LEFT, TokenType.SHIFT_RIGHT,
+                         TokenType.SHIFT_RIGHT_UNSIGNED, TokenType.BIT_AND_EQ, TokenType.BIT_OR_EQ, TokenType.BIT_XOR_EQ, TokenType.SHIFT_LEFT_EQ,
+                         TokenType.SHIFT_RIGHT_EQ, TokenType.SHIFT_RIGHT_UNSIGNED_EQ })
+                parser.registerInfix(bitwise, parser.parseInfixExpression);
             parser.registerInfix(TokenType.DOT, parser.parseInfixExpression);
             parser.registerInfix(TokenType.INCREMENT, parser.parsePostfixIncrementExpression);
 

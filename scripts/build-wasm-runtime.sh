@@ -24,7 +24,7 @@ exports=()
 musl="$(dirname "$source")/third_party/musl"
 mapfile -t math_sources < <(printf '%s\n' "$musl"/src/math/*.c | LC_ALL=C sort)
 for name in $( { cat "$source" "$(dirname "$source")"/*.h | grep -oE '\b(u32|int|double)[[:space:]]+(aqua_|rt_)[A-Za-z0-9_]+[[:space:]]*\(' | sed -E 's/^(u32|int|double)[[:space:]]+//; s/[[:space:]]*\($//';
-        for op in add subtract multiply divide less greater lessEqual greaterEqual equal notEqual and or modulo; do echo "rt_$op"; done; } | LC_ALL=C sort -u); do
+        for op in add subtract multiply divide less greater lessEqual greaterEqual equal notEqual and or modulo bitAnd bitOr bitXor shiftLeft shiftRight shiftRightUnsigned; do echo "rt_$op"; done; } | LC_ALL=C sort -u); do
     exports+=("-Wl,--export=$name")
 done
 "$clang" --target=wasm32-unknown-unknown -mcpu=lime1 -mbulk-memory -O3 -g0 -std=c11 -fno-builtin -nostdlib \

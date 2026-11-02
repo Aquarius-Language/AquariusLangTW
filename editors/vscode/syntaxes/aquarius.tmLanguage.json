@@ -17,7 +17,7 @@
     {"comment": "The portable modules (陣列 / Array, 雜湊 / Hash, 字串 / String, 執行緒 / Thread, 數學 / Math) and their members.", "match": "(?<![\\p{L}\\p{N}\\p{M}_])(陣列|Array|雜湊|Hash|字串|String|執行緒|Thread|數學|Math)\\s*(\\.)\\s*([\\p{L}\\p{Nl}_][\\p{L}\\p{Nl}\\p{M}_0-9]*)?", "captures": {"1": {"name": "support.class.aquarius"}, "3": {"name": "support.function.aquarius"}}},
     {"name": "support.variable.aquarius", "match": "(?<![\\p{L}\\p{N}\\p{M}_])(目前工作目錄|currWorkingDir)(?![\\p{L}\\p{N}\\p{M}_])"},
     {"name": "constant.numeric.aquarius", "match": "(?<![\\p{L}\\p{N}\\p{M}_])(?:0[xX][0-9A-Fa-f](?:_?[0-9A-Fa-f])*|0[bB][01](?:_?[01])*|[0-9](?:_?[0-9])*(?:\\.(?:[0-9](?:_?[0-9])*)?)?(?:[eE][+-]?[0-9](?:_?[0-9])*)?[fd]?)(?![\\p{L}\\p{N}\\p{M}_])"},
-    {"name": "keyword.operator.aquarius", "match": "\\+\\+|[+*/%!=<>-]=?|&&|\\|\\|"},
+    {"name": "keyword.operator.aquarius", "match": "\\+\\+|&&|\\|\\||>>>=?|>>=?|<<=?|[+*/%!=<>&|^-]=?|~"},
     {"name": "entity.name.function.aquarius", "match": "[\\p{L}\\p{Nl}_][\\p{L}\\p{Nl}\\p{M}_0-9]*(?=\\s*\\()"}
   ]
 }

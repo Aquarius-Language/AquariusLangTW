@@ -122,6 +122,10 @@ namespace AquariusLang.lexer {
                         readChar();
                         string literal = "<=";
                         token = newToken(TokenType.LT_ET, literal);
+                    } else if (peekChar() == '<') {
+                        readChar();
+                        token = peekChar() == '=' ? newToken(TokenType.SHIFT_LEFT_EQ, "<<=") : newToken(TokenType.SHIFT_LEFT, "<<");
+                        if (token.Type == TokenType.SHIFT_LEFT_EQ) readChar();
                     } else {
                         token = newToken(TokenType.LT, ch);
                     }
@@ -132,6 +136,15 @@ namespace AquariusLang.lexer {
                         readChar();
                         string literal = ">=";
                         token = newToken(TokenType.GT_ET, literal);
+                    } else if (peekChar() == '>') {
+                        // >>, >>=, >>> and >>>=.
+                        readChar();
+                        bool logical = peekChar() == '>';
+                        if (logical) readChar();
+                        bool compound = peekChar() == '=';
+                        if (compound) readChar();
+                        token = logical ? newToken(compound ? TokenType.SHIFT_RIGHT_UNSIGNED_EQ : TokenType.SHIFT_RIGHT_UNSIGNED, compound ? ">>>=" : ">>>")
+                            : newToken(compound ? TokenType.SHIFT_RIGHT_EQ : TokenType.SHIFT_RIGHT, compound ? ">>=" : ">>");
                     } else {
                         token = newToken(TokenType.GT, ch);
                     }
@@ -173,26 +186,40 @@ namespace AquariusLang.lexer {
                     token = newToken(TokenType.COLON, ch);
                     break;
                 case '&':
-                    char peekedChar = peekChar();
-                    if (peekedChar == '&') {
+                    if (peekChar() == '&') {
                         readChar();
-                        string literal = "&&";
-                        token = newToken(TokenType.AND_AND, literal);
-                    } else if (peekedChar == ' ') {
-                        // TODO Implement Binary And '&' feature.
+                        token = newToken(TokenType.AND_AND, "&&");
+                    } else if (peekChar() == '=') {
+                        readChar();
+                        token = newToken(TokenType.BIT_AND_EQ, "&=");
+                    } else {
+                        token = newToken(TokenType.BIT_AND, ch);
                     }
 
                     break;
                 case '|':
-                    char _peekedChar = peekChar();
-                    if (_peekedChar == '|') {
+                    if (peekChar() == '|') {
                         readChar();
-                        string literal = "||";
-                        token = newToken(TokenType.OR_OR, literal);
-                    } else if (_peekedChar == ' ') {
-                        // TODO Implement Binary Or '|' feature.
+                        token = newToken(TokenType.OR_OR, "||");
+                    } else if (peekChar() == '=') {
+                        readChar();
+                        token = newToken(TokenType.BIT_OR_EQ, "|=");
+                    } else {
+                        token = newToken(TokenType.BIT_OR, ch);
                     }
 
+                    break;
+                case '^':
+                    if (peekChar() == '=') {
+                        readChar();
+                        token = newToken(TokenType.BIT_XOR_EQ, "^=");
+                    } else {
+                        token = newToken(TokenType.BIT_XOR, ch);
+                    }
+
+                    break;
+                case '~':
+                    token = newToken(TokenType.BIT_NOT, ch);
                     break;
                 case '.':
                     token = newToken(TokenType.DOT, '.');

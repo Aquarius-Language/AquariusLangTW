@@ -128,6 +128,13 @@ Default value inspection still prints booleans as `真` / `假` and null as `nul
 - Boolean `&&` and `||` short-circuit: the right operand runs only when the left one does not decide the result
   (`f != null && f(x)` never calls a null `f`). An operand that runs must be a Boolean, or the operation is an error.
   Both have the same precedence and group from the left, so `a || b && c` is `(a || b) && c`.
+- Integer bitwise operators: `&`, `|`, `^`, `~`, `<<`, `>>` (arithmetic, keeps the sign) and `>>>` (logical, fills
+  with zeros), and the compound forms `&= |= ^= <<= >>= >>>=` on variables, elements and fields. Operands must be
+  integers (a known float, double, Boolean or string is a compile error, any other a runtime error); shift counts use
+  their low 5 bits like Wasm's i32 shifts (`1 << 33` is 2, `1 << -1` is the minimum integer). Precedence follows C# and
+  JavaScript: shifts bind tighter than comparisons and looser than `+`/`-`; `&`, then `^`, then `|` bind looser than
+  `==` and tighter than `&&`/`||`, so `a & b == c` is `a & (b == c)` (write `(a & b) == c`). See
+  [numbers](../../docs/math.md#integer-bitwise-operators).
 - Functions support explicit `回傳` / `return`, a final expression as an implicit result,
   recursion and lexical closures. Assignments update the scope owning a variable.
 - `變數 加法, add = 函式(甲, 乙) { 甲 + 乙; };` gives one function two public

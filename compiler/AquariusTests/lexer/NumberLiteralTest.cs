@@ -58,4 +58,12 @@ public class NumberLiteralTest {
         Assert.Null(Utils.StringToDouble("1e400"));
         Assert.Null(Utils.StringToFloat("3.5e38f"));
     }
+
+    [Fact]
+    public void BitwiseOperatorsLexAsOneToken() {
+        Assert.Equal([("IDENT", "a"), ("&", "&"), ("IDENT", "b"), ("&&", "&&"), ("IDENT", "c"), ("&=", "&="), ("INT", "1")], Tokens("a & b && c &= 1"));
+        Assert.Equal([("|", "|"), ("||", "||"), ("|=", "|="), ("^", "^"), ("^=", "^="), ("~", "~")], Tokens("| || |= ^ ^= ~"));
+        Assert.Equal([("<<", "<<"), ("<<=", "<<="), ("<", "<"), ("<=", "<="), (">>", ">>"), (">>=", ">>="), (">>>", ">>>"), (">>>=", ">>>="), (">", ">"), (">=", ">=")],
+            Tokens("<< <<= < <= >> >>= >>> >>>= > >="));
+    }
 }

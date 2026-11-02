@@ -125,3 +125,29 @@ sign is the dividend's. Before, every tier computed `x - trunc(x / y) * y`, whic
 
 `數學.浮點餘數` / `Math.Fmod` is the same function. A compound `%=` into an integer variable computes in double and
 converts back like the other compound operators (`變數 n = 1000000000; n %= 0.7d;` gives 0).
+
+## Integer bitwise operators
+
+| Operator | Meaning | Example |
+| --- | --- | --- |
+| `a & b`, `a \| b`, `a ^ b` | and, or, exclusive or | `6 & 3` is 2, `6 \| 3` is 7, `6 ^ 3` is 5 |
+| `~a` | complement | `~5` is -6 |
+| `a << n` | left shift (wraps around) | `1 << 31` is -2147483648 |
+| `a >> n` | arithmetic right shift (keeps the sign) | `-16 >> 2` is -4 |
+| `a >>> n` | logical right shift (zeros enter) | `-1 >>> 1` is 2147483647 |
+| `&= \|= ^= <<= >>= >>>=` | compound assignment | `旗標 \|= 1 << 3;` |
+
+Operands are 32-bit integers only. A float, double, Boolean or string operand is a compile error when its type is known
+(`1.5 & 1`, `變數 x: 雙精度 = 1; x &= 2;`) and a runtime error otherwise ("Bitwise operators need integers / 位元運算
+需要整數: DOUBLE & INTEGER"). Shift counts use their low 5 bits, exactly like Wasm's `i32.shl` / `i32.shr_s` /
+`i32.shr_u`: `1 << 32` is 1, `1 << 33` is 2, `1 << -1` is `1 << 31`. Hexadecimal and binary literals
+(`0xFF00`, `0b1010`) make masks readable.
+
+Precedence follows C# and JavaScript (from loosest): assignments, `&&` / `||`, `|`, `^`, `&`, `==` / `!=`,
+comparisons, shifts, `+` / `-`, `*` / `/` / `%`, prefix `-` `!` `~`. So `1 + 2 << 1` is 6, `a & b == c` is
+`a & (b == c)` (an error for integers: write `(a & b) == c`), and `a | b && c | d` is `(a | b) && (c | d)`.
+
+The generic runtime (`binary` in `runtime.c`, `rt_bitNot`), generic compiled code (inline i32 instructions when both
+operands are proven integers, the runtime otherwise) and native code (typed and cloned functions, loops) give identical
+results; `BitwiseOperatorTest` compares them. Compound bitwise assignments of module globals go through the runtime
+rather than the integer shadows the generic emitter keeps for `+=`.

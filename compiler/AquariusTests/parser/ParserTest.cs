@@ -271,6 +271,18 @@ public class ParserTest {
             new() { input = "a /= 5 - 6", expected = "(a /= (5 - 6))", },
             new() { input = "真 && 5 < 6", expected = "(真 && (5 < 6))", },
             new() { input = "2.3f * (5 + 5.d)", expected = "(2.3f * (5 + 5.d))", },
+            // Bitwise operators bind like C# and JavaScript: shifts between sums and comparisons, & ^ | below equality.
+            new() { input = "1 + 2 << 3 - 1", expected = "((1 + 2) << (3 - 1))", },
+            new() { input = "a << b < c >> d", expected = "((a << b) < (c >> d))", },
+            new() { input = "a & b == c", expected = "(a & (b == c))", },
+            new() { input = "a | b ^ c & d", expected = "(a | (b ^ (c & d)))", },
+            new() { input = "a & b | c & d", expected = "((a & b) | (c & d))", },
+            new() { input = "a | b && c | d", expected = "((a | b) && (c | d))", },
+            new() { input = "a >>> 1 >> 2 << 3", expected = "(((a >>> 1) >> 2) << 3)", },
+            new() { input = "~a & -b", expected = "((~a) & (-b))", },
+            new() { input = "a ^= b | c", expected = "(a ^= (b | c))", },
+            new() { input = "a >>>= 3 + 1", expected = "(a >>>= (3 + 1))", },
+            new() { input = "a <<= b & c", expected = "(a <<= (b & c))", },
         };
         foreach (var test in tests) {
             Lexer lexer = Lexer.NewInstance(test.input);

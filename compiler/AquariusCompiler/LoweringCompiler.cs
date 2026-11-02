@@ -153,6 +153,7 @@ public sealed class LoweringCompiler {
                 Node(prefix.Right);
                 if (prefix.Operator == "!") Emit(IrOperation.Not);
                 else if (prefix.Operator == "-") Emit(IrOperation.Negate);
+                else if (prefix.Operator == "~") Emit(IrOperation.BitNot);
                 else throw new CompilationException($"Unsupported prefix operator: {prefix.Operator}");
                 break;
             case InfixExpression infix: Infix(infix); break;
@@ -178,17 +179,17 @@ public sealed class LoweringCompiler {
     private void Infix(InfixExpression expression) {
         string op = expression.Operator;
         if (expression.Left is InfixExpression { Operator: "." } target && target.Right is Identifier field
-            && op is "=" or "+=" or "-=" or "*=" or "/=" or "%=") {
+            && Operators.IsAssignment(op)) {
             Node(target.Left); Node(expression.Right);
             if (op == "=") Emit(IrOperation.SetMember, Name(field.Value));
-            else Emit(IrOperation.CompoundMember, Constant(new Assignment(field.Value, BinaryCode(op.Substring(0, 1)))));
+            else Emit(IrOperation.CompoundMember, Constant(new Assignment(field.Value, BinaryCode(Operators.Compound(op)))));
             return;
         }
-        if (op is "=" or "+=" or "-=" or "*=" or "/=" or "%=" && expression.Left is IndexExpression index) {
+        if (Operators.IsAssignment(op) && expression.Left is IndexExpression index) {
             Node(index.Left); Node(index.Index); Emit(IrOperation.CheckArrayWrite);
             Node(expression.Right);
             if (op == "=") Emit(IrOperation.WriteIndex);
-            else Emit(IrOperation.CompoundIndex, Constant(new Assignment("", BinaryCode(op.Substring(0, 1)))));
+            else Emit(IrOperation.CompoundIndex, Constant(new Assignment("", BinaryCode(Operators.Compound(op)))));
             return;
         }
         if (op is "&&" or "||") { ShortCircuit(expression, op == "&&"); return; }
@@ -204,12 +205,12 @@ public sealed class LoweringCompiler {
             return;
         }
         Node(expression.Right);
-        if (op == "=" || op == "+=" || op == "-=" || op == "*=" || op == "/=" || op == "%=") {
+        if (Operators.IsAssignment(op)) {
             if (!(expression.Left is Identifier variable)) {
                 throw new CompilationException($"{op} 的左側必須是變數、欄位或索引 / The left side of {op} must be a variable, a field or an index.");
             }
             if (op == "=") { Check(expression); Emit(IrOperation.Assign, Name(variable.Value)); }
-            else Emit(IrOperation.CompoundAssign, Constant(new Assignment(variable.Value, BinaryCode(op.Substring(0, 1)))));
+            else Emit(IrOperation.CompoundAssign, Constant(new Assignment(variable.Value, BinaryCode(Operators.Compound(op)))));
             return;
         }
         Emit(BinaryCode(op));
@@ -235,6 +236,8 @@ public sealed class LoweringCompiler {
         "+" => IrOperation.Add, "-" => IrOperation.Subtract, "*" => IrOperation.Multiply, "/" => IrOperation.Divide, "%" => IrOperation.Modulo,
         "<" => IrOperation.Less, ">" => IrOperation.Greater, "<=" => IrOperation.LessEqual, ">=" => IrOperation.GreaterEqual,
         "==" => IrOperation.Equal, "!=" => IrOperation.NotEqual,
+        "&" => IrOperation.BitAnd, "|" => IrOperation.BitOr, "^" => IrOperation.BitXor,
+        "<<" => IrOperation.ShiftLeft, ">>" => IrOperation.ShiftRight, ">>>" => IrOperation.ShiftRightUnsigned,
         _ => throw new CompilationException($"Unsupported operator: {op}")
     };
 

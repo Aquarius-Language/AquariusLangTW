@@ -37,6 +37,20 @@ namespace AquariusLang.token {
         public const string PERCENT_EQ = "%=";
         public const string AND_AND = "&&";
         public const string OR_OR = "||";
+        // Integer bitwise operators and their compound assignments.
+        public const string BIT_AND = "&";
+        public const string BIT_OR = "|";
+        public const string BIT_XOR = "^";
+        public const string BIT_NOT = "~";
+        public const string SHIFT_LEFT = "<<";
+        public const string SHIFT_RIGHT = ">>";
+        public const string SHIFT_RIGHT_UNSIGNED = ">>>";
+        public const string BIT_AND_EQ = "&=";
+        public const string BIT_OR_EQ = "|=";
+        public const string BIT_XOR_EQ = "^=";
+        public const string SHIFT_LEFT_EQ = "<<=";
+        public const string SHIFT_RIGHT_EQ = ">>=";
+        public const string SHIFT_RIGHT_UNSIGNED_EQ = ">>>=";
         public const string DOT = ".";
 
         // Delimiters
