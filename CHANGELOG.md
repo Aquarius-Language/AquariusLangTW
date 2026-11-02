@@ -47,6 +47,11 @@ Language:
 
 Libraries:
 
+- Breaking: a library's `[[assets]]` `target` is now relative to its own `/bottles/NAME/` folder, like an asset with no
+  `target`, so a library can no longer place files at the application root and two libraries (or a library and the
+  application) declaring the same target no longer clash. A library that used a root-level target, such as
+  `target = "native/plugin.dll"`, now finds it at `/bottles/NAME/native/plugin.dll`. The application's own targets are
+  unchanged. A conflicting path error now names both declarations.
 - Graphics: Processing's `sin`, `cos`, `tan`, `asin`, `acos`, `atan`, `atan2`, `exp`, `log`, `pow` and GLM's `Sin`,
   `Cos` run a vendored copy of musl's libm, so they equal `Math` bit for bit on every target (before, each target's C
   library computed them). Processing keeps its own conventions (`round` halves up, domain errors). `Models` uses

@@ -119,7 +119,7 @@ public class BottleTest {
         string output = t.FilePath("build/app.wasm"); var build = ProjectBuilder.Compile(app, output, locked: true, offline: true, cache: cache);
         var package = WasmApplication.Load(output);
         Assert.Contains("bottles/greeting/main.aqua", package.Scripts.Keys); Assert.Contains("bottles/numbers/main.aqua", package.Scripts.Keys);
-        Assert.Contains("bottles/greeting/assets/message.txt", package.Assets.Keys); Assert.Contains("native/plugin.dll", package.Assets.Keys);
+        Assert.Contains("bottles/greeting/assets/message.txt", package.Assets.Keys); Assert.Contains("bottles/greeting/native/plugin.dll", package.Assets.Keys);
         Assert.DoesNotContain("bottles/greeting/deps/numbers/main.aqua", package.Scripts.Keys);
         // Version 1 libraries are sources and assets only: they add no library to link and no native library to load.
         Assert.Null(build.Libraries.Find("greeting")); Assert.Empty(package.NativeLibraries);
@@ -217,9 +217,22 @@ public class BottleTest {
         new BottleManager(cache).Restore(ProjectManifest.Load(app),"windows");Directory.Delete(t.FilePath("lib"),true);
         foreach(string target in new[]{"windows","web"}) {
             string output=t.FilePath(target+".wasm");ProjectBuilder.Compile(app,output,target,locked:true,offline:true,cache:cache);
-            var package=WasmApplication.Load(output);Assert.Single(package.Assets);Assert.Equal(target=="windows"?"native":"wasm",System.Text.Encoding.UTF8.GetString(package.Assets["backend.txt"]));
+            var package=WasmApplication.Load(output);Assert.Single(package.Assets);Assert.Equal(target=="windows"?"native":"wasm",System.Text.Encoding.UTF8.GetString(package.Assets["bottles/lib/backend.txt"]));
             Assert.Throws<InvalidDataException>(()=>package.CheckPlatform(target=="windows"?"web":"windows"));
         }
+    }
+    [Fact] public void LibraryAssetTargetsStayInsideTheirOwnBottleFolder() {
+        using var t = new BottleDirectory(); var cache = new BottleCache(t.FilePath("cache"));
+        string Config(string source) => $"[[assets]]\nsource='{source}'\ntarget='config.json'";
+        string app = Project(t, "app", "app", "executable", dependencies: "a={path='../a',version='0.18.0'}\nb={path='../b',version='0.18.0'}", assets: Config("app.json"));
+        Project(t, "a", "a", assets: Config("a.json")); Project(t, "b", "b", assets: Config("b.json"));
+        t.Write("app/app.json", "{\"from\":\"app\"}"); t.Write("a/a.json", "{\"from\":\"a\"}"); t.Write("b/b.json", "{\"from\":\"b\"}");
+        string output = t.FilePath("app.wasm"); ProjectBuilder.Compile(app, output, cache: cache);
+        var assets = WasmApplication.Load(output).Assets;
+        Assert.Equal(3, assets.Count);
+        Assert.Equal("{\"from\":\"app\"}", System.Text.Encoding.UTF8.GetString(assets["config.json"]));
+        Assert.Equal("{\"from\":\"a\"}", System.Text.Encoding.UTF8.GetString(assets["bottles/a/config.json"]));
+        Assert.Equal("{\"from\":\"b\"}", System.Text.Encoding.UTF8.GetString(assets["bottles/b/config.json"]));
     }
     [Fact] public void CliSelectsAssetPlatformForIntermediateWasmWithoutExportingAnExecutable() {
         using var t=new BottleDirectory();
