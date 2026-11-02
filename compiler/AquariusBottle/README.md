@@ -89,7 +89,7 @@ source = "assets" # entire directory, including subdirectories
 
 [[assets]]
 source = "native/windows/helper.dll"
-target = "native/helper.dll" # explicit application-root destination
+target = "native/helper.dll" # explicit destination (application root; a library's is under /bottles/NAME/)
 platforms = ["windows"]
 
 [onnx]
@@ -165,8 +165,11 @@ library nested several levels deep. Assets with no `target` keep their source
 path under `/bottles/NAME/` for a dependency, or under the application root for the
 executable. A library can access these using `目前工作目錄` / `currWorkingDir`
 relative to its module (for example `currWorkingDir + "/assets/message.txt"` when
-its module is in the library root). An explicit `target` places the file/directory
-at that application-root path; directories preserve their child structure.
+its module is in the library root). An explicit `target` renames the file/directory:
+in the executable it is an application-root path, and in a library it is relative
+to that library's `/bottles/NAME/` folder, so a library can never place files
+outside its own folder or collide with the application or another library.
+Directories preserve their child structure.
 
 For simple declarations, `assets = ["assets", "models/model.onnx"]` may appear
 **before** `[project]` instead of `[[assets]]` tables. Glob syntax is not supported;
