@@ -66,7 +66,8 @@ runtime/
   host/              the shared C host: application metadata, imports, registry, scheduler, calls, core library
   platform/<os>/     windows, linux, posix, desktop (Windows+Linux), android (+ java/ activity shim), web
   sdk/               the library SDK: include/aqua/*.h, api.def, cmake/ (AquariusLibrary.cmake, toolchains/), example/
-libraries/<name>/    default libraries (application, audio, camera, graphics, input, network, onnx, opengl, terminal)
+libraries/<name>/    default libraries (application, audio, camera, clay, graphics, imgui, input, interaction, network, onnx,
+                     opengl, saturn, terminal, webframe)
 web-glue/            core/, page/, index.mjs and one folder per Web API domain
 scripts/             toolchain pins and installers, runtime/library builds, web-run.mjs, android-run.ps1, release
 ```

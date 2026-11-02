@@ -46,6 +46,24 @@ Language:
   f(x)`, `false && g()` no longer calls `g`). Programs whose right operands had no effects keep their output.
 
 Libraries:
+- `saturn` (new): Saturn / 土星 lays out interfaces with Meta's Yoga (pinned upstream, compiled in) under Yoga's own
+  API (`Saturn.Node`, `Saturn.Config`, every style property, measure/baseline/dirtied callbacks), CSS-named styles
+  (`SetStyle`, `ReplaceStyle`) with CSS text inheritance and transitions, text with word and CJK line breaking, images,
+  painting into the render-agnostic UI draw list, hit testing, `Saturn.Painter` and `Saturn.Combine`. Its `SaturnUI` /
+  `土星介面` module adds Flutter-style widgets (layout, text, images, icons, buttons, checkboxes, switches, radios,
+  sliders, text fields, dropdowns, tabs, dialogs, tooltips, scrolling and virtualized lists), themes and style sheets
+  with state and breakpoint selectors, events through Interaction, surfaces that draw anywhere, `UI.Layers` that mix
+  SaturnUI, ImGui and Clay with one input router, and `UI.RunApp`. See [saturn](libraries/saturn/README.md).
+- `imgui` (new): Dear ImGui 1.93.0 (docking branch) for any renderer: contexts fed by Interaction events, fonts with
+  system CJK fonts merged, the widget API under Dear ImGui's names (editors return the new value), draw lists, docking,
+  drag and drop, styles, and `Embed` items other UI libraries draw into. See [imgui](libraries/imgui/README.md).
+- `clay` (new): Clay 0.14 layouts declared each frame (`Clay.Element`, `Clay.Text`, sizing, floating, scrolling,
+  borders, images, embedded draw lists). See [clay](libraries/clay/README.md).
+- `graphics`: `drawUI(list)` draws UI draw lists natively on sketches and canvases (rounded rectangles, borders,
+  shadows, gradients, text, images, textured meshes and their textures, clips, transforms, opacity);
+  `uiTextMetrics()` measures text as `drawUI` draws it; font names take `:<weight>` and `:italic` on every platform.
+- Fix: `module.Struct(b: 1, a: 2)` filled the struct's fields in the order written; named arguments through a module
+  member now match fields by name.
 
 - Breaking: a library's `[[assets]]` `target` is now relative to its own `/bottles/NAME/` folder, like an asset with no
   `target`, so a library can no longer place files at the application root and two libraries (or a library and the

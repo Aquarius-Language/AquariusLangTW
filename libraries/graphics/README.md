@@ -26,7 +26,8 @@ src/common/          calls (error prefixes, async calls), matrices (System.Numer
 src/gpu/             the renderer: devices and surfaces, textures, render targets, WGSL shaders and the uniform ABI,
                      buffers and compute
 src/processing/      Processing: module.c (registration, fields), lifecycle.c (size/run/frames), input.c, canvas.c,
-                     drawing.c, geometry.c (tessellation kernel), image.c, shapes.c, shaders.c, text.c, math.c, vector.c
+                     drawing.c, geometry.c (tessellation kernel), image.c, shapes.c, shaders.c, text.c, math.c, vector.c,
+                     ui.c (drawUI)
 src/modules/         wgpu.c, glm.c, textinput.c, window.c, fonts.c
 src/platform/        the per-OS text layer (one line of text: its box and an alpha mask; installed fonts)
 third_party/stb/     stb_image 2.30 and stb_image_write 1.16 (MIT / public domain), compiled privately into codecs.c
@@ -76,6 +77,20 @@ receiving `processing.model`. Ellipses and arcs take 20..200 segments from their
 renderers do). Canvas `set()` draws one device-pixel quad (a loop of `set()` calls is one draw), reads (`get()`,
 `loadPixels()`, `filter()`, `copy()`) reuse the last readback until something is drawn, `loadPixels()` refreshes its
 array in place and `updatePixels()` reads it in bulk.
+
+## UI draw lists
+
+`drawUI(list)` (on the sketch and on PGraphics canvases) draws a UI draw list, the plain-data format the UI libraries
+produce ([saturn](../saturn/README.md#the-ui-draw-list): Saturn and SaturnUI, [imgui](../imgui/README.md),
+[clay](../clay/README.md)), in the canvas's current transform: rounded rectangles with per-corner radii, borders,
+blurred shadows, linear gradients, lines, text, images, textured meshes and the textures they sample (kept per
+sketch by id and updated by region), nested clips, transforms and opacity. Everything becomes unlit triangles in the
+canvas's batch, so a whole interface is a handful of GPU draws. Drawn on a `createGraphics` canvas, an interface is a
+texture for any 2D or 3D shape. `uiTextMetrics(text, family, size | weight, italic)` returns `[width, ascent,
+descent]` of the box `drawUI` draws text in; give it to the libraries' text measurers (`Saturn.SetTextMeasurer`,
+`Clay.SetMeasureText`) so layout matches the pixels. Font names may end in `:<weight>` and `:italic`
+(`"Segoe UI:700:italic"`) everywhere text is drawn: GDI, Pango, Android's `Typeface` and the web's CSS font apply them.
+Test: `tests/draw_ui.aqua`.
 
 ## Processing API coverage
 
