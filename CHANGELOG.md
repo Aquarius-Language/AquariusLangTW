@@ -7,6 +7,14 @@ One version covers the language, the compiler, the CLI, the language server and 
 
 Language:
 
+- Declarative syntax for widget trees and components: trailing commas in arrays, calls, parameter lists and struct
+  fields; struct field defaults (`struct Style { size: double = 14.0d; tags = [] }`, array and hash defaults copied
+  per struct); positional arguments before named ones (`Text("Hi", weight: 700)`); parameter defaults and named
+  arguments for functions (`var badge = function(label, tone = "accent") { ... }; badge("New", tone: "warn")`);
+  `if`, `elif`/`else`, `for` and `...spread` elements in array literals (`[header, if (signedIn) profile else login,
+  for (var i = 0; i < n; i++) row(i), ...footer]`); short functions `x => x * 2`, `(a, b = 1) => a + b` and
+  `() => { ... }`. Callbacks from libraries may leave out parameters that have defaults.
+
 - Constants: `常數 名稱 = 值;` / `const name = value;` declare a binding assigned once; assigning it again (`=`, `+=`,
   `++`) or declaring the name again in the same scope is a compile error. `常數` and `const` are keywords only where a
   declaration starts, so programs using them as names keep working. Typed functions and loops written after a constant
