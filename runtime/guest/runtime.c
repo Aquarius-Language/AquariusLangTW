@@ -6,8 +6,10 @@ typedef uint32_t u32;
 typedef struct { u32 tag, ref; double number; } Value;
 enum { VOID, INT, FLOAT, DOUBLE, BOOL, STRING, ARRAY, HASH, CLOSURE, MODULE, NATIVE, NULL_VALUE, BREAK_VALUE, ERROR, BUILTIN, STRUCT, STRUCT_TYPE };
 /* FOREIGN blocks are never collected: memory reserved for the host (aqua_reserve) and pages another module of the same
-   memory grew (web side modules' libc), which the heap steps over. */
-enum { FREE, RAW, TEXT, VALUES, ENV, BINDINGS, CLOSURES, ARRAYS, HASHES, FRAMES, LOOPS, EXECUTIONS, PINS, FOREIGN, STRUCTS, SHAPES };
+   memory grew (web side modules' libc), which the heap steps over. INLINE_STORAGE is not a block of the heap: it heads
+   the element storage a small array keeps inside its own ARRAYS block (see array), and reserved holds the distance back
+   to that block's header. */
+enum { FREE, RAW, TEXT, VALUES, ENV, BINDINGS, CLOSURES, ARRAYS, HASHES, FRAMES, LOOPS, EXECUTIONS, PINS, FOREIGN, STRUCTS, SHAPES, INLINE_STORAGE };
 /* Blocks tile the heap contiguously from heap_start to heap_end; walk them by address. */
 typedef struct { u32 size, reserved, kind, marked; } Block;
 typedef struct { u32 length; uint16_t data[]; } Text;
@@ -109,7 +111,7 @@ static void *pointer(u32 p) { return (void *)(uintptr_t)p; }
 static u32 allocation_class(u32 size) { return 27u-(u32)__builtin_clz(size); }
 static void push_free(Block*b) { u32 c=allocation_class(b->size);*(u32*)(b+1)=free_heads[c];free_heads[c]=address(b);free_mask|=1u<<c; }
 static Block *pop_free(u32 c) { Block*b=pointer(free_heads[c]);free_heads[c]=*(u32*)(b+1);if(!free_heads[c])free_mask&=~(1u<<c);return b; }
-static void release(void *p) { if(p&&address(p)>=heap_start){Block*b=(Block*)p-1;if(b->kind==FREE)return;bytes_since_collection=bytes_since_collection>b->size?bytes_since_collection-b->size:0;b->kind=FREE;push_free(b);} }
+static void release(void *p) { if(p&&address(p)>=heap_start){Block*b=(Block*)p-1;if(b->kind==FREE||b->kind==INLINE_STORAGE)return;bytes_since_collection=bytes_since_collection>b->size?bytes_since_collection-b->size:0;b->kind=FREE;push_free(b);} }
 static void initialize_allocation(void *p,u32 n,u32 kind) {
     // Collection scans only committed elements and live stack operands.
     // Constructors fill value/binding buffers completely before a checkpoint.
@@ -312,7 +314,22 @@ static ArrayStorage *array_storage_of(u32 n,u32 layout) {
 }
 static ArrayStorage *array_storage(u32 n) { return array_storage_of(n,0); }
 static void attach_storage(Array*a,ArrayStorage*s) { a->storage=s;a->capacity=s->capacity;a->values=s->values; }
-static Array *array(u32 n) { Array*a=allocate(sizeof(Array),ARRAYS);a->count=n;attach_storage(a,array_storage(n));return a; }
+/* A small array (literals such as [a, b], the trees and pairs of typical programs) is one block: the header, then its
+   first element storage behind an INLINE_STORAGE header (ARRAYS block reserved = 1). Storage replaced later (growth,
+   copy-on-write, packing) is a block of its own, and releasing the inline one does nothing. While another array shares
+   the inline storage, marking it keeps the whole block alive (mark_ref). Fresh element storage is filled by the
+   constructor, so only the header is cleared. */
+#define INLINE_ELEMENTS 4
+static Array *array(u32 n) {
+    if(n<=INLINE_ELEMENTS){
+        Array*a=allocate(sizeof(Array)+sizeof(Block)+sizeof(ArrayStorage)+n*sizeof(Value),VALUES);Block*b=(Block*)a-1;b->kind=ARRAYS;b->reserved=1;
+        memset(a,0,sizeof(Array));
+        Block*inner=(Block*)(a+1);inner->size=b->size-sizeof(Array)-sizeof(Block);inner->reserved=sizeof(Array)+sizeof(Block);inner->kind=INLINE_STORAGE;inner->marked=0;
+        ArrayStorage*s=(ArrayStorage*)(inner+1);s->references=1;s->capacity=(inner->size-sizeof(ArrayStorage))/sizeof(Value);s->used=n;s->layout=0;
+        a->count=n;attach_storage(a,s);return a;
+    }
+    Array*a=allocate(sizeof(Array),ARRAYS);a->count=n;attach_storage(a,array_storage(n));return a;
+}
 static void writable_array(Array*a,u32 count) {
     if(a->storage->references==1&&count<=a->capacity)return;
     u32 capacity=count>a->count?count:a->count;if(capacity<a->capacity)capacity=a->capacity;
@@ -893,7 +910,10 @@ int rt_nextIteration(Frame*f,int n){invalidate_scopes();Loop*l=f->loops;Value v=
 int rt_break(Frame*f,int n){if(f->loops)f->sp=f->loops->base;return 0;}
 int rt_leaveLoop(Frame*f,int n){Loop*l=f->loops;if(!l){failure(f,"Invalid compiled loop.");return 0;}invalidate_scopes();f->sp=l->base;dispose_scope(f->scope);f->scope=l->outer;f->loops=l->previous;release(l);push(f,empty);return 0;}
 int rt_error(Frame*f,int n){fail(f,name(f,n));return 0;}
-static void mark_ref(void*p){u32 addr=address(p);if(!p||addr<heap_start||addr>=heap_end)return;Block*b=(Block*)p-1;if(b->kind==FREE||b->marked)return;b->marked=mark_pending|1;mark_pending=addr;}
+static void mark_ref(void*p){u32 addr=address(p);if(!p||addr<heap_start||addr>=heap_end)return;Block*b=(Block*)p-1;
+    // Inline storage (see array): marked itself (ARRAYS counts its references by it), its array's block kept.
+    if(b->kind==INLINE_STORAGE){b->marked=1;b=(Block*)((char*)b-b->reserved);addr=address(b+1);}
+    if(b->kind==FREE||b->marked)return;b->marked=mark_pending|1;mark_pending=addr;}
 static void mark_value(Value v){if(v.tag==NATIVE){if(v.ref<65536&&!native_live[v.ref]){native_live[v.ref]=1;marked_native_ids[marked_native_count++]=v.ref;}}else if(v.tag>=STRING&&v.tag<=MODULE||v.tag==ERROR||v.tag==STRUCT||v.tag==STRUCT_TYPE)mark_ref(pointer(v.ref));}
 u32 aqua_collect(void){memset(member_cache,0,sizeof member_cache);
     bytes_since_collection=0;heap_growth=0;gc_armed=0;for(Execution*e=executions;e;e=e->next)e->poll=0;
@@ -925,7 +945,8 @@ u32 aqua_collect(void){memset(member_cache,0,sizeof member_cache);
     memset(free_heads,0,sizeof(free_heads));free_mask=0;carving=0;Block*run=0;
     for(u32 a=heap_start;a<heap_end;){Block*b=pointer(a);a+=sizeof(Block)+b->size;
         if(b->kind!=FREE){
-            if(b->kind==FOREIGN||b->marked||keep_released(b)){b->marked=0;live+=b->size;if(run){push_free(run);run=0;}continue;}
+            if(b->kind==FOREIGN||b->marked||keep_released(b)){b->marked=0;if(b->kind==ARRAYS&&b->reserved)((Block*)((Array*)(b+1)+1))->marked=0;
+                live+=b->size;if(run){push_free(run);run=0;}continue;}
             reclaimed+=b->size;b->kind=FREE;
         }
         if(run)run->size+=sizeof(Block)+b->size;else run=b;

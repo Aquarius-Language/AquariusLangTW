@@ -7,6 +7,11 @@ One version covers the language, the compiler, the CLI, the language server and 
 
 Language:
 
+- Constants: `常數 名稱 = 值;` / `const name = value;` declare a binding assigned once; assigning it again (`=`, `+=`,
+  `++`) or declaring the name again in the same scope is a compile error. `常數` and `const` are keywords only where a
+  declaration starts, so programs using them as names keep working. Typed functions and loops written after a constant
+  initialized with a number or Boolean literal use the value directly. The language server hovers, completes and
+  lists constants, and the VS Code grammar highlights them.
 - `arityOf` / `參數個數` gives the parameter count of a script or async function (-1 for native ones).
 - Async functions and promises: `async function` / `非同步 函式` returns a promise and runs as its own task, `await` /
   `等待` waits for one (inside async functions and at a script's top level), and the `Promise` / `承諾` module adds `New`,
@@ -66,6 +71,24 @@ Libraries:
 - ONNX: models saved with external data (a small `.onnx` plus separate weight files, how models over 2 GiB are stored)
   open from files (weights read from the model's folder) and from the package (packaged weight files handed to ONNX
   Runtime from memory, on every target including the web).
+
+Performance (typed code, desktop, large benchmark inputs; see `reports/csharp-parity-2026-11.md`):
+
+- Self tail calls in typed functions are loops (Ackermann −25%); entry checkpoints use two branches instead of
+  combined flags (Fibonacci −7%, N-Queens −9%); inlined leaves run no entry checkpoint of their own (spectral norm
+  −16%); only loops that allocate poll for collections (matrix −26%, sieve −25%).
+- Versioned loops: an innermost counted loop runs a copy without its per-iteration fuel check when the budget covers
+  it, and without bounds checks on indices proven in range before the loop (matrix −28% together, spectral norm −11%,
+  N-Queens −9%). Results, errors, budgets and yield points are unchanged.
+- Arrays of up to four elements are one heap block (binary trees −11% to −17%).
+- A long typed recursion (functions without loops) yields to other tasks every run slice again: it never yielded once
+  its native budget went below zero, which could freeze the UI on web and Android. Costs Ackermann about 10% and typed
+  binary trees 20–40% on desktop (collections now run during the recursion).
+- `aqua build --target windows|linux --optimize true` compiles the application ahead of time: the pinned wasm2c
+  translates the same `.wasm` to C and the pinned Clang compiles it into `app.aot.dll` / `app.aot.so` beside the
+  executable, which the runtime pack's new `aquarius-aot` launcher runs (20–30% less time than Wasmtime across the
+  benchmarks). The toolchain installs on first use (`scripts/toolchain.json` pins WABT). Chosen over WAMR by a
+  bake-off; see the report.
 
 SDK (API version 2): `aqua_define_async` registers a promise variant of a function; `aqua_object_member` gives a
 method of a native object as a function value; `aqua_invoke_async` waits for a promise a callback returns. A deferred

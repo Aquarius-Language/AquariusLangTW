@@ -48,6 +48,10 @@ test('highlighting recognizes both languages without splitting Unicode identifie
   const struct = new RegExp(patterns.find(pattern => pattern.captures?.['2']?.name === 'entity.name.type.aquarius').match, 'gu');
   assert.deepEqual([...'結構 節點 { 值: 整數 } struct Point{ x }'.matchAll(struct)].map(match => [match[1], match[2]]), [['結構', '節點'], ['struct', 'Point']]);
   assert.deepEqual([...'var struct = 1; 變數 結構 = struct + 1; my結構 X {'.matchAll(struct)], []);
+  // Constant declarations: the keyword and the constant's name, only where a declaration starts.
+  const constant = new RegExp(patterns.find(pattern => pattern.comment?.startsWith('A constant declaration')).match, 'gu');
+  assert.deepEqual([...'常數 上限: 整數 = 9; const rate = 0.5d;'.matchAll(constant)].map(match => [match[1], match[2]]), [['常數', '上限'], ['const', 'rate']]);
+  assert.deepEqual([...'var const = 1; 變數 常數 = const + 1; const == 2; my常數 X = 1;'.matchAll(constant)], []);
 });
 
 test('highlighting covers the core globals, conversions, portable modules and annotated struct types', () => {

@@ -25,7 +25,7 @@ namespace AquariusLang.Wasm;
 /// unshadowed core conversions) and the argument types before any effect, and otherwise leaves the call to the generic
 /// body (status 0).
 /// </summary>
-internal sealed class WasmNativeFunction
+internal sealed partial class WasmNativeFunction
 {
     private const int Unknown = -1, VoidType = 0, IntType = 1, FloatType = 2, DoubleType = 3, BoolType = 4, NullType = 11;
     // Struct type codes (32 | id << 6, id < 2^23) stay below the compile-time-only operand codes.
@@ -54,8 +54,11 @@ internal sealed class WasmNativeFunction
     internal bool WritesOuter { get; private set; } = true;
     internal bool WritesArrays { get; private set; } = true;
     /// <summary>Whether the body (or a callee) allocates: concatenates strings, builds array literals or constructs structs.
-    /// Its loop heads then also poll for a pending collection (deoptimizing to the generic checkpoint, which collects).</summary>
+    /// The heads of its loops that allocate (directly or through a call) then also poll for a pending collection
+    /// (deoptimizing to the generic checkpoint, which collects).</summary>
     internal bool Allocates { get; private set; }
+    /// <summary>Where the body itself allocates (a string concatenation, array literal, struct, 陣列.建立 or 陣列.追加).</summary>
+    private readonly HashSet<int> allocations = new();
     /// <summary>Whether the body (or a callee) appends to arrays (陣列.追加 / Array.Append): their counts change too, so every
     /// array local's companions are read again after it (or after a call to it), not only the values pointers.</summary>
     internal bool ResizesArrays { get; private set; }
@@ -85,8 +88,8 @@ internal sealed class WasmNativeFunction
     }
     internal bool Mutates => WritesOuter || WritesArrays;
     /// <summary>A small leaf (no calls, loops or outer bindings) that changes nothing its caller holds: callers emit
-    /// its body in place of the call. Its only checkpoint is its entry, which the caller tests before choosing the
-    /// inlined body; a failing test takes the ordinary call, which deoptimizes exactly as before.</summary>
+    /// its body in place of the call. Its only checkpoint, its entry, is not run: the caller charges its weight in place
+    /// and tests the budget at its own next loop head or exit.</summary>
     internal bool Inlinable { get; private set; }
     /// <summary>The native recursion depth at which an entry deoptimizes (bounded by the frames' total size).</summary>
     private int DepthLimit => Math.Clamp(262144 / (32 + 8 * (plan.Locals + capacity + Pointers.Length)), 64, 8192);
@@ -96,6 +99,9 @@ internal sealed class WasmNativeFunction
     private readonly int[] slotTypes;
     private readonly Dictionary<int, int[]> states = new();
     private readonly List<string> callNames = new();
+    /// <summary>Outer constants (常數 / const) with a literal value the body uses in place of the binding: no pointer, no
+    /// entry check (TypeChecker.Folded).</summary>
+    private readonly Dictionary<string, double> constants = new(StringComparer.Ordinal);
     private int capacity = 1;
 
     /// <summary>A native region: one loop of an untyped body, [Start, Stop] = its EnterLoop and LeaveLoop, entered and
@@ -339,6 +345,7 @@ internal sealed class WasmNativeFunction
     private int Outer(string name, Func<AquariusLang.ast.FunctionLiteral, int> nativeBody)
     {
         if (Signature.Outer.TryGetValue(name, out var outer)) {
+            if (outer.Constant is { } constant && outer.Type is IntType or FloatType or DoubleType or BoolType) { constants[name] = constant; return outer.Type; }
             // A region resolves its outer bindings by name from the frame's scope chain (guarded by tag), so any depth works;
             // a native function receives pointers from its caller, so only bindings of its defining scope do.
             if (!outer.Sibling && !IsRegion) return Unknown;
@@ -487,7 +494,7 @@ internal sealed class WasmNativeFunction
             int Target(WasmScopePlan.Access access, string name) {
                 int slot = SlotAt(pc, access);
                 if (slot >= 0) return slotTypes[slot];
-                if (slot == -2) return Unknown;
+                if (slot == -2 || Signature.Outer.TryGetValue(name, out var target) && target.Constant != null) return Unknown;
                 int type = Outer(name, nativeBody);
                 if (!Value(type)) return Unknown;
                 Written.Add(name); return type;
@@ -537,7 +544,7 @@ internal sealed class WasmNativeFunction
                     if (!Numeric(type)) return Reject(pc);
                     stack.Add(type); break;
                 }
-                case IrOperation.Add when Top() == StringType && Top(2) == StringType: Allocates = true; Pop(2); stack.Add(StringType); break;
+                case IrOperation.Add when Top() == StringType && Top(2) == StringType: Allocates = true; allocations.Add(pc); Pop(2); stack.Add(StringType); break;
                 case IrOperation.Add: case IrOperation.Subtract: case IrOperation.Multiply: case IrOperation.Divide: case IrOperation.Modulo:
                     if (!Numeric(Top()) || !Numeric(Top(2))) return Reject(pc);
                     { int type = Math.Max(Top(), Top(2)); Pop(2); stack.Add(type); }
@@ -583,7 +590,7 @@ internal sealed class WasmNativeFunction
                     if (stack.Count < names.Length + 1 || stack.Contains(MixedType)) return Reject(pc);
                     int callee = stack[stack.Count - names.Length - 1];
                     if (Construction(callee, stack.Skip(stack.Count - names.Length).ToArray(), names) is not int made) return Reject(pc);
-                    Allocates = true;
+                    Allocates = true; allocations.Add(pc);
                     Pop(names.Length + 1); stack.Add(made); break;
                 }
                 case IrOperation.Index:
@@ -625,7 +632,7 @@ internal sealed class WasmNativeFunction
                 case IrOperation.Array:
                     // An array literal of native values is built natively (an array of any values, like the generic one).
                     if (stack.Count < operand || stack.Skip(stack.Count - operand).Any(t => !Value(t) && t != AnyValueType)) return Reject(pc);
-                    Allocates = true; Pop(operand); stack.Add(AnyArrayType); break;
+                    Allocates = true; allocations.Add(pc); Pop(operand); stack.Add(AnyArrayType); break;
                 case IrOperation.JumpIfBreak: break; // Typed values are never a break value.
                 case IrOperation.Break: {
                     int base_ = plan.LoopBase[pc];
@@ -651,7 +658,7 @@ internal sealed class WasmNativeFunction
                         if (count is not (2 or 3) || arguments[0] != IntType || count == 3 && arguments[2] != IntType
                             || arguments[1] is not (IntType or FloatType or DoubleType or BoolType)) return Reject(pc);
                         if (pc + 1 >= n || code[pc + 1].Code != IrOperation.CheckType || (code[pc + 1].Operand & 31) != (16 | arguments[1])) return Reject(pc);
-                        Allocates = true;
+                        Allocates = true; allocations.Add(pc);
                         result = 16 | arguments[1];
                     } else if (callee == BuiltinBase + AppendBuiltin) {
                         // An element the typed array takes (widened like the generic element check) or, for a loose array, of
@@ -659,13 +666,13 @@ internal sealed class WasmNativeFunction
                         if (count != 2 || !IsArray(arguments[0])) return Reject(pc);
                         int element = arguments[0] & 15;
                         if (arguments[1] != element && (IsLoose(arguments[0]) || !Numeric(arguments[1]) || !Widens(arguments[1], element))) return Reject(pc);
-                        Allocates = true; ResizesArrays = true;
+                        Allocates = true; allocations.Add(pc); ResizesArrays = true;
                         result = arguments[0];
                     } else if (callee >= BuiltinBase) {
                         if (count != 1 || !Numeric(arguments[0])) return Reject(pc);
                         result = callee - BuiltinBase - ConvertFirst + IntType;
                     } else if (Construction(callee, arguments, null) is int made) {
-                        Allocates = true;
+                        Allocates = true; allocations.Add(pc);
                         result = made;
                     } else if (callee >= CallableBase && !IsRegion && !StructCallee(callee, out _)) {
                         var target = signatureOf?.Invoke(Signature.Outer[callNames[callee - CallableBase]].Function!);
@@ -736,6 +743,12 @@ internal sealed class WasmNativeFunction
     private int[] ResumeTargets => LoopHeads.Concat(states.Where(p => p.Key < body.Code.Length && body.Code[p.Key].Code == IrOperation.Call
         && p.Value[p.Value.Length - body.Code[p.Key].Operand - 1] is >= CallableBase and < BuiltinBase).Select(p => p.Key + 1)).Distinct().OrderBy(pc => pc).ToArray();
     private int SiteOf(int pc) => pc == 0 ? 1 : 2 + Array.IndexOf(ResumeTargets, pc);
+    /// <summary>A call at pc to this very function whose result the body returns at once: compiled as a jump back to the
+    /// start of the body with the arguments as the parameters (the generic call's entry checkpoint is kept).</summary>
+    private bool SelfTail(int pc) => !IsRegion && pc + 1 < body.Code.Length && body.Code[pc].Code == IrOperation.Call
+        && body.Code[pc + 1].Code == IrOperation.Return && states.TryGetValue(pc, out var stack)
+        && stack[stack.Length - body.Code[pc].Operand - 1] is int callee and >= CallableBase and < BuiltinBase
+        && callNames[callee - CallableBase] is var name && ClosureGuards.ContainsKey(name) && !OwnPointers.ContainsKey(name);
     /// <summary>A region's loop heads and the site its function resumes at for each.</summary>
     internal (int Head, int Site)[] HeadSites => LoopHeads.Select(h => (h, SiteOf(h))).ToArray();
 
@@ -928,7 +941,8 @@ internal sealed class WasmNativeFunction
         // array's count and values pointer. They are copied with the array and loaded only where an array enters a
         // local from memory, so loops index arrays without reloading their headers. Native code never resizes an
         // array; a copy-on-write (rt_nativeWritable) or a callee can replace an array's values, so both refresh them.
-        int i32Own = slots * 2 + cap + 8 + cached.Length + 2 * (slots + cap + cached.Length), f64Own = slots + cap + 3 + cached.Length;
+        // Then two for versioned loops (the counter's start, a test's result).
+        int i32Own = slots * 2 + cap + 8 + cached.Length + 2 * (slots + cap + cached.Length) + 2, f64Own = slots + cap + 3 + cached.Length;
         // Each inlined callee gets its own slots, flags, operands and companions after this body's locals.
         var inlined = new List<WasmNativeFunction>();
         foreach (var (at, operands) in states)
@@ -955,6 +969,7 @@ internal sealed class WasmNativeFunction
         int SlotCount(int s) => slotCountBase + 2 * s;
         int StackCount(int k) => stackCountBase + 2 * k;
         int CacheCount(int c) => companions + 2 * (slots + cap + c);
+        int loopStart = companions + 2 * (slots + cap + cached.Length), versionTest = loopStart + 1;
         // The local may go negative where the generic checkpoint saturates at 0: both yield at the next checkpoint, and
         // the stored budget is clamped to the generic value.
         void SaveBudget() { Execution(); Get(w, budget); I(w, 0); Get(w, budget); I(w, 0); Op(0x4a, 0x1b); Memory(w, I32Store, 2, ExecutionBudget); }
@@ -965,7 +980,9 @@ internal sealed class WasmNativeFunction
         int StackF(int k) => stackFBase + k;
         int resultF = f64First + slots + cap, tempF = resultF + 1, tempG = resultF + 2;
         int CacheF(int c) => resultF + 3 + c;
-        U(w, 2); U(w, i32Count); w.Write((byte)0x7f); U(w, f64Count); w.Write((byte)0x7c);
+        // One i64 for versioned loops' tests.
+        U(w, 3); U(w, i32Count); w.Write((byte)0x7f); U(w, f64Count); w.Write((byte)0x7c); U(w, 1); w.Write((byte)0x7e);
+        int wide = f64First + f64Count;
         // A region's results: the generic block to continue at, -1 to run the generic body now (no budget left or a
         // collection pending), -2 when a binding or slot has another type (generic from now on), -3 after an error.
         void RegionExit(int block, int pc) { WriteSlots(pc); SaveOuter(); SaveBudget(); I(w, block); Op(Return); }
@@ -1085,14 +1102,16 @@ internal sealed class WasmNativeFunction
         // Errors and deoptimizations leave the body through one handler after it, so loops contain no runtime calls
         // (which would make every value live across them spill).
         var sites = new List<(int Kind, int Block, int[] Operands, int Message)>();
-        // InlineSite: an inlined callee's entry checkpoint; CheckSite: an argument of an 陣列 parameter that is not an array
+        // CheckSite: an argument of an 陣列 parameter that is not an array
         // (the callee's generic body raises the annotation error at its entry).
         // IndexSite: a read outside a loose array in a region (it continues generically at that read).
-        const int ErrorSite = 0, CheckpointSite = 1, CallSite = 2, InlineSite = 3, CheckSite = 4, IndexSite = 5;
-        void ToHandler(int kind, int block, int[] operands, int message) {
-            sites.Add((kind, block, operands, message)); I(w, sites.Count - 1); Set(w, site);
+        const int ErrorSite = 0, CheckpointSite = 1, CallSite = 2, CheckSite = 4, IndexSite = 5;
+        int Site(int kind, int block, int[] operands, int message) { sites.Add((kind, block, operands, message)); return sites.Count - 1; }
+        void ToSite(int k) {
+            I(w, k); Set(w, site);
             Op(Br); U(w, Label(c => c.End == int.MaxValue) + 1); // Every site sits in one if.
         }
+        void ToHandler(int kind, int block, int[] operands, int message) => ToSite(Site(kind, block, operands, message));
         void Fail(int message) => ToHandler(ErrorSite, 0, Array.Empty<int>(), message);
 
         // An element of an array of any values (operand k) as the generic value it is.
@@ -1151,23 +1170,39 @@ internal sealed class WasmNativeFunction
         }
 
         int depthLimit = DepthLimit;
+        // Only an allocation arms a collection: a loop that allocates nothing (here or in a callee) never polls, and a
+        // collection armed before it runs at the next checkpoint that does (or in the generic code after the call).
+        bool LoopAllocates(int head) {
+            var loop = this.constructs!.First(c => c.Loop && c.Start == head);
+            bool Inside(int pc) => pc >= loop.Start && pc < loop.End;
+            return allocations.Any(Inside) || states.Any(p => Inside(p.Key) && body.Code[p.Key].Code == IrOperation.Call
+                && p.Value[p.Value.Length - body.Code[p.Key].Operand - 1] is int callee and >= CallableBase and < BuiltinBase && !StructCallee(callee, out _)
+                && natives[OwnPointers.TryGetValue(callNames[callee - CallableBase], out var target) ? target.Callee : Body].Native.Allocates);
+        }
         // The generic checkpoint: yield (here: deoptimize) when the budget is exhausted, a collection is pending or, at
         // the entry, the native depth bound is reached; otherwise consume the weight with saturation. A pending
         // collection is armed only by allocation, which native code never does, so loops need not poll.
+        // Each condition is its own branch to the one site (two predictable jumps, not flags combined with or).
+        // The native budget is not saturated like the generic one: it may go below 0, where the generic checkpoint would
+        // yield. A function with loops yields at its next loop head (budget <= 0); a function without loops (recursion
+        // only) would never yield again, so its entry tests budget <= 0 too. Entries of functions with loops keep
+        // budget == 0: deoptimizing a deep stack of their frames at every slice would cost more than the next loop head.
+        bool loopless = !this.constructs!.Any(c => c.Loop);
+        void Exhausted() { if (loopless) { Get(w, budget); I(w, 0); Op(0x4c); } else { Get(w, budget); Op(0x45); } }
         void Checkpoint(int pc, bool entry) {
             if (!fuel.TryGetValue(pc, out int weight)) return;
+            int k = Site(CheckpointSite, BlockOf(pc), states[pc], pc);
+            void Leave(Action condition) { condition(); Op(If, 0x40); ToSite(k); Op(End); }
             if (entry) {
                 Get(w, budgetParameter); Set(w, budget);
                 // The adapters check for a pending collection before native code runs; native code only allocates
                 // when it leaves (a deoptimization) or copies an array on write, which loops do not poll for either.
-                Get(w, depthParameter); I(w, depthLimit); Op(0x4f);
-                Get(w, budget); Op(0x45, 0x72);
-            } else {
-                Get(w, budget); I(w, 0); Op(0x4c);
-                // A loop that allocates leaves for a pending collection too: the generic checkpoint collects.
-                if (Allocates) { Execution(); Memory(w, I32Load, 2, ExecutionPoll); Op(0x72); }
+                Leave(() => { Get(w, depthParameter); I(w, depthLimit); Op(0x4f); });
+                Leave(Exhausted);
             }
-            Op(If, 0x40); ToHandler(CheckpointSite, BlockOf(pc), states[pc], pc); Op(End);
+            else Leave(() => { Get(w, budget); I(w, 0); Op(0x4c); });
+            // A loop that allocates leaves for a pending collection too: the generic checkpoint collects.
+            if (!entry && LoopAllocates(pc)) Leave(() => { Execution(); Memory(w, I32Load, 2, ExecutionPoll); });
             Get(w, budget); I(w, weight); Op(0x6b); Set(w, budget);
         }
 
@@ -1175,6 +1210,9 @@ internal sealed class WasmNativeFunction
         var constructs = this.constructs!;
         // While an inlined callee is emitted: where its result goes (instead of returning).
         Action<int, int>? inlineReturn = null;
+        // Loops emitted twice (WasmLoopVersioning), and the one whose fast copy is being emitted.
+        var versions = VersionedLoops(natives);
+        VersionedLoop? fastLoop = null;
         // The outermost block is the handler's entry.
         var open = new List<(int Start, int End, bool Loop)> { (-1, int.MaxValue, false) };
         int Label(Func<(int Start, int End, bool Loop), bool> match) {
@@ -1301,6 +1339,10 @@ internal sealed class WasmNativeFunction
         Op(Block, 0x40);
         if (region) LoadBudget(); else if (resume) { Get(w, budgetParameter); Set(w, budget); } else Checkpoint(0, true);
         LoadOuter();
+        // A self tail call jumps back here with its arguments in the parameter slots (see SelfTail) instead of a
+        // return_call, which would tear the frame down and build it again.
+        bool selfLoop = !region && states.Keys.Any(SelfTail);
+        if (selfLoop) { open.Add((-4, int.MaxValue - 2, true)); Op(Loop, 0x40); }
         OpenSkips(-1);
 
         void EmitOps(int startPc, int stopPc) {
@@ -1308,11 +1350,13 @@ internal sealed class WasmNativeFunction
             while (open.Count > 1 && open[^1].End == pc) { open.RemoveAt(open.Count - 1); Op(End); }
             // Arriving at the resumed target ends the skipping.
             if (inlineReturn == null && resume && Array.IndexOf(targets, pc) >= 0) { Get(w, resumeAt); I(w, SiteOf(pc)); Op(0x46, If, 0x40); I(w, 0); Set(w, resumeAt); Op(End); }
+            // A versioned loop: the fast copy when the test before it passes, else (the if's else) the original below.
+            if (inlineReturn == null && fastLoop == null && versions.TryGetValue(pc, out var version)) FastLoop(version);
             foreach (var c in constructs.Where(c => c.Start == pc).OrderByDescending(c => c.End).ThenBy(c => c.Loop)) {
                 if (c.End > open[^1].End) throw new InvalidOperationException("Native control flow is not structured.");
                 open.Add(c); Op(c.Loop ? Loop : Block, 0x40);
                 if (inlineReturn == null) OpenSkips(constructs.IndexOf(c));
-                if (c.Loop) Checkpoint(pc, false);
+                if (c.Loop && fastLoop?.Head != pc) Checkpoint(pc, false);
             }
             if (!cur.states.TryGetValue(pc, out var stack)) continue;
             int depth = stack.Length, top = depth - 1, below = depth - 2;
@@ -1344,6 +1388,10 @@ internal sealed class WasmNativeFunction
                         Set(w, StackI(depth));
                     }
                     else if (slot >= 0) { Local(type, SlotI(slot), SlotF(slot)); PopStack(type, depth); CopyCompanions(type, SlotCount(slot), StackCount(depth)); }
+                    else if (cur.constants.TryGetValue(cur.NameOf(operand), out double constant)) {
+                        if (Wide(type)) F(w, constant); else I(w, (int)constant);
+                        PopStack(type, depth);
+                    }
                     else if (Value(type)) {
                         ReadOuter(cur.NameOf(operand), type); PopStack(type, depth);
                         CopyCompanions(type, CacheCount(CacheOf(cur.NameOf(operand))), StackCount(depth));
@@ -1539,16 +1587,19 @@ internal sealed class WasmNativeFunction
                 }
                 case IrOperation.Index: {
                     // Typed reads are checked: an index outside the array is an error, not null. Outside a loose array the
-                    // region leaves at this read (a generic block), so the generic code reads it.
-                    Get(w, StackI(top)); Get(w, StackCount(below)); Op(0x49, 0x45, If, 0x40);
-                    if (IsLoose(TopType(2))) ToHandler(IndexSite, BlockOf(pc), stack, pc); else Fail(2);
-                    Op(End);
+                    // region leaves at this read (a generic block), so the generic code reads it. A versioned loop's fast
+                    // copy proved some indices in range before the loop.
+                    if (!Proven(pc)) {
+                        Get(w, StackI(top)); Get(w, StackCount(below)); Op(0x49, 0x45, If, 0x40);
+                        if (IsLoose(TopType(2))) ToHandler(IndexSite, BlockOf(pc), stack, pc); else Fail(2);
+                        Op(End);
+                    }
                     int element = TopType(2) & 15;
                     ElementAt(StackCount(below) + 1, StackI(top), TopType(2)); LoadElement(TopType(2));
                     PopStack(element, below); break;
                 }
                 case IrOperation.CheckArrayWrite:
-                    Get(w, StackI(top)); Get(w, StackCount(below)); Op(0x49, 0x45, If, 0x40); Fail(3); Op(End);
+                    if (!Proven(pc)) { Get(w, StackI(top)); Get(w, StackCount(below)); Op(0x49, 0x45, If, 0x40); Fail(3); Op(End); }
                     break;
                 case IrOperation.WriteIndex: {
                     int array = depth - 3, index = depth - 2, type = TopType();
@@ -1677,10 +1728,8 @@ internal sealed class WasmNativeFunction
                             ToHandler(CheckSite, BlockOf(pc + 1), stack.Take(at).ToArray(), pc); Op(End);
                         }
                     if (inlined.Contains(target) && !stack.Skip(at + 1).Contains(AnyValueType)) {
-                        // The callee's entry checkpoint: where it would deoptimize, the handler builds both generic
-                        // frames instead (so the loop around an inlined call holds no call that clobbers registers).
-                        Get(w, depthParameter); I(w, 1); Op(0x6a); I(w, target.DepthLimit); Op(0x4f);
-                        Get(w, budget); Op(0x45, 0x72, If, 0x40); ToHandler(InlineSite, BlockOf(pc + 1), stack.Take(at).ToArray(), pc); Op(End);
+                        // No entry checkpoint: the depth bound limits native frames, which an inlined body adds none of, and
+                        // its fuel is charged in place (Inline), so an exhausted budget yields at the next loop head or exit.
                         Inline(target, stack, at, count);
                         break;
                     }
@@ -1689,6 +1738,25 @@ internal sealed class WasmNativeFunction
                     // body's caller, which is what this body's frame would have done after the call.
                     bool tail = inlineReturn == null && pc + 1 < n && code[pc + 1].Code == IrOperation.Return && cur == this
                         && target.Signature.Result == Signature.Result;
+                    if (tail && target == this && SelfTail(pc)) {
+                        // A self tail call: the arguments become the parameters and the body starts again, at the same
+                        // depth, after the entry checkpoint's budget test and charge (its depth test passed at the entry).
+                        for (int a = 0; a < count; a++) {
+                            int from = stack[at + 1 + a], to = Signature.Parameters[a], slot = a;
+                            if (from == AnyValueType || IsRef(from)) Get(w, StackI(at + 1 + a));
+                            else if (from == to) PushStack(from, at + 1 + a);
+                            else { AsDouble(from, at + 1 + a); if (to == FloatType) RoundFloat(); }
+                            SetLocal(slotTypes[slot], SlotI(slot), SlotF(slot));
+                            if (IsRef(slotTypes[slot])) Describe(SlotI(slot), SlotCount(slot));
+                        }
+                        for (int s = 0; s < slots; s++) { I(w, s < Signature.Parameters.Length ? 1 : 0); Set(w, Flag(s)); }
+                        if (fuel.TryGetValue(0, out int entryWeight)) {
+                            Exhausted(); Op(If, 0x40); ToHandler(CheckpointSite, BlockOf(0), states[0], 0); Op(End);
+                            Get(w, budget); I(w, entryWeight); Op(0x6b); Set(w, budget);
+                        }
+                        Op(Br); U(w, Label(c => c.Start == -4));
+                        break;
+                    }
                     Get(w, depthParameter); if (!tail) { I(w, 1); Op(0x6a); } Get(w, budget);
                     // The callee's closure: this activation's own for a recursive call, else loaded from its binding.
                     if (ClosureGuards.ContainsKey(name) && !OwnPointers.ContainsKey(name)) Get(w, selfParameter); else { Get(w, PointerOf(name)); Memory(w, I32Load, 2, ValueRef); }
@@ -1720,6 +1788,53 @@ internal sealed class WasmNativeFunction
         }
         }
         EmitOps(Start, Stop);
+
+        // ---- versioned loops (WasmLoopVersioning) ---------------------------------------------------------------------
+        bool Proven(int pc) => fastLoop != null && cur == this && fastLoop.Proven.ContainsKey(pc);
+        void FastLoop(VersionedLoop loop) {
+            int counter = SlotI(loop.Counter);
+            void Test() { Get(w, versionTest); Op(0x71); Set(w, versionTest); }
+            void Leaf(int pc) {
+                if (code[pc].Code == IrOperation.Constant) { I(w, ((IntegerObj)body.Pool[code[pc].Operand]).Value); return; }
+                int slot = SlotOf(pc); string name = NameOf(code[pc].Operand);
+                if (slot >= 0) Get(w, SlotI(slot)); else if (constants.TryGetValue(name, out double value)) I(w, (int)value); else ReadOuter(name, IntType);
+            }
+            // A term's value as an i64 (with the counter's from counterValue); every intermediate value must fit an int.
+            void Evaluate(Term term, Action counterValue) {
+                if (term.Operation == IrOperation.IncrementPostfix) { counterValue(); return; }
+                if (term.Left == null) { Leaf(term.Pc); Op(0xac); return; }
+                Evaluate(term.Left, counterValue); Evaluate(term.Right!, counterValue);
+                Op(term.Operation switch { IrOperation.Add => (byte)0x7c, IrOperation.Subtract => (byte)0x7d, _ => (byte)0x7e });
+                Set(w, wide); Get(w, wide); L(w, 1L << 31); Op(0x7c); L(w, 1L << 32); Op(0x54); Test(); Get(w, wide);
+            }
+            Get(w, counter); Set(w, loopStart);
+            // Fuel: the budget covers (trips + 1) iterations at their heaviest.
+            Get(w, budget); Op(0xac);
+            Leaf(loop.Bound); Op(0xac); Get(w, counter); Op(0xac); Op(0x7d); Set(w, wide);
+            Get(w, wide); L(w, 0); Get(w, wide); L(w, 0); Op(0x55, 0x1b);
+            L(w, 1); Op(0x7c); L(w, loop.PerIteration); Op(0x7e); Op(0x55); Set(w, versionTest);
+            // Bounds: each proven index at the first and the last counter value lies in its array.
+            if (loop.Proven.Count > 0) {
+                Leaf(loop.Bound); Get(w, counter); Op(0x4a, If, 0x40);
+                foreach (var (array, index) in loop.Proven.Values)
+                    foreach (Action end in new Action[] { () => { Get(w, counter); Op(0xac); }, () => { Leaf(loop.Bound); Op(0xac); L(w, 1); Op(0x7d); } }) {
+                        Evaluate(index, end); Set(w, wide);
+                        Get(w, wide);
+                        int slot = SlotOf(array);
+                        Get(w, slot >= 0 ? SlotCount(slot) : CacheCount(CacheOf(NameOf(code[array].Operand)))); Op(0xad);
+                        Op(0x54); Test();
+                    }
+                Op(End);
+            }
+            Get(w, versionTest); Op(If, 0x40); open.Add((-5, loop.End, false));
+            fastLoop = loop;
+            EmitOps(loop.Head, loop.End - 1);
+            fastLoop = null;
+            while (open[^1].Start != -5) { open.RemoveAt(open.Count - 1); Op(End); }
+            // The heads it ran: k - k0 + 1.
+            Get(w, budget); Get(w, counter); Get(w, loopStart); Op(0x6b); I(w, 1); Op(0x6a); I(w, loop.Weight); Op(0x6c); Op(0x6b); Set(w, budget);
+            Op(Else);
+        }
 
         // The result of the current body: returned, or (inlined) left in the caller's operand and continued after it.
         void Exit(int type, int k) {
@@ -1779,20 +1894,19 @@ internal sealed class WasmNativeFunction
             if (region) { RegionExit(block, message); continue; } // A loop head: the generic body continues there and yields.
             // A checkpoint consumed nothing yet; after a call the callee already stored the budget.
             if (kind == CheckpointSite) { SaveBudget(); SaveOuter(); }
-            if (kind is InlineSite or CheckSite) { SaveBudget(); SaveOuter(); EntryFrame(message, kind == InlineSite); message++; }
+            if (kind == CheckSite) { SaveBudget(); SaveOuter(); EntryFrame(message); message++; }
             Materialize(block, message, operands);
             // A checkpoint's frame resumes natively at the same site when the scheduler runs it again.
             Get(w, frame); I(w, SiteOf(message)); Memory(w, I32Store, 2, FrameNativeSite);
-            if (kind is CallSite or InlineSite or CheckSite) { Op(0x23); U(w, signal); Get(w, frame); Memory(w, I32Store, 2, FrameParent); }
+            if (kind is CallSite or CheckSite) { Op(0x23); U(w, signal); Get(w, frame); Memory(w, I32Store, 2, FrameParent); }
             Raise(() => Get(w, frame));
         }
         Zero(); if (!region) I(w, int.MinValue);
         Op(End);
 
         // The generic frame of a callee at its entry (in the signal, like a callee's deoptimization): its arguments in
-        // its parameter slots, resuming natively at its entry (an inlined callee's checkpoint) or running its generic
-        // body (an argument its native code cannot take).
-        void EntryFrame(int pc, bool native) {
+        // its parameter slots, running its generic body (an argument its native code cannot take).
+        void EntryFrame(int pc) {
             var stack = states[pc]; int count = code[pc].Operand, at = stack.Length - count - 1;
             string name = callNames[stack[at] - CallableBase];
             bool own = !OwnPointers.ContainsKey(name);
@@ -1809,7 +1923,7 @@ internal sealed class WasmNativeFunction
                     else AsPayload(to);
                 });
             }
-            Get(w, frame); I(w, native ? 1 : 0); Memory(w, I32Store, 2, FrameNativeSite);
+            Get(w, frame); I(w, 0); Memory(w, I32Store, 2, FrameNativeSite);
             Get(w, frame); Op(0x24); U(w, signal);
         }
         // ---- structs: field access through the Struct* in a local; a null one is the generic runtime's error ----

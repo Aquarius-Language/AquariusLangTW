@@ -161,8 +161,9 @@ Code quality details, all plain Wasm:
   `+` calls `rt_nativeConcat`. `s = s + t` on a string slot appends in place (`rt_nativeAppend`): the text it builds is
   marked as owned by the slot in the pointer's low bit, and every other load of the slot and every frame it is written
   to drops the mark, so no other value can see the text grow. A read past the end deoptimizes at that read (it starts a
-  generic block), where the generic code gives null. A function that allocates (strings, array literals, structs,
-  directly or through callees) also polls for a pending collection at its loop heads. Typed string work runs about 15×
+  generic block), where the generic code gives null. A loop that allocates (strings, array literals, structs, directly
+  or through a callee that allocates) also polls for a pending collection at its head; a loop that allocates nothing
+  never polls, and a collection armed before it runs at the next polling checkpoint or in the generic code. Typed string work runs about 15×
   faster than generically (`NativeStringTest` compares it with the unoptimized compiler).
 - **Core globals.** `長度` / `len` and the conversions are found in the host's builtin scope, never in a closure's scope
   chain. So an entry adapter or region accepts them when no binding of that name exists, and checks a shadowing binding
@@ -172,13 +173,33 @@ Code quality details, all plain Wasm:
   `return_call` (the tail-call proposal, on by default in Wasmtime and in current browsers): the callee takes over the
   activation and keeps its depth, so tail recursion runs natively at any depth. When the callee deoptimizes, its generic
   frame's parent is the tail caller's caller, which is where the tail caller's frame would have returned the result.
+  A tail call to the function itself is a loop instead: the arguments become the parameters and the body starts again
+  after the entry checkpoint's budget test and charge (its depth test passed at the entry), because Cranelift lowers
+  `return_call` to a full epilogue and prologue.
+- **Constants.** A `常數` / `const` initialized with a number or Boolean literal, declared directly in a scope's
+  statements, is folded into the typed functions and loops written after it: the value is an instruction operand, with
+  no binding passed or checked by the entry adapter (the type checker rejects every write to it).
+- **Versioned loops** (`WasmLoopVersioning`). An innermost counted loop `迴圈 (變數 k = ...; k < bound; k++)` with an
+  invariant bound, no call but inlined leaves, no allocation and no return is emitted twice. A test before the loop
+  takes the fast copy only when the budget covers every head the loop can reach (the trip count plus one, at the
+  heaviest iteration), so no yield can fall inside it: the copy skips the head's checkpoint and charges the heads it
+  ran (`weight * (k - k0 + 1)`) when it leaves, so budgets and yield points equal the original's. The same test proves
+  element indices affine in `k` (sums, differences and products of `k`, constants and invariant bindings) in range at
+  both ends of the range, with every intermediate value fitting an int; the fast copy then reads and writes those
+  elements unchecked. Otherwise the original loop runs and raises any error where it would. Typed matrix
+  multiplication's inner loop is 11 instructions with no spills.
 - **Pure calls.** A call to a function that (transitively) assigns no outer binding and writes no array element does
   not reload outer bindings or array companions afterwards.
 - **Inlining.** A small native leaf (no calls, loops or outer bindings, nothing it can mutate) is emitted in place of
-  its calls. The caller tests the callee's entry checkpoint first (depth bound and budget); where it would deoptimize,
-  the out-of-line handler builds the callee's generic frame at its entry and the caller's frame after the call, exactly
-  what the call would have left, so the loop around an inlined call contains no call and keeps its values in registers.
-  The budget consumed is the callee's entry weight, as before.
+  its calls, so the loop around an inlined call contains no call and keeps its values in registers. The inlined body
+  runs no entry checkpoint: the depth bound limits native frames, which it adds none of, and its entry weight is
+  charged in place, so an exhausted budget yields at the caller's next loop head or exit.
+- **Checkpoint branches.** The entry checkpoint tests the depth bound and the empty budget as two branches to the one
+  deoptimization site (not two comparisons combined with `or`); a polling loop head likewise. The native budget may go
+  below 0 where the generic one saturates, so loop heads test `budget <= 0`, and so does the entry of a function without
+  loops (recursion only), which would otherwise never yield again; entries of functions with loops test `budget == 0`
+  and yield at their next loop head. A long typed recursion therefore yields to other tasks (and the UI on web and
+  Android) every slice.
 - **Collections are polled by the adapters.** Native code only allocates when it leaves (a deoptimization) or copies an
   array on write, so the entry checkpoint no longer reads `Execution.poll`; the entry adapter sends a call made while a
   collection is pending to the generic body, whose entry checkpoint collects.
@@ -270,7 +291,11 @@ collections during native code, Thread workers and tiny quanta.
 
 ## Garbage collector
 
-Blocks tile the heap contiguously. The sweep is a single pass by address that clears marks,
+Blocks tile the heap contiguously. An array of up to four elements (a literal such as `[a, b]`) is one block: the
+header, then its first element storage behind an `INLINE_STORAGE` header whose `reserved` word is the distance back
+to the array's block. Storage replaced later (growth, copy-on-write, packing) is a block of its own; releasing the inline
+storage does nothing, and marking it keeps the array's block alive while another array (a functional `push`) shares it.
+The sweep is a single pass by address that clears marks,
 coalesces adjacent free blocks into runs, files each run in its size class (a bitmask finds
 non-empty classes) and returns a trailing run to the bump pointer. An allocation that misses
 its exact class carves the largest free run sequentially before growing the heap. A collection
@@ -299,6 +324,22 @@ desktop host (`runtime/platform/desktop/main.c`) runs executions in run slices o
 then leave native code at a slice's end (deoptimize, yield, re-enter) 16 times less often. The quantum never changes
 results; `AQUARIUS_FUEL_QUANTUM` overrides it, and `NativeFunctionTest.TheDesktopQuantumGivesThePortableResults`
 compares the desktop, portable and a tiny quantum. Web and Android keep the portable quantum.
+
+## Ahead-of-time desktop executables (`aqua build --optimize true`)
+
+`aqua build --target windows|linux --optimize true` (`AquariusBuild/AheadOfTime.cs`) compiles the application ahead of
+time: the pinned wasm2c (WABT, `scripts/toolchain.json`, installed on first use with SHA-256 checks) translates the same
+`.wasm` every target runs into C, and the pinned Clang compiles it through the runtime pack's `aot/` project
+(`runtime/aot/CMakeLists.txt` with `platform/desktop/aot_app.c`) into `app.aot.dll` / `app.aot.so` beside the executable.
+The executable is the pack's `aquarius-aot` launcher (`platform/desktop/engine_aot.c`, everything else the same code as
+`aquarius`) with the `.wasm` embedded as usual: the host still reads its metadata from it, and the engine refuses a library
+not built from that module (its SHA-256). Stack exhaustion is not counted per call (wasm-rt's thread-local counter doubled
+a call's cost): native recursion is bounded by the native tier's depth limit, guest recursion runs on heap frames, and the
+launcher reserves a 64 MiB stack. The runtime JIT installs no modules in this engine, so untyped loops without a native
+region run generically. `aqua run` and executables built without the option keep Wasmtime.
+
+wasm2c with Clang was chosen over WAMR (`wamrc`) by a bake-off on every benchmark in both modes: 20–30% faster than
+Wasmtime against WAMR's 17–25%, equal results everywhere, see `reports/csharp-parity-2026-11.md`.
 
 ## Startup
 

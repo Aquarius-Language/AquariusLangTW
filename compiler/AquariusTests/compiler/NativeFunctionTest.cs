@@ -62,13 +62,18 @@ public class NativeFunctionTest
 
     /// <summary>Calls whose result a native function returns at once are Wasm tail calls (return_call): the callee takes
     /// over the activation, so tail recursion runs natively at any depth, and a callee that deoptimizes or fails returns
-    /// straight to the tail caller's caller.</summary>
+    /// straight to the tail caller's caller. A self tail call jumps back to the body's start instead, with the entry
+    /// checkpoint's fuel test and charge (it may deoptimize there, with the new arguments).</summary>
     private static readonly string[] TailPrograms = [
         "var loop = function(n: int, acc: int): int { if (n == 0) { return acc; } return loop(n - 1, acc + n % 7); }; loop(1000000, 0);",
         "var odd = function(n: int): bool { if (n == 0) { return false; } return even(n - 1); }; var even = function(n: int): bool { if (n == 0) { return true; } return odd(n - 1); }; [even(100001), odd(77777)];",
         "var step = function(n: int, d: double): double { if (n == 0) { return d; } return step(n - 1, d * 0.5d + 1.0d); }; var outer = function(k: int): double { return step(k, 0.0d) + 1.0d; }; outer(300000);",
         "var div = function(a: int, b: int): int { return a / b; }; var down = function(n: int): int { if (n == 0) { return div(1, n); } return down(n - 1); }; down(50000);",
         "var ack = function(m: int, n: int): int { if (m == 0) { return n + 1; } if (n == 0) { return ack(m - 1, 1); } return ack(m - 1, ack(m, n - 1)); }; ack(3, 6);",
+        "var fill = function(a: int[], i: int, s: double): double { if (i == len(a)) { return s; } a[i] = i * 3; return fill(a, i + 1, i); }; var a = Array.Make(70000, 0); [fill(a, 0, 0.5d), a[69999]];",
+        "var grow = function(a: int[], n: int): int { if (n == 0) { return len(a); } Array.Append(a, n); return grow(a, n - 1); }; grow([1, 2], 20000);",
+        "var halve = function(n: int, f: float): float { if (n == 0) { return f; } return halve(n - 1, f / 2.0f + n); }; halve(40000, 1.0f);",
+        "var count = function(n: int): int { if (n == 3) { return 10 / (n - 3); } return count(n - 1); }; count(90000);",
     ];
 
     [RuntimeFact]
@@ -78,11 +83,15 @@ public class NativeFunctionTest
         Assert.Equal("[假, 真]", results[1].Text);
         Assert.True(results[3].IsError);
         Assert.Equal(509, results[4].Integer);
+        Assert.Equal("[69999, 209997]", results[5].Text);
+        Assert.Equal(20002, results[6].Integer);
+        Assert.True(results[8].IsError);
         string program = "var loop = function(n: int, acc: int): int { if (n == 0) { return acc; } return loop(n - 1, acc + n % 7); }; " +
             "var odd = function(n: int): bool { if (n == 0) { return false; } return even(n - 1); }; var even = function(n: int): bool { if (n == 0) { return true; } return odd(n - 1); }; " +
-            "print(loop(200000, 0), even(30001));";
+            "var ack = function(m: int, n: int): int { if (m == 0) { return n + 1; } if (n == 0) { return ack(m - 1, 1); } return ack(m - 1, ack(m, n - 1)); }; " +
+            "print(loop(200000, 0), even(30001), ack(2, 300));";
         string expected = WasmTestHost.Run(new WasmCompiler(false).Compile(program)).Succeeded().Output;
-        foreach (string quantum in new[] { "1", "7", "4096" })
+        foreach (string quantum in new[] { "1", "3", "7", "17", "4096" })
             Assert.Equal(expected, WasmTestHost.Run(program, new Dictionary<string, string> { ["AQUARIUS_FUEL_QUANTUM"] = quantum }).Succeeded().Output);
     }
 
@@ -104,6 +113,41 @@ public class NativeFunctionTest
             Assert.Equal(portable, desktop);
             Assert.Equal(portable, tiny);
         }
+    }
+
+    /// <summary>A long typed recursion without loops yields to other tasks: the native budget may go below 0 where the
+    /// generic one saturates, so a loopless function's entry tests budget &lt;= 0. An async ticker must advance while
+    /// fib(30) and ack(3, 8) run, under the portable quantum (web, Android) and the desktop's, with the generic results.</summary>
+    [RuntimeFact]
+    public void LongTypedRecursionYieldsToOtherTasks()
+    {
+        string program = "var ticks = 0; var done = false;\n" +
+            "var ticker = async function() { for (; !done;) { ticks = ticks + 1; } return ticks; };\n" +
+            "var fib = function(n: int): int { if (n < 2) { return n; } return fib(n - 1) + fib(n - 2); };\n" +
+            "var ack = function(m: int, n: int): int { if (m == 0) { return n + 1; } if (n == 0) { return ack(m - 1, 1); } return ack(m - 1, ack(m, n - 1)); };\n" +
+            "var t = ticker(); var before = ticks; var f = fib(30); var afterFib = ticks; var a = ack(3, 8); var afterAck = ticks; done = true;\n" +
+            "print(f, a, afterFib > before, afterAck > afterFib);";
+        foreach (string? quantum in new[] { "65536", null })
+            Assert.Equal("832040 2045 真 真\n", WasmTestHost.Run(program, quantum == null ? null
+                : new Dictionary<string, string> { ["AQUARIUS_FUEL_QUANTUM"] = quantum }).Succeeded().Output.Replace("\r\n", "\n"));
+    }
+
+    /// <summary>Only loops that allocate (here or in a callee) poll for a pending collection. A loop whose only allocation
+    /// is in a callee must still collect: these programs allocate about 5 GiB in all, more than a Wasm memory holds, and
+    /// the loop after the allocation polls nothing and must leave the armed collection to the next poll.</summary>
+    [RuntimeFact]
+    public void LoopsCollectWhereTheyOrTheirCalleesAllocate()
+    {
+        string program = "var piece = function(n: int): string { var s: string = \"ab\"; for (var i: int = 0; i < n; i++) { s = s + s; } return s; }; " +
+            "var big: string = piece(12); " +
+            "var tag = function(i: int): string { return big + \"!\"; }; " +
+            "var spin = function(n: int): int { var a: int[] = Array.Make(64, 1); var t: int = 0; for (var i: int = 0; i < n; i++) { t += a[i % 64]; } return t; }; " +
+            "var run = function(n: int): int { var total: int = 0; for (var i: int = 0; i < n; i++) { var text: string = tag(i); total += len(text) + spin(3); } return total; }; " +
+            "print(run(320000));";
+        string expected = WasmTestHost.Run(new WasmCompiler(false).Compile(program)).Succeeded().Output;
+        Assert.Equal($"{unchecked((int)(320000L * (8193 + 3)))}", expected.Trim());
+        foreach (string quantum in new[] { "17", "65536", "1048576" })
+            Assert.Equal(expected, WasmTestHost.Run(program, new Dictionary<string, string> { ["AQUARIUS_FUEL_QUANTUM"] = quantum }).Succeeded().Output);
     }
 
     /// <summary>Native code deoptimizes at every quantum's end and resumes natively at the marked site; when it declines

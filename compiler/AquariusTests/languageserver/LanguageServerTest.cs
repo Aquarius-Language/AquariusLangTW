@@ -181,6 +181,26 @@ public class LanguageServerTest
     }
 
     [Fact]
+    public void ConstantsAreDeclaredHoveredAndProtectedFromWrites()
+    {
+        using var s = Launch();
+        string[] lines = ["常數 上限: 整數 = 10;", "const rate = 0.5d;", "var f = function(x: int): double { return x * rate + 上限; };"];
+        NoDiagnostics(s.Open(string.Join("\n", lines)));
+        Assert.Matches("宣告常數", HoverText(s.Feature("hover", 0, 0)));
+        Assert.Matches("Alias: 常數", HoverText(s.Feature("hover", 1, 1)));
+        Assert.Equal("常數 const 上限: 整數 = 10", HoverText(s.Feature("hover", 2, lines[2].IndexOf("上限"))));
+        Assert.Equal("常數 const rate = 0.5d", HoverText(s.Feature("hover", 2, lines[2].IndexOf("rate"))));
+        Assert.Contains("整數", Labels(s.Feature("completion", 0, 6)));
+        Assert.True(HasItem(s.Feature("completion", 2, lines[2].IndexOf("rate") + 2), "rate", 21));
+        var symbols = s.Symbols().EnumerateArray().ToArray();
+        Assert.Contains(symbols, x => x.GetProperty("name").GetString() == "上限" && x.GetProperty("kind").GetInt32() == 14);
+        s.Change(Uri, 2, new { text = "const n = 1;\nn = 2;\n常數 m = 1;\n常數 m = 2;" });
+        var messages = s.Diagnostics(2).EnumerateArray().Select(d => d.GetProperty("message").GetString()!).ToArray();
+        Assert.Contains(messages, m => m.Contains("n is a constant and cannot be assigned"));
+        Assert.Contains(messages, m => m.Contains("The constant m cannot be declared twice"));
+    }
+
+    [Fact]
     public void NullContinueStringArraysAndElementWritesAreUnderstood()
     {
         using var s = Launch();

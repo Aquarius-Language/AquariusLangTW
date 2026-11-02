@@ -18,6 +18,7 @@ internal static class LanguageFacts
         ["繼續"] = "繼續; — Start the loop's next iteration.",
         ["空值"] = "The null value: a missing field, entry or element.",
         ["結構"] = "結構 名稱 { 欄位: 型別; 欄位 } — Declare a struct type; construct values with 名稱(欄位: 值) or 名稱(值, ...). Fields left out are null.",
+        ["常數"] = "常數 名稱 = 運算式; — 宣告常數：只在宣告時賦值一次，之後不能再賦值。以字面值初始化的常數在型別函式中直接編入程式碼。",
         ["非同步"] = "非同步 函式(參數, ...) { ... } — 非同步函式：呼叫時立即回傳承諾（承諾 / Promise），函式本身作為獨立工作執行，可在其中使用 等待。",
         ["非同步函式"] = "非同步函式(參數, ...) { ... } — 與 非同步 函式 相同：回傳承諾的非同步函式。",
         ["等待"] = "等待 運算式 — 暫停目前的非同步函式（或腳本最上層），直到承諾完成，取得其值；被拒絕時會以其原因失敗。其他值直接成為結果。",
@@ -34,6 +35,7 @@ internal static class LanguageFacts
         ["continue"] = "continue; — Start the loop's next iteration. Alias: 繼續.",
         ["null"] = "The null value: a missing field, entry or element. Alias: 空值.",
         ["struct"] = "struct Name { field: type; field } — Declare a struct type; construct values with Name(field: value) or Name(value, ...). Fields left out are null. Alias: 結構.",
+        ["const"] = "const name = expression; — Declare a constant: assigned once, where it is declared, and never again. A constant initialized with a literal is compiled into typed functions. Alias: 常數.",
         ["true"] = "Boolean true. Alias: 真.",
         ["false"] = "Boolean false. Alias: 假."
     };

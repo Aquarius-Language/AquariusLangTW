@@ -17,17 +17,20 @@ public sealed class ExecutableTarget(string name, string runtimeTarget) : IWasmB
     /// <summary>Selects the runtime pack built with ONNX Runtime's CUDA build (&lt;target&gt;-cuda: the CUDA and TensorRT
     /// providers, about 300 MB); projects set [onnx] cuda = true.</summary>
     public const string OnnxCudaOption = "--onnx-cuda";
+    /// <summary>Compiles the application ahead of time (<see cref="AheadOfTime"/>): the pack's aquarius-aot launcher and an
+    /// application library beside the executable instead of Wasmtime compiling the .wasm when it starts.</summary>
+    public const string OptimizeOption = "--optimize";
 
     public string Name => name;
     public string RuntimeTarget => runtimeTarget;
     public string ArtifactDescription => "Executable";
     private bool Windows => runtimeTarget.StartsWith("windows-", StringComparison.Ordinal);
-    private string Launcher => Windows ? "aquarius.exe" : "aquarius";
-    public IReadOnlyCollection<string> OptionNames => Windows ? [HideTerminalOption, OnnxCudaOption] : [OnnxCudaOption];
+    private string Exe => Windows ? ".exe" : "";
+    public IReadOnlyCollection<string> OptionNames => Windows ? [HideTerminalOption, OnnxCudaOption, OptimizeOption] : [OnnxCudaOption, OptimizeOption];
 
     public void Build(WasmBuildRequest request)
     {
-        bool hideTerminal = request.Flag(HideTerminalOption), cuda = request.Flag(OnnxCudaOption);
+        bool hideTerminal = request.Flag(HideTerminalOption), cuda = request.Flag(OnnxCudaOption), optimize = request.Flag(OptimizeOption);
         if (hideTerminal && !Windows) throw new ArgumentException($"{HideTerminalOption} applies only to Windows executables.");
         string output = Path.GetFullPath(request.Output);
         if (Windows && !output.EndsWith(".exe", StringComparison.OrdinalIgnoreCase)) throw new ArgumentException("Windows executables must be named *.exe.");
@@ -37,8 +40,10 @@ public sealed class ExecutableTarget(string name, string runtimeTarget) : IWasmB
 
         var installation = AquariusInstallation.Require();
         string packTarget = runtimeTarget + (cuda ? "-cuda" : "");
-        string pack = installation.RequireRuntimePack(packTarget, Launcher);
-        string template = Path.Combine(pack, Launcher);
+        string launcher = (optimize ? "aquarius-aot" : "aquarius") + Exe;
+        string pack = optimize ? installation.RequireRuntimePack(packTarget, launcher, Path.Combine("aot", "CMakeLists.txt"))
+            : installation.RequireRuntimePack(packTarget, launcher);
+        string template = Path.Combine(pack, launcher);
         if (output.Equals(template, StringComparison.OrdinalIgnoreCase)) throw new ArgumentException("The output must not replace the runtime pack's launcher.");
 
         Output.ReplaceFile(output, stage => {
@@ -52,12 +57,17 @@ public sealed class ExecutableTarget(string name, string runtimeTarget) : IWasmB
                     UnixFileMode.GroupRead | UnixFileMode.GroupExecute | UnixFileMode.OtherRead | UnixFileMode.OtherExecute);
         });
 
-        // The pack's other files (libraries' DLLs and shared objects, licenses) run beside the launcher.
+        if (optimize) AheadOfTime.BuildLibrary(request.Input, output, runtimeTarget, pack);
+
+        // The pack's other files (libraries' DLLs and shared objects, licenses) run beside the launcher; the launchers
+        // and the ahead-of-time project stay in the pack.
         string directory = Path.GetDirectoryName(output)!;
         foreach (string file in Directory.EnumerateFiles(pack))
-            if (!Path.GetFileName(file).Equals(Launcher, StringComparison.OrdinalIgnoreCase))
-                File.Copy(file, Path.Combine(directory, Path.GetFileName(file)), true);
-        foreach (string folder in Directory.EnumerateDirectories(pack)) Output.CopyDirectory(folder, Path.Combine(directory, Path.GetFileName(folder)));
+            if (Path.GetFileName(file) is var name && !name.Equals("aquarius" + Exe, StringComparison.OrdinalIgnoreCase)
+                && !name.Equals("aquarius-aot" + Exe, StringComparison.OrdinalIgnoreCase))
+                File.Copy(file, Path.Combine(directory, name), true);
+        foreach (string folder in Directory.EnumerateDirectories(pack))
+            if (Path.GetFileName(folder) != "aot") Output.CopyDirectory(folder, Path.Combine(directory, Path.GetFileName(folder)));
         foreach (var (library, binary) in libraries) {
             Directory.CreateDirectory(Path.Combine(directory, "libraries"));
             File.Copy(binary!, Path.Combine(directory, "libraries", Library.NativeFile(library, runtimeTarget)), true);

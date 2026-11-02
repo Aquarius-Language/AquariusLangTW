@@ -33,6 +33,14 @@
     "linux-x64": { "file": "cmake-3.31.12-linux-x86_64.tar.gz", "sha256": "0dc2e9a6860f06bf10bd8fadc03e35d9eeb4df46e33763a7e480e987758f385c", "bin": "bin" },
     "macos-arm64": { "file": "cmake-3.31.12-macos-universal.tar.gz", "sha256": "799af7fd545db9bf1b9cfe72f8095880e727a2d4e0df0e3dffc3bc7b95c2d3b0", "bin": "CMake.app/Contents/bin" }
   },
+  "wabt": {
+    "comment": "WABT's wasm2c: aqua build --optimize translates the application's Wasm to C and compiles it with the pinned Clang into an ahead-of-time library (runtime/aot/CMakeLists.txt). Its share/wabt/wasm2c runtime and include/ are compiled with it.",
+    "version": "1.0.42",
+    "directory": "wabt-1.0.42-{platform}",
+    "base": "https://github.com/WebAssembly/wabt/releases/download/1.0.42/",
+    "windows-x64": { "file": "wabt-1.0.42-windows-x64.tar.gz", "sha256": "62f1eb2b51aa57cf0f0b8ba333bf2c72a049930aa9c5de01dcad271c4fe48c88" },
+    "linux-x64": { "file": "wabt-1.0.42-linux-x64.tar.gz", "sha256": "84895407a6bbb80e918f33b16b2fb2206021c150b6bc9ff6f761263a745ab131" }
+  },
   "ninja": {
     "version": "1.13.2",
     "directory": "ninja-1.13.2-{platform}",
