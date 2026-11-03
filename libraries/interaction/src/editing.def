@@ -1,8 +1,10 @@
-/* What a key means in editable text on each platform, as EDIT(action, key, modifiers, where, extends).
+/* What a key means in editable text on each platform, as EDIT(action, key, modifiers, where, extends), and what it
+ * means in a code editor, as CODE(...) (the code editors' common keys: VS Code's defaults on each platform).
  * key: a GLFW key code. modifiers: as in commands.def (PRIMARY is Control, or Command on Apple targets). where: ALL,
  * APPLE (macOS, iOS) or OTHERS. extends: 1 when Shift may be added to extend the selection (moves), 0 when the
- * modifiers must match exactly. Key events carry the action as `edit` (Interaction.EditAction gives it for any key);
- * text widgets of every UI library act on it, so the platforms' rules live here once. The first match wins. */
+ * modifiers must match exactly. Key events carry the text action as `edit` and the code editor's as `codeEdit` (a CODE
+ * row first, else the EDIT one); Interaction.EditAction gives either for any key. Text widgets and code editors of
+ * every UI library act on them, so the platforms' rules live here once. The first match wins. */
 
 /* Moving the caret (Shift extends the selection). */
 EDIT("left",               KEY_LEFT,      0,          ALL,    1)
@@ -31,6 +33,10 @@ EDIT("documentStart",      KEY_HOME,      0,          APPLE,  1)
 EDIT("documentEnd",        KEY_END,       0,          APPLE,  1)
 EDIT("pageUp",             KEY_PAGE_UP,   0,          ALL,    1)
 EDIT("pageDown",           KEY_PAGE_DOWN, 0,          ALL,    1)
+EDIT("wordPartLeft",       KEY_LEFT,      ALT,        OTHERS, 1)
+EDIT("wordPartRight",      KEY_RIGHT,     ALT,        OTHERS, 1)
+EDIT("wordPartLeft",       KEY_LEFT,      CONTROL | ALT, APPLE, 1)
+EDIT("wordPartRight",      KEY_RIGHT,     CONTROL | ALT, APPLE, 1)
 EDIT("left",               'B',           CONTROL,    APPLE,  1)
 EDIT("right",              'F',           CONTROL,    APPLE,  1)
 EDIT("up",                 'P',           CONTROL,    APPLE,  1)
@@ -47,12 +53,15 @@ EDIT("deleteToLineStart",  KEY_BACKSPACE, PRIMARY,    APPLE,  0)
 EDIT("deleteToLineEnd",    'K',           CONTROL,    APPLE,  0)
 EDIT("deleteForward",      'D',           CONTROL,    APPLE,  0)
 EDIT("deleteBackward",     'H',           CONTROL,    APPLE,  0)
+EDIT("deleteWordPartBackward", KEY_BACKSPACE, CONTROL | ALT, ALL, 0)
+EDIT("deleteWordPartForward",  KEY_DELETE,    CONTROL | ALT, ALL, 0)
 
 /* Selection, history and the clipboard. */
 EDIT("selectAll",          'A',           PRIMARY,    ALL,    0)
 EDIT("undo",               'Z',           PRIMARY,    ALL,    0)
 EDIT("redo",               'Z',           PRIMARY | SHIFT, ALL, 0)
 EDIT("redo",               'Y',           PRIMARY,    OTHERS, 0)
+EDIT("undo",               KEY_BACKSPACE, ALT,        OTHERS, 0)
 EDIT("copy",               'C',           PRIMARY,    ALL,    0)
 EDIT("copy",               KEY_INSERT,    CONTROL,    OTHERS, 0)
 EDIT("cut",                'X',           PRIMARY,    ALL,    0)
@@ -64,3 +73,28 @@ EDIT("paste",              KEY_INSERT,    SHIFT,      OTHERS, 0)
 EDIT("newline",            KEY_ENTER,     0,          ALL,    1)
 EDIT("newline",            KEY_KP_ENTER,  0,          ALL,    1)
 EDIT("toggleOverwrite",    KEY_INSERT,    0,          OTHERS, 0)
+
+/* The Emacs keys of Apple's text system: swap the characters around the caret, open a line after it, paste what
+   Ctrl+K cut (its own kill buffer, not the clipboard). */
+EDIT("transpose",          'T',           CONTROL,    APPLE,  0)
+EDIT("openLine",           'O',           CONTROL,    APPLE,  0)
+EDIT("yank",               'Y',           CONTROL,    APPLE,  0)
+
+/* Code editors: lines, comments, indentation (Tab and Shift+Tab indent too), bracket jumps. Up and down with Control
+   scroll the view by a line there instead of moving by paragraphs. */
+CODE("moveLineUp",         KEY_UP,        ALT,        ALL,    0)
+CODE("moveLineDown",       KEY_DOWN,      ALT,        ALL,    0)
+CODE("copyLineUp",         KEY_UP,        SHIFT | ALT, ALL,   0)
+CODE("copyLineDown",       KEY_DOWN,      SHIFT | ALT, ALL,   0)
+CODE("deleteLine",         'K',           PRIMARY | SHIFT, ALL, 0)
+CODE("insertLineBelow",    KEY_ENTER,     PRIMARY,    ALL,    0)
+CODE("insertLineAbove",    KEY_ENTER,     PRIMARY | SHIFT, ALL, 0)
+CODE("toggleComment",      '/',           PRIMARY,    ALL,    0)
+CODE("indent",             ']',           PRIMARY,    ALL,    0)
+CODE("outdent",            '[',           PRIMARY,    ALL,    0)
+CODE("selectLine",         'L',           PRIMARY,    ALL,    0)
+CODE("jumpToBracket",      '\\',          PRIMARY | SHIFT, ALL, 0)
+CODE("scrollLineUp",       KEY_UP,        CONTROL,    OTHERS, 0)
+CODE("scrollLineDown",     KEY_DOWN,      CONTROL,    OTHERS, 0)
+CODE("scrollLineUp",       KEY_PAGE_UP,   CONTROL,    APPLE,  0)
+CODE("scrollLineDown",     KEY_PAGE_DOWN, CONTROL,    APPLE,  0)

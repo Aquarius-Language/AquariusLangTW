@@ -72,7 +72,7 @@ static aqua_class *conventions_class, *safe_area_class;
 static void event_finalize(aqua_runtime *rt, void *data) { (void)rt; free(data); }
 
 #define EVENT_FIELDS(STRING, NUMBER, INTEGER, BOOLEAN) \
-    STRING("type", type) STRING("source", source) STRING("command", command) STRING("edit", edit) STRING("pointerType", pointer_type) \
+    STRING("type", type) STRING("source", source) STRING("command", command) STRING("edit", edit) STRING("codeEdit", code_edit) STRING("pointerType", pointer_type) \
     STRING("action", action) STRING("phase", phase) NUMBER("time", time) NUMBER("x", x) NUMBER("y", y) \
     NUMBER("startX", start_x) NUMBER("startY", start_y) NUMBER("dx", dx) NUMBER("dy", dy) NUMBER("velocityX", velocity_x) \
     NUMBER("velocityY", velocity_y) NUMBER("scale", scale) NUMBER("width", width) NUMBER("height", height) \
@@ -460,10 +460,13 @@ static void interaction_create(aqua_call *call) {
     aqua_return(call, aqua_object_new(aqua_call_runtime(call), session_class, session_new(call)));
 }
 
-/* EditAction(key, modifiers): what the key means in editable text on this platform ("wordLeft", "copy", ...), or null;
-   for key events that did not come through a session (theirs carry it as `edit`). Modifiers are GLFW bits. */
+/* EditAction(key, modifiers | code): what the key means in editable text on this platform ("wordLeft", "copy", ...), or
+   in a code editor when `code` is true ("moveLineUp", ...), or null; for key events that did not come through a
+   session (theirs carry it as `edit` and `codeEdit`). Modifiers are GLFW bits. */
 static void interaction_edit_action(aqua_call *call) {
-    const char *action = edit_of(platform(), aqua_arg_int(call, 0), aqua_argc(call) > 1 ? aqua_arg_int(call, 1) : 0);
+    int32_t key = aqua_arg_int(call, 0), modifiers = aqua_argc(call) > 1 ? aqua_arg_int(call, 1) : 0;
+    bool code = aqua_argc(call) > 2 && aqua_arg_bool(call, 2);
+    const char *action = code ? code_edit_of(platform(), key, modifiers) : edit_of(platform(), key, modifiers);
     if (action) aqua_return_cstring(call, action); else aqua_return_null(call);
 }
 /* ClipboardText() / SetClipboardText(text): the system clipboard's plain text, at once (text widgets' copy, cut and
@@ -681,7 +684,7 @@ AQUA_LIBRARY(interaction) {
     aqua_define_function(module, "Attach|附加", interaction_attach, "|v");
     aqua_define_function(module, "Create|建立", interaction_create, "");
     aqua_define_function(module, "ShortcutLabel|快捷鍵標籤", interaction_shortcut_label, "s");
-    aqua_define_function(module, "EditAction|編輯動作", interaction_edit_action, "i|i");
+    aqua_define_function(module, "EditAction|編輯動作", interaction_edit_action, "i|ib");
     aqua_define_function(module, "Event|事件", interaction_event, "h");
     aqua_define_function(module, "ClipboardText|剪貼簿文字", interaction_clipboard_text, "");
     aqua_define_function(module, "SetClipboardText|設定剪貼簿文字", interaction_set_clipboard_text, "s");

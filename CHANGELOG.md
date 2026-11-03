@@ -121,6 +121,11 @@ Libraries:
   pointer selection). Also `ClipboardText()` / `SetClipboardText(text)`, every event's `conventions`, `event.Fields()`
   and `Interaction.Event(fields)` (events passed on as hashes become event objects again, so no UI code lists the
   fields: WellPlay's code cells failed with "Unknown field of EditorEvent: edit" on every arrow key because it did).
+  The editing table adds word parts (Alt+Left/Right, Ctrl+Option on Apple targets; Ctrl+Alt+Backspace/Delete), the
+  Windows Alt+Backspace undo, Apple's Ctrl+T, Ctrl+O and Ctrl+Y (with a kill buffer), and a code-editor layer carried as
+  `codeEdit` (VS Code's defaults: move, copy and delete lines, open lines, comments, indent and outdent, select line,
+  bracket jumps, scroll by a line). On the web the browser no longer acts on editing combinations while text is edited
+  (Alt+Left used to go back).
 - `imgui`: key releases from Interaction (`action: "release"`) were taken as presses, so keys stayed held; copy and
   paste use the system clipboard unless `SetClipboardHandlers` is given; `UseConventions` (applied by itself from the
   first Interaction event) sets double-click time, drag threshold, caret blinking and Mac-style editing.

@@ -26,6 +26,7 @@ typedef struct conventions {
 typedef struct ievent {
     const char *type, *source, *command, *pointer_type, *action, *phase;
     const char *edit;             /* key events: the editing action in editable text (editing.def), or NULL */
+    const char *code_edit;        /* key events: the action in a code editor (editing.def's CODE rows, else edit) */
     char text[512];               /* a key's name, or typed / composed text */
     double time, x, y, start_x, start_y, dx, dy, velocity_x, velocity_y, scale, width, height;
     int32_t button, count, pointer_id, modifiers, key, state, cursor;   /* cursor: the caret in composed text */
@@ -72,6 +73,8 @@ bool command_label(const conventions *c, const char *command, char *out, size_t 
 const char *action_name(const char *name);
 /* The editing action of a key in editable text (moves, deletes, clipboard, history; editing.def), or NULL. */
 const char *edit_of(const conventions *c, int32_t key, int32_t modifiers);
+/* The action of a key in a code editor (editing.def's CODE rows first, else the text action), or NULL. */
+const char *code_edit_of(const conventions *c, int32_t key, int32_t modifiers);
 
 /* ---- The per-OS layer: src/platform/<os>.c ---- */
 void platform_conventions(conventions *c);

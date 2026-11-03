@@ -68,3 +68,16 @@ second
 third line here] 2 16
 fields key wordLeft 真 event key wordLeft 263 真 5 press
 made press 3 2 真 mouse null
+part keys wordPartLeft wordPartRight undo deleteWordPartBackward null moveLineUp toggleComment deleteLine wordLeft
+part stops [5, 9, 17, 19, 20, 22, 26, 27]
+part stops back [26, 23, 21, 19]
+delete word part [parseDocument_v2 = getX(10)] 5 5
+alt backspace undoes [parseHTMLDocument_v2 = getX(10)] 9 9
+transpose [acbd] 3 3
+kill [one
+three] 3 3
+yank [one
+three two] 13 13
+open line [
+one
+three two] 0 0

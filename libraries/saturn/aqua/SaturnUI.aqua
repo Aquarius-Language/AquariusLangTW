@@ -1752,6 +1752,11 @@ var CreateSurface = function(width, height, root, options) {
             var taken = popupEvent(ev, type);
             if (taken != null) { return taken; }
         }
+        # Alt+Left/Right (Command+[ and ] on Apple targets) move through text while text is edited: the "back" and
+        # "forward" those keys also are must not leave the screen.
+        if ((type == "back" || type == "forward") && ev["source"] == "keyboard" && s.focus != null) {
+            if (s.focus.type == "TextField" || s.focus.type == "Immediate") { return true; }
+        }
         # Events over (or captured by) an Immediate widget go to its feed function in its own coordinates.
         var embedded = routeImmediate(s, ev, type);
         if (embedded != null) { return embedded; }

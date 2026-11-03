@@ -203,7 +203,9 @@ caret blinks at the platform's rate (`caretBlinkTime`, solid while typing), and 
 input-method windows open beside it. `value` is the application's: the field reports each edit through `onChanged`
 and follows `value` when the application changes it, never undoing an edit the application has not rebuilt with yet.
 Enter calls `onSubmit` in a single-line field and breaks the line in a multi-line one. `autofocus: true` takes the
-keyboard when the field appears (a dialog's field) with its text selected. Keys and text do not rebuild the tree per
+keyboard when the field appears (a dialog's field) with its text selected. While a text field or an `Immediate` widget
+has the keyboard, the "back" and "forward" that Alt+Left/Right also are stay with it (they move through the text), and
+on the web the browser does not act on the editing combinations either. Keys and text do not rebuild the tree per
 event: the next frame does.
 
 **Menus and dropdowns** follow the native rules, built in: a menu bar title opens its menu on press; while a menu is

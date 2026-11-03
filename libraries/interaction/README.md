@@ -56,7 +56,15 @@ word's end going right); Home/End to the line's ends there, Command+Left/Right o
 other Emacs keys); Ctrl+Home/End or Command+Up/Down to the text's ends; Ctrl+Up/Down or Option+Up/Down by paragraphs;
 Shift extends every move; Ctrl+Backspace/Delete or Option+Backspace/Delete delete words, Command+Backspace to the line
 start; select all, undo, redo (Ctrl+Y or Shift+Ctrl+Z), copy, cut and paste (with Ctrl+Insert, Shift+Delete and
-Shift+Insert on Windows and Linux); Enter as a line break; Insert toggles overwriting. The keypad's keys with Num Lock
+Shift+Insert on Windows and Linux); Enter as a line break; Insert toggles overwriting. Alt+Left/Right (Ctrl+Option on
+Apple targets) move by word parts (camelCase humps, runs of capitals, digits, the pieces between underscores) and
+Ctrl+Alt+Backspace/Delete delete one; Alt+Backspace undoes, as in Windows text boxes; Apple targets add Ctrl+T
+(transpose), Ctrl+O (open a line) and Ctrl+Y (yank what Ctrl+K killed). Key events also carry `codeEdit`, a code
+editor's meaning (VS Code's defaults on each platform, `CODE` rows): Alt+Up/Down move lines (Option on Apple),
+Shift+Alt+Up/Down copy them, Ctrl+Shift+K deletes them, Ctrl+Enter and Ctrl+Shift+Enter open a line below or above,
+Ctrl+/ toggles comments, Ctrl+] and Ctrl+[ indent and outdent, Ctrl+L selects the line, Ctrl+Shift+\ jumps to the
+matching bracket, Ctrl+Up/Down scroll by a line; otherwise the same as `edit`. `EditAction(key, modifiers, true)` gives
+it for any key. The keypad's keys with Num Lock
 off arrive as the navigation keys they are (the window layers translate them). SaturnUI's TextField (through
 `TextEditing`), the Aqua_Embedded_LSP_Editor and any widget of your own act on `edit` instead of key codes, so the rules
 cannot drift apart.
@@ -69,7 +77,7 @@ cannot drift apart.
 layout)`, `Insert`, `Select`, `SelectAll`, `SetText`, `SelectionStart`, `SelectionEnd`, `HasSelection`, `SelectedText`,
 `DeleteSelection`, `Undo`, `Redo`, `Copy`, `Cut`, `Paste`, `Display(editor)` (`[shown text, caret, composition start,
 composition end]`, bullets for passwords) and the boundary functions `Next`, `Previous`, `Snap`, `WordLeft`, `WordRight`,
-`WordAt`, `ParagraphAt`. Positions are UTF-16 offsets and never fall inside a surrogate pair, a combining sequence, an
+`WordPartLeft`, `WordPartRight`, `WordAt`, `ParagraphAt`. Positions are UTF-16 offsets and never fall inside a surrogate pair, a combining sequence, an
 emoji sequence or a CRLF. Words are runs of letters and digits, of CJK characters, or of punctuation.
 
 `Feed(raw)` takes the events of a graphics library that does not use the SDK's windows, in `aqua/window.h` terms:
