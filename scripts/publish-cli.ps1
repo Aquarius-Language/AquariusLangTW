@@ -38,7 +38,7 @@ foreach ($pack in $Packs) { Copy-Folder (Join-Path $installed $pack) (Join-Path 
 Copy-Folder (Join-Path $repository 'web-glue') (Join-Path $Output 'web-glue')
 Copy-Folder (Join-Path $repository 'runtime/sdk') (Join-Path $Output 'sdk')
 New-Item -ItemType Directory -Path (Join-Path $Output 'scripts') -Force | Out-Null
-foreach ($file in @('toolchain.json', 'toolchain.ps1', 'install-toolchain.ps1', 'install-toolchain.sh', 'wabt-sha256.c')) {
+foreach ($file in @('toolchain.json', 'toolchain.ps1', 'install-toolchain.ps1', 'install-toolchain.sh', 'build-wabt.cmake')) {
     Copy-Item -LiteralPath (Join-Path $repository "scripts/$file") -Destination (Join-Path $Output 'scripts')
 }
 foreach ($library in Get-ChildItem -LiteralPath (Join-Path $repository 'libraries') -Directory) {

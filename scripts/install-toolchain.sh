@@ -44,10 +44,18 @@ for target in "$toolchains/$(pin compilerRt.directory)"/*/; do
     [ -d "$resource/lib/$(basename "$target")" ] || cp -R "$target" "$resource/lib/$(basename "$target")"
 done
 cmake="$toolchains/$(pin cmake.directory)/$(pin "cmake.$platform.bin")/cmake"
-for tool in cmake ninja wabt; do
+for tool in cmake ninja; do
     install_archive "$(pin $tool.base)$(pin "$tool.$platform.file")" "$(pin "$tool.$platform.sha256")" "$toolchains/$(pin $tool.directory)"
 done
 chmod +x "$toolchains/$(pin ninja.directory)/ninja"   # .zip archives may carry no permissions
+# wasm2c, built from WABT's pinned source with this host's toolchain file (scripts/build-wabt.cmake).
+wabt="$toolchains/$(pin wabt.directory)"
+if [ ! -d "$wabt/bin" ]; then
+    install_archive "$(pin wabt.source.url)" "$(pin wabt.source.sha256)" "$toolchains/$(pin wabt.source.directory)"
+    "$cmake" -DSOURCE="$toolchains/$(pin wabt.source.directory)" -DDESTINATION="$wabt" -DNINJA="$toolchains/$(pin ninja.directory)/ninja" \
+        -DTOOLCHAIN="$repository/runtime/sdk/cmake/toolchains/$platform.cmake" -P "$repository/scripts/build-wabt.cmake"
+    rm -rf "$toolchains/$(pin wabt.source.directory)"
+fi
 for target in ${targets//,/ }; do
     case "$target" in
         web) continue ;;

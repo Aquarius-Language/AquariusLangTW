@@ -15,7 +15,7 @@ mkdir -p "$output/runtime" "$output/libraries" "$output/scripts"
 for pack in $packs; do cp -r "$pack" "$output/runtime/$(basename "$pack")"; done
 cp -r "$root/web-glue" "$output/web-glue"
 cp -r "$root/runtime/sdk" "$output/sdk"
-cp "$root/scripts/toolchain.json" "$root/scripts/toolchain.ps1" "$root/scripts/install-toolchain.ps1" "$root/scripts/install-toolchain.sh" "$root/scripts/wabt-sha256.c" "$output/scripts/"
+cp "$root/scripts/toolchain.json" "$root/scripts/toolchain.ps1" "$root/scripts/install-toolchain.ps1" "$root/scripts/install-toolchain.sh" "$root/scripts/build-wabt.cmake" "$output/scripts/"
 for library in "$root"/libraries/*/; do
     [ -f "$library/aqua.toml" ] || continue
     destination="$output/libraries/$(basename "$library")"

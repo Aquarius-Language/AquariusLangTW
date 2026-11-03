@@ -34,9 +34,7 @@ public static partial class AheadOfTime
         string wabt = Directory("wabt"), ninja = Path.Combine(Directory("ninja"), "ninja" + exe);
         string cmake = Path.Combine(Directory("cmake"), pins.RootElement.GetProperty("cmake").GetProperty(host).GetProperty("bin").GetString()!, "cmake" + exe);
         string wasm2c = Path.Combine(wabt, "bin", "wasm2c" + exe);
-        // On Windows the installer also builds the libcrypto-3-x64.dll wasm2c imports (scripts/wabt-sha256.c).
-        bool crypto = !windows || File.Exists(Path.Combine(wabt, "bin", "libcrypto-3-x64.dll"));
-        if (!File.Exists(wasm2c) || !File.Exists(cmake) || !File.Exists(ninja) || !crypto) InstallToolchain(installation, runtimeTarget, environment);
+        if (!File.Exists(wasm2c) || !File.Exists(cmake) || !File.Exists(ninja)) InstallToolchain(installation, runtimeTarget, environment);
 
         string work = Path.Combine(Path.GetTempPath(), "aquarius-aot-" + Guid.NewGuid().ToString("N"));
         System.IO.Directory.CreateDirectory(work);
