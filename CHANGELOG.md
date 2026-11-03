@@ -3,7 +3,7 @@
 One version covers the language, the compiler, the CLI, the language server and the VS Code extension; see
 [versioning](docs/versioning.md).
 
-## Unreleased
+## 0.1.7
 
 Language:
 
