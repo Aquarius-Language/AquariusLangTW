@@ -1012,6 +1012,26 @@ static void module_enum_name(aqua_call *call) {
 
 }  // namespace saturn
 
+/* Contain(callback): runs the callback to completion right here (it may not wait for asynchronous results) and gives
+   {Success, Value, Message}: what SaturnUI wraps painters, builders and the input method in, so a failing widget loses
+   only its own part. Unlike an asynchronous try, it never pauses: painting from native code can rely on it. */
+static void module_contain(aqua_call *call) {
+    aqua_runtime *rt = aqua_call_runtime(call);
+    aqua_value result = aqua_null();
+    bool ok = aqua_invoke(rt, aqua_arg(call, 0), nullptr, 0, &result);
+    aqua_value record = aqua_hash_new(rt, 3);
+    aqua_hash_set_field(rt, record, "Success", aqua_bool(ok));
+    aqua_hash_set_field(rt, record, "Value", ok ? result : aqua_null());
+    if (!ok) {
+        char *shown = aqua_display(rt, result);
+        const char *text = shown ? shown : "failed";
+        while (!strncmp(text, "ERROR: ", 7)) text += 7;
+        aqua_hash_set_field(rt, record, "Message", aqua_cstring(rt, text));
+        aqua_free(shown);
+    }
+    aqua_return(call, record);
+}
+
 using namespace saturn;
 
 AQUA_LIBRARY(saturn) {
@@ -1025,6 +1045,7 @@ AQUA_LIBRARY(saturn) {
     aqua_define_function(module, "Config|ConfigNew|設定檔", config_new, "");
     aqua_define_function(module, "FloatIsUndefined|是否未定義", module_float_is_undefined, "n");
     aqua_define_function(module, "EnumName|列舉名稱", module_enum_name, "si");
+    aqua_define_function(module, "Contain|隔離執行", module_contain, "f");
     aqua_define_double(module, "Undefined|未定義", NAN);
 #define VALUE(type, constant, value, css) aqua_define_int(module, #constant, (int32_t)(value));
 #include "constants.def"

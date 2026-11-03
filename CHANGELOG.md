@@ -127,8 +127,9 @@ Libraries:
   bracket jumps, scroll by a line). On the web the browser no longer acts on editing combinations while text is edited
   (Alt+Left used to go back). Pasting no longer arrives twice on the web (the browser's own insertion into the hidden
   text input is cancelled; the paste command reads the clipboard), and Windows' CR LF line ends become LF when pasted.
-- `saturn`: failures stay contained. A painter, an `Immediate` widget, a builder or an event handler that throws loses
-  only its own part (recorded once in `surface.Errors()`), so one failing widget never blanks the window (WellPlay's code
+- `saturn`: failures stay contained. A painter, an `Immediate` widget or a builder that throws loses only its own part
+  (recorded once in `surface.Errors()`; guarded by the new synchronous `Saturn.Contain`, never by an asynchronous try,
+  which left pending tasks behind on every paint), so one failing widget never blanks the window (WellPlay's code
   cells turned the window white after Ctrl+A, Ctrl+C, Ctrl+V, Ctrl+Z, when the editor drew language-server markers on
   lines the undo had removed); layer stacks do the same per layer.
 - `imgui`: key releases from Interaction (`action: "release"`) were taken as presses, so keys stayed held; copy and

@@ -233,26 +233,25 @@ var ThemeSheet = function(t) {
 
 var NL = String.FromCode(10);
 var NBSP = String.FromCode(160);
-var Network = null;
 
 # Contained failures. Code a surface calls (painters, Immediate widgets, builders, event handlers) runs guarded: an
 # error there is recorded in surface.Errors() and printed once, that part draws nothing or that event is dropped, and
 # everything else keeps working, so one failing widget never blanks the window or stops the input.
 var attempt = function(s, what, action) {
-    if (Network == null) { Network = import("Network"); }
-    var result = Network.Try(action);
-    if (result.Success) { return result; }
-    var message = what + ": " + String.From(result.Error.Message);
+    # Saturn.Contain runs the callback to completion in place (never pausing), as code called from painting must.
+    var result = Saturn.Contain(action);
+    if (result["Success"]) { return {"Success": true, "Value": result["Value"]}; }
+    var message = what + ": " + String.From(result["Message"]);
     if (!Array.Contains(s.errors, message)) {
         if (len(s.errors) >= 32) { Array.Delete(s.errors, 0, 1); }
         Array.Append(s.errors, message);
         print("SaturnUI: " + message);
     }
-    return result;
+    return {"Success": false, "Value": null};
 };
 var guarded = function(s, what, action) {
     var result = attempt(s, what, action);
-    if (result.Success) { return result.Value; }
+    if (result["Success"]) { return result["Value"]; }
     return null;
 };
 # A painter that never takes the rest of the paint down with it.
@@ -808,16 +807,16 @@ kinds["ListView"] = {"update": function(e, w) {
 kinds["Builder"] = {"update": function(e, w) {
     restyle(e, {"display": "contents"}, [], null);
     var built = attempt(e.surface, "Builder build", () => w.build(contextOf(e)));
-    if (built.Success) { reconcile(e, [built.Value]); }
+    if (built["Success"]) { reconcile(e, [built["Value"]]); }
 }};
 kinds["Stateful"] = {"update": function(e, w) {
     if (e.state == null && w.init != null) {
         var made = attempt(e.surface, "Stateful init", () => w.init());
-        if (made.Success) { e.state = made.Value; }
+        if (made["Success"]) { e.state = made["Value"]; }
     }
     restyle(e, {"display": "contents"}, [], null);
     var built = attempt(e.surface, "Stateful build", () => w.build(e.state, contextOf(e)));
-    if (built.Success) { reconcile(e, [built.Value]); }
+    if (built["Success"]) { reconcile(e, [built["Value"]]); }
 }};
 kinds["Themed"] = {"update": function(e, w) {
     # A subtree with its own theme: its colors as inherited text and background, its sheet for the widgets inside.
@@ -1992,12 +1991,8 @@ var CreateSurface = function(width, height, root, options) {
         }
         return false;
     };
-    # An event whose handling fails is used up (layers below never see half of it); the failure is in Errors().
-    s.Feed = function(raw) {
-        var used = guarded(s, "event", () => feedUnguarded(raw));
-        if (used == null) { return true; }
-        return used;
-    };
+    # Events run directly (their handlers may wait for asynchronous results); a failure reaches the caller.
+    s.Feed = feedUnguarded;
     # Where an input method's window should open: {x, y, width, height} of the focused text field, or null.
     var imeUnguarded = function() {
         if (s.focus == null) { return null; }
@@ -2147,11 +2142,6 @@ var Layers = function(list) {
         return Saturn.Combine(lists);
     };
     stack.Feed = function(raw) {
-        var used = guarded(stack, "event", () => feedLayers(raw));
-        if (used == null) { return true; }
-        return used;
-    };
-    var feedLayers = function(raw) {
         var ev = eventOf(raw);
         var type = ev["type"];
         if (type == "key" || type == "text" || type == "composition" || type == "command") {

@@ -208,11 +208,14 @@ has the keyboard, the "back" and "forward" that Alt+Left/Right also are stay wit
 on the web the browser does not act on the editing combinations either. Keys and text do not rebuild the tree per
 event: the next frame does.
 
-**Failures stay contained.** Code a surface calls runs guarded: a painter (`CustomPaint`, an `Immediate` widget's
-`paint`), a `Builder` or `Stateful` build, an event handler or an `Immediate` widget's `feed` that throws loses only its
-own part (a failed build keeps what it showed before, a failed event is used up), the failure is printed once and listed
-by `surface.Errors()` ("where: message", the latest 32), and everything else keeps drawing and taking input; a layer
-stack does the same per layer (`stack.Errors()`). A bug in one widget never blanks the window.
+**Failures stay contained.** Code a surface calls while building and painting runs guarded by `Saturn.Contain(callback)`
+(it runs the callback to completion in place and returns `{Success, Value, Message}`; unlike an asynchronous try it never
+pauses, which code called from native painting requires): a painter (`CustomPaint`, an `Immediate` widget's `paint`), a
+`Builder` or `Stateful` build or the input method's box that throws loses only its own part (a failed build keeps what it
+showed before), the failure is printed once and listed by `surface.Errors()` ("where: message", the latest 32), and
+everything else keeps drawing and taking input; a layer stack does the same per layer (`stack.Errors()`). Event handlers
+run directly, since they may wait for asynchronous results: their failures reach the caller (Interaction reports them and
+goes on). A bug in one widget never blanks the window.
 
 **Menus and dropdowns** follow the native rules, built in: a menu bar title opens its menu on press; while a menu is
 open, moving over another title opens that one; items fire on release (so press on a title, drag to an item and

@@ -1,7 +1,8 @@
-# A failing widget never takes the surface down: a painter, an Immediate widget, a builder or an event handler that
-# throws loses only its own part (recorded once in Errors()), and the rest of the surface keeps painting and taking
-# input.
+# A failing widget never takes the surface down: a painter, an Immediate widget or a builder that throws loses only its
+# own part (recorded once in Errors()), and the rest of the surface keeps painting and taking input. Event handlers run
+# directly (they may wait for asynchronous results), so their failure reaches the caller, and the surface goes on.
 var UI = import("SaturnUI");
+var Saturn = import("Saturn");
 var count = 0;
 var broken = true;
 var s = UI.Surface(300, 200, UI.Builder(build: c => UI.Column(children: [
@@ -27,12 +28,12 @@ var click = function(key) {
     s.Feed({"type": "release", "x": c[0], "y": c[1], "button": 0});
     s.Frame(s.time + 16);
 };
-click("boom");
+var c = center("boom");
+print("a failing handler reaches the caller", Saturn.Contain(() => s.Feed({"type": "press", "x": c[0], "y": c[1], "button": 0}))["Success"],
+    Saturn.Contain(() => s.Feed({"type": "release", "x": c[0], "y": c[1], "button": 0}))["Success"]);
+s.Frame(s.time + 16);
 click("ok");
 print("input still works", count);
-var imm = center("imm");
-print("failed feed is used up", s.Feed({"type": "press", "x": imm[0], "y": imm[1], "button": 0}));
-s.Feed({"type": "release", "x": imm[0], "y": imm[1], "button": 0});
 broken = false;
 s.Rebuild();
 s.Frame(s.time + 16);
@@ -40,6 +41,10 @@ print("recovers when fixed", column.children[len(column.children) - 1].node.GetT
 var errors = s.Errors();
 var kinds = [];
 for (var i = 0; i < len(errors); i++) { Array.Append(kinds, String.Split(errors[i], ":")[0]); }
-print("errors", len(errors) >= 4, Array.Contains(kinds, "CustomPaint painter"), Array.Contains(kinds, "Immediate painter"), Array.Contains(kinds, "event"), Array.Contains(kinds, "Builder build"));
+print("errors", len(errors) >= 3, Array.Contains(kinds, "CustomPaint painter"), Array.Contains(kinds, "Immediate painter"), Array.Contains(kinds, "Builder build"));
 s.Paint();
 print("each failure recorded once", len(s.Errors()) == len(errors));
+# The guard leaves nothing behind: more calls than the runtime has native resource slots (65,536) run fine.
+var total = 0;
+for (var i = 0; i < 70000; i++) { total += Saturn.Contain(() => 1)["Value"]; }
+print("contained calls leave nothing behind", total);
