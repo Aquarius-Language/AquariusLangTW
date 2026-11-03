@@ -1,0 +1,11 @@
+SaturnUI: Builder build: String function requires a string.
+SaturnUI: CustomPaint painter: String function requires a string.
+SaturnUI: Immediate painter: String function requires a string.
+still paints 真
+SaturnUI: event: String function requires a string.
+input still works 1
+SaturnUI: event: Cannot access member of NULL
+failed feed is used up 真
+recovers when fixed built
+errors 真 真 真 真 真
+each failure recorded once 真

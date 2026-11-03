@@ -208,6 +208,12 @@ has the keyboard, the "back" and "forward" that Alt+Left/Right also are stay wit
 on the web the browser does not act on the editing combinations either. Keys and text do not rebuild the tree per
 event: the next frame does.
 
+**Failures stay contained.** Code a surface calls runs guarded: a painter (`CustomPaint`, an `Immediate` widget's
+`paint`), a `Builder` or `Stateful` build, an event handler or an `Immediate` widget's `feed` that throws loses only its
+own part (a failed build keeps what it showed before, a failed event is used up), the failure is printed once and listed
+by `surface.Errors()` ("where: message", the latest 32), and everything else keeps drawing and taking input; a layer
+stack does the same per layer (`stack.Errors()`). A bug in one widget never blanks the window.
+
 **Menus and dropdowns** follow the native rules, built in: a menu bar title opens its menu on press; while a menu is
 open, moving over another title opens that one; items fire on release (so press on a title, drag to an item and
 release works); disabled items and separators do nothing; Up/Down move through the usable items, Left/Right switch
