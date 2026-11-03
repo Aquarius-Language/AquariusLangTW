@@ -257,23 +257,35 @@ static void node_get_text(aqua_call *call) {
     else if (n) aqua_return_null(call);
 }
 
+/* A text node's content box and its lines as the latest layout at that width left them. */
+struct TextFrame { float left = 0, top = 0, inner = 0, line_height = 0; };
+static bool text_frame(Node *n, TextFrame *f) {
+    if (!n->text || !YGNodeHasMeasureFunc(n->yg) || n->measure) return false;
+    f->left = YGNodeLayoutGetPadding(n->yg, YGEdgeLeft) + YGNodeLayoutGetBorder(n->yg, YGEdgeLeft);
+    f->top = YGNodeLayoutGetPadding(n->yg, YGEdgeTop) + YGNodeLayoutGetBorder(n->yg, YGEdgeTop);
+    f->inner = YGNodeLayoutGetWidth(n->yg) - f->left - YGNodeLayoutGetPadding(n->yg, YGEdgeRight) - YGNodeLayoutGetBorder(n->yg, YGEdgeRight);
+    layout_text(n, f->inner, !std::isnan(f->inner));
+    f->line_height = line_height(*n->text);
+    return true;
+}
+static float line_x(const Text &t, const TextFrame &f, size_t i) {
+    const TextLine &line = t.lines[i];
+    return f.left + (t.resolved.align == ALIGN_CENTER ? (f.inner - line.width) / 2 : t.resolved.align == ALIGN_END ? f.inner - line.width : 0);
+}
+static float line_top(const Text &t, const TextFrame &f, size_t i) { return f.top + (float)i * f.line_height + (f.line_height - t.ascent - t.descent) / 2; }
+
 /* The laid-out lines of a text node, relative to its box: [{text, x, y, width, height, baseline}]. */
 static void node_text_lines(aqua_call *call) {
     Node *n = self_node(call);
     if (!n) return;
     aqua_runtime *rt = aqua_call_runtime(call);
     aqua_value list = aqua_array_new(rt, 0);
-    if (!n->text || !YGNodeHasMeasureFunc(n->yg) || n->measure) { aqua_return(call, list); return; }
-    float left = YGNodeLayoutGetPadding(n->yg, YGEdgeLeft) + YGNodeLayoutGetBorder(n->yg, YGEdgeLeft);
-    float top = YGNodeLayoutGetPadding(n->yg, YGEdgeTop) + YGNodeLayoutGetBorder(n->yg, YGEdgeTop);
-    float inner = YGNodeLayoutGetWidth(n->yg) - left - YGNodeLayoutGetPadding(n->yg, YGEdgeRight) - YGNodeLayoutGetBorder(n->yg, YGEdgeRight);
-    layout_text(n, inner, !std::isnan(inner));
+    TextFrame f;
+    if (!text_frame(n, &f)) { aqua_return(call, list); return; }
     Text &t = *n->text;
-    float lh = line_height(t);
     for (size_t i = 0; i < t.lines.size(); i++) {
         const TextLine &line = t.lines[i];
-        float x = left + (t.resolved.align == ALIGN_CENTER ? (inner - line.width) / 2 : t.resolved.align == ALIGN_END ? inner - line.width : 0);
-        float y = top + (float)i * lh + (lh - t.ascent - t.descent) / 2;
+        float x = line_x(t, f, i), y = line_top(t, f, i);
         aqua_value h = aqua_hash_new(rt, 6);
         aqua_hash_set_field(rt, h, "text", aqua_text(rt, line.text.data(), line.text.size()));
         aqua_hash_set_field(rt, h, "x", aqua_double(x));
@@ -284,6 +296,122 @@ static void node_text_lines(aqua_call *call) {
         aqua_array_push(rt, list, h);
     }
     aqua_return(call, list);
+}
+
+/* ---- Caret positions: what text widgets need to place a caret and a selection, and to turn a click into a position.
+ * Positions are UTF-16 offsets into the node's text, the language's string positions. */
+
+/* Where each laid-out line starts in the content, in bytes. Lines are the content in order, each wrapped line keeping
+   its trailing spaces and paragraphs separated by a newline; an ellipsized last line starts where its text would. */
+static std::vector<size_t> line_starts(const Text &t) {
+    std::vector<size_t> starts;
+    const std::string &c = t.content;
+    size_t pos = 0;
+    for (size_t i = 0; i < t.lines.size(); i++) {
+        if (i > 0) {
+            while (pos < c.size() && (c[pos] == ' ' || c[pos] == '\t')) pos++;
+            if (pos < c.size() && c[pos] == '\n') pos++;
+        }
+        starts.push_back(pos);
+        const std::string &text = t.lines[i].text;
+        if (c.compare(pos, text.size(), text) == 0) pos += text.size();
+    }
+    return starts;
+}
+/* Where line i ends (before its paragraph's newline). */
+static size_t line_end(const Text &t, const std::vector<size_t> &starts, size_t i) {
+    if (i + 1 >= starts.size()) return t.content.size();
+    size_t end = starts[i + 1];
+    if (end > 0 && t.content[end - 1] == '\n') end--;
+    return end;
+}
+static size_t byte_of_utf16(const std::string &s, int64_t position) {
+    size_t i = 0;
+    int64_t units = 0;
+    while (i < s.size() && units < position) {
+        uint32_t c = next_code_point(s, &i);
+        units += c >= 0x10000 ? 2 : 1;
+    }
+    return i;
+}
+static int64_t utf16_of_byte(const std::string &s, size_t byte) {
+    size_t i = 0;
+    int64_t units = 0;
+    while (i < s.size() && i < byte) {
+        uint32_t c = next_code_point(s, &i);
+        units += c >= 0x10000 ? 2 : 1;
+    }
+    return units;
+}
+/* Characters that join the one before them (combining marks, joiners, variation selectors, emoji modifiers): a caret
+   never stops in front of one. */
+static bool joins_previous(uint32_t c) {
+    return (c >= 0x0300 && c <= 0x036F) || (c >= 0x1AB0 && c <= 0x1AFF) || (c >= 0x1DC0 && c <= 0x1DFF) ||
+           (c >= 0x20D0 && c <= 0x20FF) || (c >= 0xFE20 && c <= 0xFE2F) || (c >= 0xFE00 && c <= 0xFE0F) || c == 0x200D ||
+           (c >= 0x1F3FB && c <= 0x1F3FF) || (c >= 0xE0100 && c <= 0xE01EF) || (c >= 0x0E31 && c <= 0x0E3A) ||
+           (c >= 0x0E47 && c <= 0x0E4E) || (c >= 0x0900 && c <= 0x0903) || (c >= 0x093A && c <= 0x094F);
+}
+static size_t line_of(const std::vector<size_t> &starts, size_t byte) {
+    size_t line = 0;
+    for (size_t i = 0; i < starts.size(); i++) if (starts[i] <= byte) line = i;
+    return line;
+}
+
+/* TextCaret(position): the caret's box at a UTF-16 position, relative to the node's box: {x, y, height, line}. The
+   measure uses the node's own resolved font, so the caret sits exactly where the drawn text puts that position. */
+static void node_text_caret(aqua_call *call) {
+    Node *n = self_node(call);
+    if (!n) return;
+    TextFrame f;
+    if (!text_frame(n, &f)) { aqua_return_null(call); return; }
+    Text &t = *n->text;
+    aqua_runtime *rt = aqua_call_runtime(call);
+    std::vector<size_t> starts = line_starts(t);
+    size_t byte = byte_of_utf16(t.content, aqua_arg_int(call, 0));
+    size_t i = starts.empty() ? 0 : line_of(starts, byte);
+    float x = f.left, y = f.top;
+    if (!t.lines.empty()) {
+        size_t from = starts[i], to = std::min(byte, line_end(t, starts, i));
+        x = line_x(t, f, i) + (to > from ? measure_run(n->state, std::string_view(t.content).substr(from, to - from), t.resolved).width : 0);
+        y = f.top + (float)i * f.line_height;
+    }
+    aqua_value h = aqua_hash_new(rt, 4);
+    aqua_hash_set_field(rt, h, "x", aqua_double(x));
+    aqua_hash_set_field(rt, h, "y", aqua_double(y));
+    aqua_hash_set_field(rt, h, "height", aqua_double(f.line_height));
+    aqua_hash_set_field(rt, h, "line", aqua_int((int32_t)i));
+    aqua_return(call, h);
+}
+
+/* TextIndexAt(x, y): the UTF-16 position nearest to a point relative to the node's box (a click places the caret
+   there); points above or below the text go to its first or last line. */
+static void node_text_index_at(aqua_call *call) {
+    Node *n = self_node(call);
+    if (!n) return;
+    TextFrame f;
+    if (!text_frame(n, &f) || n->text->lines.empty()) { aqua_return_int(call, 0); return; }
+    Text &t = *n->text;
+    std::vector<size_t> starts = line_starts(t);
+    double x = aqua_arg_number(call, 0), y = aqua_arg_number(call, 1);
+    int64_t row = f.line_height > 0 ? (int64_t)std::floor((y - f.top) / f.line_height) : 0;
+    size_t i = (size_t)std::clamp<int64_t>(row, 0, (int64_t)t.lines.size() - 1);
+    size_t from = starts[i], end = line_end(t, starts, i);
+    std::string_view content = t.content;
+    double origin = line_x(t, f, i), best_distance = std::fabs(x - origin);
+    size_t best = from;
+    for (size_t k = from; k < end;) {
+        next_code_point(content, &k);
+        while (k < end) {
+            size_t peek = k;
+            if (!joins_previous(next_code_point(content, &peek))) break;
+            k = peek;
+        }
+        double edge = origin + measure_run(n->state, content.substr(from, k - from), t.resolved).width;
+        double distance = std::fabs(x - edge);
+        if (distance < best_distance) { best_distance = distance; best = k; }
+        if (edge > x) break;
+    }
+    aqua_return_int(call, (int32_t)utf16_of_byte(t.content, best));
 }
 
 static void module_set_measurer(aqua_call *call) {
@@ -330,6 +458,8 @@ void define_text(aqua_class *module, aqua_class *node) {
     aqua_define_function(node, "SetText|設定文字", node_set_text, "v");
     aqua_define_function(node, "GetText|取得文字", node_get_text, "");
     aqua_define_function(node, "GetTextLines|取得文字行", node_text_lines, "");
+    aqua_define_function(node, "TextCaret|文字游標位置", node_text_caret, "i");
+    aqua_define_function(node, "TextIndexAt|文字位置於", node_text_index_at, "nn");
 }
 
 }  // namespace saturn

@@ -4,6 +4,7 @@
  * create/update/destroy requests of its font atlas textures (ImGuiBackendFlags_RendererHasTextures), so any renderer
  * draws it without knowing ImGui. Input comes from Interaction events (Feed) or the Add* calls. */
 #include "binding.h"
+#include <aqua/window.h>
 #include "imgui_internal.h"
 
 #include <algorithm>
@@ -291,6 +292,10 @@ static Context *self_context(aqua_call *call) {
     return c;
 }
 
+static void apply_conventions(aqua_runtime *rt, aqua_value conventions);
+
+/* The clipboard: the handlers SetClipboardHandlers gave, else the system's (the window system's plain text), so copy
+   and paste in text fields reach other applications without any setup. */
 static const char *clipboard_get(ImGuiContext *imgui) {
     auto *c = static_cast<Context *>(imgui->IO.UserData);
     if (c->clipboard_get) {
@@ -300,6 +305,9 @@ static const char *clipboard_get(ImGuiContext *imgui) {
             c->clipboard = text;
             aqua_free(text);
         }
+    } else if (char *text = aqua_clipboard_text(c->rt)) {
+        c->clipboard = text;
+        aqua_free(text);
     }
     return c->clipboard.c_str();
 }
@@ -309,6 +317,8 @@ static void clipboard_set(ImGuiContext *imgui, const char *text) {
     if (c->clipboard_set) {
         aqua_value argument = aqua_cstring(c->rt, text), result;
         aqua_invoke(c->rt, aqua_ref_value(c->rt, c->clipboard_set), &argument, 1, &result);
+    } else {
+        aqua_clipboard_set_text(c->rt, text);
     }
 }
 static void ime_data(ImGuiContext *imgui, ImGuiViewport *, ImGuiPlatformImeData *data) {
@@ -348,6 +358,7 @@ static void module_create_context(aqua_call *call) {
         aqua_value options = aqua_arg(call, 0), v;
         if (aqua_hash_field(rt, options, "docking", &v) && v.type == AQUA_BOOL && v.number == 0) io.ConfigFlags &= ~ImGuiConfigFlags_DockingEnable;
         if (aqua_hash_field(rt, options, "keyboard", &v) && v.type == AQUA_BOOL && v.number == 0) io.ConfigFlags &= ~ImGuiConfigFlags_NavEnableKeyboard;
+        if (aqua_hash_field(rt, options, "conventions", &v) && !aqua_is_nullish(v)) apply_conventions(rt, v);
         if (aqua_hash_field(rt, options, "theme", &v) && v.type == AQUA_STRING) {
             char *theme = aqua_text_dup(rt, v, nullptr);
             if (!strcmp(theme, "light")) ImGui::StyleColorsLight(); else if (!strcmp(theme, "classic")) ImGui::StyleColorsClassic();
@@ -550,6 +561,12 @@ static void ctx_feed(aqua_call *call) {
     bool pointer = t == "move" || t == "press" || t == "release" || t == "drag" || t == "dragStart" || t == "dragEnd" || t == "click" ||
                    t == "pointer" || t == "button" || t == "longPress" || t == "contextMenu";
     if (pointer && !std::isnan(x) && !std::isnan(y)) io.AddMousePosEvent((float)x, (float)y);
+    /* The first Interaction event brings the platform's conventions (double-click time, caret blinking, Mac editing). */
+    if (!c->conventions_known && event.type == AQUA_NATIVE) {
+        aqua_value conventions = aqua_object_member(rt, event, "conventions");
+        if (!aqua_is_nullish(conventions) && conventions.type != AQUA_ERROR) apply_conventions(rt, conventions);
+        c->conventions_known = true;
+    }
     aqua_value mods = field(rt, event, "modifiers");
     if (aqua_is_nullish(mods)) mods = field(rt, event, "mods");
     if (aqua_is_numeric(mods)) apply_mods((int)aqua_number_of(mods));
@@ -569,9 +586,13 @@ static void ctx_feed(aqua_call *call) {
     } else if (pointer) {
         wanted = io.WantCaptureMouse;
     } else if (t == "key") {
-        int action = (int)number(field(rt, event, "action"), 1);
+        /* Interaction names the action ("press", "repeat", "release"); raw window events number it (0 is release). */
+        aqua_value action = field(rt, event, "action");
+        bool down = true;
+        if (action.type == AQUA_STRING) { char *a = aqua_text_dup(rt, action, nullptr); down = strcmp(a, "release") != 0; aqua_free(a); }
+        else down = number(action, 1) != 0;
         ImGuiKey key = key_of_glfw((int)number(field(rt, event, "key"), -1));
-        if (key != ImGuiKey_None) io.AddKeyEvent(key, action != 0);
+        if (key != ImGuiKey_None) io.AddKeyEvent(key, down);
         wanted = io.WantCaptureKeyboard;
     } else if (t == "text") {
         aqua_value text = field(rt, event, "text");
@@ -622,6 +643,28 @@ static void ctx_ime_rect(aqua_call *call) {
     double r[3] = {c->ime_x, c->ime_y, c->ime_height};
     aqua_return(call, aqua_array_from_f64(c->rt, r, 3, AQUA_DOUBLE));
 }
+/* UseConventions(conventions): the platform's rules from Interaction.Conventions() (SaturnUI's ImGuiLayer passes them):
+   double-click time, drag threshold, caret blinking (0 turns it off) and, where the shortcut key is Command, the Mac's
+   text editing (Option moves by words, Command by lines and to the ends, Command shortcuts). */
+static void apply_conventions(aqua_runtime *rt, aqua_value conventions) {
+    ImGuiIO &io = ImGui::GetIO();
+    aqua_value v = field(rt, conventions, "doubleClickTime");
+    if (aqua_is_numeric(v) && aqua_number_of(v) > 0) {
+        io.MouseDoubleClickTime = (float)(aqua_number_of(v) / 1000.0);
+        io.MouseSingleClickDelay = io.MouseDoubleClickTime * 2;
+    }
+    v = field(rt, conventions, "dragThreshold");
+    if (aqua_is_numeric(v) && aqua_number_of(v) > 0) io.MouseDragThreshold = (float)aqua_number_of(v);
+    v = field(rt, conventions, "caretBlinkTime");
+    if (aqua_is_numeric(v)) io.ConfigInputTextCursorBlink = aqua_number_of(v) > 0;
+    v = field(rt, conventions, "primaryModifier");
+    if (v.type == AQUA_STRING) { char *m = aqua_text_dup(rt, v, nullptr); io.ConfigMacOSXBehaviors = strcmp(m, "Cmd") == 0; aqua_free(m); }
+}
+static void ctx_use_conventions(aqua_call *call) {
+    Context *c = self_context(call);
+    if (c) { apply_conventions(c->rt, aqua_arg(call, 0)); c->conventions_known = true; }
+}
+
 static void ctx_set_clipboard(aqua_call *call) {
     Context *c = self_context(call);
     if (!c) return;
@@ -751,6 +794,7 @@ AQUA_LIBRARY(imgui) {
     aqua_define_function(c, "AddFont|加入字型", ctx_add_font, "vn|b");
     aqua_define_function(c, "AddDefaultFont|加入預設字型", ctx_add_default_font, "|n");
     aqua_define_function(c, "SetClipboardHandlers|設定剪貼簿", ctx_set_clipboard, "|vv");
+    aqua_define_function(c, "UseConventions|使用慣例", ctx_use_conventions, "v");
     aqua_define_function(c, "ImeRect|輸入法位置", ctx_ime_rect, "");
     aqua_define_function(c, "HitTest|命中測試", ctx_hit_test, "nn");
     aqua_define_property(c, "WantCaptureMouse|需要滑鼠", ctx_want_mouse);

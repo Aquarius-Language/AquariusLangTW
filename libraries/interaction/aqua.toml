@@ -29,3 +29,7 @@ source = "aqua/Focus.aqua"
 [[modules]]
 names = "HitTest|命中測試"
 source = "aqua/HitTest.aqua"
+
+[[modules]]
+names = "TextEditing|文字編輯"
+source = "aqua/TextEditing.aqua"

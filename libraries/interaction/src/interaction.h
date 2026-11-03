@@ -25,6 +25,7 @@ typedef struct conventions {
 /* A semantic event. Absent numbers are NaN, absent integers INT32_MIN, absent strings NULL. */
 typedef struct ievent {
     const char *type, *source, *command, *pointer_type, *action, *phase;
+    const char *edit;             /* key events: the editing action in editable text (editing.def), or NULL */
     char text[512];               /* a key's name, or typed / composed text */
     double time, x, y, start_x, start_y, dx, dy, velocity_x, velocity_y, scale, width, height;
     int32_t button, count, pointer_id, modifiers, key, state, cursor;   /* cursor: the caret in composed text */
@@ -67,6 +68,8 @@ ievent event_new(const char *type, double time);
 const char *command_of(const conventions *c, int32_t key, int32_t modifiers);
 /* "Ctrl+Shift+Z", "⇧⌘Z": the first shortcut of a command on this platform, written into `out`. */
 bool command_label(const conventions *c, const char *command, char *out, size_t size);
+/* The editing action of a key in editable text (moves, deletes, clipboard, history; editing.def), or NULL. */
+const char *edit_of(const conventions *c, int32_t key, int32_t modifiers);
 
 /* ---- The per-OS layer: src/platform/<os>.c ---- */
 void platform_conventions(conventions *c);

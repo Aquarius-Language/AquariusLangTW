@@ -1,0 +1,68 @@
+edit 263 wordLeft
+edit 262 wordRight
+edit 268 lineStart
+edit 269 documentEnd
+edit 259 deleteWordBackward
+edit 261 deleteForward
+edit 260 paste
+edit 65 selectAll
+edit 65 null
+EditAction redo redo down cut null
+start [hello brave new_world, ok] 25 25
+word left [hello brave new_world, ok] 23 23
+word left [hello brave new_world, ok] 21 21
+word left [hello brave new_world, ok] 12 12
+extend word left [hello brave new_world, ok] 12 6
+right collapses [hello brave new_world, ok] 12 12
+shift home [hello brave new_world, ok] 12 0
+end [hello brave new_world, ok] 25 25
+ctrl backspace [hello brave new_world, ] 23 23
+ctrl backspace [hello brave new_world] 21 21
+ctrl delete [brave new_world] 0 0
+type over all [Typed over] 10 10
+undo groups typing [Typed over] 10 10
+undo the replace [brave new_world] 0 15
+redo [Typed over] 10 10
+can't copy a password 假
+cluster stops [1, 9, 11, 12, 12] 12
+backspace clusters [a👨‍👩‍👧] 9 9
+snap inside a pair 0
+cjk words [4, 5, 8, 10] [0, 4]
+max length [abcde] 5 5
+enter submits 真 abcde
+overwrite [Xbcd] 1 1
+composing [Xㄒㄧbcd, 2, 1, 3] 真 1
+committed [X星cd] 2 2
+single line flattens [onetwo three] 12 12
+down keeps x [first line
+second
+third line here] 17 17
+down again [first line
+second
+third line here] 26 26
+down at the end [first line
+second
+third line here] 33 33
+home [first line
+second
+third line here] 18 18
+enter [first line
+second
+
+third line here] 19 19
+double click word [first line
+second
+
+third line here] 0 5
+drag by words [first line
+second
+
+third line here] 0 17
+triple click line [first line
+second
+
+third line here] 18 18
+shift click [first line
+second
+
+third line here] 2 16

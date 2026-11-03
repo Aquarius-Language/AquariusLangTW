@@ -39,7 +39,7 @@ struct Switch { value; onChanged; label; disabled; key }
 struct Radio { value; group; onChanged; label; disabled; key }
 struct Slider { value = 0; min = 0; max = 1; step; onChanged; width = 200; disabled = false; key }
 struct ProgressBar { value = 0; width = 200; key }
-struct TextField { value = ""; onChanged; onSubmit; placeholder; obscure = false; width = 220; disabled = false; style; class; key }
+struct TextField { value = ""; onChanged; onSubmit; placeholder; obscure = false; multiline = false; maxLength; readOnly = false; autofocus = false; width = 220; disabled = false; style; class; key }
 struct Dropdown { value; options = []; onChanged; width = 200; key }
 struct Tabs { labels = []; index = 0; onChanged; key }
 struct Dialog { open = false; title; content; actions = []; onDismiss; width = 360; key }
@@ -87,7 +87,7 @@ struct SaturnSurface {
     Frame; Paint; Feed; Wants; Resize; SetRoot; SetTheme; Rebuild; Cursor; NeedsFrame; ImeRect; HasPopup; Dispose
 }
 struct DropdownMenu { owner; options; value; key }
-struct MenuPopup { owner; key }
+struct MenuPopup { owner; items; at; key }
 struct TooltipBubble { text; owner; key }
 
 # ---- Themes and style sheets --------------------------------------------------------------------------------------
@@ -155,6 +155,7 @@ var ThemeSheet = function(t) {
         "TextField:hover": {"borderColor": t.muted},
         "TextField:focused": {"borderColor": t.primary, "shadow": {"spread": 2, "color": t.primarySoft}},
         "TextField:disabled": {"opacity": 0.5d},
+        "TextField.multiline": {"height": "auto", "minHeight": 72, "paddingVertical": 8, "justifyContent": "flex-start"},
         "Placeholder": {"color": t.muted},
         "Checkbox": {"flexDirection": "row", "alignItems": "center", "gap": 8, "cursor": "pointer"},
         "CheckboxBox": {"width": 18, "height": 18, "borderRadius": 5, "borderWidth": 2, "borderColor": t.muted,
@@ -908,72 +909,6 @@ kinds["Tabs"] = {"update": function(e, w) {
     }
 }};
 
-# Text fields: the caret is drawn after the text; typing, Backspace, Delete, arrows, Home, End and Enter edit it.
-var TextInput = null;
-kinds["TextField"] = {"update": function(e, w) {
-    e.data["disabled"] = w.disabled == true;
-    e.data["focused"] = e.surface.focus == e;
-    if (Hash.Get(e.data, "caret", null) == null) { e.data["caret"] = len(pick(w.value, "")); }
-    restyle(e, {"width": w.width}, selectorsOf("TextField", null, w.class), w.style);
-    var value = pick(w.value, "");
-    var shown = value;
-    if (w.obscure == true) { shown = String.Repeat("•", len(value)); }
-    var label = if (len(value) == 0 && w.placeholder != null) { Text(text: w.placeholder, class: "Placeholder", key: "text", style: {"whiteSpace": "nowrap"}); }
-        else { Text(text: shown, key: "text", style: {"whiteSpace": "nowrap"}); };
-    reconcile(e, [label]);
-    e.data["caret"] = clamp(e.data["caret"], 0, len(value));
-    e.node.SetPainter(function(p, width, height) {
-        if (e.surface.focus != e) { return null; }
-        var blink = int(e.surface.time / 530) % 2 == 0;
-        if (!blink) { return null; }
-        var text = e.children[0];
-        var before = String.Slice(shown, 0, clamp(e.data["caret"], 0, len(shown)));
-        var x = text.node.GetComputedLeft() + Saturn.MeasureText(before, e.surface.fontOf(e))["width"];
-        if (len(value) == 0) { x = text.node.GetComputedLeft(); }
-        p.Rect(x, height * 0.22d, 1.5d, height * 0.56d, e.surface.textColor(e));
-    });
-}, "focusable": true,
-"tap": function(e, event) {
-    e.surface.focus = e;
-    # Caret to the nearest character boundary.
-    var text = e.children[0];
-    var value = pick(e.widget.value, "");
-    var x = event["x"] - e.node.GetAbsoluteLayout()["x"] - text.node.GetComputedLeft();
-    var font = e.surface.fontOf(e);
-    var best = len(value);
-    for (var i = 0; i <= len(value); i++) {
-        if (Saturn.MeasureText(String.Slice(value, 0, i), font)["width"] >= x) { best = i; break; }
-    }
-    e.data["caret"] = best;
-},
-"text": function(e, text) {
-    var w = e.widget;
-    if (w.onChanged == null || w.disabled == true) { return null; }
-    var value = pick(w.value, "");
-    var at = e.data["caret"];
-    w.onChanged(String.Slice(value, 0, at) + text + String.Slice(value, at, len(value)));
-    e.data["caret"] = at + len(text);
-},
-"key": function(e, key) {
-    var w = e.widget;
-    var value = pick(w.value, "");
-    var at = e.data["caret"];
-    if (key == 259 && at > 0 && w.onChanged != null) {          # Backspace
-        if (TextInput == null) { TextInput = import("TextInput"); }
-        var head = TextInput.Backspace(String.Slice(value, 0, at));
-        w.onChanged(head + String.Slice(value, at, len(value)));
-        e.data["caret"] = len(head);
-    } elif (key == 261 && at < len(value) && w.onChanged != null) {   # Delete
-        w.onChanged(String.Slice(value, 0, at) + String.Slice(value, at + 1, len(value)));
-    } elif (key == 263) { e.data["caret"] = clamp(at - 1, 0, len(value)); }     # Left
-    elif (key == 262) { e.data["caret"] = clamp(at + 1, 0, len(value)); }      # Right
-    elif (key == 268) { e.data["caret"] = 0; }                                  # Home
-    elif (key == 269) { e.data["caret"] = len(value); }                         # End
-    elif (key == 257 || key == 335) { if (w.onSubmit != null) { w.onSubmit(value); } }   # Enter
-    else { return false; }
-    return true;
-}};
-
 # Overlays: dropdown menus, dialogs and tooltips live above the tree, in the surface's overlay layer.
 
 # Popups: an open Dropdown or MenuBar is the surface's popup, and it is modal the way native menus are: a press
@@ -1039,20 +974,62 @@ kinds["DropdownMenu"] = {"overlay": true, "update": function(e, w) {
     if (chosen != null && owner.widget.onChanged != null) { owner.widget.onChanged(e.widget.options[chosen]); }
 }};
 
-# Menu bars. The bar keeps which menu is open ("open", -1 for none) and the highlighted item ("active", -1 for none;
-# the pointer and the arrow keys move the same highlight).
-var menuTitleAt = function(bar, path) {
-    for (var i = 0; i < len(path); i++) { if (path[i].parent == bar && path[i].type == "Box") { return path[i].data["menu"]; } }
-    return null;
-};
-var menuItemAt = function(bar, path) {
+# Menus. A popup menu (MenuPopup) belongs to an owner element: a MenuBar (under its open title) or a text field (its
+# context menu, at the pointer). The owner keeps the items shown ("menuItems") and the highlighted one ("active", -1 for
+# none; the pointer and the arrow keys move the same highlight).
+var menuItemAt = function(owner, path) {
     for (var i = 0; i < len(path); i++) {
         var parent = path[i].parent;
-        if (parent != null && parent.type == "MenuPopup" && parent.widget.owner == bar) { return path[i].data["item"]; }
+        if (parent != null && parent.type == "MenuPopup" && parent.widget.owner == owner) { return path[i].data["item"]; }
     }
     return null;
 };
 var menuItemUsable = function(item) { return typeOf(item) == "MenuItem" && item.disabled != true; };
+var chooseMenuItem = function(owner, item) {
+    closePopup(owner.surface);
+    if (item.onSelect != null) { item.onSelect(); }
+};
+# Pointer moves over a popup menu highlight the item under the pointer.
+var menuHover = function(owner, path) {
+    var item = menuItemAt(owner, path);
+    if (item == null) { return null; }
+    var items = owner.data["menuItems"];
+    owner.data["active"] = if (menuItemUsable(items[item])) { item; } else { -1; };
+};
+# A release over a usable item chooses it.
+var menuRelease = function(owner, path) {
+    var item = menuItemAt(owner, path);
+    if (item == null) { return null; }
+    var items = owner.data["menuItems"];
+    if (menuItemUsable(items[item])) { chooseMenuItem(owner, items[item]); }
+};
+# Up and Down move the highlight over the usable items (around the ends); Enter and Space choose.
+var menuKey = function(owner, key) {
+    var items = owner.data["menuItems"];
+    var active = Hash.Get(owner.data, "active", -1);
+    if (key == 264 || key == 265) {
+        var step = if (key == 264) { 1; } else { -1; };
+        var n = len(items);
+        var at = active;
+        if (at < 0 && step < 0) { at = n; }
+        for (var k = 1; k <= n; k++) {
+            var i = ((at + step * k) % n + n) % n;
+            if (menuItemUsable(items[i])) { owner.data["active"] = i; break; }
+        }
+        return true;
+    }
+    if (key == 257 || key == 335 || key == 32) {
+        if (active >= 0 && active < len(items) && menuItemUsable(items[active])) { chooseMenuItem(owner, items[active]); }
+        return true;
+    }
+    return false;
+};
+
+# Menu bars: the bar keeps which menu is open ("open", -1 for none).
+var menuTitleAt = function(bar, path) {
+    for (var i = 0; i < len(path); i++) { if (path[i].parent == bar && path[i].type == "Box") { return path[i].data["menu"]; } }
+    return null;
+};
 var openMenu = function(bar, index) {
     bar.data["open"] = index;
     bar.data["active"] = -1;
@@ -1067,10 +1044,6 @@ var nextMenu = function(menus, from, step) {
     }
     return from;
 };
-var chooseMenuItem = function(bar, item) {
-    closePopup(bar.surface);
-    if (item.onSelect != null) { item.onSelect(); }
-};
 kinds["MenuBar"] = {"update": function(e, w) {
     restyle(e, {}, selectorsOf("MenuBar", null, w.class), w.style);
     var menus = w.menus;
@@ -1078,7 +1051,10 @@ kinds["MenuBar"] = {"update": function(e, w) {
     if (open >= len(menus)) { open = -1; e.data["open"] = -1; }
     var children = [];
     for (var i = 0; i < len(menus); i++) { Array.Append(children, Box(class: "MenuBarTitle", key: "menu" + String.From(i), child: Text(text: menus[i].label))); }
-    if (open >= 0) { Array.Append(children, MenuPopup(owner: e, key: "popup")); }
+    if (open >= 0) {
+        e.data["menuItems"] = menus[open].items;
+        Array.Append(children, MenuPopup(owner: e, items: menus[open].items, key: "popup"));
+    }
     reconcile(e, children);
     for (var i = 0; i < len(menus); i++) {
         var title = e.children[i];
@@ -1097,47 +1073,26 @@ kinds["MenuBar"] = {"update": function(e, w) {
     # Moving over another title opens its menu; moving over an item highlights it.
     var i = menuTitleAt(e, path);
     if (i != null && i != Hash.Get(e.data, "open", -1) && e.widget.menus[i].disabled != true) { openMenu(e, i); }
-    var item = menuItemAt(e, path);
-    if (item != null) {
-        var menu = e.widget.menus[e.data["open"]];
-        e.data["active"] = if (menuItemUsable(menu.items[item])) { item; } else { -1; };
-    }
-}, "popupRelease": function(e, path, event) {
-    var item = menuItemAt(e, path);
-    if (item == null) { return null; }
-    var menu = e.widget.menus[e.data["open"]];
-    if (menuItemUsable(menu.items[item])) { chooseMenuItem(e, menu.items[item]); }
-}, "popupKey": function(e, key) {
+    menuHover(e, path);
+}, "popupRelease": function(e, path, event) { menuRelease(e, path); },
+"popupKey": function(e, key) {
     var menus = e.widget.menus;
-    var open = e.data["open"];
-    var items = menus[open].items;
-    var active = Hash.Get(e.data, "active", -1);
-    if (key == 263) { openMenu(e, nextMenu(menus, open, -1)); }        # Left
-    elif (key == 262) { openMenu(e, nextMenu(menus, open, 1)); }       # Right
-    elif (key == 264 || key == 265) {                                  # Down, Up: the next usable item, around the ends
-        var step = if (key == 264) { 1; } else { -1; };
-        var n = len(items);
-        var at = active;
-        if (at < 0 && step < 0) { at = n; }
-        for (var k = 1; k <= n; k++) {
-            var i = ((at + step * k) % n + n) % n;
-            if (menuItemUsable(items[i])) { e.data["active"] = i; break; }
-        }
-    } elif (key == 257 || key == 335 || key == 32) {                   # Enter, Space
-        if (active >= 0 && active < len(items) && menuItemUsable(items[active])) { chooseMenuItem(e, items[active]); }
-    }
+    if (key == 263) { openMenu(e, nextMenu(menus, e.data["open"], -1)); }         # Left
+    elif (key == 262) { openMenu(e, nextMenu(menus, e.data["open"], 1)); }        # Right
+    else { menuKey(e, key); }
 }, "close": function(e) { e.data["open"] = -1; e.data["active"] = -1; }};
+
+# A popup menu: under its anchor (data "anchor", the open title) or at a point (`at`, a context menu).
 kinds["MenuPopup"] = {"overlay": true, "update": function(e, w) {
-    var bar = w.owner;
-    var open = bar.data["open"];
-    var menu = bar.widget.menus[open];
+    var owner = w.owner;
     restyle(e, {"zIndex": 40}, ["MenuPopup"], null);
-    e.data["anchor"] = bar.children[open];
-    e.data["anchorGap"] = 2;
-    var active = Hash.Get(bar.data, "active", -1);
+    if (w.at != null) { e.data["point"] = w.at; e.data["anchor"] = null; }
+    else { e.data["anchor"] = owner.children[owner.data["open"]]; e.data["anchorGap"] = 2; }
+    var active = Hash.Get(owner.data, "active", -1);
+    var items = w.items;
     var rows = [];
-    for (var i = 0; i < len(menu.items); i++) {
-        var item = menu.items[i];
+    for (var i = 0; i < len(items); i++) {
+        var item = items[i];
         if (typeOf(item) == "MenuItem") {
             Array.Append(rows, Box(class: "MenuRow", key: "item" + String.From(i), children: [
                 Box(class: "MenuCheck", key: "check", child: if (item.checked == true) { Icon(name: "check", size: 14); } else { null; }),
@@ -1152,10 +1107,229 @@ kinds["MenuPopup"] = {"overlay": true, "update": function(e, w) {
         var row = e.children[i];
         row.data["item"] = i;
         row.data["selected"] = i == active;
-        row.data["disabled"] = typeOf(menu.items[i]) == "MenuItem" && menu.items[i].disabled == true;
+        row.data["disabled"] = typeOf(items[i]) == "MenuItem" && items[i].disabled == true;
         update(row, row.widget);
     }
 }};
+
+# Text fields. The editing rules are the Interaction library's TextEditing (the platforms' keys, words, clusters, undo,
+# clipboard, composition, pointer selection), so every rule lives in one place; this draws it. The caret and the
+# selection come from the text node's own layout (Saturn's TextCaret and TextIndexAt measure with the font the field
+# really uses), a single-line field scrolls sideways to keep the caret in view, the caret blinks at the platform's rate
+# (solid while typing) and a right click opens Cut, Copy, Paste and Select all.
+var TextEditing = null;
+var editorOf = function(e) {
+    var w = e.widget;
+    if (TextEditing == null) { TextEditing = import("TextEditing"); }
+    if (e.state == null) {
+        e.state = TextEditing.Create(pick(w.value, ""), {"multiline": w.multiline == true});
+        e.data["scrollX"] = 0;
+        e.data["activity"] = 0;
+        e.data["value"] = pick(w.value, "");
+    }
+    return e.state;
+};
+# The widget's settings onto the editor. The text follows `value` only when the application changed it: a widget built
+# before the application took the latest edits (events arrive faster than frames) never undoes them.
+var syncEditor = function(e, w) {
+    var ed = editorOf(e);
+    ed.multiline = w.multiline == true;
+    ed.maxLength = w.maxLength;
+    ed.readOnly = w.readOnly == true || w.onChanged == null || w.disabled == true;
+    ed.obscure = w.obscure == true;
+    var value = pick(w.value, "");
+    var reported = Hash.Get(e.data, "reported", []);
+    if (len(reported) > 0 && value == reported[len(reported) - 1]) { e.data["reported"] = []; }
+    elif (!Array.Contains(reported, value) && value != e.data["value"]) {
+        e.data["reported"] = [];
+        TextEditing.SetText(ed, value);
+    }
+    e.data["value"] = value;
+    return ed;
+};
+# The text node of a field (its first child) and the editor's view of it, in that node's coordinates.
+var fieldText = function(e) { return e.children[0]; };
+var fieldLayout = function(e) {
+    var ed = e.state;
+    var node = fieldText(e).node;
+    var composing = if (ed.composition == null) { 0; } else { len(ed.composition); };
+    var shown = function(i) { if (composing > 0 && i > ed.caret) { return i + composing; } return i; };
+    return {
+        "caretAt": function(i) { return node.TextCaret(shown(i)); },
+        "indexAt": function(x, y) {
+            var d = node.TextIndexAt(x, y);
+            if (composing > 0 && d > ed.caret) { return Processing_max(ed.caret, d - composing); }
+            return d;
+        },
+        "page": e.node.GetComputedHeight()};
+};
+# An event's point in the text node's coordinates (the node scrolls by scrollX).
+var fieldPoint = function(e, ev) {
+    var box = fieldText(e).node.GetAbsoluteLayout();
+    var copy = Hash.Clone(ev);
+    copy["x"] = ev["x"] - box["x"] + Hash.Get(e.data, "scrollX", 0);
+    copy["y"] = ev["y"] - box["y"];
+    return copy;
+};
+# After an edit: tell the application, submit on Enter, keep the caret solid.
+var fieldEdited = function(e) {
+    var ed = e.state;
+    var w = e.widget;
+    e.data["activity"] = e.surface.time;
+    # The field shows the edit at once (its text node), whatever the rebuild waits for.
+    if (len(e.children) > 0 && len(ed.text) > 0) { fieldText(e).node.SetText(TextEditing.Display(ed)[0]); }
+    if (ed.changed) {
+        ed.changed = false;
+        # Values reported but not yet seen back: a widget built before the application took them is not a change.
+        var reported = Hash.Get(e.data, "reported", []);
+        Array.Append(reported, ed.text);
+        if (len(reported) > 64) { Array.Delete(reported, 0, 1); }
+        e.data["reported"] = reported;
+        if (w.onChanged != null) { w.onChanged(ed.text); }
+    }
+    if (ed.submitted) { ed.submitted = false; if (w.onSubmit != null) { w.onSubmit(ed.text); } }
+    e.surface.dirty = true;
+};
+var fieldMenu = function(e, x, y) {
+    var ed = e.state;
+    if (Interaction == null) { Interaction = import("Interaction"); }
+    var act = function(action) { return function() { TextEditing.Do(ed, action, false, fieldLayout(e)); fieldEdited(e); }; };
+    var selected = TextEditing.HasSelection(ed);
+    e.data["menuItems"] = [
+        MenuItem(label: "Undo", shortcut: Interaction.ShortcutLabel("undo"), onSelect: act("undo"), disabled: ed.readOnly || len(ed.undo) == 0),
+        MenuItem(label: "Redo", shortcut: Interaction.ShortcutLabel("redo"), onSelect: act("redo"), disabled: ed.readOnly || len(ed.redo) == 0),
+        MenuSeparator(),
+        MenuItem(label: "Cut", shortcut: Interaction.ShortcutLabel("cut"), onSelect: act("cut"), disabled: !selected || ed.readOnly || ed.obscure),
+        MenuItem(label: "Copy", shortcut: Interaction.ShortcutLabel("copy"), onSelect: act("copy"), disabled: !selected || ed.obscure),
+        MenuItem(label: "Paste", shortcut: Interaction.ShortcutLabel("paste"), onSelect: act("paste"), disabled: ed.readOnly),
+        MenuItem(label: "Delete", onSelect: act("deleteForward"), disabled: !selected || ed.readOnly),
+        MenuSeparator(),
+        MenuItem(label: "Select all", shortcut: Interaction.ShortcutLabel("selectAll"), onSelect: act("selectAll"), disabled: len(ed.text) == 0)];
+    e.data["menuAt"] = [x, y];
+    e.data["menuOpen"] = true;
+    e.data["active"] = -1;
+    openPopup(e);
+};
+var Interaction = null;
+
+kinds["TextField"] = {"update": function(e, w) {
+    e.data["disabled"] = w.disabled == true;
+    e.data["focused"] = e.surface.focus == e;
+    restyle(e, {"width": w.width}, selectorsOf("TextField", if (w.multiline == true) { "multiline"; } else { null; }, w.class), w.style);
+    var ed = syncEditor(e, w);
+    # autofocus: the field takes the keyboard when it appears (a dialog's first field), its text selected to type over.
+    if (w.autofocus == true && Hash.Get(e.data, "autofocused", false) != true && w.disabled != true) {
+        e.data["autofocused"] = true;
+        e.surface.focus = e;
+        e.data["focused"] = true;
+        TextEditing.SelectAll(ed);
+    }
+    var display = TextEditing.Display(ed);
+    var empty = len(display[0]) == 0;
+    var wrap = if (w.multiline == true) { "normal"; } else { "nowrap"; };
+    # The text node sizes to its text (a single line may be wider than the field: it scrolls); a placeholder shows
+    # while the field is empty.
+    var text = Text(text: if (empty) { pick(w.placeholder, ""); } else { display[0]; }, key: "text",
+        class: if (empty) { "Placeholder"; } else { null; },
+        style: {"whiteSpace": wrap, "alignSelf": if (w.multiline == true) { "stretch"; } else { "flex-start"; }, "flexShrink": 0});
+    var children = [text];
+    if (Hash.Get(e.data, "menuOpen", false) == true) {
+        Array.Append(children, MenuPopup(owner: e, items: e.data["menuItems"], at: e.data["menuAt"], key: "menu"));
+    }
+    reconcile(e, children);
+    e.node.SetPainter(function(p, width, height) {
+        var s = e.surface;
+        if (s.focus != e || e.state == null || len(e.children) == 0) { return null; }
+        var editor = e.state;
+        var node = fieldText(e).node;
+        var ox = node.GetComputedLeft() - Hash.Get(e.data, "scrollX", 0);
+        var oy = node.GetComputedTop();
+        var shown = TextEditing.Display(editor);
+        var lay = fieldLayout(e);
+        if (TextEditing.HasSelection(editor) && editor.composition == null) {
+            # The selection, line by line.
+            var from = lay["caretAt"](TextEditing.SelectionStart(editor));
+            var to = lay["caretAt"](TextEditing.SelectionEnd(editor));
+            var lines = node.GetTextLines();
+            var color = s.theme.primarySoft;
+            for (var line = from["line"]; line <= to["line"]; line++) {
+                var x0 = if (line == from["line"]) { from["x"]; } else { lines[line]["x"]; };
+                var x1 = if (line == to["line"]) { to["x"]; } else { lines[line]["x"] + lines[line]["width"] + 4; };
+                var y = if (line == from["line"]) { from["y"]; } else { from["y"] + (line - from["line"]) * from["height"]; };
+                if (x1 > x0) { p.Rect(ox + x0, oy + y, x1 - x0, from["height"], color); }
+            }
+        }
+        if (editor.composition != null) {
+            # The composition in progress, underlined.
+            var a = node.TextCaret(shown[2]);
+            var b = node.TextCaret(shown[3]);
+            p.Rect(ox + a["x"], oy + a["y"] + a["height"] - 2, b["x"] - a["x"], 1.5d, s.textColor(e));
+        }
+        # The caret: solid for a moment after each change, then blinking at the platform's rate (0: never blinks).
+        var blink = Hash.Get(conventionsOf(s), "caretBlinkTime", 530);
+        var idle = s.time - Hash.Get(e.data, "activity", 0);
+        var visible = blink <= 0 || idle < blink || int(idle / blink) % 2 == 1;
+        if (visible) {
+            var caret = node.TextCaret(shown[1]);
+            var thickness = if (editor.overwrite) { 6; } else { 1.5d; };
+            p.Rect(ox + caret["x"], oy + caret["y"] + 2, thickness, caret["height"] - 4, s.textColor(e));
+        }
+    });
+}, "focusable": true,
+# A press places the caret (Shift extends, a double press selects a word, a triple press all), and the field holds the
+# pointer so dragging selects. A right press opens the context menu.
+"press": function(e, event, path) {
+    var s = e.surface;
+    if (e.widget.disabled == true) { return true; }
+    if (menuItemAt(e, path) != null) { return false; }
+    if (s.focus != e) { s.focus = e; }
+    var ed = editorOf(e);
+    TextEditing.Handle(ed, fieldPoint(e, event), fieldLayout(e));
+    e.data["activity"] = s.time;
+    if (pick(event["button"], 0) == 0) { s.captured = e; }
+    if (pick(event["button"], 0) == 1) { fieldMenu(e, event["x"], event["y"]); }
+    s.dirty = true;
+    return true;
+},
+"drag": function(e, event, local) {
+    if (e.state == null || event["x"] == null) { return null; }
+    TextEditing.Handle(e.state, fieldPoint(e, event), fieldLayout(e));
+    e.data["activity"] = e.surface.time;
+},
+"text": function(e, text) {
+    if (TextEditing.Handle(editorOf(e), {"type": "text", "text": text}, fieldLayout(e))) { fieldEdited(e); }
+},
+"composition": function(e, event) {
+    var used = TextEditing.Handle(editorOf(e), event, fieldLayout(e));
+    fieldEdited(e);
+    return used;
+},
+"key": function(e, event) {
+    var used = TextEditing.Handle(editorOf(e), event, fieldLayout(e));
+    if (used) { fieldEdited(e); }
+    return used;
+},
+# After layout: scroll a single-line field so the caret stays in view.
+"layout": function(e) {
+    if (e.state == null || len(e.children) == 0 || e.widget.multiline == true) { return null; }
+    var node = fieldText(e).node;
+    var inner = e.node.GetComputedWidth() - node.GetComputedLeft() * 2;
+    var shown = TextEditing.Display(e.state);
+    var caret = node.TextCaret(shown[1])["x"];
+    var full = node.TextCaret(len(shown[0]))["x"];
+    var scroll = Hash.Get(e.data, "scrollX", 0);
+    if (caret - scroll > inner - 2) { scroll = caret - inner + 2; }
+    if (caret - scroll < 0) { scroll = caret; }
+    scroll = clamp(scroll, 0, Processing_max(0, full - inner + 2));
+    e.data["scrollX"] = scroll;
+    node.SetStyle({"translateX": -scroll});
+},
+# The context menu (popup protocol).
+"popupMove": function(e, path) { menuHover(e, path); },
+"popupRelease": function(e, path, event) { menuRelease(e, path); },
+"popupKey": function(e, key) { menuKey(e, key); },
+"close": function(e) { e.data["menuOpen"] = false; e.data["active"] = -1; }};
+
 kinds["Dialog"] = {"overlay": true, "update": function(e, w) {
     if (w.open != true) { restyle(e, {"display": "none"}, [], null); reconcile(e, []); return null; }
     restyle(e, {"zIndex": 20}, ["Scrim"], null);
@@ -1329,7 +1503,7 @@ var eventOf = function(raw) {
         "dx": raw.dx, "dy": raw.dy, "velocityX": raw.velocityX, "velocityY": raw.velocityY, "scale": raw.scale,
         "width": raw.width, "height": raw.height, "button": raw.button, "count": raw.count, "pointerId": raw.pointerId,
         "pointerType": raw.pointerType, "modifiers": raw.modifiers, "shift": raw.shift, "alt": raw.alt,
-        "primary": raw.primary, "key": raw.key, "text": raw.text, "action": raw.action, "command": raw.command,
+        "primary": raw.primary, "key": raw.key, "text": raw.text, "action": raw.action, "command": raw.command, "edit": raw.edit,
         "source": raw.source, "phase": raw.phase, "state": raw.state, "cursor": raw.cursor};
 };
 
@@ -1405,13 +1579,19 @@ var CreateSurface = function(width, height, root, options) {
         # A popup opens under its anchor (where this frame's layout put it), moved left if it would cross the window's
         # right edge.
         var anchor = Hash.Get(e.data, "anchor", null);
-        if (anchor != null) {
-            var a = anchor.node.GetAbsoluteLayout();
+        var point = Hash.Get(e.data, "point", null);
+        if (anchor != null || point != null) {
+            var a = if (anchor != null) { anchor.node.GetAbsoluteLayout(); } else { {"x": point[0], "y": point[1], "width": 0, "height": 0}; };
             var width = if (Hash.Get(e.data, "matchWidth", false) == true) { a["width"]; } else { e.node.GetComputedWidth(); };
             var place = {"left": Processing_max(4, Processing_min(a["x"], s.width - width - 4)), "top": a["y"] + a["height"] + Hash.Get(e.data, "anchorGap", 2)};
+            # Too low for the window: above the anchor instead.
+            var tall = e.node.GetComputedHeight();
+            if (place["top"] + tall > s.height - 4 && a["y"] - tall - 2 >= 4) { place["top"] = a["y"] - tall - 2; }
             if (Hash.Get(e.data, "matchWidth", false) == true) { place["width"] = width; }
             e.node.SetStyle(place);
         }
+        var kind = kinds[e.type];
+        if (kind != null && kind["layout"] != null) { kind["layout"](e); }
         for (var i = 0; i < len(e.children); i++) { syncScroll(e.children[i]); }
     };
 
@@ -1536,7 +1716,9 @@ var CreateSurface = function(width, height, root, options) {
     s.Feed = function(raw) {
         var ev = eventOf(raw);
         var type = ev["type"];
-        if (s.dirty) { s.Frame(s.time); }
+        # Pointer events hit-test the current layout; keys and text do not wait for a rebuild (typing fast must not
+        # rebuild the whole tree per key: the next frame does it once).
+        if (s.dirty && ev["x"] != null) { s.Frame(s.time); }
         # Interaction's "move" means no button is held (held ones drag): one while something holds the pointer means
         # its release never arrived (it happened outside the window, or another layer took it), so nothing stays stuck
         # to the pointer. (Hand-made events without a pointerType may move while pressed.)
@@ -1723,6 +1905,17 @@ var CreateSurface = function(width, height, root, options) {
             if (kind["text"] != null && ev["text"] != null) { kind["text"](s.focus, ev["text"]); s.dirty = true; return true; }
             return false;
         }
+        if (type == "composition") {
+            if (s.focus == null) { return false; }
+            var kind = kinds[s.focus.type];
+            if (kind != null && kind["composition"] != null) { kind["composition"](s.focus, ev); s.dirty = true; return true; }
+            return false;
+        }
+        if (type == "command") {
+            # Interaction also sends copy, paste, undo... as commands; a focused text field already did them from the keys.
+            if (s.focus != null && s.focus.type == "TextField") { return Array.Contains(["copy", "cut", "paste", "undo", "redo", "selectAll", "delete"], ev["command"]); }
+            return false;
+        }
         if (type == "key") {
             if (released(ev)) { return false; }
             if (s.focus == null) {
@@ -1742,7 +1935,7 @@ var CreateSurface = function(width, height, root, options) {
                 return true;
             }
             var kind = kinds[s.focus.type];
-            if (kind["key"] != null && kind["key"](s.focus, ev["key"]) == true) { s.dirty = true; return true; }
+            if (kind["key"] != null && kind["key"](s.focus, ev) == true) { s.dirty = true; return true; }
             return false;
         }
         return false;
@@ -1758,8 +1951,12 @@ var CreateSurface = function(width, height, root, options) {
             var box = s.focus.node.GetAbsoluteLayout();
             return {"x": box["x"] + rect["x"], "y": box["y"] + rect["y"], "width": rect["width"], "height": rect["height"]};
         }
-        if (s.focus.type != "TextField") { return null; }
-        return s.focus.node.GetAbsoluteLayout();
+        if (s.focus.type != "TextField" || s.focus.state == null || len(s.focus.children) == 0) { return null; }
+        # The caret's box, where the input method's candidates belong.
+        var text = s.focus.children[0].node;
+        var box = text.GetAbsoluteLayout();
+        var caret = text.TextCaret(TextEditing.Display(s.focus.state)[1]);
+        return {"x": box["x"] + caret["x"] - Hash.Get(s.focus.data, "scrollX", 0), "y": box["y"] + caret["y"], "width": 1, "height": caret["height"]};
     };
     s.Dispose = function() { dispose(host); };
     # An open popup or autoscroll takes the whole window, so layers below see no press until it ends.

@@ -1,0 +1,115 @@
+# The editing table and TextEditing: what keys mean in editable text on this platform (Windows, Linux and the web use
+# Control for words and Home/End for lines), and an editor driven by those events: moves, selection, word and cluster
+# boundaries, deletes, undo grouping, typing over a selection, composition, limits, single- and multi-line rules.
+var ix = import("Interaction");
+var TE = import("TextEditing");
+
+# Key events from a session carry their editing action.
+var s = ix.Create();
+s.On("key", function(e) { if (e.action == "press") { print("edit", e.key, e.edit); } return true; });
+var key = function(code, mods) {
+    s.Feed({"type": "key", "key": code, "action": 1, "mods": mods});
+    s.Feed({"type": "key", "key": code, "action": 0, "mods": mods});
+};
+key(263, 2);       # Ctrl+Left
+key(262, 3);       # Ctrl+Shift+Right
+key(268, 1);       # Shift+Home
+key(269, 2);       # Ctrl+End
+key(259, 2);       # Ctrl+Backspace
+key(261, 0);       # Delete
+key(260, 1);       # Shift+Insert
+key(65, 2);        # Ctrl+A
+key(65, 0);        # A: text, no action
+s.Dispatch();
+print("EditAction", ix.EditAction(90, 3), ix.EditAction(89, 2), ix.EditAction(264, 1), ix.EditAction(261, 1), ix.EditAction(32, 0));
+
+# An editor driven by hash events (as a UI library passes them on).
+var press = function(ed, code, mods) { return TE.Handle(ed, {"type": "key", "key": code, "action": "press", "modifiers": mods}, null); };
+var type = function(ed, text) { return TE.Handle(ed, {"type": "text", "text": text}, null); };
+var show = function(label, ed) { print(label, "[" + ed.text + "]", ed.anchor, ed.caret); };
+
+var ed = TE.Create("hello brave new_world, ok", null);
+show("start", ed);
+press(ed, 263, 2); show("word left", ed);                 # to "ok"
+press(ed, 263, 2); show("word left", ed);                 # to ","
+press(ed, 263, 2); show("word left", ed);                 # to "new_world"
+press(ed, 263, 3); show("extend word left", ed);          # selects "brave "
+press(ed, 262, 0); show("right collapses", ed);
+press(ed, 268, 1); show("shift home", ed);
+press(ed, 269, 0); show("end", ed);
+press(ed, 259, 2); show("ctrl backspace", ed);
+press(ed, 259, 2); show("ctrl backspace", ed);
+press(ed, 268, 0); press(ed, 261, 2); show("ctrl delete", ed);
+press(ed, 65, 2); type(ed, "Typed over"); show("type over all", ed);
+type(ed, "!"); type(ed, "?");
+press(ed, 90, 2); show("undo groups typing", ed);
+press(ed, 90, 2); show("undo the replace", ed);
+press(ed, 89, 2); show("redo", ed);
+print("can't copy a password", TE.Copy(TE.Create("secret", {"obscure": true})));
+
+# Clusters: the caret never stops inside an emoji sequence, a combining mark or a surrogate pair.
+var family = String.FromCode(128104) + String.FromCode(8205) + String.FromCode(128105) + String.FromCode(8205) + String.FromCode(128103);
+var accent = "e" + String.FromCode(769);
+var c = TE.Create("a" + family + accent + "b", null);
+press(c, 268, 0);
+var stops = [];
+for (var i = 0; i < 5; i++) { press(c, 262, 0); Array.Append(stops, c.caret); }
+print("cluster stops", stops, len(c.text));
+press(c, 259, 0); press(c, 259, 0); show("backspace clusters", c);
+print("snap inside a pair", TE.Snap(String.FromCode(128512) + "x", 1));
+
+# CJK and punctuation words.
+var cjk = TE.Create("星泉語言，很好 ok", null);
+press(cjk, 268, 0);
+var words = [];
+for (var i = 0; i < 4; i++) { press(cjk, 262, 2); Array.Append(words, cjk.caret); }
+print("cjk words", words, TE.WordAt(cjk.text, 1));
+
+# Limits, single-line rules, overwrite, composition.
+var f = TE.Create("", {"maxLength": 5});
+type(f, "abc"); type(f, "defgh"); show("max length", f);
+f.submitted = false;
+press(f, 257, 0); print("enter submits", f.submitted, f.text);
+var g = TE.Create("abcd", null);
+press(g, 268, 0); press(g, 260, 0); type(g, "X"); show("overwrite", g);
+TE.Handle(g, {"type": "composition", "phase": "update", "text": "ㄒㄧ", "cursor": 1}, null);
+print("composing", TE.Display(g), press(g, 263, 0), g.caret);
+TE.Handle(g, {"type": "composition", "phase": "end"}, null);
+type(g, "星"); show("committed", g);
+var pasted = TE.Create("one", null);
+TE.Insert(pasted, "two" + String.FromCode(10) + "three"); show("single line flattens", pasted);
+
+# Multi-line with a monospace layout (10 wide, 20 high) for up/down, line ends and pointer selection.
+var m = TE.Create("first line" + String.FromCode(10) + "second" + String.FromCode(10) + "third line here", {"multiline": true});
+var lineStarts = function(text) { var r = [0]; for (var i = 0; i < len(text); i++) { if (String.Code(text, i) == 10) { Array.Append(r, i + 1); } } return r; };
+var layout = {
+    "caretAt": function(i) {
+        var starts = lineStarts(m.text);
+        var row = 0;
+        for (var k = 0; k < len(starts); k++) { if (starts[k] <= i) { row = k; } }
+        return {"x": (i - starts[row]) * 10, "y": row * 20, "height": 20};
+    },
+    "indexAt": function(x, y) {
+        var starts = lineStarts(m.text);
+        var row = int(y / 20);
+        if (row < 0) { row = 0; }
+        if (row >= len(starts)) { row = len(starts) - 1; }
+        var end = if (row + 1 < len(starts)) { starts[row + 1] - 1; } else { len(m.text); };
+        var col = int((x + 5) / 10);
+        if (col < 0) { col = 0; }
+        var at = starts[row] + col;
+        if (at > end) { at = end; }
+        return at;
+    },
+    "page": 60};
+TE.Select(m, 8, 8);
+TE.Handle(m, {"type": "key", "key": 264, "action": "press"}, layout); show("down keeps x", m);
+TE.Handle(m, {"type": "key", "key": 264, "action": "press"}, layout); show("down again", m);
+TE.Handle(m, {"type": "key", "key": 264, "action": "press"}, layout); show("down at the end", m);
+TE.Handle(m, {"type": "key", "key": 268, "action": "press"}, layout); show("home", m);
+TE.Handle(m, {"type": "key", "key": 257, "action": "press"}, layout); show("enter", m);
+TE.Handle(m, {"type": "press", "x": 33, "y": 5, "button": 0, "count": 2}, layout); show("double click word", m);
+TE.Handle(m, {"type": "drag", "x": 60, "y": 25}, layout); show("drag by words", m);
+TE.Handle(m, {"type": "press", "x": 33, "y": 45, "button": 0, "count": 3}, layout); show("triple click line", m);
+TE.Handle(m, {"type": "press", "x": 20, "y": 5, "button": 0, "count": 1}, layout);
+TE.Handle(m, {"type": "press", "x": 50, "y": 25, "button": 0, "count": 1, "shift": true}, layout); show("shift click", m);

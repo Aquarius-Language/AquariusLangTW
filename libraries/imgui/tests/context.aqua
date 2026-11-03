@@ -60,4 +60,14 @@ frame();
 print("outside window", gui.WantCaptureMouse);
 print("values", speed, on, name, color, pick, ImGui.GetVersion());
 gui.NewFrame(400, 300);
-print("recovered", Network.Try(function() { ImGui.End(); gui.Render(); }).Success);
+print("recovered", Network.Try(function() { ImGui.End(); gui.Render(); }).Success);# Interaction names key actions ("press", "release"): a release lets the key go (it used to stay held), and the
+# platform's conventions apply through UseConventions (ImGuiLayer and the first Interaction event do it unasked).
+gui.UseConventions({"doubleClickTime": 500, "dragThreshold": 4, "caretBlinkTime": 0, "primaryModifier": "Ctrl"});
+gui.Feed({"type": "key", "key": 268, "action": "press"});
+gui.NewFrame(400, 300, 1.0d / 60);
+var held = ImGui.IsKeyDown(ImGui.Key_Home);
+gui.Render();
+gui.Feed({"type": "key", "key": 268, "action": "release"});
+gui.NewFrame(400, 300, 1.0d / 60);
+print("key released", held, ImGui.IsKeyDown(ImGui.Key_Home));
+var finished = gui.Render();

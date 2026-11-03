@@ -1,0 +1,66 @@
+/* What a key means in editable text on each platform, as EDIT(action, key, modifiers, where, extends).
+ * key: a GLFW key code. modifiers: as in commands.def (PRIMARY is Control, or Command on Apple targets). where: ALL,
+ * APPLE (macOS, iOS) or OTHERS. extends: 1 when Shift may be added to extend the selection (moves), 0 when the
+ * modifiers must match exactly. Key events carry the action as `edit` (Interaction.EditAction gives it for any key);
+ * text widgets of every UI library act on it, so the platforms' rules live here once. The first match wins. */
+
+/* Moving the caret (Shift extends the selection). */
+EDIT("left",               KEY_LEFT,      0,          ALL,    1)
+EDIT("right",              KEY_RIGHT,     0,          ALL,    1)
+EDIT("up",                 KEY_UP,        0,          ALL,    1)
+EDIT("down",               KEY_DOWN,      0,          ALL,    1)
+EDIT("wordLeft",           KEY_LEFT,      CONTROL,    OTHERS, 1)
+EDIT("wordRight",          KEY_RIGHT,     CONTROL,    OTHERS, 1)
+EDIT("wordLeft",           KEY_LEFT,      ALT,        APPLE,  1)
+EDIT("wordRight",          KEY_RIGHT,     ALT,        APPLE,  1)
+EDIT("paragraphStart",     KEY_UP,        CONTROL,    OTHERS, 1)
+EDIT("paragraphEnd",       KEY_DOWN,      CONTROL,    OTHERS, 1)
+EDIT("paragraphStart",     KEY_UP,        ALT,        APPLE,  1)
+EDIT("paragraphEnd",       KEY_DOWN,      ALT,        APPLE,  1)
+EDIT("lineStart",          KEY_HOME,      0,          OTHERS, 1)
+EDIT("lineEnd",            KEY_END,       0,          OTHERS, 1)
+EDIT("lineStart",          KEY_LEFT,      PRIMARY,    APPLE,  1)
+EDIT("lineEnd",            KEY_RIGHT,     PRIMARY,    APPLE,  1)
+EDIT("lineStart",          'A',           CONTROL,    APPLE,  1)
+EDIT("lineEnd",            'E',           CONTROL,    APPLE,  1)
+EDIT("documentStart",      KEY_HOME,      CONTROL,    OTHERS, 1)
+EDIT("documentEnd",        KEY_END,       CONTROL,    OTHERS, 1)
+EDIT("documentStart",      KEY_UP,        PRIMARY,    APPLE,  1)
+EDIT("documentEnd",        KEY_DOWN,      PRIMARY,    APPLE,  1)
+EDIT("documentStart",      KEY_HOME,      0,          APPLE,  1)
+EDIT("documentEnd",        KEY_END,       0,          APPLE,  1)
+EDIT("pageUp",             KEY_PAGE_UP,   0,          ALL,    1)
+EDIT("pageDown",           KEY_PAGE_DOWN, 0,          ALL,    1)
+EDIT("left",               'B',           CONTROL,    APPLE,  1)
+EDIT("right",              'F',           CONTROL,    APPLE,  1)
+EDIT("up",                 'P',           CONTROL,    APPLE,  1)
+EDIT("down",               'N',           CONTROL,    APPLE,  1)
+
+/* Deleting. */
+EDIT("deleteBackward",     KEY_BACKSPACE, 0,          ALL,    1)
+EDIT("deleteForward",      KEY_DELETE,    0,          ALL,    0)
+EDIT("deleteWordBackward", KEY_BACKSPACE, CONTROL,    OTHERS, 0)
+EDIT("deleteWordForward",  KEY_DELETE,    CONTROL,    OTHERS, 0)
+EDIT("deleteWordBackward", KEY_BACKSPACE, ALT,        APPLE,  0)
+EDIT("deleteWordForward",  KEY_DELETE,    ALT,        APPLE,  0)
+EDIT("deleteToLineStart",  KEY_BACKSPACE, PRIMARY,    APPLE,  0)
+EDIT("deleteToLineEnd",    'K',           CONTROL,    APPLE,  0)
+EDIT("deleteForward",      'D',           CONTROL,    APPLE,  0)
+EDIT("deleteBackward",     'H',           CONTROL,    APPLE,  0)
+
+/* Selection, history and the clipboard. */
+EDIT("selectAll",          'A',           PRIMARY,    ALL,    0)
+EDIT("undo",               'Z',           PRIMARY,    ALL,    0)
+EDIT("redo",               'Z',           PRIMARY | SHIFT, ALL, 0)
+EDIT("redo",               'Y',           PRIMARY,    OTHERS, 0)
+EDIT("copy",               'C',           PRIMARY,    ALL,    0)
+EDIT("copy",               KEY_INSERT,    CONTROL,    OTHERS, 0)
+EDIT("cut",                'X',           PRIMARY,    ALL,    0)
+EDIT("cut",                KEY_DELETE,    SHIFT,      OTHERS, 0)
+EDIT("paste",              'V',           PRIMARY,    ALL,    0)
+EDIT("paste",              KEY_INSERT,    SHIFT,      OTHERS, 0)
+
+/* Line breaks (multi-line text; single-line fields submit) and the overwrite toggle. */
+EDIT("newline",            KEY_ENTER,     0,          ALL,    1)
+EDIT("newline",            KEY_KP_ENTER,  0,          ALL,    1)
+EDIT("toggleOverwrite",    KEY_INSERT,    0,          OTHERS, 0)

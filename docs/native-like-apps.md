@@ -35,7 +35,7 @@ applications written now already behave correctly there.
 ```text
  OS input ─▶ aqua/window.h events ─▶ Interaction session ─▶ your handlers ─▶ your state ─▶ graphics library draws
    (mouse, touch, keys, back,        (recognizer: clicks,      (ScrollView, Navigation,
-    resize, lifecycle)                drags, long press, ...)    ContextMenu, Focus, TextEdit)
+    resize, lifecycle)                drags, long press, ...)    ContextMenu, Focus, TextEditing)
 ```
 
 - **The graphics library draws** and owns the window. It hands the window to other libraries as a shared window
@@ -45,8 +45,8 @@ applications written now already behave correctly there.
   request, back, a keyboard command (`copy`, `undo`, `focusNext`, ...), scrolling in logical units. It also reports the
   platform's conventions (double-click time, touch slop, scrollbar style, dark mode, ...).
 - **Behavior modules** written in AquariusLang keep the state of common controls and take Interaction events:
-  `ScrollView`, `Navigation`, `ContextMenu`, `Focus` (library `interaction`), `TextEdit` (library `application`) for
-  editing text, `TextInput` (library `graphics`) for input methods.
+  `ScrollView`, `Navigation`, `ContextMenu`, `Focus` and `TextEditing` (editing text by the platform's rules; library
+  `interaction`), `TextInput` (library `graphics`) for input methods.
 - **Your application** keeps its state in plain values and redraws from it. Nothing in this chain depends on one
   graphics library, so moving an application from Processing to WGPU or to a future renderer changes only the drawing.
 
@@ -114,8 +114,8 @@ apply those that fit the application. The libraries named do the platform-specif
 - [ ] **Shortcuts** through `command` events (`copy`, `cut`, `paste`, `undo`, `redo`, `selectAll`, `find`, `save`,
       `new`, `open`, `close`, `zoomIn`, ...), never by testing Ctrl yourself: Apple targets use Command, and the web
       takes both. Show them with `ix.ShortcutLabel`.
-- [ ] **Text fields** use `TextEdit` (editing, undo, word moves, clipboard) and `TextInput` (input method composition,
-      the candidate window, the soft keyboard). See [Text](#text).
+- [ ] **Text fields** use `TextEditing` (editing by each key event's `edit` action, undo, word moves, clipboard) and
+      `TextInput` (input method composition, the candidate window, the soft keyboard). See [Text](#text).
 - [ ] **Back** (`back` events) goes back one level, in this order: close the open menu, dialog or popup, leave search
       or selection mode, return to the previous screen (`Navigation`). On the first screen do not handle it: the
       system closes the app (Android) or leaves the page (web).
@@ -204,14 +204,16 @@ apply those that fit the application. The libraries named do the platform-specif
 
 ### Text
 
-- Use `TextEdit` (library `application`) for the text and its editing rules and `TextInput` (library `graphics`) for
-  input methods: composition text is shown underlined at the caret and is not part of the text until committed, and
-  the candidate window is placed with the caret rectangle.
+- Use `TextEditing` (library `interaction`) for the text and its editing rules, fed with Interaction events: key events
+  carry their editing action as `edit` (`src/editing.def`, per platform), so never map key codes to editing yourself.
+  SaturnUI's `TextField` already does. Input-method composition text is shown underlined at the caret and is not part
+  of the text until committed, and the candidate window is placed with the caret rectangle (`TextRect`).
 - Clicking places the caret; Shift+click extends the selection; dragging selects (`dragStart`/`drag` with the press's
   `count`): by characters after one press, by words after a double click, by lines or paragraphs after a triple
   click. Double click selects a word, triple click a line or paragraph.
-- Keyboard: arrows move, Shift extends, Ctrl+arrows (Option+arrows on macOS) move by words, Home/End to line ends,
-  Ctrl/Cmd+A selects all; `copy`, `cut`, `paste`, `undo`, `redo` commands go to `TextEdit` (`editor.Copy()`, ...).
+- Keyboard: arrows move, Shift extends, Ctrl+arrows (Option+arrows on macOS) move by words, Home/End to line ends
+  (Command+arrows on macOS), Ctrl/Cmd+A selects all, Ctrl/Option+Backspace deletes a word; all of them arrive as the
+  key event's `edit` action (Interaction's `src/editing.def`), which `TextEditing.Handle` carries out.
   The keypad's keys with Num Lock off arrive as Home, End, Page Up/Down, the arrows, Insert and Delete, and the
   keypad's Enter is Enter.
 - Touch: a tap places the caret and shows the soft keyboard (`TextInput` / `AndroidInput.ShowKeyboard`); a long press

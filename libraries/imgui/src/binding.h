@@ -28,6 +28,8 @@ struct Context {
     std::string clipboard;
     float ime_x = 0, ime_y = 0, ime_height = 0;
     bool ime_visible = false;
+    bool conventions_known = false;   /* UseConventions ran, or the first Interaction event brought them */
+
     bool last_open = true;
 };
 

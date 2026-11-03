@@ -1,0 +1,82 @@
+# SaturnUI's TextField on the Interaction library's TextEditing: the caret sits where the field's own font puts it
+# (here a larger, bold font from the app's sheet), a click places it, a double click selects a word, the platform's
+# keys move and select by words and lines, typing reports the new value, a long line scrolls to keep the caret in
+# view, a right click opens the context menu, and the input method opens at the caret.
+var UI = import("SaturnUI");
+var Saturn = import("Saturn");
+var value = "hello brave world";
+var submitted = null;
+var conventions = {"platform": "windows", "formFactor": "desktop", "primaryModifier": "Ctrl", "scrollbars": "classic", "caretBlinkTime": 530};
+var s = UI.Surface(400, 200, UI.Builder(build: c => UI.Column(crossAxis: "start", style: {"padding": 10}, children: [
+    UI.TextField(value: value, key: "field", width: 260, onChanged: v => { value = v; }, onSubmit: v => { submitted = v; })])),
+    {"conventions": conventions, "sheet": {"TextField": {"fontSize": 22, "fontWeight": 700}}});
+s.Frame(0);
+var field = s.tree.children[0].children[0].children[0];
+var text = field.children[0];
+var box = text.node.GetAbsoluteLayout();
+var press = function(x, count, shift) {
+    s.Feed({"type": "press", "x": box["x"] + x, "y": box["y"] + 8, "button": 0, "count": count, "shift": shift, "pointerType": "mouse"});
+    s.Feed({"type": "release", "x": box["x"] + x, "y": box["y"] + 8, "button": 0, "pointerType": "mouse"});
+    s.Frame(s.time + 16);
+};
+var key = function(code, mods) {
+    s.Feed({"type": "key", "key": code, "action": "press", "modifiers": mods});
+    s.Feed({"type": "key", "key": code, "action": "release", "modifiers": mods});
+    s.Frame(s.time + 16);
+};
+var state = function(label) { print(label, "[" + value + "]", field.state.anchor, field.state.caret); };
+
+# The caret's x is the width of the text before it in the field's font, not the theme's.
+var font = {"fontSize": 22, "fontWeight": 700};
+print("caret uses the field's font", text.node.TextCaret(5)["x"] == Saturn.MeasureText("hello", font)["width"],
+    text.node.TextCaret(5)["x"] > Saturn.MeasureText("hello", {"fontSize": 14})["width"]);
+# A click between "brave" and " world" puts the caret there.
+var edge = text.node.TextCaret(11)["x"];
+press(edge + 2, 1, false);
+state("click");
+print("focused", s.focus == field, "index at", text.node.TextIndexAt(edge + 2, 8));
+press(text.node.TextCaret(8)["x"], 2, false);
+state("double click");
+key(263, 3);
+state("ctrl shift left");
+key(269, 1);
+state("shift end");
+key(268, 0);
+state("home");
+key(262, 2);
+state("ctrl right");
+s.Feed({"type": "text", "text": "big "}); s.Frame(s.time + 16);
+state("typed");
+key(259, 2);
+state("ctrl backspace");
+key(90, 2);
+state("undo");
+key(257, 0);
+print("enter submits", submitted);
+# A long line scrolls so the caret stays visible; Home scrolls back.
+value = "this line is much longer than the field it is typed into";
+s.Rebuild(); s.Frame(s.time + 16);
+key(269, 0);
+print("scrolled to the end", field.data["scrollX"] > 0, text.node.TextCaret(len(value))["x"] - field.data["scrollX"] <= 260);
+key(268, 0);
+print("back to the start", field.data["scrollX"]);
+# The input method's window opens at the caret.
+var ime = s.ImeRect();
+print("ime at the caret", ime["x"] == box["x"], ime["height"] > 20);
+# A right click opens Cut, Copy, Paste, Delete and Select all; the outside press closes it.
+s.Feed({"type": "press", "x": box["x"] + 10, "y": box["y"] + 8, "button": 1, "pointerType": "mouse"});
+s.Feed({"type": "release", "x": box["x"] + 10, "y": box["y"] + 8, "button": 1, "pointerType": "mouse"});
+s.Frame(s.time + 16);
+var labels = [];
+var disabled = [];
+for (var i = 0; i < len(field.data["menuItems"]); i++) {
+    var item = field.data["menuItems"][i];
+    if (typeOf(item) == "MenuItem") { Array.Append(labels, item.label); if (item.disabled) { Array.Append(disabled, item.label); } }
+}
+print("context menu", s.HasPopup(), labels, "disabled", disabled);
+key(256, 0);
+print("escape closes it", s.HasPopup());
+# Placeholders and passwords.
+var p = UI.Surface(300, 80, UI.Column(children: [UI.TextField(value: "", placeholder: "Name", key: "a"), UI.TextField(value: "pw", obscure: true, key: "b")]), {"conventions": conventions});
+p.Frame(0);
+print("placeholder", p.tree.children[0].children[0].children[0].node.GetText(), "password", p.tree.children[0].children[1].children[0].node.GetText());

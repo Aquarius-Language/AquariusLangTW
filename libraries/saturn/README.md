@@ -97,7 +97,9 @@ whether the last paint was mid-transition.
 ### Text, images, painting, hit testing
 
 - `node.SetText(text)` makes a text node (Yoga node type text, measured by Saturn); `GetText()`, `GetTextLines()`
-  (`text`, `x`, `y`, `width`, `height`, `baseline` per laid-out line). Lines break between words, around CJK
+  (`text`, `x`, `y`, `width`, `height`, `baseline` per laid-out line), `TextCaret(position)` (`{x, y, height, line}` of
+  the caret at a UTF-16 position, measured with the node's own font) and `TextIndexAt(x, y)` (the nearest caret
+  position to a point, never inside a combining sequence). Lines break between words, around CJK
   characters (not before closing or after opening punctuation), at newlines, and between characters for a word wider
   than the line.
 - **The text measurer**: `Saturn.SetTextMeasurer(f(text, family, size, weight, italic) -> [width, ascent, descent])`;
@@ -181,13 +183,27 @@ the surface afterwards, so there is no `setState`; `context.rebuild()` covers ti
 | --- | --- |
 | layout | `Row`, `Column` (`gap`, `mainAxis`, `crossAxis`: `start`, `center`, `end`, `stretch`, `between`, `around`, `evenly`; `wrap`), `Stack` + `Positioned`, `Expanded`, `Flexible`, `Spacer`, `Padding`, `Center`, `Align` (`topLeft` .. `bottomRight`), `SizedBox`, `AspectRatio`, `Wrap`, `Grid` (`columns`), `ScrollView`, `ListView` (`itemCount`, `itemBuilder`; virtualized with `itemExtent`), `Box`, `Card`, `Divider` |
 | content | `Text` (`maxLines`, `ellipsis`, `align`; a plain string or number is a Text), `RichText` + `Span`, `Image` (`fit`, `radius`), `Icon` (`check`, `close`, `plus`, `minus`, `chevronLeft/Right/Up/Down`, `menu`, `search`, `star`, `heart`, `home`, `settings`, `arrowLeft/Right`, `dot`, `circle`, `info`, `user`, `play`, `fastForward`, `stop`, `refresh`, `save`, `trash`, `file`, `folder`, `notebook`, `sun`, `moon`, `code`, `text`, `copy`, `more`, `edit`), `CustomPaint` (`paint(painter, w, h)`) |
-| controls | `Button` (`label`, `icon`, `onPress`, `variant`: `outline`, `text`, `tonal`, `danger`; `disabled`), `IconButton`, `Checkbox`, `Switch`, `Radio` (`value`, `group`), `Slider` (`min`, `max`, `step`), `ProgressBar`, `TextField` (`placeholder`, `obscure`, `onSubmit`), `Dropdown` (`options`), `Tabs` (`labels`, `index`) |
+| controls | `Button` (`label`, `icon`, `onPress`, `variant`: `outline`, `text`, `tonal`, `danger`; `disabled`), `IconButton`, `Checkbox`, `Switch`, `Radio` (`value`, `group`), `Slider` (`min`, `max`, `step`), `ProgressBar`, `TextField` (`placeholder`, `obscure`, `onSubmit`, `multiline`, `maxLength`, `readOnly`, `autofocus`), `Dropdown` (`options`), `Tabs` (`labels`, `index`) |
 | menus | `MenuBar` (`menus`) of `Menu` (`label`, `items`, `disabled`) holding `MenuItem` (`label`, `shortcut` text, `onSelect`, `disabled`, `checked`) and `MenuSeparator` |
 | overlays | `Dialog` (`open`, `title`, `content`, `actions`, `onDismiss`), `Tooltip` (`message`); dropdown menus |
 | behavior | `Gesture` (`onTap`, `onDoubleTap`, `onLongPress`, `onHover`, `onPress`, `onRelease`, `onDragStart`, `onDrag`, `onDragEnd`, `cursor`), the same handlers on `Box`, `onTap` on `Card` |
 | structure | `Stateful` (`init`, `build(state, context)`, `dispose`), `Builder` (`build(context)`), `Themed` (a subtree with its own theme), `Immediate` (`paint(x, y, w, h)` returns another library's draw list; `feed(event)` gets its events in its own coordinates and returns whether it used them, so an unused wheel turn scrolls the view around it; `ime()` gives the caret's box in its own coordinates while it takes text, for `ImeRect`; `focus(focused)` hears it gain and lose the keyboard) |
 
 Your own widgets are functions that return widgets.
+
+**Text fields** edit by the platform's rules through Interaction's `TextEditing` (keys by their `edit` action: words,
+lines, the text's ends, Shift selection, word deletes, grouped undo and redo, the system clipboard, the keypad with Num
+Lock off, Insert to overwrite; typed text and input-method composition, shown underlined). The caret and the selection
+come from the field's own text layout (`node.TextCaret`, `TextIndexAt`: the font the field really uses), so they sit
+exactly between the drawn characters. A press places the caret, Shift+press extends, a double press selects a word, a
+triple press all (a line in a multi-line field), and dragging selects by the press's unit; a right press opens Undo,
+Redo, Cut, Copy, Paste, Delete and Select all. A single-line field scrolls sideways to keep the caret in view; the
+caret blinks at the platform's rate (`caretBlinkTime`, solid while typing), and `ImeRect()` gives the caret's box so
+input-method windows open beside it. `value` is the application's: the field reports each edit through `onChanged`
+and follows `value` when the application changes it, never undoing an edit the application has not rebuilt with yet.
+Enter calls `onSubmit` in a single-line field and breaks the line in a multi-line one. `autofocus: true` takes the
+keyboard when the field appears (a dialog's field) with its text selected. Keys and text do not rebuild the tree per
+event: the next frame does.
 
 **Menus and dropdowns** follow the native rules, built in: a menu bar title opens its menu on press; while a menu is
 open, moving over another title opens that one; items fire on release (so press on a title, drag to an item and

@@ -100,6 +100,20 @@ Libraries:
   tracks page, the middle button autoscrolls on Windows, Linux and desktop browsers (pans on Apple platforms), and a
   release lost outside the window no longer leaves a view stuck to the pointer. Key releases no longer reach widgets
   as a second press, and `UI.RunApp` follows the window's size every frame.
+  `TextField` is rebuilt on Interaction's `TextEditing`: the caret and selection come from the field's own text layout
+  (`node.TextCaret` / `TextIndexAt`, so a custom font no longer puts the caret off the characters), the platform's
+  editing keys (Ctrl or Option word moves, Shift selection, Home/End or Command+arrows, word deletes, undo grouping,
+  the system clipboard, overwrite), double and triple presses, drag selection, a context menu, sideways scrolling,
+  input-method composition and the caret at the platform's blink rate; new `multiline`, `maxLength`, `readOnly` and
+  `autofocus`. Fast typing no longer loses characters (an older `value` never undoes an edit the application has not
+  rebuilt with), and keys no longer rebuild the whole tree per event.
+- `interaction`: `src/editing.def` says once what each key means in editable text on each platform; key events carry it
+  as `edit` and `Interaction.EditAction(key, modifiers)` gives it for any key. The new `TextEditing` module implements a
+  native text field's editing for any UI library (cluster-safe positions, words, lines, undo, clipboard, composition,
+  pointer selection). Also `ClipboardText()` / `SetClipboardText(text)`, and every event's `conventions`.
+- `imgui`: key releases from Interaction (`action: "release"`) were taken as presses, so keys stayed held; copy and
+  paste use the system clipboard unless `SetClipboardHandlers` is given; `UseConventions` (applied by itself from the
+  first Interaction event) sets double-click time, drag threshold, caret blinking and Mac-style editing.
 - `imgui` (new): Dear ImGui 1.93.0 (docking branch) for any renderer: contexts fed by Interaction events, fonts with
   system CJK fonts merged, the widget API under Dear ImGui's names (editors return the new value), draw lists, docking,
   drag and drop, styles, and `Embed` items other UI libraries draw into. See [imgui](libraries/imgui/README.md).

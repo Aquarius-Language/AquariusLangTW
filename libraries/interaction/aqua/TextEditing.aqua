@@ -1,0 +1,518 @@
+# TextEditing / 文字編輯: the editing rules of the platforms' own text fields, once, for every UI library (SaturnUI's
+# TextField uses it; your own widgets can too). An editor holds text, a selection (anchor and caret), an input-method
+# composition, undo history and the overwrite mode; Handle(editor, event, layout) takes Interaction events and does what a
+# native field does with them:
+# - keys by their `edit` action (Interaction's editing table: Ctrl+arrows or Option+arrows by words, Home/End or
+#   Command+arrows to the line's ends, Shift extends, Ctrl/Option+Backspace deletes a word, Command+Backspace to the
+#   line start, Ctrl+A/E and the other Emacs keys on Apple targets, the keypad with Num Lock off, Insert overwrites);
+# - copy, cut and paste through the system clipboard (never from a password field), undo and redo that group typing;
+# - typed text and input-method composition (keys during a composition belong to the input method);
+# - the pointer: a press places the caret (Shift extends), a double press selects a word, a triple press the line or
+#   all, and dragging extends by the unit of the press.
+# Positions are UTF-16 offsets (the language's string positions); the caret never stops inside a surrogate pair, a
+# combining sequence, an emoji sequence or a CRLF. `layout` connects the editor to how the text is drawn:
+#     {"indexAt": f(x, y) -> position, "caretAt": f(position) -> {x, y, height}, "page": visible height}
+# in the coordinates of the events given to Handle; without one, up/down move by lines of the text itself.
+var Version = 1;
+var _interaction = import("Interaction");
+
+struct Editor {
+    text; anchor; caret; multiline; maxLength; readOnly; obscure; apple;
+    composition; compositionCursor; overwrite; undo; redo; group; preferredX; pressCount; pressAnchor;
+    changed; submitted; editTime
+}
+
+var _min = function(a, b) { if (a < b) { return a; } return b; };
+var _max = function(a, b) { if (a > b) { return a; } return b; };
+var _clamp = function(v, low, high) { return _max(low, _min(v, high)); };
+var _abs = function(a) { if (a < 0) { return -a; } return a; };
+var pick = function(value, fallback) { if (value == null) { return fallback; } return value; };
+var HistoryLimit = 200;
+
+# Create(text, options): options {"multiline": false, "maxLength": null, "readOnly": false, "obscure": false}.
+var Create = function(text, options) {
+    var o = if (options == null) { {}; } else { options; };
+    var value = if (text == null) { ""; } else { text; };
+    var c = _interaction.Conventions();
+    return Editor(text: value, anchor: len(value), caret: len(value), multiline: Hash.Get(o, "multiline", false) == true,
+        maxLength: Hash.Get(o, "maxLength", null), readOnly: Hash.Get(o, "readOnly", false) == true,
+        obscure: Hash.Get(o, "obscure", false) == true, apple: c.primaryModifier == "Cmd",
+        composition: null, compositionCursor: 0, overwrite: false, undo: [], redo: [], group: null, preferredX: null,
+        pressCount: 1, pressAnchor: null, changed: false, submitted: false, editTime: 0);
+};
+
+# ---- Text boundaries -------------------------------------------------------------------------------------------------
+
+var _code = function(text, i) { if (i < 0 || i >= len(text)) { return -1; } return String.Code(text, i); };
+var _isLow = function(c) { return c >= 56320 && c <= 57343; };
+var _isRegional = function(c) { return c >= 127462 && c <= 127487; };
+# Characters that belong to the one before them: combining marks, joiners, variation selectors, emoji modifiers and
+# tags, Thai and Devanagari vowel signs.
+var _joins = function(c) {
+    return (c >= 768 && c <= 879) || (c >= 6832 && c <= 6911) || (c >= 7616 && c <= 7679) || (c >= 8400 && c <= 8447) ||
+        (c >= 65056 && c <= 65071) || (c >= 65024 && c <= 65039) || c == 8205 || (c >= 127995 && c <= 127999) ||
+        (c >= 917504 && c <= 917631) || (c >= 3633 && c <= 3642) || (c >= 3655 && c <= 3662) || (c >= 2304 && c <= 2307) ||
+        (c >= 2362 && c <= 2383) || (c >= 4447 && c <= 4519 && c != 4447) || (c >= 917760 && c <= 917999);
+};
+var _width = function(c) { if (c >= 65536) { return 2; } return 1; };
+
+# The position after the character cluster that starts at i.
+var Next = function(text, i) {
+    var n = len(text);
+    if (i >= n) { return n; }
+    var c = _code(text, i);
+    var at = i + _width(c);
+    if (c == 13 && _code(text, at) == 10) { return at + 1; }
+    if (_isRegional(c) && _isRegional(_code(text, at))) { at = at + 2; }
+    for (; at < n;) {
+        var d = _code(text, at);
+        if (d == 8205) {                                   # a joiner takes the character after it too
+            at = at + 1;
+            if (at < n) { at = at + _width(_code(text, at)); }
+        } elif (_joins(d)) { at = at + _width(d); }
+        else { break; }
+    }
+    return _min(at, n);
+};
+# The position where the cluster that ends at i starts.
+var Previous = function(text, i) {
+    if (i <= 0) { return 0; }
+    # Walk forward from a safe point (the line's start, or 64 units back) to the last cluster start before i.
+    var from = _max(0, i - 64);
+    for (; from > 0 && _code(text, from - 1) != 10;) { from = from - 1; if (i - from > 256) { break; } }
+    if (_isLow(_code(text, from))) { from = from + 1; }
+    var last = from;
+    var at = from;
+    for (; at < i;) { last = at; at = Next(text, at); }
+    return last;
+};
+# A position moved onto a cluster boundary (positions from outside may fall inside a pair or sequence).
+var Snap = function(text, i) {
+    var p = _clamp(i, 0, len(text));
+    if (p == 0 || p == len(text)) { return p; }
+    var start = Previous(text, p);
+    if (Next(text, start) == p) { return p; }
+    return start;
+};
+
+# Word classes: 0 spaces, 1 letters/digits/_, 2 CJK, 3 punctuation and symbols.
+var _class = function(c) {
+    if (c < 0) { return 0; }
+    if (c == 32 || c == 9 || c == 10 || c == 13 || c == 160 || c == 12288 || (c >= 8192 && c <= 8202)) { return 0; }
+    if ((c >= 48 && c <= 57) || (c >= 65 && c <= 90) || (c >= 97 && c <= 122) || c == 95) { return 1; }
+    if (c < 128) { return 3; }
+    if ((c >= 11904 && c <= 40959) || (c >= 44032 && c <= 55215) || (c >= 63744 && c <= 64255) || (c >= 131072 && c <= 262143)) {
+        if ((c >= 12289 && c <= 12291) || (c >= 12296 && c <= 12305)) { return 3; }   # CJK punctuation
+        return 2;
+    }
+    if ((c >= 65280 && c <= 65519)) {                       # fullwidth forms: letters and digits are words
+        if ((c >= 65296 && c <= 65305) || (c >= 65313 && c <= 65338) || (c >= 65345 && c <= 65370)) { return 1; }
+        return 3;
+    }
+    if ((c >= 161 && c <= 191) || c == 215 || c == 247 || (c >= 8208 && c <= 8303) || (c >= 8352 && c <= 8399)) { return 3; }
+    return 1;
+};
+var _classAt = function(text, i) { return _class(_code(text, i)); };
+var _classBefore = function(text, i) { if (i <= 0) { return -1; } return _classAt(text, Previous(text, i)); };
+
+# Word moves: Windows, Linux and the web stop at the start of each word (punctuation runs are words); Apple targets stop
+# at the end of a word going right and its start going left, passing spaces and punctuation.
+var WordRight = function(text, i, apple) {
+    var n = len(text);
+    var at = i;
+    if (apple) {
+        for (; at < n && (_classAt(text, at) == 0 || _classAt(text, at) == 3);) { at = Next(text, at); }
+        var k = _classAt(text, at);
+        for (; at < n && _classAt(text, at) == k;) { at = Next(text, at); }
+        return at;
+    }
+    if (at < n && _classAt(text, at) != 0) {
+        var kind = _classAt(text, at);
+        for (; at < n && _classAt(text, at) == kind;) { at = Next(text, at); }
+    }
+    for (; at < n && _classAt(text, at) == 0;) {
+        if (_code(text, at) == 10 && at > i) { break; }
+        at = Next(text, at);
+    }
+    return at;
+};
+var WordLeft = function(text, i, apple) {
+    var at = i;
+    for (; at > 0 && (_classBefore(text, at) == 0 || (apple && _classBefore(text, at) == 3));) { at = Previous(text, at); }
+    var kind = _classBefore(text, at);
+    for (; at > 0 && _classBefore(text, at) == kind;) { at = Previous(text, at); }
+    return at;
+};
+# The word (a run of one class) around a position: [start, end].
+var WordAt = function(text, i) {
+    var n = len(text);
+    if (n == 0) { return [0, 0]; }
+    var at = _min(i, n);
+    if (at == n || (at > 0 && _classAt(text, at) == 0 && _classBefore(text, at) != 0)) { at = Previous(text, at); }
+    var kind = _classAt(text, at);
+    var start = at;
+    for (; start > 0 && _classBefore(text, start) == kind;) { start = Previous(text, start); }
+    var end = at;
+    for (; end < n && _classAt(text, end) == kind;) { end = Next(text, end); }
+    return [start, end];
+};
+# The paragraph (between newlines) around a position: [start, end], the end before its newline.
+var ParagraphAt = function(text, i) {
+    var start = _clamp(i, 0, len(text));
+    for (; start > 0 && _code(text, start - 1) != 10;) { start = start - 1; }
+    var end = _clamp(i, 0, len(text));
+    for (; end < len(text) && _code(text, end) != 10;) { end = end + 1; }
+    if (end > start && _code(text, end - 1) == 13) { end = end - 1; }
+    return [start, end];
+};
+
+# ---- Selection and text ----------------------------------------------------------------------------------------------
+
+var SelectionStart = function(ed) { return _min(ed.anchor, ed.caret); };
+var SelectionEnd = function(ed) { return _max(ed.anchor, ed.caret); };
+var HasSelection = function(ed) { return ed.anchor != ed.caret; };
+var SelectedText = function(ed) { return String.Slice(ed.text, SelectionStart(ed), SelectionEnd(ed)); };
+var Select = function(ed, anchor, caret) {
+    ed.anchor = Snap(ed.text, anchor);
+    ed.caret = Snap(ed.text, caret);
+    ed.preferredX = null;
+};
+var SelectAll = function(ed) { Select(ed, 0, len(ed.text)); };
+
+# SetText(editor, text): the application changed the text; the selection stays where it can, the history stays.
+var SetText = function(ed, text) {
+    var value = if (text == null) { ""; } else { text; };
+    if (value == ed.text) { return null; }
+    ed.text = value;
+    ed.anchor = Snap(value, ed.anchor);
+    ed.caret = Snap(value, ed.caret);
+    ed.group = null;
+};
+
+var _snapshot = function(ed) { return [ed.text, ed.anchor, ed.caret]; };
+var _record = function(ed, group) {
+    # Typing, Backspace and Delete runs merge into one undo step; anything else starts a new one.
+    if (group != null && group == ed.group) { return null; }
+    Array.Append(ed.undo, _snapshot(ed));
+    if (len(ed.undo) > HistoryLimit) { Array.Delete(ed.undo, 0, 1); }
+    ed.redo = [];
+    ed.group = group;
+};
+# Replaces [start, end) with text as one edit; false when the field takes no edits or the result would be too long.
+var _replace = function(ed, start, end, text, group) {
+    if (ed.readOnly) { return false; }
+    var insert = text;
+    if (!ed.multiline) { insert = String.Replace(String.Replace(String.Replace(insert, String.FromCode(13) + String.FromCode(10), " "), String.FromCode(10), " "), String.FromCode(13), " "); }
+    if (ed.maxLength != null) {
+        var room = ed.maxLength - (len(ed.text) - (end - start));
+        if (room <= 0 && len(insert) > 0) { return false; }
+        if (len(insert) > room) {
+            var cut = 0;
+            for (; Next(insert, cut) <= room && cut < len(insert);) { cut = Next(insert, cut); }
+            insert = String.Slice(insert, 0, cut);
+        }
+    }
+    if (start == end && len(insert) == 0) { return false; }
+    _record(ed, group);
+    ed.text = String.Slice(ed.text, 0, start) + insert + String.Slice(ed.text, end, len(ed.text));
+    ed.anchor = start + len(insert);
+    ed.caret = ed.anchor;
+    ed.preferredX = null;
+    ed.changed = true;
+    return true;
+};
+
+# Insert(editor, text): typed or pasted text replaces the selection (in overwrite mode, the character after the caret).
+var Insert = function(ed, text) {
+    var start = SelectionStart(ed);
+    var end = SelectionEnd(ed);
+    var single = len(text) > 0 && Next(text, 0) == len(text);
+    if (ed.overwrite && start == end && single && end < len(ed.text) && _code(ed.text, end) != 10) { end = Next(ed.text, end); }
+    var group = if (single && _class(_code(text, 0)) != 0) { "type"; } else { null; };
+    return _replace(ed, start, end, text, group);
+};
+var DeleteSelection = function(ed) {
+    if (!HasSelection(ed)) { return false; }
+    return _replace(ed, SelectionStart(ed), SelectionEnd(ed), "", null);
+};
+
+var Undo = function(ed) {
+    if (len(ed.undo) == 0 || ed.composition != null) { return false; }
+    Array.Append(ed.redo, _snapshot(ed));
+    var s = ed.undo[len(ed.undo) - 1];
+    Array.Delete(ed.undo, len(ed.undo) - 1, len(ed.undo));
+    ed.text = s[0]; ed.anchor = s[1]; ed.caret = s[2]; ed.group = null; ed.changed = true;
+    return true;
+};
+var Redo = function(ed) {
+    if (len(ed.redo) == 0 || ed.composition != null) { return false; }
+    Array.Append(ed.undo, _snapshot(ed));
+    var s = ed.redo[len(ed.redo) - 1];
+    Array.Delete(ed.redo, len(ed.redo) - 1, len(ed.redo));
+    ed.text = s[0]; ed.anchor = s[1]; ed.caret = s[2]; ed.group = null; ed.changed = true;
+    return true;
+};
+
+var Copy = function(ed) {
+    if (!HasSelection(ed) || ed.obscure) { return false; }
+    _interaction.SetClipboardText(SelectedText(ed));
+    return true;
+};
+var Cut = function(ed) {
+    if (!HasSelection(ed) || ed.obscure || ed.readOnly) { return Copy(ed); }
+    _interaction.SetClipboardText(SelectedText(ed));
+    return DeleteSelection(ed);
+};
+var Paste = function(ed) {
+    var text = _interaction.ClipboardText();
+    if (text == null || len(text) == 0) { return false; }
+    ed.group = null;
+    return _replace(ed, SelectionStart(ed), SelectionEnd(ed), text, null);
+};
+
+# ---- Moves ----------------------------------------------------------------------------------------------------------
+
+# The visual line's ends through the layout, else the paragraph's.
+var _lineEnds = function(ed, layout, i) {
+    if (layout != null && ed.multiline) {
+        var box = layout["caretAt"](i);
+        var middle = box["y"] + box["height"] / 2;
+        return [layout["indexAt"](-1000000000, middle), layout["indexAt"](1000000000, middle)];
+    }
+    if (!ed.multiline) { return [0, len(ed.text)]; }
+    return ParagraphAt(ed.text, i);
+};
+# The position one visual line up (-1) or down (1) keeping the remembered x, or null at the first or last line.
+var _vertical = function(ed, layout, direction, lines) {
+    if (layout == null) {
+        var here = ParagraphAt(ed.text, ed.caret);
+        var column = ed.caret - here[0];
+        if (direction < 0) {
+            if (here[0] == 0) { return null; }
+            var above = ParagraphAt(ed.text, here[0] - 1);
+            return Snap(ed.text, _min(above[0] + column, above[1]));
+        }
+        if (here[1] >= len(ed.text)) { return null; }
+        var below = ParagraphAt(ed.text, here[1] + 1);
+        return Snap(ed.text, _min(below[0] + column, below[1]));
+    }
+    var box = layout["caretAt"](ed.caret);
+    if (ed.preferredX == null) { ed.preferredX = box["x"]; }
+    var y = box["y"] + box["height"] / 2 + direction * box["height"] * lines;
+    var target = layout["indexAt"](ed.preferredX, y);
+    var landed = layout["caretAt"](target);
+    if (_abs(landed["y"] - box["y"]) < box["height"] / 2) { return null; }   # no line there
+    return target;
+};
+
+# Moves the caret (extend keeps the anchor). Returns whether the action is a move.
+var _move = function(ed, action, extend, layout) {
+    var text = ed.text;
+    var to = null;
+    var keepX = false;
+    var collapsing = HasSelection(ed) && !extend;
+    if (action == "left") { to = if (collapsing) { SelectionStart(ed); } else { Previous(text, ed.caret); }; }
+    elif (action == "right") { to = if (collapsing) { SelectionEnd(ed); } else { Next(text, ed.caret); }; }
+    elif (action == "wordLeft") { to = WordLeft(text, ed.caret, ed.apple); }
+    elif (action == "wordRight") { to = WordRight(text, ed.caret, ed.apple); }
+    elif (action == "lineStart") { to = _lineEnds(ed, layout, ed.caret)[0]; }
+    elif (action == "lineEnd") { to = _lineEnds(ed, layout, ed.caret)[1]; }
+    elif (action == "paragraphStart") {
+        var p = ParagraphAt(text, ed.caret);
+        to = if (ed.caret == p[0] && p[0] > 0) { ParagraphAt(text, p[0] - 1)[0]; } else { p[0]; };
+    } elif (action == "paragraphEnd") {
+        var q = ParagraphAt(text, ed.caret);
+        to = if (ed.caret == q[1] && q[1] < len(text)) { ParagraphAt(text, q[1] + 1)[1]; } else { q[1]; };
+    } elif (action == "documentStart") { to = 0; }
+    elif (action == "documentEnd") { to = len(text); }
+    elif (action == "up" || action == "down" || action == "pageUp" || action == "pageDown") {
+        var direction = if (action == "up" || action == "pageUp") { -1; } else { 1; };
+        if (!ed.multiline) {
+            # A single-line field: Apple targets go to the ends; elsewhere the arrows are left to the application.
+            if (!ed.apple || action == "pageUp" || action == "pageDown") { return false; }
+            to = if (direction < 0) { 0; } else { len(text); };
+        } else {
+            var lines = 1;
+            if ((action == "pageUp" || action == "pageDown") && layout != null) {
+                var height = layout["caretAt"](ed.caret)["height"];
+                lines = _max(1, int(Hash.Get(layout, "page", height * 10) / _max(1, height)) - 1);
+            }
+            to = _vertical(ed, layout, direction, lines);
+            # Past the first or last line: to the text's start or end.
+            if (to == null) { to = if (direction < 0) { 0; } else { len(text); }; } else { keepX = true; }
+        }
+    } else { return false; }
+    var x = ed.preferredX;
+    ed.caret = to;
+    if (!extend) { ed.anchor = to; }
+    ed.preferredX = if (keepX) { x; } else { null; };
+    ed.group = null;
+    return true;
+};
+
+var _deletes = ["deleteBackward", "deleteForward", "deleteWordBackward", "deleteWordForward", "deleteToLineStart", "deleteToLineEnd"];
+var _delete = function(ed, action, layout) {
+    if (!Array.Contains(_deletes, action)) { return false; }
+    if (ed.readOnly) { return true; }
+    if (HasSelection(ed)) { return DeleteSelection(ed) || true; }
+    var text = ed.text;
+    var c = ed.caret;
+    if (action == "deleteBackward") { if (c > 0) { _replace(ed, Previous(text, c), c, "", "backspace"); } }
+    elif (action == "deleteForward") { if (c < len(text)) { _replace(ed, c, Next(text, c), "", "delete"); } }
+    elif (action == "deleteWordBackward") { var a = WordLeft(text, c, ed.apple); if (a < c) { _replace(ed, a, c, "", null); } }
+    elif (action == "deleteWordForward") { var b = WordRight(text, c, ed.apple); if (b > c) { _replace(ed, c, b, "", null); } }
+    elif (action == "deleteToLineStart") { var s = _lineEnds(ed, layout, c)[0]; if (s < c) { _replace(ed, s, c, "", null); } }
+    elif (action == "deleteToLineEnd") {
+        var e = _lineEnds(ed, layout, c)[1];
+        if (e == c && c < len(text)) { e = Next(text, c); }             # at a line's end, Ctrl+K joins the next line
+        if (e > c) { _replace(ed, c, e, "", null); }
+    } else { return false; }
+    return true;
+};
+
+# Do(editor, action, extend, layout): an editing action (Interaction's editing table names) on the editor; true when
+# the editor took it. A single-line field's "newline" sets editor.submitted instead (Enter submits).
+var Do = function(ed, action, extend, layout) {
+    if (action == null) { return false; }
+    if (_move(ed, action, extend == true, layout)) { return true; }
+    if (_delete(ed, action, layout)) { return true; }
+    if (action == "selectAll") { SelectAll(ed); return true; }
+    if (action == "undo") { Undo(ed); return true; }
+    if (action == "redo") { Redo(ed); return true; }
+    if (action == "copy") { Copy(ed); return true; }
+    if (action == "cut") { Cut(ed); return true; }
+    if (action == "paste") { if (!ed.readOnly) { Paste(ed); } return true; }
+    if (action == "toggleOverwrite") { ed.overwrite = !ed.overwrite; return true; }
+    if (action == "newline") {
+        if (!ed.multiline) { ed.submitted = true; return true; }
+        ed.group = null;
+        Insert(ed, String.FromCode(10));
+        return true;
+    }
+    return false;
+};
+
+# ---- Events ---------------------------------------------------------------------------------------------------------
+
+var _field = function(event, name) {
+    if (typeOf(event) == "hash") { return event[name]; }
+    if (name == "type") { return event.type; }
+    if (name == "edit") { return event.edit; }
+    if (name == "key") { return event.key; }
+    if (name == "action") { return event.action; }
+    if (name == "modifiers") { return event.modifiers; }
+    if (name == "shift") { return event.shift; }
+    if (name == "text") { return event.text; }
+    if (name == "phase") { return event.phase; }
+    if (name == "cursor") { return event.cursor; }
+    if (name == "state") { return event.state; }
+    if (name == "x") { return event.x; }
+    if (name == "y") { return event.y; }
+    if (name == "count") { return event.count; }
+    if (name == "button") { return event.button; }
+    return null;
+};
+
+# The selection a press or drag at `at` makes, by the unit of the press (1 characters, 2 words, 3 lines or all).
+var _extendTo = function(ed, at, layout) {
+    var origin = if (ed.pressAnchor == null) { [ed.anchor, ed.anchor]; } else { ed.pressAnchor; };
+    if (ed.pressCount == 2) {
+        var w = WordAt(ed.text, at);
+        if (w[0] < origin[0]) { ed.anchor = origin[1]; ed.caret = w[0]; } else { ed.anchor = origin[0]; ed.caret = _max(w[1], origin[1]); }
+    } elif (ed.pressCount >= 3) {
+        var line = if (ed.multiline) { _lineEnds(ed, layout, at); } else { [0, len(ed.text)]; };
+        if (line[0] < origin[0]) { ed.anchor = origin[1]; ed.caret = line[0]; } else { ed.anchor = origin[0]; ed.caret = _max(line[1], origin[1]); }
+    } else {
+        ed.caret = at;
+        ed.anchor = origin[0];
+    }
+    ed.preferredX = null;
+};
+
+# Handle(editor, event, layout): true when the editor used the event. Afterwards editor.changed tells that the text
+# changed (reset it when you have read it), editor.submitted that Enter was pressed in a single-line field.
+var Handle = function(ed, event, layout) {
+    var type = _field(event, "type");
+    if (type == "key") {
+        var action = _field(event, "action");
+        if (action == "release" || action == 0) { return false; }
+        # Keys during a composition belong to the input method.
+        if (ed.composition != null || _field(event, "state") == true) { return true; }
+        var edit = _field(event, "edit");
+        if (edit == null && typeOf(event) == "hash" && _field(event, "key") != null) {
+            edit = _interaction.EditAction(_field(event, "key"), Hash.Get(event, "modifiers", 0));
+        }
+        var extend = _field(event, "shift") == true;
+        if (typeOf(event) == "hash" && event["modifiers"] != null) { extend = (event["modifiers"] % 2) == 1; }
+        var used = Do(ed, edit, extend, layout);
+        if (used) { ed.editTime = _field(event, "time"); }
+        return used;
+    }
+    if (type == "text") {
+        var text = _field(event, "text");
+        if (text == null || len(text) == 0) { return false; }
+        var first = _code(text, 0);
+        if (first < 32 && first != 9 && first != 10) { return false; }
+        ed.composition = null;
+        Insert(ed, text);
+        return true;
+    }
+    if (type == "composition") {
+        var phase = _field(event, "phase");
+        var composed = _field(event, "text");
+        if (phase == "end" || composed == null || len(composed) == 0) { ed.composition = null; return true; }
+        if (ed.composition == null && HasSelection(ed)) { DeleteSelection(ed); }
+        ed.composition = composed;
+        ed.compositionCursor = _clamp(pick(_field(event, "cursor"), len(composed)), 0, len(composed));
+        return true;
+    }
+    if (layout == null) { return false; }
+    if (type == "press") {
+        if (_field(event, "button") != null && _field(event, "button") != 0) {
+            # Right and middle presses outside the selection move the caret there (context menus act on it).
+            var at = layout["indexAt"](_field(event, "x"), _field(event, "y"));
+            if (at < SelectionStart(ed) || at > SelectionEnd(ed) || !HasSelection(ed)) { Select(ed, at, at); }
+            return true;
+        }
+        var position = Snap(ed.text, layout["indexAt"](_field(event, "x"), _field(event, "y")));
+        var count = pick(_field(event, "count"), 1);
+        ed.pressCount = if (count > 3) { 3 - (count % 2); } else { count; };   # quadruple clicks alternate
+        ed.composition = null;
+        ed.group = null;
+        if (ed.pressCount == 1) {
+            if (_field(event, "shift") == true) { ed.pressAnchor = [ed.anchor, ed.anchor]; _extendTo(ed, position, layout); }
+            else { ed.pressAnchor = [position, position]; Select(ed, position, position); }
+        } elif (ed.pressCount == 2) {
+            var w = WordAt(ed.text, position);
+            ed.pressAnchor = w;
+            Select(ed, w[0], w[1]);
+        } else {
+            var line = if (ed.multiline) { _lineEnds(ed, layout, position); } else { [0, len(ed.text)]; };
+            ed.pressAnchor = line;
+            Select(ed, line[0], line[1]);
+        }
+        return true;
+    }
+    if (type == "dragStart" || type == "drag") {
+        _extendTo(ed, Snap(ed.text, layout["indexAt"](_field(event, "x"), _field(event, "y"))), layout);
+        return true;
+    }
+    if (type == "dragEnd" || type == "release") { ed.pressAnchor = null; return true; }
+    return false;
+};
+
+# The text as shown: a composition in progress sits at the caret; a password shows one bullet per character unit.
+# Returns [text, caret position in it, composition start, composition end].
+var Display = function(ed) {
+    var text = ed.text;
+    var caret = ed.caret;
+    var from = caret;
+    var to = caret;
+    if (ed.composition != null) {
+        text = String.Slice(text, 0, caret) + ed.composition + String.Slice(text, caret, len(text));
+        to = caret + len(ed.composition);
+        caret = caret + ed.compositionCursor;
+    }
+    if (ed.obscure) { text = String.Repeat("•", len(text)); }
+    return [text, caret, from, to];
+};

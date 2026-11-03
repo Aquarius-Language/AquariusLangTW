@@ -9,7 +9,8 @@
 #include <stdio.h>
 #include <string.h>
 
-enum { KEY_ESCAPE = 256, KEY_ENTER, KEY_TAB, KEY_BACKSPACE, KEY_INSERT, KEY_DELETE, KEY_RIGHT, KEY_LEFT,
+enum { KEY_ESCAPE = 256, KEY_ENTER, KEY_TAB, KEY_BACKSPACE, KEY_INSERT, KEY_DELETE, KEY_RIGHT, KEY_LEFT, KEY_DOWN, KEY_UP,
+       KEY_PAGE_UP, KEY_PAGE_DOWN, KEY_HOME, KEY_END,
        KEY_F1 = 290, KEY_F2, KEY_F3, KEY_F4, KEY_F5, KEY_F10 = 299, KEY_F11,
        KEY_KP_SUBTRACT = 333, KEY_KP_ADD, KEY_KP_ENTER,
        KEY_LEFT_SHIFT = 340, KEY_LEFT_CONTROL, KEY_LEFT_ALT, KEY_LEFT_SUPER,
@@ -26,6 +27,14 @@ static const shortcut shortcuts[] = {
 };
 #define SHORTCUT_COUNT (sizeof shortcuts / sizeof *shortcuts)
 
+typedef struct edit_key { const char *name; int32_t key, modifiers, where; bool extends; } edit_key;
+static const edit_key edit_keys[] = {
+#define EDIT(name, key, modifiers, where, extends) {name, key, modifiers, where, extends},
+#include "editing.def"
+#undef EDIT
+};
+#define EDIT_KEY_COUNT (sizeof edit_keys / sizeof *edit_keys)
+
 /* ---- Commands ---- */
 
 static bool shortcut_matches(const conventions *c, const shortcut *s, int32_t key, int32_t modifiers) {
@@ -39,6 +48,18 @@ static bool shortcut_matches(const conventions *c, const shortcut *s, int32_t ke
 const char *command_of(const conventions *c, int32_t key, int32_t modifiers) {
     for (size_t i = 0; i < SHORTCUT_COUNT; i++)
         if (shortcut_matches(c, &shortcuts[i], key, modifiers & MOD_KEYS)) return shortcuts[i].name;
+    return NULL;
+}
+
+/* The editing action of a key in editable text (editing.def), or NULL. Shift may be added to the moves that extend. */
+const char *edit_of(const conventions *c, int32_t key, int32_t modifiers) {
+    modifiers &= MOD_KEYS;
+    for (size_t i = 0; i < EDIT_KEY_COUNT; i++) {
+        const edit_key *k = &edit_keys[i];
+        shortcut s = {k->name, k->key, k->modifiers, k->where};
+        if (shortcut_matches(c, &s, key, modifiers)) return k->name;
+        if (k->extends && (modifiers & MOD_SHIFT) && !(k->modifiers & SHIFT) && shortcut_matches(c, &s, key, modifiers & ~MOD_SHIFT)) return k->name;
+    }
     return NULL;
 }
 
@@ -323,6 +344,7 @@ static void key(recognizer *r, const aqua_window_event *in) {
     e.key = in->key;
     e.action = in->action == 0 ? "release" : in->action == 2 ? "repeat" : "press";
     if (in->text) snprintf(e.text, sizeof e.text, "%s", in->text);
+    if (!bit) e.edit = edit_of(&r->conventions, in->key, r->modifiers);
     emit(r, &e);
     if (in->action == 0 || bit) return;
 

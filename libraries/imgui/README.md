@@ -39,7 +39,9 @@ hashes with `type`, `x`, `y`, `button`, `dx`, `dy`, `key`, `action`, `text`, `mo
 it), `AddMousePos`, `AddMouseButton`, `AddMouseWheel`, `AddKey(ImGui.Key_*, down)`, `AddKeyCode(glfwKey, down |
 mods)`, `AddText`, `AddFocus`, `HitTest(x, y)` (a window covers the point), fonts `AddDefaultFont(| size)` and
 `AddFont(bytes | asset path | file path, size | merge)` (returns the index for `ImGui.PushFont`), `ImGui.SystemFontPath("sans" |
-"mono" | "cjk")`, `SetClipboardHandlers(get, set)`, `ImeRect()`, and properties `WantCaptureMouse`,
+"mono" | "cjk")`, `SetClipboardHandlers(get, set)` (without them copy and paste use the system clipboard), `UseConventions(conventions)`
+(Interaction's `Conventions()`: double-click time, drag threshold, caret blinking, Mac-style editing where the shortcut
+key is Command; the first Interaction event a context is fed applies them by itself), `ImeRect()`, and properties `WantCaptureMouse`,
 `WantCaptureKeyboard`, `WantTextInput`, `Framerate`, `MouseCursor` (Interaction's cursor names).
 
 Font atlas textures go to the renderer through the draw list's texture ops (ImGui's `RendererHasTextures` protocol),

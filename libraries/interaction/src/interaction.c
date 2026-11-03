@@ -72,7 +72,7 @@ static aqua_class *conventions_class, *safe_area_class;
 static void event_finalize(aqua_runtime *rt, void *data) { (void)rt; free(data); }
 
 #define EVENT_FIELDS(STRING, NUMBER, INTEGER, BOOLEAN) \
-    STRING("type", type) STRING("source", source) STRING("command", command) STRING("pointerType", pointer_type) \
+    STRING("type", type) STRING("source", source) STRING("command", command) STRING("edit", edit) STRING("pointerType", pointer_type) \
     STRING("action", action) STRING("phase", phase) NUMBER("time", time) NUMBER("x", x) NUMBER("y", y) \
     NUMBER("startX", start_x) NUMBER("startY", start_y) NUMBER("dx", dx) NUMBER("dy", dy) NUMBER("velocityX", velocity_x) \
     NUMBER("velocityY", velocity_y) NUMBER("scale", scale) NUMBER("width", width) NUMBER("height", height) \
@@ -390,6 +390,22 @@ static void interaction_create(aqua_call *call) {
     aqua_return(call, aqua_object_new(aqua_call_runtime(call), session_class, session_new(call)));
 }
 
+/* EditAction(key, modifiers): what the key means in editable text on this platform ("wordLeft", "copy", ...), or null;
+   for key events that did not come through a session (theirs carry it as `edit`). Modifiers are GLFW bits. */
+static void interaction_edit_action(aqua_call *call) {
+    const char *action = edit_of(platform(), aqua_arg_int(call, 0), aqua_argc(call) > 1 ? aqua_arg_int(call, 1) : 0);
+    if (action) aqua_return_cstring(call, action); else aqua_return_null(call);
+}
+/* ClipboardText() / SetClipboardText(text): the system clipboard's plain text, at once (text widgets' copy, cut and
+   paste; the application library's Clipboard adds images and asynchronous access). */
+static void interaction_clipboard_text(aqua_call *call) {
+    char *text = aqua_clipboard_text(aqua_call_runtime(call));
+    if (text) { aqua_return_cstring(call, text); aqua_free(text); } else aqua_return_null(call);
+}
+static void interaction_set_clipboard_text(aqua_call *call) {
+    aqua_return_bool(call, aqua_clipboard_set_text(aqua_call_runtime(call), aqua_arg_str(call, 0).data));
+}
+
 static void interaction_shortcut_label(aqua_call *call) {
     char label[48];
     if (command_label(platform(), aqua_arg_str(call, 0).data, label, sizeof label)) aqua_return_cstring(call, label);
@@ -595,6 +611,9 @@ AQUA_LIBRARY(interaction) {
     aqua_define_function(module, "Attach|附加", interaction_attach, "|v");
     aqua_define_function(module, "Create|建立", interaction_create, "");
     aqua_define_function(module, "ShortcutLabel|快捷鍵標籤", interaction_shortcut_label, "s");
+    aqua_define_function(module, "EditAction|編輯動作", interaction_edit_action, "i|i");
+    aqua_define_function(module, "ClipboardText|剪貼簿文字", interaction_clipboard_text, "");
+    aqua_define_function(module, "SetClipboardText|設定剪貼簿文字", interaction_set_clipboard_text, "s");
 
     session_class = aqua_define_class(library, "Interaction.Session", session_finalize);
     aqua_define_function(session_class, "On|註冊", session_on, "sf");
@@ -618,6 +637,8 @@ AQUA_LIBRARY(interaction) {
     aqua_define_property(event_class, "shift", event_shift);
     aqua_define_property(event_class, "alt", event_alt);
     aqua_define_property(event_class, "primary", event_primary);
+    /* The platform's conventions, so a UI library fed these events follows them without being told (ImGui does). */
+    aqua_define_property(event_class, "conventions", interaction_conventions);
 
     conventions_class = define_record(library, "Interaction.Conventions", convention_fields, 17);
     static const char *const safe_area_fields[] = {"left", "top", "right", "bottom", "keyboardVisible"};
