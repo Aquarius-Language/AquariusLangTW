@@ -26,4 +26,11 @@ done
 cp -r "$root/examples" "$output/examples"
 cp "$root/LICENSE" "$output/"
 "$output/aqua" --help > /dev/null
+# Tools written in AquariusLang (tools/<name>/build.sh, submodules) build with the aqua just published, beside it.
+for tool in "$root"/tools/*/; do
+    [ -d "$tool" ] || continue
+    if [ ! -f "$tool/build.sh" ]; then echo "tools/$(basename "$tool") is not checked out; skipped." >&2; continue; fi
+    if [ ! -d "$output/runtime/web" ]; then echo "tools/$(basename "$tool") needs the web runtime pack; skipped." >&2; continue; fi
+    bash "$tool/build.sh" "$output/aqua" "$output"
+done
 echo "Published $output"

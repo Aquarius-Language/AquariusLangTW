@@ -132,6 +132,8 @@ try {
         [IO.File]::WriteAllText((Join-Path $smoke 'main.aqua'), "var tools = import(""tools.aqua"");`nprint(tools.add(40, 2), isWeb());`n", [Text.UTF8Encoding]::new($false))
         [IO.File]::WriteAllText((Join-Path $smoke 'tools.aqua'), "var add = function(a, b) { return a + b; };`n", [Text.UTF8Encoding]::new($false))
         Invoke-Published $aqua @('--help') 'aqua build' $smoke
+        $wellplay = Join-Path $package "aqua_wellplay$exe"
+        if (Test-Path -LiteralPath $wellplay) { Invoke-Published $wellplay @('--version') 'aqua_wellplay' $smoke }
         Invoke-Published $aqua @('build', 'main.aqua', 'tools.aqua', '--root', '.', '-o', 'app.wasm') 'Compiled 2 script(s)' $smoke
         Invoke-Published $aqua @('run', 'app.wasm') '42' $smoke
         Invoke-Published $aqua @('run', (Join-Path $repository 'examples/starship_expedition/main.aqua')) '' $smoke

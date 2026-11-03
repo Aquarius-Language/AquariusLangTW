@@ -9,8 +9,34 @@ using AquariusLang.parser;
 
 namespace AquariusLang.Compiler;
 
+/// <summary>Where a compile error is: 1-based line and column (in UTF-16 units) of the source it was found in.</summary>
+public sealed record CompileDiagnostic(string Message, int Line, int Column);
+
 public sealed class CompilationException : Exception {
+    /// <summary>The errors with their positions, when the source text was known (empty otherwise).</summary>
+    public IReadOnlyList<CompileDiagnostic> Diagnostics { get; } = [];
     public CompilationException(string message) : base(message) { }
+    public CompilationException(IReadOnlyList<CompileDiagnostic> diagnostics) : this(string.Join("\n", diagnostics.Select(d => d.Message)), diagnostics) { }
+    private CompilationException(string message, IReadOnlyList<CompileDiagnostic> diagnostics) : base(message) { Diagnostics = diagnostics; }
+
+    /// <summary>The same errors reported for <paramref name="file"/>: <c>file:line:column: message</c> per error when
+    /// positions are known, else <c>file: message</c>.</summary>
+    public CompilationException InFile(string file) {
+        if (Diagnostics.Count == 0) return new CompilationException($"{file}: {Message}");
+        return new CompilationException(string.Join("\n", Diagnostics.Select(d => $"{file}:{d.Line}:{d.Column}: {d.Message}")), Diagnostics);
+    }
+
+    internal static CompilationException At(string source, IEnumerable<(string Message, int Offset)> errors) {
+        var list = new List<CompileDiagnostic>();
+        foreach (var (message, offset) in errors) {
+            int line = 1, column = 1, end = Math.Clamp(offset, 0, source.Length);
+            for (int i = 0; i < end; i++) {
+                if (source[i] == '\n') { line++; column = 1; } else column++;
+            }
+            list.Add(new CompileDiagnostic(message, line, column));
+        }
+        return new CompilationException(list);
+    }
 }
 
 /// <summary>Translates syntax trees into compiler IR for subsequent WebAssembly emission.</summary>
@@ -33,7 +59,13 @@ public sealed class LoweringCompiler {
         var parser = Parser.NewInstance(lexer);
         var tree = parser.ParseAST();
         if (lexer.Errors.Count > 0 || parser.Errors.Count > 0)
-            throw new CompilationException(string.Join("\n", lexer.Errors.Select(e => e.Message).Concat(parser.Errors)));
+            throw CompilationException.At(source, lexer.Errors.Select(e => (e.Message, e.Start)).Concat(parser.Diagnostics.Select(e => (e.Message, e.Token.Start))));
+        if (types == null) {
+            // Checked here rather than in Compile(tree) so its errors carry their positions.
+            var checker = TypeChecker.Check(tree);
+            if (checker.Errors.Count > 0) throw CompilationException.At(source, checker.Errors.Select(e => (e.Message, e.Token.Start)));
+            types = checker;
+        }
         return Compile(tree);
     }
 

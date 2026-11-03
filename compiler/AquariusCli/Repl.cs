@@ -60,7 +60,11 @@ public static class Repl
         string script = Path.Combine(directory, "repl.aqua"), wasm = Path.Combine(directory, "repl.wasm");
         File.WriteAllText(script, source, new UTF8Encoding(false));
         try { WasmApplication.Compile([script], wasm, directory); }
-        catch (CompilationException e) { output.WriteLine(e.Message.Replace(script + ": ", "")); return false; }
+        catch (CompilationException e) {
+            // Positions would count the replayed session's lines: show the messages alone.
+            output.WriteLine(e.Diagnostics.Count > 0 ? string.Join("\n", e.Diagnostics.Select(d => d.Message)) : e.Message.Replace(script + ": ", ""));
+            return false;
+        }
         var start = NativeRuntime.StartInfo(wasm);
         start.RedirectStandardOutput = true; start.RedirectStandardError = true;
         start.StandardOutputEncoding = Encoding.UTF8; start.StandardErrorEncoding = Encoding.UTF8;

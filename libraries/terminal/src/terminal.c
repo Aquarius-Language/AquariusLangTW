@@ -1,6 +1,7 @@
-/* Terminal / 終端機 module: IsSupported, Run, RunScript and Platform, with the old runtime's validation, options,
+/* Terminal / 終端機 module: IsSupported, Run, RunScript, Start and Platform, with the old runtime's validation, options,
  * results and messages. A run is a deferred call: the script waits while the platform layer's worker thread collects
- * the process's output, and the result arrives through aqua_post. */
+ * the process's output, and the result arrives through aqua_post. Start returns a Terminal.Process at once: its output
+ * reaches OnOutput / OnError callbacks as it arrives, Wait gives the result and Kill ends the process tree. */
 #include "terminal.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -9,13 +10,25 @@
 #define DEFAULT_TIMEOUT_MS 60000
 #define MAXIMUM_TIMEOUT_MS 3600000
 
+static void deliver(aqua_runtime *rt, void *data);
+
 struct terminal_state {
     aqua_runtime *rt;
     terminal_job *jobs;        /* runs in progress, owned here until delivered */
     atomic_bool posted;        /* a delivery task is queued */
 };
 
-static aqua_class *result_class;
+static aqua_class *result_class, *process_class;
+
+/* A Start call's Terminal.Process object: the job while it runs, then its result (or the collection error). */
+struct terminal_process {
+    terminal_job *job;
+    aqua_ref result;
+    char *error;
+};
+
+static void lock(terminal_job *job) { while (atomic_flag_test_and_set_explicit(&job->lock, memory_order_acquire)) {} }
+static void unlock(terminal_job *job) { atomic_flag_clear_explicit(&job->lock, memory_order_release); }
 
 /* ---- Output buffers ---- */
 
@@ -63,9 +76,93 @@ static aqua_value text_of(aqua_runtime *rt, const terminal_output *output) {
     return aqua_text(rt, output->data ? output->data : "", output->length);
 }
 
+static aqua_value result_of(aqua_runtime *rt, const terminal_job *job) {
+    result *r = calloc(1, sizeof *r);
+    r->exit_code = job->timed_out ? -1 : job->exit_code;
+    r->timed_out = job->timed_out;
+    r->output = aqua_retain(rt, text_of(rt, &job->output));
+    r->error = aqua_retain(rt, text_of(rt, &job->error_output));
+    return aqua_object_new(rt, result_class, r);
+}
+
+/* ---- Streamed output ---- */
+
+static void chunk_append(terminal_chunk *chunk, const char *bytes, size_t length) {
+    if (chunk->length + length > chunk->capacity) {
+        size_t capacity = chunk->capacity ? chunk->capacity : 4096;
+        while (capacity < chunk->length + length) capacity *= 2;
+        chunk->data = realloc(chunk->data, capacity);
+        chunk->capacity = capacity;
+    }
+    memcpy(chunk->data + chunk->length, bytes, length);
+    chunk->length += length;
+}
+
+/* How many leading bytes of the chunk end on a whole UTF-8 sequence (all of them once the stream has ended). */
+static size_t chunk_complete(const terminal_chunk *chunk, bool ended) {
+    size_t n = chunk->length;
+    if (ended) return n;
+    for (size_t back = 1; back <= 4 && back <= n; back++) {
+        unsigned char c = (unsigned char)chunk->data[n - back];
+        if ((c & 0xC0) == 0x80) continue;
+        size_t size = c >= 0xF0 ? 4 : c >= 0xE0 ? 3 : c >= 0xC0 ? 2 : 1;
+        return size > back ? n - back : n;
+    }
+    return n;
+}
+
+void terminal_job_output(terminal_job *job, int stream, const char *bytes, size_t length) {
+    terminal_state *state = job->state;
+    lock(job);
+    terminal_output_append(stream ? &job->error_output : &job->output, bytes, length);
+    if (job->streams[stream]) chunk_append(&job->chunks[stream], bytes, length);
+    unlock(job);
+    if (job->streams[stream] && length && !atomic_exchange(&state->posted, true)) aqua_post(state->rt, deliver, state);
+}
+
+/* A callback finished: the next chunk (or the job's result) may go now. */
+static void called(aqua_runtime *rt, bool ok, aqua_value result, void *data) {
+    terminal_job *job = data;
+    job->calling = false;
+    if (!ok) {
+        char *message = aqua_display(rt, result);
+        fprintf(stderr, "Terminal / 終端機.Start: an output callback failed: %s\n", message);
+        aqua_free(message);
+    }
+    if (!atomic_exchange(&job->state->posted, true)) aqua_post(rt, deliver, job->state);
+}
+
+/* Hands the next part of what the job's streams produced to its callback (runtime thread). Callbacks may wait (send
+   over a network, await promises), so one runs at a time per job and the output keeps its order. True when nothing is
+   left to hand over. */
+static bool flush(aqua_runtime *rt, terminal_job *job, bool ended) {
+    if (job->calling) return false;
+    for (int stream = 0; stream < 2; stream++) {
+        if (!job->streams[stream]) continue;
+        lock(job);
+        terminal_chunk *chunk = &job->chunks[stream];
+        size_t n = chunk_complete(chunk, ended);
+        char *text = NULL;
+        if (n) {
+            text = malloc(n);
+            memcpy(text, chunk->data, n);
+            memmove(chunk->data, chunk->data + n, chunk->length - n);
+            chunk->length -= n;
+        }
+        unlock(job);
+        if (!text) continue;
+        aqua_value argument = aqua_text(rt, text, n);
+        free(text);
+        job->calling = true;
+        aqua_invoke_async(rt, aqua_ref_value(rt, job->callbacks[stream]), &argument, 1, called, job);
+        return false;
+    }
+    return true;
+}
+
 /* ---- Jobs ---- */
 
-static void job_free(terminal_job *job) {
+static void job_free(aqua_runtime *rt, terminal_job *job) {
     free(job->executable);
     for (uint32_t i = 0; i < job->count; i++) free(job->arguments[i]);
     free(job->arguments);
@@ -73,31 +170,42 @@ static void job_free(terminal_job *job) {
     free(job->output.data);
     free(job->error_output.data);
     free(job->error);
+    for (int stream = 0; stream < 2; stream++) {
+        free(job->chunks[stream].data);
+        aqua_release(rt, job->callbacks[stream]);
+    }
+    free(job->waiters);
     free(job);
 }
 
-/* Runs on the runtime's thread: settles every finished job. */
+/* Runs on the runtime's thread: hands streamed output to its callbacks and settles every finished job. */
 static void deliver(aqua_runtime *rt, void *data) {
     terminal_state *state = data;
     atomic_store(&state->posted, false);
     for (terminal_job **link = &state->jobs; *link;) {
         terminal_job *job = *link;
-        if (!atomic_load(&job->done)) { link = &job->next; continue; }
+        bool done = atomic_load(&job->done);
+        bool flushed = flush(rt, job, done);
+        if (!done || !flushed) { link = &job->next; continue; }
         *link = job->next;
 #if defined(TERMINAL_PROCESSES)
         terminal_platform_finish(job);
 #endif
-        if (job->error) {
-            aqua_reject(job->pending, "Terminal / 終端機.%s: %s", job->function, job->error);
-        } else {
-            result *r = calloc(1, sizeof *r);
-            r->exit_code = job->timed_out ? -1 : job->exit_code;
-            r->timed_out = job->timed_out;
-            r->output = aqua_retain(rt, text_of(rt, &job->output));
-            r->error = aqua_retain(rt, text_of(rt, &job->error_output));
-            aqua_resolve(job->pending, aqua_object_new(rt, result_class, r));
+        aqua_value outcome = job->error ? aqua_null() : result_of(rt, job);
+        if (job->pending) {
+            if (job->error) aqua_reject(job->pending, "Terminal / 終端機.%s: %s", job->function, job->error);
+            else aqua_resolve(job->pending, outcome);
         }
-        job_free(job);
+        for (uint32_t i = 0; i < job->waiter_count; i++) {
+            if (job->error) aqua_reject(job->waiters[i], "Terminal / 終端機.Process.Wait: %s", job->error);
+            else aqua_resolve(job->waiters[i], outcome);
+        }
+        if (job->process) {
+            job->process->job = NULL;
+            if (job->error) job->process->error = strdup(job->error);
+            else job->process->result = aqua_retain(rt, outcome);
+        }
+        job_free(rt, job);
     }
 }
 
@@ -114,7 +222,6 @@ static void *state_create(aqua_runtime *rt) {
 }
 
 static void state_destroy(aqua_runtime *rt, void *data) {
-    (void)rt;
     terminal_state *state = data;
     for (terminal_job *job = state->jobs; job;) {
         terminal_job *next = job->next;
@@ -122,10 +229,48 @@ static void state_destroy(aqua_runtime *rt, void *data) {
         if (atomic_load(&job->done)) terminal_platform_finish(job);
         else terminal_platform_cancel(job);
 #endif
-        job_free(job);
+        if (job->process) job->process->job = NULL;
+        job_free(rt, job);
         job = next;
     }
     free(state);
+}
+
+/* ---- Processes (Start) ---- */
+
+static void process_finalize(aqua_runtime *rt, void *data) {
+    terminal_process *process = data;
+    if (process->job) process->job->process = NULL; /* it keeps running; its result goes to pending waits only */
+    aqua_release(rt, process->result);
+    free(process->error);
+    free(process);
+}
+static terminal_process *self_process(aqua_call *call) { return aqua_self(call); }
+
+/* Wait() / WaitAsync(): the Terminal.Result once the process has ended and its output is collected. */
+static void process_wait(aqua_call *call) {
+    terminal_process *process = self_process(call);
+    if (process->error) { aqua_fail(call, "Terminal / 終端機.Process.Wait: %s", process->error); return; }
+    if (!process->job) { aqua_return(call, aqua_ref_value(aqua_call_runtime(call), process->result)); return; }
+    terminal_job *job = process->job;
+    job->waiters = realloc(job->waiters, (job->waiter_count + 1) * sizeof *job->waiters);
+    job->waiters[job->waiter_count++] = aqua_defer(call);
+}
+
+/* Kill(): ends the process tree; true when it was still running. Wait() then reports its exit. */
+static void process_kill(aqua_call *call) {
+    terminal_process *process = self_process(call);
+    bool running = process->job && !atomic_load(&process->job->done);
+#if defined(TERMINAL_PROCESSES)
+    if (running) terminal_platform_kill(process->job);
+#endif
+    aqua_return_bool(call, running);
+}
+static void process_running(aqua_call *call) { aqua_return_bool(call, self_process(call)->job != NULL); }
+static void process_result(aqua_call *call) {
+    terminal_process *process = self_process(call);
+    if (process->job || !process->result) aqua_return_null(call);
+    else aqua_return(call, aqua_ref_value(aqua_call_runtime(call), process->result));
 }
 
 /* ---- Validation ---- */
@@ -182,7 +327,7 @@ static char *resolve_path(aqua_call *call, const char *path) {
     return resolved;
 }
 
-/* The options hash: WorkingDirectory and TimeoutMs. */
+/* The options hash: WorkingDirectory and TimeoutMs, and for Start the OnOutput / OnError callbacks. */
 static bool read_options(aqua_call *call, uint32_t index, terminal_job *job) {
     aqua_runtime *rt = aqua_call_runtime(call);
     if (aqua_argc(call) <= index) return true;
@@ -204,6 +349,14 @@ static bool read_options(aqua_call *call, uint32_t index, terminal_job *job) {
             ok = aqua_is_number(value) && n >= 1 && n <= MAXIMUM_TIMEOUT_MS && n == (double)(int32_t)n;
             if (ok) job->timeout_ms = (int32_t)n;
             else fail(call, job->function, "TimeoutMs must be an integer in 1..3600000.");
+        } else if (strcmp(job->function, "Start") == 0 && (strcmp(name, "OnOutput") == 0 || strcmp(name, "OnError") == 0)) {
+            int stream = strcmp(name, "OnError") == 0;
+            ok = aqua_is_callable(value);
+            if (ok) {
+                aqua_release(rt, job->callbacks[stream]);
+                job->callbacks[stream] = aqua_retain(rt, value);
+                job->streams[stream] = true;
+            } else fail(call, job->function, "OnOutput and OnError must be functions.");
         } else {
             fail(call, job->function, "Unknown terminal option.");
             ok = false;
@@ -214,19 +367,22 @@ static bool read_options(aqua_call *call, uint32_t index, terminal_job *job) {
     return true;
 }
 
-static void start(aqua_call *call, const char *function, bool script) {
+/* Run and RunScript wait for the result; Start (`process`) returns a Terminal.Process at once and has no timeout unless
+   TimeoutMs is given. */
+static void start(aqua_call *call, const char *function, bool script, bool process) {
 #if !defined(TERMINAL_PROCESSES)
-    (void)script;
+    (void)script; (void)process;
     fail(call, function, "Terminal processes are unavailable on this platform.");
 #else
     aqua_runtime *rt = aqua_call_runtime(call);
     terminal_job *job = calloc(1, sizeof *job);
     job->function = function;
-    job->timeout_ms = DEFAULT_TIMEOUT_MS;
+    job->timeout_ms = process ? 0 : DEFAULT_TIMEOUT_MS;
+    atomic_flag_clear(&job->lock);
     uint32_t option_index;
     if (script) {
         char *text = text_value(call, aqua_arg(call, 0), function);
-        if (!text) { job_free(job); return; }
+        if (!text) { job_free(rt, job); return; }
         option_index = 1;
 #if defined(TERMINAL_WINDOWS)
         static const char prefix[] = "[Console]::OutputEncoding=[Text.UTF8Encoding]::new($false);$OutputEncoding=[Console]::OutputEncoding;";
@@ -248,35 +404,39 @@ static void start(aqua_call *call, const char *function, bool script) {
 #endif
     } else {
         char *executable = text_value(call, aqua_arg(call, 0), function);
-        if (!executable) { job_free(job); return; }
+        if (!executable) { job_free(rt, job); return; }
         option_index = 2;
         aqua_value list = aqua_arg(call, 1);
-        if (list.type != AQUA_ARRAY) { free(executable); fail(call, function, "Arguments must be a string array."); job_free(job); return; }
+        if (list.type != AQUA_ARRAY) { free(executable); fail(call, function, "Arguments must be a string array."); job_free(rt, job); return; }
         job->count = aqua_array_length(rt, list);
         job->arguments = calloc(job->count ? job->count : 1, sizeof *job->arguments);
         for (uint32_t i = 0; i < job->count; i++) {
             job->arguments[i] = text_value(call, aqua_array_get(rt, list, i), function);
-            if (!job->arguments[i]) { free(executable); job_free(job); return; }
+            if (!job->arguments[i]) { free(executable); job_free(rt, job); return; }
         }
-        if (blank(executable)) { free(executable); fail(call, function, "Executable is required."); job_free(job); return; }
+        if (blank(executable)) { free(executable); fail(call, function, "Executable is required."); job_free(rt, job); return; }
         if (strchr(executable, '/') || strchr(executable, '\\')) {
             job->executable = resolve_path(call, executable);
             free(executable);
         } else job->executable = executable;
     }
-    if (!read_options(call, option_index, job)) { job_free(job); return; }
+    if (!read_options(call, option_index, job)) { job_free(rt, job); return; }
     terminal_state *state = aqua_state(call);
     job->state = state;
     char *error = NULL;
     if (!terminal_platform_start(job, &error)) {
         fail(call, function, error ? error : "Could not launch process.");
         free(error);
-        job_free(job);
+        job_free(rt, job);
         return;
     }
-    job->pending = aqua_defer(call);
     job->next = state->jobs;
     state->jobs = job;
+    if (!process) { job->pending = aqua_defer(call); return; }
+    terminal_process *object = calloc(1, sizeof *object);
+    object->job = job;
+    job->process = object;
+    aqua_return(call, aqua_object_new(rt, process_class, object));
 #endif
 }
 
@@ -289,8 +449,9 @@ static void is_supported(aqua_call *call) {
     aqua_return_bool(call, false);
 #endif
 }
-static void run(aqua_call *call) { start(call, "Run", false); }
-static void run_script(aqua_call *call) { start(call, "RunScript", true); }
+static void run(aqua_call *call) { start(call, "Run", false, false); }
+static void run_script(aqua_call *call) { start(call, "RunScript", true, false); }
+static void start_process(aqua_call *call) { start(call, "Start", false, true); }
 
 AQUA_LIBRARY(terminal) {
     aqua_library_state(library, state_create, state_destroy);
@@ -300,10 +461,18 @@ AQUA_LIBRARY(terminal) {
     /* Kinds are checked here, so the old messages (and the unsupported error first) stay as they were. */
     aqua_define_function(module, "Run|執行", run, "vv|v");
     aqua_define_function(module, "RunScript|執行腳本", run_script, "v|v");
+    aqua_define_function(module, "Start|啟動", start_process, "vv|v");
 
     result_class = aqua_define_class(library, "Terminal.Result", result_finalize);
     aqua_define_property(result_class, "ExitCode|結束代碼", result_exit_code);
     aqua_define_property(result_class, "StandardOutput|標準輸出", result_output);
     aqua_define_property(result_class, "StandardError|標準錯誤", result_error);
     aqua_define_property(result_class, "TimedOut|已逾時", result_timed_out);
+
+    process_class = aqua_define_class(library, "Terminal.Process", process_finalize);
+    aqua_define_function(process_class, "Wait|等待結束", process_wait, "");
+    aqua_define_async(process_class, "WaitAsync|非同步等待結束", process_wait, "");
+    aqua_define_function(process_class, "Kill|結束", process_kill, "");
+    aqua_define_property(process_class, "Running|執行中", process_running);
+    aqua_define_property(process_class, "Result|結果", process_result);
 }

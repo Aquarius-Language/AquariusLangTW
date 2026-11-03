@@ -6,6 +6,7 @@
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #include <pthread.h>
+#include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -110,7 +111,8 @@ typedef struct reader {
     OVERLAPPED overlapped;
     char buffer[8192];
     bool open, pending;
-    terminal_output *output;
+    terminal_job *job;
+    int stream;
 } reader;
 
 /* Starts the next read; a read that completes at once also signals the event, so completions are handled in one place. */
@@ -123,7 +125,7 @@ static void read_next(reader *r) {
 static void read_completed(reader *r) {
     DWORD count = 0;
     if (GetOverlappedResult(r->pipe, &r->overlapped, &count, FALSE)) {
-        terminal_output_append(r->output, r->buffer, count);
+        terminal_job_output(r->job, r->stream, r->buffer, count);
         r->pending = false;
         read_next(r);
     } else if (GetLastError() != ERROR_IO_INCOMPLETE) {
@@ -146,7 +148,8 @@ static void *supervise(void *data) {
         readers[i].pipe = p->pipes[i];
         readers[i].overlapped.hEvent = CreateEventW(NULL, TRUE, FALSE, NULL);
         readers[i].open = true;
-        readers[i].output = i == 0 ? &job->output : &job->error_output;
+        readers[i].job = job;
+        readers[i].stream = i;
         read_next(&readers[i]);
     }
     ULONGLONG start = GetTickCount64(), exit_time = 0;
@@ -160,8 +163,10 @@ static void *supervise(void *data) {
         handles[count] = p->cancel; kinds[count++] = -1;
         if (!exited) { handles[count] = p->process; kinds[count++] = -2; }
         for (int i = 0; i < 2; i++) if (readers[i].open) { handles[count] = readers[i].overlapped.hEvent; kinds[count++] = i; }
-        ULONGLONG now = GetTickCount64(), limit = exited ? exit_time + bound : start + (ULONGLONG)job->timeout_ms;
-        DWORD outcome = WaitForMultipleObjects(count, handles, FALSE, now >= limit ? 0 : (DWORD)(limit - now));
+        /* Without a timeout (Start) only the exit bounds the wait. */
+        ULONGLONG now = GetTickCount64(), limit = exited ? exit_time + bound : job->timeout_ms ? start + (ULONGLONG)job->timeout_ms : ULLONG_MAX;
+        DWORD wait = limit == ULLONG_MAX ? INFINITE : now >= limit ? 0 : limit - now > 0x7FFFFFFF ? 0x7FFFFFFF : (DWORD)(limit - now);
+        DWORD outcome = WaitForMultipleObjects(count, handles, FALSE, wait);
         if (outcome == WAIT_TIMEOUT) {
             if (!exited) {
                 kill_tree(p);
@@ -291,6 +296,11 @@ void terminal_platform_finish(terminal_job *job) {
     pthread_join(p->thread, NULL);
     release(p);
     job->platform = NULL;
+}
+
+void terminal_platform_kill(terminal_job *job) {
+    process *p = job->platform;
+    if (p) kill_tree(p);
 }
 
 void terminal_platform_cancel(terminal_job *job) {

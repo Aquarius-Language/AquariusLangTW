@@ -49,7 +49,7 @@ struct Card { child; children; style; class; key; onTap }
 struct Gesture { child; onTap; onDoubleTap; onLongPress; onHover; onPress; onRelease; onDragStart; onDrag; onDragEnd; cursor; key }
 struct Builder { build; key }
 struct Stateful { init; build; dispose; key }
-struct Immediate { width; height; paint; feed; style; key }
+struct Immediate { width; height; paint; feed; style; key; ime; focus }
 struct Themed { theme; child; key }
 
 # Style properties, named as Saturn's SetStyle names them (CSS names). Fields left out keep their defaults.
@@ -254,7 +254,15 @@ var colorArray = function(c) {
 # ---- Icons: vector shapes painted with Saturn's painter, colored by the inherited text color --------------------
 
 var iconNames = ["check", "close", "plus", "minus", "chevronLeft", "chevronRight", "chevronUp", "chevronDown", "menu",
-    "search", "star", "heart", "home", "settings", "arrowLeft", "arrowRight", "dot", "circle", "info", "user"];
+    "search", "star", "heart", "home", "settings", "arrowLeft", "arrowRight", "dot", "circle", "info", "user",
+    "play", "fastForward", "stop", "refresh", "save", "trash", "file", "folder", "notebook", "sun", "moon", "code", "text",
+    "copy", "more", "edit"];
+var triangle = function(p, points, color) {
+    var v = [];
+    for (var k = 0; k < 3; k++) { Array.AppendArray(v, [points[k * 2], points[k * 2 + 1], 0, 0, color[0], color[1], color[2], color[3]]); }
+    p.Mesh(v, [0, 1, 2]);
+    return null;
+};
 var PaintIcon = function(p, name, size, color) {
     var s = size;
     var w = s * 0.11d;
@@ -305,6 +313,108 @@ var PaintIcon = function(p, name, size, color) {
     elif (name == "circle") { p.Border(s * 0.15d, s * 0.15d, s * 0.7d, s * 0.7d, w, color, s * 0.35d); }
     elif (name == "info") { p.Border(s * 0.12d, s * 0.12d, s * 0.76d, s * 0.76d, w, color, s * 0.38d); p.Line(s * 0.5d, s * 0.45d, s * 0.5d, s * 0.7d, w, color); p.Circle(s * 0.5d, s * 0.32d, w * 0.7d, color); }
     elif (name == "user") { p.Circle(s * 0.5d, s * 0.35d, s * 0.16d, color); p.Rect(s * 0.22d, s * 0.58d, s * 0.56d, s * 0.28d, color, [s * 0.28d, s * 0.28d, 4, 4]); }
+    elif (name == "play") { triangle(p, [s * 0.3d, s * 0.2d, s * 0.3d, s * 0.8d, s * 0.8d, s * 0.5d], color); }
+    elif (name == "fastForward") {
+        triangle(p, [s * 0.14d, s * 0.24d, s * 0.14d, s * 0.76d, s * 0.5d, s * 0.5d], color);
+        triangle(p, [s * 0.5d, s * 0.24d, s * 0.5d, s * 0.76d, s * 0.86d, s * 0.5d], color);
+    }
+    elif (name == "stop") { p.Rect(s * 0.26d, s * 0.26d, s * 0.48d, s * 0.48d, color, s * 0.06d); }
+    elif (name == "refresh") {
+        var P = import("Processing");
+        var steps = 10;
+        for (var k = 0; k < steps; k++) {
+            var a0 = -0.9d + k * 0.5d;
+            var a1 = a0 + 0.5d;
+            p.Line(s * 0.5d + s * 0.3d * P.cos(a0), s * 0.5d + s * 0.3d * P.sin(a0), s * 0.5d + s * 0.3d * P.cos(a1), s * 0.5d + s * 0.3d * P.sin(a1), w, color);
+        }
+        var ex = s * 0.5d + s * 0.3d * P.cos(-0.9d);
+        var ey = s * 0.5d + s * 0.3d * P.sin(-0.9d);
+        triangle(p, [ex - s * 0.16d, ey - s * 0.02d, ex + s * 0.06d, ey - s * 0.14d, ex + s * 0.04d, ey + s * 0.12d], color);
+    }
+    elif (name == "save") {
+        p.Border(s * 0.18d, s * 0.18d, s * 0.64d, s * 0.64d, w, color, s * 0.08d);
+        p.Rect(s * 0.32d, s * 0.18d, s * 0.36d, s * 0.2d, color);
+        p.Rect(s * 0.3d, s * 0.56d, s * 0.4d, s * 0.2d, color, s * 0.03d);
+    }
+    elif (name == "trash") {
+        p.Line(s * 0.2d, s * 0.28d, s * 0.8d, s * 0.28d, w, color);
+        p.Line(s * 0.4d, s * 0.18d, s * 0.6d, s * 0.18d, w, color);
+        p.Border(s * 0.28d, s * 0.34d, s * 0.44d, s * 0.48d, w, color, s * 0.06d);
+        p.Line(s * 0.43d, s * 0.44d, s * 0.43d, s * 0.72d, w * 0.8d, color);
+        p.Line(s * 0.57d, s * 0.44d, s * 0.57d, s * 0.72d, w * 0.8d, color);
+    }
+    elif (name == "file") {
+        p.Border(s * 0.24d, s * 0.14d, s * 0.52d, s * 0.72d, w, color, s * 0.06d);
+        p.Line(s * 0.35d, s * 0.4d, s * 0.65d, s * 0.4d, w * 0.8d, color);
+        p.Line(s * 0.35d, s * 0.54d, s * 0.65d, s * 0.54d, w * 0.8d, color);
+        p.Line(s * 0.35d, s * 0.68d, s * 0.55d, s * 0.68d, w * 0.8d, color);
+    }
+    elif (name == "folder") {
+        p.Rect(s * 0.14d, s * 0.24d, s * 0.3d, s * 0.14d, color, s * 0.04d);
+        p.Rect(s * 0.14d, s * 0.32d, s * 0.72d, s * 0.46d, color, s * 0.06d);
+    }
+    elif (name == "notebook") {
+        p.Border(s * 0.22d, s * 0.14d, s * 0.58d, s * 0.72d, w, color, s * 0.08d);
+        for (var k = 0; k < 4; k++) { p.Circle(s * 0.22d, s * (0.26d + 0.16d * k), s * 0.05d, color); }
+        p.Line(s * 0.4d, s * 0.38d, s * 0.66d, s * 0.38d, w * 0.8d, color);
+        p.Line(s * 0.4d, s * 0.52d, s * 0.6d, s * 0.52d, w * 0.8d, color);
+    }
+    elif (name == "sun") {
+        var P = import("Processing");
+        p.Circle(s * 0.5d, s * 0.5d, s * 0.17d, color);
+        for (var k = 0; k < 8; k++) {
+            var a = k * 0.7853982d;
+            p.Line(s * 0.5d + s * 0.27d * P.cos(a), s * 0.5d + s * 0.27d * P.sin(a), s * 0.5d + s * 0.4d * P.cos(a), s * 0.5d + s * 0.4d * P.sin(a), w, color);
+        }
+    }
+    elif (name == "moon") {
+        # A crescent: the moon's disc less an overlapping disc, filled as a strip between the two arcs.
+        var P = import("Processing");
+        var x1 = s * 0.5d; var y1 = s * 0.5d; var r1 = s * 0.36d;
+        var x2 = s * 0.68d; var y2 = s * 0.34d; var r2 = s * 0.3d;
+        var d = P.dist(x1, y1, x2, y2);
+        var toInner = P.atan2(y2 - y1, x2 - x1);
+        var half = P.acos((r1 * r1 + d * d - r2 * r2) / (2 * r1 * d));
+        var startX = x1 + r1 * P.cos(toInner + half); var startY = y1 + r1 * P.sin(toInner + half);
+        var endX = x1 + r1 * P.cos(toInner - half); var endY = y1 + r1 * P.sin(toInner - half);
+        var from = P.atan2(startY - y2, startX - x2);
+        var to = P.atan2(endY - y2, endX - x2);
+        # The inner arc runs from the start to the end through the side facing the outer disc's center.
+        var facing = P.atan2(y1 - y2, x1 - x2);
+        var sweep = to - from;
+        if (sweep < 0) { sweep += 6.2831853d; }
+        var middle = from + sweep / 2;
+        if (P.abs(P.atan2(P.sin(middle - facing), P.cos(middle - facing))) > 1.5707963d) { sweep -= 6.2831853d; }
+        var n = 24;
+        var v = [];
+        var ids = [];
+        for (var k = 0; k <= n; k++) {
+            var t = k * 1.0d / n;
+            var outer = toInner + half + t * (6.2831853d - 2 * half);
+            var inner = from + t * sweep;
+            Array.AppendArray(v, [x1 + r1 * P.cos(outer), y1 + r1 * P.sin(outer), 0, 0, color[0], color[1], color[2], color[3],
+                x2 + r2 * P.cos(inner), y2 + r2 * P.sin(inner), 0, 0, color[0], color[1], color[2], color[3]]);
+            if (k < n) { Array.AppendArray(ids, [k * 2, k * 2 + 2, k * 2 + 1, k * 2 + 1, k * 2 + 2, k * 2 + 3]); }
+        }
+        p.Mesh(v, ids);
+    }
+    elif (name == "code") {
+        p.Line(s * 0.36d, s * 0.28d, s * 0.14d, s * 0.5d, w, color); p.Line(s * 0.14d, s * 0.5d, s * 0.36d, s * 0.72d, w, color);
+        p.Line(s * 0.64d, s * 0.28d, s * 0.86d, s * 0.5d, w, color); p.Line(s * 0.86d, s * 0.5d, s * 0.64d, s * 0.72d, w, color);
+        p.Line(s * 0.56d, s * 0.2d, s * 0.44d, s * 0.8d, w * 0.9d, color);
+    }
+    elif (name == "text") {
+        p.Line(s * 0.22d, s * 0.24d, s * 0.78d, s * 0.24d, w, color); p.Line(s * 0.5d, s * 0.24d, s * 0.5d, s * 0.8d, w, color);
+    }
+    elif (name == "copy") {
+        p.Border(s * 0.3d, s * 0.3d, s * 0.48d, s * 0.52d, w, color, s * 0.06d);
+        p.Line(s * 0.2d, s * 0.68d, s * 0.2d, s * 0.2d, w, color); p.Line(s * 0.2d, s * 0.2d, s * 0.6d, s * 0.2d, w, color);
+    }
+    elif (name == "more") { for (var k = 0; k < 3; k++) { p.Circle(s * (0.26d + 0.24d * k), s * 0.5d, s * 0.07d, color); } }
+    elif (name == "edit") {
+        p.Line(s * 0.24d, s * 0.76d, s * 0.7d, s * 0.3d, w * 1.4d, color);
+        triangle(p, [s * 0.16d, s * 0.84d, s * 0.2d, s * 0.66d, s * 0.34d, s * 0.8d], color);
+    }
     else { p.Border(s * 0.2d, s * 0.2d, s * 0.6d, s * 0.6d, w, color); }
 };
 
@@ -659,7 +769,11 @@ kinds["Immediate"] = {"update": function(e, w) {
     # Another UI library drawn in this rectangle: paint(x, y, width, height) returns its draw list each frame.
     restyle(e, {"width": w.width, "height": w.height}, ["Immediate"], w.style);
     var paint = w.paint;
+    var focus = w.focus;
     e.node.SetPainter(function(p, width, height) {
+        # focus(focused) hears when the widget gains or loses the keyboard (a caret to show or hide).
+        var focused = e.surface.focus == e;
+        if (focus != null && Hash.Get(e.data, "focused", false) != focused) { e.data["focused"] = focused; focus(focused); }
         if (paint == null) { return null; }
         var box = e.node.GetAbsoluteLayout();
         var list = paint(box["x"], box["y"], width, height);
@@ -932,8 +1046,13 @@ var solid = function(path) {
 };
 var eventOf = function(raw) {
     if (typeOf(raw) == "hash") { return raw; }
-    return {"type": raw.type, "x": raw.x, "y": raw.y, "button": raw.button, "dx": raw.dx, "dy": raw.dy, "key": raw.key,
-        "text": raw.text, "action": raw.action, "modifiers": raw.modifiers, "count": raw.count, "command": raw.command};
+    # Every Interaction field, so Immediate widgets (editors) see modifiers, input-method phases and timing too.
+    return {"type": raw.type, "time": raw.time, "x": raw.x, "y": raw.y, "startX": raw.startX, "startY": raw.startY,
+        "dx": raw.dx, "dy": raw.dy, "velocityX": raw.velocityX, "velocityY": raw.velocityY, "scale": raw.scale,
+        "width": raw.width, "height": raw.height, "button": raw.button, "count": raw.count, "pointerId": raw.pointerId,
+        "pointerType": raw.pointerType, "modifiers": raw.modifiers, "shift": raw.shift, "alt": raw.alt,
+        "primary": raw.primary, "key": raw.key, "text": raw.text, "action": raw.action, "command": raw.command,
+        "source": raw.source, "phase": raw.phase, "state": raw.state, "cursor": raw.cursor};
 };
 
 # Surface(width, height, root | options): options {"theme": Theme(...), "sheet": {...} (the app's style sheet),
@@ -1174,7 +1293,16 @@ var CreateSurface = function(width, height, root, options) {
     };
     # Where an input method's window should open: {x, y, width, height} of the focused text field, or null.
     s.ImeRect = function() {
-        if (s.focus == null || s.focus.type != "TextField") { return null; }
+        if (s.focus == null) { return null; }
+        if (s.focus.type == "Immediate") {
+            # An Immediate widget that takes text gives its caret's box in its own coordinates.
+            if (s.focus.widget.ime == null) { return null; }
+            var rect = s.focus.widget.ime();
+            if (rect == null) { return null; }
+            var box = s.focus.node.GetAbsoluteLayout();
+            return {"x": box["x"] + rect["x"], "y": box["y"] + rect["y"], "width": rect["width"], "height": rect["height"]};
+        }
+        if (s.focus.type != "TextField") { return null; }
         return s.focus.node.GetAbsoluteLayout();
     };
     s.Dispose = function() { dispose(host); };
@@ -1204,9 +1332,11 @@ var routeImmediate = function(s, ev, type) {
     }
     if (type == "press") { s.captured = target; s.focus = target; }
     if (type == "release") { s.captured = null; }
-    var used = target.widget.feed(copy);
+    var used = target.widget.feed(copy) == true;
     s.dirty = true;
-    return used == true || type == "release" || type == "press";
+    if (used || type == "release" || type == "press") { return true; }
+    # Unused: a wheel turn scrolls the view around the widget, a key reaches the surface's own handling.
+    return null;
 };
 
 # ---- Layers: retained and immediate UIs stacked in one window ----------------------------------------------------

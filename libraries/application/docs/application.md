@@ -29,7 +29,7 @@ values are arrays of integers in 0..255. Failures never report successful no-ops
 | `Fonts` | `Enumerate()`, `Available(family)`, `Measure(text,family,size)`, `Selection(text,startUtf16,endUtf16,family,size)` |
 | `Serialization` | `Json(value)`, `ParseJson(text)`, `Binary(value,schemaVersion)`, `ParseBinary(bytes)`, `TryParseBinary(bytes)` / `嘗試解析二進位(bytes)`, `Compress(bytes,format[,level])`, `Decompress(bytes,format)`, `Archive(resourceHash)`, `ReadArchive(bytes)` |
 | `Storage` | `SettingsDirectory()`, `DataDirectory()`, `Read(key)`, `Write(key,bytes)`, `Delete(key)`, `GetPreference(key)`, `SetPreference(key,value)`, `Recent()`, `Remember(resource)` |
-| `Application` | `Capabilities()`, `OpenFiles(options)`, `SaveFile(options)`, `PickDirectory()`, `LaunchFiles()`, `AcquireImage()`, `Print(image)`, `Accessibility(nodes)`, `RegisterFileAssociation(options)` |
+| `Application` | `Capabilities()`, `Environment(name)`, `Arguments()`, `OpenFiles(options)`, `SaveFile(options)`, `PickDirectory()`, `LaunchFiles()`, `AcquireImage()`, `Print(image)`, `Accessibility(nodes)`, `RegisterFileAssociation(options)` |
 | `Tasks` | `CreateCancellation()`, `UseCancellation(token)`; token has `Cancel()`, `IsCancelled()`, `Dispose()` |
 
 Resources are opaque, scoped handles with `provider`, `id`, `name`, `kind` (0 file,

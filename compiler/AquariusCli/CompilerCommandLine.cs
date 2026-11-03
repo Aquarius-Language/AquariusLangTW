@@ -122,7 +122,10 @@ public static class CompilerCommandLine {
     /// may import: the default ones, plus the library itself for sources inside a library folder).</summary>
     internal sealed record Input(string? Project, string? Wasm, IReadOnlyList<string> Sources, LibrarySet? Libraries);
 
-    internal static Input Classify(IReadOnlyList<string> files) {
+    /// <summary>What the command line names. <paramref name="scratch"/> (aqua run): a script inside a project that the
+    /// project does not declare runs on its own with the project's libraries, as a library's tests do (notebook
+    /// kernels and experiments next to a project); builds still require declared sources.</summary>
+    internal static Input Classify(IReadOnlyList<string> files, bool scratch = false) {
         if (files.Count == 0) {
             string? found = ProjectManifest.Find(Environment.CurrentDirectory);
             if (found == null || ProjectManifest.IsLibraryManifest(found)) throw new ArgumentException("Provide .aqua sources, a .wasm application or a TOML project.");
@@ -142,8 +145,12 @@ public static class CompilerCommandLine {
             bool isDefault = LibrarySet.Default.Libraries.Any(l => Path.GetFullPath(l.Root).Equals(library.Root, StringComparison.OrdinalIgnoreCase));
             return new(null, null, files, isDefault ? LibrarySet.Default : ProjectBuilder.Inspect(library));
         }
-        var declared = ProjectManifest.Load(manifest).SourceFiles();
-        if (files.Any(f => !declared.Contains(Path.GetFullPath(f), StringComparer.OrdinalIgnoreCase))) throw new ArgumentException("Source is not declared in project.sources.");
+        var project = ProjectManifest.Load(manifest);
+        var declared = project.SourceFiles();
+        if (files.Any(f => !declared.Contains(Path.GetFullPath(f), StringComparer.OrdinalIgnoreCase))) {
+            if (scratch) return new(null, null, files, ProjectBuilder.Inspect(project));
+            throw new ArgumentException("Source is not declared in project.sources.");
+        }
         return new(manifest, null, [], null);
     }
 
@@ -166,7 +173,7 @@ public static class CompilerCommandLine {
         var rest = args.Skip(first + 1).ToList();
         if (entry == null && rest.Count >= 2 && rest[0] == "--entry") { entry = rest[1]; rest.RemoveRange(0, 2); }
         if (rest.Count > 0 && rest[0] == "--") rest.RemoveAt(0);
-        var input = Classify([file]);
+        var input = Classify([file], scratch: true);
         // Sources compile to a hidden file in their own folder: the runtime's application folder (目前工作目錄, files the
         // program writes, libraries/) is then the source folder, as for a .wasm built there.
         string? temporary = null;

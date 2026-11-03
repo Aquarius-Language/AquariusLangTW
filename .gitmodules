@@ -1,0 +1,3 @@
+[submodule "tools/aqua_wellplay"]
+	path = tools/aqua_wellplay
+	url = https://github.com/Aquarius-Language/aqua_wellplay.git

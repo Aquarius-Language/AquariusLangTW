@@ -784,7 +784,27 @@ static void p_createImage(aqua_call *call, processing *p) {
     aqua_return(call, gfx_image_object(aqua_call_runtime(call), image));
 }
 
+/* loadImage(path | bytes): a file or asset, or the encoded bytes of a PNG, JPEG, GIF or BMP (an image received over
+   the network on the web, where no path reaches it). */
 static void p_loadImage(aqua_call *call, processing *p) {
+    aqua_runtime *rt = aqua_call_runtime(call);
+    aqua_value source = aqua_arg(call, 0);
+    if (source.type == AQUA_ARRAY) {
+        uint32_t length = aqua_array_length(rt, source);
+        uint8_t *bytes = malloc(length ? length : 1);
+        if (!aqua_array_read_u8(rt, source, 0, length, bytes)) { free(bytes); gfx_fail(call, "loadImage: bytes must be integers 0..255."); return; }
+        int width, height;
+        const char *reason = NULL;
+        uint8_t *pixels = gfx_codec_decode(bytes, length, &width, &height, &reason);
+        free(bytes);
+        if (!pixels) { gfx_fail(call, "%s", reason ? reason : "Image decode failed."); return; }
+        pimage *image = gfx_image_new(p, width, height);
+        if (!image) { free(pixels); gfx_fail(call, "Image dimensions must be 1..8192 with at most 16 million pixels."); return; }
+        memcpy(image->bytes, pixels, (size_t)width * (size_t)height * 4);
+        free(pixels);
+        aqua_return(call, gfx_image_object(rt, image));
+        return;
+    }
     aqua_str path = gfx_text(call, 0);
     if (aqua_failed(call)) return;
     pimage *image = gfx_image_load(call, p, path.data);

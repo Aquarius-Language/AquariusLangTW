@@ -69,6 +69,7 @@ runtime/
 libraries/<name>/    default libraries (application, audio, camera, clay, graphics, imgui, input, interaction, network, onnx,
                      opengl, saturn, terminal, webframe)
 web-glue/            core/, page/, index.mjs and one folder per Web API domain
+tools/<name>/        tools written in AquariusLang that ship beside aqua (aqua_wellplay), each a git submodule
 scripts/             toolchain pins and installers, runtime/library builds, web-run.mjs, android-run.ps1, release
 ```
 
@@ -83,6 +84,10 @@ scripts/             toolchain pins and installers, runtime/library builds, web-
   `context.callPointer` + `context.wake()`. See `web-glue/README.md`.
 - **An SDK function:** declare it in `aqua/*.h`, append it to `api.def` before the platform-specific block, implement
   it in `runtime/host` or the platform layers, raise `AQUA_API_VERSION` once released.
+- **A tool:** an AquariusLang application in `tools/<name>/`, its own repository added as a git submodule, with
+  `build.ps1 -Aqua <aqua> -Output <package>` (and `build.sh <aqua> <package>`) that builds it into the package;
+  `scripts/publish-cli` runs every tool's build with the aqua it just published. It follows the rules above like any
+  application (its own native code is a library; no JavaScript of its own).
 - **A target:** a toolchain file, a `runtime/platform/<os>` layer, pins, the compiler's build target, and the
   libraries' platform branches. Nothing else should need to know.
 

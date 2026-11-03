@@ -5,6 +5,7 @@
 #if defined(TERMINAL_POSIX)
 #include <errno.h>
 #include <fcntl.h>
+#include <math.h>
 #include <poll.h>
 #include <pthread.h>
 #include <signal.h>
@@ -83,11 +84,11 @@ static void kill_tree(process *p) {
 }
 
 /* Reads whatever is available; false once the pipe has ended. */
-static bool drain(int fd, terminal_output *output) {
+static bool drain(int fd, terminal_job *job, int stream) {
     char buffer[8192];
     for (;;) {
         ssize_t n = read(fd, buffer, sizeof buffer);
-        if (n > 0) { terminal_output_append(output, buffer, (size_t)n); if ((size_t)n < sizeof buffer) return true; continue; }
+        if (n > 0) { terminal_job_output(job, stream, buffer, (size_t)n); if ((size_t)n < sizeof buffer) return true; continue; }
         if (n < 0 && errno == EINTR) continue;
         return n < 0 && errno == EAGAIN;
     }
@@ -101,7 +102,6 @@ static void record_exit(terminal_job *job, int status) {
 static void *supervise(void *data) {
     terminal_job *job = data;
     process *p = job->platform;
-    terminal_output *outputs[2] = {&job->output, &job->error_output};
     bool open[2] = {true, true}, exited = false;
     double start = now_ms(), exit_time = 0, bound = job->timeout_ms > 1000 ? job->timeout_ms : 1000;
     for (;;) {
@@ -115,7 +115,8 @@ static void *supervise(void *data) {
             }
         }
         if (exited && !open[0] && !open[1]) break;
-        double now = now_ms(), limit = exited ? exit_time + bound : start + job->timeout_ms;
+        /* Without a timeout (Start) only the exit bounds the wait. */
+        double now = now_ms(), limit = exited ? exit_time + bound : job->timeout_ms ? start + job->timeout_ms : INFINITY;
         if (now >= limit) {
             if (!exited) {
                 kill_tree(p);
@@ -142,7 +143,7 @@ static void *supervise(void *data) {
         if (ready <= 0) continue;
         if (fds[0].revents) { kill_tree(p); p->cancelled = true; break; }
         for (int i = 1; i < count; i++)
-            if (fds[i].revents && !drain(fds[i].fd, outputs[map[i]])) open[map[i]] = false;
+            if (fds[i].revents && !drain(fds[i].fd, job, map[i])) open[map[i]] = false;
     }
     if (!exited || p->cancelled) {
         int status;
@@ -244,6 +245,11 @@ void terminal_platform_finish(terminal_job *job) {
     pthread_join(p->thread, NULL);
     release(p);
     job->platform = NULL;
+}
+
+void terminal_platform_kill(terminal_job *job) {
+    process *p = job->platform;
+    if (p) kill_tree(p);
 }
 
 void terminal_platform_cancel(terminal_job *job) {

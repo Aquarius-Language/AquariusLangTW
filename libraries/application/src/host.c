@@ -19,6 +19,15 @@ void app_application_Environment(aqua_call *call) {
     else aqua_return_null(call);
 }
 
+/* The launch arguments as given (command-line tools read their options here; LaunchFiles resolves them as files). */
+void app_application_Arguments(aqua_call *call) {
+    aqua_runtime *rt = aqua_call_runtime(call);
+    uint32_t count = aqua_launch_count(rt);
+    aqua_value list = aqua_array_new(rt, count);
+    for (uint32_t i = 0; i < count; i++) aqua_array_set(rt, list, i, aqua_cstring(rt, aqua_launch_argument(rt, i)));
+    aqua_return(call, list);
+}
+
 /* ---- Options ---- */
 
 static bool text_option(aqua_runtime *rt, aqua_value hash, const char *name, char **out, bool required, app_error *e) {

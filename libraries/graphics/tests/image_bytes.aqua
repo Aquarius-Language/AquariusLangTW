@@ -1,0 +1,8 @@
+# loadImage(bytes): an encoded image held in memory (a PNG made with the Images module) becomes a Processing image.
+var p = import("Processing");
+var Images = import("Images");
+var png = Images.Encode(Images.Create(2, 1, [255, 0, 0, 255, 0, 0, 255, 255]), "png", {});
+var image = p.loadImage(png);
+print(image.width, image.height, p.red(image.get(0, 0)), p.blue(image.get(1, 0)));
+var Network = import("Network");
+print(Network.Try(() => p.loadImage([1, 2, 3])).Success);

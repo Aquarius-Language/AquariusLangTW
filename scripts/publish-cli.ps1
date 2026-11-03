@@ -7,6 +7,7 @@
 #     sdk/                           runtime/sdk: headers, CMake modules and toolchain files for external library authors
 #     scripts/                       the toolchain pins and installers the SDK's toolchain files use
 #     examples/                      the example tree
+#     <tool>(.exe), wellplay/, ...   tools written in AquariusLang (tools/<name>/build.ps1), such as aqua_wellplay
 #   scripts/publish-cli.ps1 [-Runtime win-x64|linux-x64] [-Output dist/aqua] [-Packs windows-x64,web,...]
 param([string]$Dotnet = 'dotnet', [string]$Runtime = 'win-x64', [string]$Output = 'dist/aqua', [string[]]$Packs = @())
 $ErrorActionPreference = 'Stop'
@@ -58,4 +59,15 @@ Copy-Item -LiteralPath (Join-Path $repository 'LICENSE') -Destination $Output
 $aqua = Join-Path $Output $(if ($Runtime.StartsWith('win-')) { 'aqua.exe' } else { 'aqua' })
 & $aqua --help | Out-Null
 if ($LASTEXITCODE -ne 0) { throw 'The published aqua does not start.' }
+
+# Tools written in AquariusLang (tools/<name>/, each its own repository as a submodule) build with the aqua just
+# published and land beside it: tools/<name>/build.ps1 -Aqua <aqua> -Output <package>. They need the web pack for
+# their pages; a submodule that is not checked out is skipped.
+foreach ($tool in Get-ChildItem -LiteralPath (Join-Path $repository 'tools') -Directory -ErrorAction SilentlyContinue) {
+    $build = Join-Path $tool.FullName 'build.ps1'
+    if (-not (Test-Path -LiteralPath $build)) { Write-Warning "tools/$($tool.Name) is not checked out (git submodule update --init); skipped."; continue }
+    if (-not (Test-Path -LiteralPath (Join-Path $Output 'runtime/web'))) { Write-Warning "tools/$($tool.Name) needs the web runtime pack; skipped."; continue }
+    & $build -Aqua $aqua -Output $Output
+    if (-not $?) { throw "Building tools/$($tool.Name) failed." }
+}
 Write-Host "Published $Output (runtime packs: $($Packs -join ', '))"

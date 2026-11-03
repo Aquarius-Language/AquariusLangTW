@@ -44,7 +44,7 @@ public sealed class WasmApplication
             string source = Path.GetFullPath(input), name = RelativeInput(root, source); ValidateScriptPath(name);
             if (modules.ContainsKey(name)) throw new ArgumentException($"Duplicate module: {name}");
             try { modules.Add(name, new LoweringCompiler().Compile(File.ReadAllText(source))); }
-            catch (CompilationException e) { throw new CompilationException($"{input}: {e.Message}"); }
+            catch (CompilationException e) { throw e.InFile(input); }
         }
         if (modules.Count == 0) throw new ArgumentException("Provide at least one .aqua source file.");
         foreach (string input in assetPaths ?? Array.Empty<string>())

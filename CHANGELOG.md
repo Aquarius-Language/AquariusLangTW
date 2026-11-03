@@ -53,7 +53,30 @@ Language:
 - `&&` and `||` short-circuit: the right operand is skipped when the left one decides the result (`f != null &&
   f(x)`, `false && g()` no longer calls `g`). Programs whose right operands had no effects keep their output.
 
+Tools:
+- `aqua_wellplay` (new, `tools/aqua_wellplay`, its own repository as a submodule): AquariusLang notebooks in the spirit
+  of JupyterLab. `aqua_wellplay [folder]` serves a folder over HTTP; the browser frontend (a SaturnUI app built for the
+  web) edits `.ipynb` notebooks with Aqua_Embedded_LSP_Editor cells, and cells run on the desktop through the kernel,
+  which streams text, errors and rich outputs (`Display`: Markdown, tables, charts, images, JSON, progress, updatable
+  outputs) and shows a cell's last value as `Out[n]`. Light and dark themes, a file browser, Jupyter's shortcuts,
+  autosave, interrupt and restart. The release builds `aqua_wellplay(.exe)` beside `aqua` (`scripts/publish-cli`
+  builds every tool under `tools/`). See [tools/aqua_wellplay](tools/aqua_wellplay/README.md).
+
+Compiler and CLI:
+- Compile errors carry their line and column: `main.aqua:2:14: message` (`CompilationException.Diagnostics`).
+- `aqua run` takes a script inside a project folder that the project does not declare, running it with the project's
+  libraries (it used to fail with `Source is not declared in project.sources.`; builds still require it).
+
 Libraries:
+- `terminal`: `Terminal.Start(executable, arguments, options)` returns a `Terminal.Process` whose output reaches
+  `OnOutput` / `OnError` callbacks as it arrives (in order; a callback may be async and wait), with `Wait`,
+  `WaitAsync`, `Kill` (the whole tree), `Running` and `Result`.
+- `application`: `Application.Arguments()` / `啟動引數` returns the launch arguments as strings (command-line options).
+- `graphics`: `loadImage(bytes)` decodes an encoded image held in memory.
+- `saturn`: `Immediate` widgets take `ime()` (the input method follows their caret) and `focus(focused)`, get every
+  Interaction field (modifiers, input-method phases) and let unused wheel turns scroll the view around them; new icons
+  `play`, `fastForward`, `stop`, `refresh`, `save`, `trash`, `file`, `folder`, `notebook`, `sun`, `moon`, `code`,
+  `text`, `copy`, `more`, `edit`.
 - `saturn` (new): Saturn / 土星 lays out interfaces with Meta's Yoga (pinned upstream, compiled in) under Yoga's own
   API (`Saturn.Node`, `Saturn.Config`, every style property, measure/baseline/dirtied callbacks), CSS-named styles
   (`SetStyle`, `ReplaceStyle`) with CSS text inheritance and transitions, text with word and CJK line breaking, images,

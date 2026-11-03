@@ -18,9 +18,22 @@ terminal.Run("python", ["script.py", "a value"], {"WorkingDirectory": "tools"});
 | `IsSupported()` / `是否支援()` | whether processes can run here |
 | `Run(executable, arguments[, options])` / `執行` | starts the program directly; every argument arrives exactly (no shell) |
 | `RunScript(script[, options])` / `執行腳本` | PowerShell on Windows (UTF-8 output), `/bin/sh -c` on Linux, `/system/bin/sh -c` on Android |
+| `Start(executable, arguments[, options])` / `啟動` | starts the program and returns a `Terminal.Process` at once; its output reaches `OnOutput` / `OnError` as it arrives |
 | result `ExitCode`/`結束代碼`, `StandardOutput`/`標準輸出`, `StandardError`/`標準錯誤`, `TimedOut`/`已逾時` | |
+| process `Wait()`/`等待結束`, `WaitAsync()`/`非同步等待結束`, `Kill()`/`結束`, `Running`/`執行中`, `Result`/`結果` | the result once the output is collected (a promise from `WaitAsync`); `Kill` ends the process tree and returns whether it was running; `Result` is null while it runs |
 
-Options: `TimeoutMs` (integer 1..3,600,000, default 60,000) and `WorkingDirectory`. Unknown options and wrong types fail
+```aquarius
+var server = terminal.Start("aqua", ["run", "main.aqua"], {"WorkingDirectory": "app",
+    "OnOutput": text => print("out:", text), "OnError": text => print("err:", text)});
+await Promise.Delay(5000);
+server.Kill();
+print(server.Wait().ExitCode);
+```
+
+Options: `TimeoutMs` (integer 1..3,600,000, default 60,000; `Start` has no limit unless given) and `WorkingDirectory`;
+`Start` also takes `OnOutput` and `OnError`, functions called with each piece of text (whole UTF-8 sequences) on the
+runtime's thread, one call at a time per process and in order (a callback may be an async function that waits, such
+as one sending the text over a network; the next piece waits for it). Unknown options and wrong types fail
 before anything starts, with the old messages (`Terminal / 終端機.Run: Unknown terminal option.`). Executable paths
 containing a separator and working directories that name a packaged asset resolve to the asset's file. A timeout ends
 the whole process tree and returns exit code -1 with `TimedOut` true. Nonzero exit codes are ordinary results; launch
@@ -30,7 +43,7 @@ the program exits, the call fails with `Child output streams did not close.`
 
 ## How it works
 
-`src/terminal.c` validates, builds the request and returns a deferred call; the platform layer launches the process on
+`src/terminal.c` validates, builds the request and returns a deferred call (or, for `Start`, a `Terminal.Process`); the platform layer launches the process on
 the runtime thread (so launch errors report directly) and a worker thread collects both streams, the exit, the timeout
 and cancellation together, then posts the result:
 
@@ -60,4 +73,5 @@ None: Win32 and winpthreads (linked statically) on Windows, POSIX and pthreads e
 ## Tests
 
 `tests/processes.aqua` (echo, exit codes, closed standard input, argument boundaries, working directory, timeout),
+`tests/streaming.aqua` (`Start`: streamed output in order, waiting callbacks, `Wait` / `WaitAsync`, `Kill`),
 `tests/validation.aqua` (desktop and Android) and `tests/unsupported.aqua` (web).

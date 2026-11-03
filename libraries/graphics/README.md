@@ -107,7 +107,8 @@ Beyond the earlier implementation, the module has: blend modes `SUBTRACT`, `LIGH
 `random2D()`, `random3D()` (module functions), `setHeading()` and `setX/setY/setZ()` (the runtime has no property
 setters), `year()`..`second()`, `nf`, `nfs`, `nfp`, `nfc`, `hex`, `unhex`, `binary`, `unbinary`, `str`, `trim`,
 `split`, `splitTokens`, `join`, `cursor(ARROW | CROSS | HAND | MOVE | TEXT | WAIT)` and `cursor(image[, x, y])`,
-`windowTitle()`, `pixelDensity()`, `focused`, `requestImage()`, `saveFrame()` without a name, and the key constants
+`windowTitle()`, `pixelDensity()`, `focused`, `requestImage()`, `loadImage(bytes)` (an encoded PNG, JPEG, GIF or BMP
+held in memory, such as one received over the network on the web), `saveFrame()` without a name, and the key constants
 `UP`, `DOWN`, `LEFT_ARROW`, `RIGHT_ARROW`, `SHIFT`, `CONTROL`, `ALT`, `ENTER`, `RETURN`, `BACKSPACE`, `TAB`, `DELETE`,
 `INSERT`, `HOME`, `END`, `PAGE_UP`, `PAGE_DOWN` (the keypad's keys with Num Lock off arrive as these)
 (GLFW key codes, like `keyCode`; `LEFT` and `RIGHT` stay the alignment and mouse-button constants). Not provided:

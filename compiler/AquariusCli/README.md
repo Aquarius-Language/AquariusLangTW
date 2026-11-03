@@ -27,6 +27,10 @@ aqua repl
 - `aqua repl` replays the session: each input is compiled after the earlier accepted inputs and the program runs again,
   showing only the new input's output and value. Earlier inputs therefore run again each time (their output is hidden,
   but their side effects, such as files they write, repeat). An input that fails is left out of the session.
+- Compile errors name their place: `main.aqua:12:5: message` (file, line, column; one line per error).
+- `aqua run scratch.aqua` inside a project folder runs a script the project does not declare on its own, with the
+  project's libraries (as a library's tests do): experiments and notebook kernels next to a project. `aqua build`
+  still requires declared sources.
 - Exit codes: 0 success, 1 compilation, runtime or I/O failure, 2 invalid command or options; `aqua run` returns the
   application's.
 

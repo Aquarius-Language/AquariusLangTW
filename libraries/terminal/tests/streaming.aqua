@@ -1,0 +1,37 @@
+# Needs child processes (Windows, Linux or Android): Start streams output to callbacks in order, Wait / WaitAsync give the result, Kill ends the tree.
+var Terminal = import("Terminal");
+var windows = isOSWindows();
+var NL = String.FromCode(10);
+
+# 輸出依序送到回呼，結果也保留完整的輸出。 / Output reaches the callbacks in order; the result keeps all of it.
+var received = "";
+var errors = "";
+var lines = if (windows) { Terminal.Start("cmd.exe", ["/d", "/c", "echo one& echo two& echo three 1>&2"], {"OnOutput": t => { received += t; }, "OnError": t => { errors += t; }}); }
+    else { Terminal.Start("/bin/sh", ["-c", "echo one; echo two; echo three 1>&2"], {"OnOutput": t => { received += t; }, "OnError": t => { errors += t; }}); };
+print("type", typeOf(lines), lines.Running, lines.Result);
+var result = await lines.WaitAsync();
+var clean = text => String.Replace(text, String.FromCode(13), "");
+print("streamed", clean(received) == "one" + NL + "two" + NL, String.Trim(clean(errors)));
+print("result", result.ExitCode, clean(result.StandardOutput) == clean(received), lines.Running, lines.Result.ExitCode, lines.Wait().ExitCode);
+
+# 回呼可以等待（非同步函式），下一段輸出等它完成才送來。 / Callbacks may wait (async functions); the next output waits for them.
+var order = [];
+var slow = if (windows) { Terminal.Start("cmd.exe", ["/d", "/c", "echo a& echo b"], {"OnOutput": async function(t) { Array.Append(order, "start"); await Promise.Delay(20); Array.Append(order, "end"); }}); }
+    else { Terminal.Start("/bin/sh", ["-c", "echo a; sleep 0.1; echo b"], {"OnOutput": async function(t) { Array.Append(order, "start"); await Promise.Delay(20); Array.Append(order, "end"); }}); };
+slow.Wait();
+var paired = true;
+for (var i = 0; i < len(order); i += 2) { if (order[i] != "start" || order[i + 1] != "end") { paired = false; } }
+print("ordered", paired, len(order) >= 2);
+
+# Kill 結束整個程序樹，Wait 回報結束。 / Kill ends the process tree; Wait reports the exit.
+var started = currentTime();
+var sleeper = if (windows) { Terminal.Start("powershell.exe", ["-NoProfile", "-Command", "Start-Sleep 30"]); }
+    else { Terminal.Start("/bin/sh", ["-c", "sleep 30"]); };
+await Promise.Delay(200);
+print("kill", sleeper.Kill(), sleeper.Wait().ExitCode != 0, currentTime() - started < 10000, sleeper.Kill());
+
+# 選項的檢查。 / Option checks.
+var Network = import("Network");
+print(Network.Try(() => Terminal.Start("cmd", [], {"OnOutput": 3})).Error.Message);
+print(Network.Try(() => Terminal.Run("cmd", [], {"OnOutput": t => t})).Error.Message);
+var done = true;

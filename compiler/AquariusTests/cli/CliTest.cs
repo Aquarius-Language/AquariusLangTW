@@ -349,4 +349,28 @@ public class CliProcessTest
         Assert.Contains(">> 42\n", repl.Output); Assert.Contains(">> 星泉\n", repl.Output);
         Assert.DoesNotContain("ILLEGAL", repl.Output);
     }
+
+
+    [Fact]
+    public void CompileErrorsNameTheirLineAndColumn()
+    {
+        using var t = new TestFolder(); t.Write("main.aqua", "print(1);\nvar broken = ;\n");
+        var built = Aqua(t.Path, null, "build", "main.aqua");
+        Assert.Equal(1, built.ExitCode);
+        Assert.Contains("main.aqua:2:14: No prefix parse function for ;(;) found.", built.Error);
+    }
+
+    [RuntimeFact]
+    public void RunTakesScriptsAProjectDoesNotDeclareWhileBuildsStillRequireThem()
+    {
+        using var t = new TestFolder();
+        t.Write("aqua.toml", "manifest_version = 2\n\n[project]\nname = \"Scratch\"\nversion = \"1.0.0\"\nentry = \"main.aqua\"\nsources = [\"main.aqua\"]\nplatforms = [\"windows\", \"linux\"]\n");
+        t.Write("main.aqua", "print(\"main\");");
+        t.Write("helper.aqua", "var twice = x => x * 2;");
+        t.Write("scratch.aqua", "var h = import(\"helper.aqua\");\nprint(\"scratch\", h.twice(21));");
+        var run = Aqua(t.Path, null, "run", "scratch.aqua");
+        Assert.Equal(0, run.ExitCode); Assert.Equal("scratch 42\n", run.Output);
+        var built = Aqua(t.Path, null, "build", "scratch.aqua");
+        Assert.NotEqual(0, built.ExitCode); Assert.Contains("Source is not declared in project.sources.", built.Error);
+    }
 }

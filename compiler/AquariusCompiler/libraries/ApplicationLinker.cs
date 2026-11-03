@@ -147,7 +147,7 @@ public static class ApplicationLinker
         if (!info.Exists) throw new IOException($"Library module {path} is missing: {file}");
         return lowered.GetOrAdd((info.FullName, info.LastWriteTimeUtc, info.Length), _ => new Lazy<LoweredProgram>(() => {
             try { return new LoweringCompiler().Compile(File.ReadAllText(file)); }
-            catch (CompilationException e) { throw new CompilationException($"{file}: {e.Message}"); }
+            catch (CompilationException e) { throw e.InFile(file); }
         })).Value;
     }
 }
