@@ -63,7 +63,12 @@ bool gfx_platform_text_raster(const char *family, float size, const char *text, 
     return web_draw_text(font, n, text, (int32_t)length, width, height, 0, m[1], alpha) != 0;
 }
 
-int gfx_platform_text_padding(void) { return 2; }
+bool gfx_platform_text_advance(const char *family, float size, const char *text, size_t length, double *advance) {
+    double m[3];
+    if (!measure(family, size, NULL, text, length, m)) return false;
+    *advance = m[0];
+    return true;
+}
 
 /* A family is installed when it changes a sample's width against every generic fallback. */
 bool gfx_platform_font_available(const char *family) {

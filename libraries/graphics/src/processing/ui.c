@@ -362,8 +362,8 @@ static void p_uiTextMetrics(aqua_call *call, processing *p) {
     double advance = 0;
     if (length) {
         int dw = 0, dh = 0;
-        bool platform = gfx_text_measure_line(font, (float)(size * density), utf8, length, &dw, &dh);
-        advance = (dw - (platform ? gfx_platform_text_padding() : 0)) / density;
+        if (gfx_platform_text_advance(font, (float)(size * density), utf8, length, &advance)) advance /= density;
+        else { gfx_text_measure_line(font, (float)(size * density), utf8, length, &dw, &dh); advance = dw / density; }
         if (advance < 0) advance = 0;
     }
     aqua_free(utf8);

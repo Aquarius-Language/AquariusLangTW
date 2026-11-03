@@ -51,8 +51,10 @@ static bool integer_argument(aqua_call *call, uint32_t index, int32_t *out) {
 static bool measure(aqua_call *call, const char *text, size_t length, const char *family, double size, int *width, int *height) {
     if (!isfinite(size) || size <= 0 || size > 512) { fail_kind(call, "InvalidData", "Font size must be 0..512."); return false; }
     int w = 0, h = 0;
-    bool platform = gfx_text_measure_line(family, (float)size, text, length, &w, &h);
-    *width = length == 0 ? 0 : w - (platform ? gfx_platform_text_padding() : 0);
+    gfx_text_measure_line(family, (float)size, text, length, &w, &h);
+    double advance;
+    if (length > 0 && gfx_platform_text_advance(family, (float)size, text, length, &advance)) w = (int)ceil(advance);
+    *width = length == 0 ? 0 : w;
     *height = h;
     return true;
 }

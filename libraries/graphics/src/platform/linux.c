@@ -1,7 +1,8 @@
 /* Linux text through Pango and Cairo, as the earlier desktop measured and drew it: Pango lays the line out with
    Fontconfig's fonts and fallback (CJK, Arabic, combining marks), the box is the union of its ink and logical extents,
    and Cairo draws it into an A8-equivalent mask. The libraries are loaded when first needed; without them text uses the
-   built-in bitmap font. */
+   built-in bitmap font. Like every platform's raster, the box starts at the pen's origin, so advances (where carets go)
+   are measured from its left edge. */
 #include "platform.h"
 #include <dlfcn.h>
 #include <stdbool.h>
@@ -36,6 +37,7 @@ typedef struct pango_rectangle { int x, y, width, height; } pango_rectangle;
     X(pango, void, pango_layout_set_font_description, (void *layout, void *description)) \
     X(pango, void, pango_layout_set_text, (void *layout, const char *text, int length)) \
     X(pango, void, pango_layout_get_pixel_extents, (void *layout, pango_rectangle *ink, pango_rectangle *logical)) \
+    X(pango, void, pango_layout_get_extents, (void *layout, pango_rectangle *ink, pango_rectangle *logical)) \
     X(pango, void, pango_font_map_list_families, (void *map, void ***families, int *count)) \
     X(pango, const char *, pango_font_family_get_name, (void *family)) \
     X(pango, void, pango_font_family_list_faces, (void *family, void ***faces, int *count)) \
@@ -94,7 +96,7 @@ static bool layout_make(layout *l, const char *spec, float size, const char *tex
     api.pango_layout_set_text(l->handle, text, (int)length);
     pango_rectangle ink, logical;
     api.pango_layout_get_pixel_extents(l->handle, &ink, &logical);
-    l->x = ink.x < logical.x ? ink.x : logical.x;
+    l->x = 0;   /* the pen's origin: glyphs overhanging to its left are cut, as on the other platforms */
     l->y = ink.y < logical.y ? ink.y : logical.y;
     int right = ink.x + ink.width > logical.x + logical.width ? ink.x + ink.width : logical.x + logical.width;
     int bottom = ink.y + ink.height > logical.y + logical.height ? ink.y + ink.height : logical.y + logical.height;
@@ -140,7 +142,15 @@ bool gfx_platform_text_raster(const char *font, float size, const char *text, si
     return ok;
 }
 
-int gfx_platform_text_padding(void) { return 0; }
+bool gfx_platform_text_advance(const char *font, float size, const char *text, size_t length, double *advance) {
+    layout l;
+    if (!layout_make(&l, font, size, text, length)) return false;
+    pango_rectangle ink, logical;
+    api.pango_layout_get_extents(l.handle, &ink, &logical);   /* Pango units: 1024 to a pixel */
+    *advance = (logical.x + logical.width) / 1024.0;
+    layout_free(&l);
+    return true;
+}
 
 void gfx_platform_fonts(platform_font_add add, void (*done)(void *data, const char *error), void *data) {
     if (!load()) { done(data, "System font enumeration adapter unavailable; existing bitmap fallback remains usable."); return; }

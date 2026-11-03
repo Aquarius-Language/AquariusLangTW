@@ -15,8 +15,10 @@
 bool gfx_platform_text_box(const char *font, float size, const char *text, size_t length, int *width, int *height);
 /* Draws `text` white into a width x height alpha mask (row-major, zeroed by the caller), as boxed above. */
 bool gfx_platform_text_raster(const char *font, float size, const char *text, size_t length, int width, int height, uint8_t *alpha);
-/* How many pixels the platform's box is wider than the text's advance (GDI's box adds 2). */
-int gfx_platform_text_padding(void);
+/* The advance of `text`: where a following character would start, measured from the box's left edge (where every
+   platform's raster puts the pen), fractional where the platform gives it. Carets and selections sit at advances.
+   False when the platform has no text system. */
+bool gfx_platform_text_advance(const char *font, float size, const char *text, size_t length, double *advance);
 
 /* A font argument is a family, optionally followed by ":<weight>" (1..1000) and ":italic", as drawUI names styled text
    ("Segoe UI:700:italic"). Splits it into the family (truncated to `size` bytes), the weight (400 without one) and the

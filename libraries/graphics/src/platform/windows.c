@@ -86,7 +86,12 @@ bool gfx_platform_text_raster(const char *name, float size, const char *text, si
     return ok;
 }
 
-int gfx_platform_text_padding(void) { return 2; }
+bool gfx_platform_text_advance(const char *name, float size, const char *text, size_t length, double *advance) {
+    int width, height;
+    if (!gfx_platform_text_box(name, size, text, length, &width, &height)) return false;
+    *advance = width - 2;   /* the box is GDI's extent (whole-pixel advances, as TextOutW draws them) plus 2 */
+    return true;
+}
 
 /* ---- Font enumeration ---- */
 

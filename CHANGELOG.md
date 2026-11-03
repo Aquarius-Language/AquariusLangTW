@@ -109,7 +109,10 @@ Libraries:
   rebuilt with), and keys no longer rebuild the whole tree per event. Carets, selections and clicks use the measurer's
   new advance (`uiTextMetrics` returns `[width, ascent, descent, advance]`: the advance as `drawUI` really draws the
   text, at the screen's pixel density and without the box's 2-pixel overhang), so the caret sits between the drawn
-  characters at any display scaling and in any font. A click on a menu item counts even if a rebuild between its press
+  characters at any display scaling and in any font. Every platform's text layer reports the advance itself
+  (`gfx_platform_text_advance`: Canvas, GDI, Pango and Android's `Paint`, replacing the per-platform padding), and Linux
+  text now starts at the pen's origin like the others (Pango's ink to the left of it moved the drawn text right of its
+  measured position). A click on a menu item counts even if a rebuild between its press
   and release moved the hit test.
 - `interaction`: `src/editing.def` says once what each key means in editable text on each platform; key events carry it
   as `edit` and `Interaction.EditAction(key, modifiers)` gives it for any key. The new `TextEditing` module implements a

@@ -204,7 +204,17 @@ bool gfx_platform_text_raster(const char *font, float size, const char *text, si
     return ok;
 }
 
-int gfx_platform_text_padding(void) { return 2; }
+bool gfx_platform_text_advance(const char *font, float size, const char *text, size_t length, double *advance) {
+    JNIEnv *env = aqua_android_jni();
+    if (!env || (*env)->PushLocalFrame(env, 32) != 0) return false;
+    jobject p = paint(env, font, size);
+    jstring s = p ? utf(env, text, length) : NULL;
+    line_box box;
+    bool ok = s && measure(env, p, s, &box);
+    if (ok) *advance = box.advance;
+    (*env)->PopLocalFrame(env, NULL);
+    return ok;
+}
 
 void gfx_platform_fonts(platform_font_add add, void (*done)(void *data, const char *error), void *data) {
     JNIEnv *env = aqua_android_jni();
