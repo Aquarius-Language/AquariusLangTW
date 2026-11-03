@@ -113,11 +113,14 @@ Libraries:
   (`gfx_platform_text_advance`: Canvas, GDI, Pango and Android's `Paint`, replacing the per-platform padding), and Linux
   text now starts at the pen's origin like the others (Pango's ink to the left of it moved the drawn text right of its
   measured position). A click on a menu item counts even if a rebuild between its press
-  and release moved the hit test.
+  and release moved the hit test. Immediate widgets get every Interaction field (`event.Fields()`, no copied list of
+  fields), and the focused one now also gets input-method composition and commands (copy, paste, undo, ...).
 - `interaction`: `src/editing.def` says once what each key means in editable text on each platform; key events carry it
   as `edit` and `Interaction.EditAction(key, modifiers)` gives it for any key. The new `TextEditing` module implements a
   native text field's editing for any UI library (cluster-safe positions, words, lines, undo, clipboard, composition,
-  pointer selection). Also `ClipboardText()` / `SetClipboardText(text)`, and every event's `conventions`.
+  pointer selection). Also `ClipboardText()` / `SetClipboardText(text)`, every event's `conventions`, `event.Fields()`
+  and `Interaction.Event(fields)` (events passed on as hashes become event objects again, so no UI code lists the
+  fields: WellPlay's code cells failed with "Unknown field of EditorEvent: edit" on every arrow key because it did).
 - `imgui`: key releases from Interaction (`action: "release"`) were taken as presses, so keys stayed held; copy and
   paste use the system clipboard unless `SetClipboardHandlers` is given; `UseConventions` (applied by itself from the
   first Interaction event) sets double-click time, drag threshold, caret blinking and Mac-style editing.

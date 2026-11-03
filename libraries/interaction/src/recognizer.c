@@ -51,6 +51,13 @@ const char *command_of(const conventions *c, int32_t key, int32_t modifiers) {
     return NULL;
 }
 
+/* The table's own copy of a command or editing action name (events keep pointers to names that never move), or NULL. */
+const char *action_name(const char *name) {
+    for (size_t i = 0; i < SHORTCUT_COUNT; i++) if (strcmp(shortcuts[i].name, name) == 0) return shortcuts[i].name;
+    for (size_t i = 0; i < EDIT_KEY_COUNT; i++) if (strcmp(edit_keys[i].name, name) == 0) return edit_keys[i].name;
+    return NULL;
+}
+
 /* The editing action of a key in editable text (editing.def), or NULL. Shift may be added to the moves that extend. */
 const char *edit_of(const conventions *c, int32_t key, int32_t modifiers) {
     modifiers &= MOD_KEYS;

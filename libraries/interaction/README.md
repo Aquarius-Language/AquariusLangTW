@@ -24,6 +24,7 @@ AI coding assistants, are in [docs/native-like-apps.md](../../docs/native-like-a
 | `Create()` / `建立` | | a session without a window, fed by `Feed` |
 | `ShortcutLabel(command)` / `快捷鍵標籤` | `"copy"`, `"redo"`, ... | `"Ctrl+C"`, `"⌘C"` on Apple targets, or null |
 | `EditAction(key, modifiers)` / `編輯動作` | a GLFW key code and GLFW modifier bits | what the key means in editable text here (`"wordLeft"`, `"lineEnd"`, `"deleteWordBackward"`, `"paste"`, ...), or null; key events carry it as `edit` |
+| `Event(fields)` / `事件` | a hash of event fields (`type` required; `shift`, `alt`, `primary` set the modifiers; a numeric `action` is a window event's) | an event object, as handlers receive them: code written for Interaction's events takes events a UI library passed on as hashes (SaturnUI's `Immediate` widgets get hashes in their own coordinates). `event.Fields()` gives an event's fields as such a hash, so no library keeps its own list of the fields |
 | `ClipboardText()` / `剪貼簿文字`, `SetClipboardText(text)` / `設定剪貼簿文字` | | the system clipboard's plain text, at once (text widgets' copy, cut and paste; the application library's `Clipboard` adds images and asynchronous access) |
 
 Session members: `On(type, handler)` / `註冊` returns an id (type `"*"` takes every event), `Off(id)` / `取消註冊`,

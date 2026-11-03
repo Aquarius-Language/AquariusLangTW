@@ -1504,13 +1504,9 @@ var solid = function(path) {
 };
 var eventOf = function(raw) {
     if (typeOf(raw) == "hash") { return raw; }
-    # Every Interaction field, so Immediate widgets (editors) see modifiers, input-method phases and timing too.
-    return {"type": raw.type, "time": raw.time, "x": raw.x, "y": raw.y, "startX": raw.startX, "startY": raw.startY,
-        "dx": raw.dx, "dy": raw.dy, "velocityX": raw.velocityX, "velocityY": raw.velocityY, "scale": raw.scale,
-        "width": raw.width, "height": raw.height, "button": raw.button, "count": raw.count, "pointerId": raw.pointerId,
-        "pointerType": raw.pointerType, "modifiers": raw.modifiers, "shift": raw.shift, "alt": raw.alt,
-        "primary": raw.primary, "key": raw.key, "text": raw.text, "action": raw.action, "command": raw.command, "edit": raw.edit,
-        "source": raw.source, "phase": raw.phase, "state": raw.state, "cursor": raw.cursor};
+    # Every field of an Interaction event, as Interaction lists them (Immediate widgets see modifiers, editing actions,
+    # input-method phases and timing too).
+    return raw.Fields();
 };
 
 # Surface(width, height, root | options): options {"theme": Theme(...), "sheet": {...} (the app's style sheet),
@@ -1985,7 +1981,7 @@ var immediateIn = function(path) {
 };
 var routeImmediate = function(s, ev, type) {
     var target = null;
-    if (type == "key" || type == "text") {
+    if (type == "key" || type == "text" || type == "composition" || type == "command") {
         if (s.focus != null && s.focus.type == "Immediate") { target = s.focus; }
     } elif (ev["x"] != null && ev["y"] != null) {
         if (s.captured != null) { if (s.captured.type == "Immediate") { target = s.captured; } else { return null; } }

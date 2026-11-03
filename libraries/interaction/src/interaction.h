@@ -68,6 +68,8 @@ ievent event_new(const char *type, double time);
 const char *command_of(const conventions *c, int32_t key, int32_t modifiers);
 /* "Ctrl+Shift+Z", "⇧⌘Z": the first shortcut of a command on this platform, written into `out`. */
 bool command_label(const conventions *c, const char *command, char *out, size_t size);
+/* The tables' own copy of a command or editing action name, or NULL. */
+const char *action_name(const char *name);
 /* The editing action of a key in editable text (moves, deletes, clipboard, history; editing.def), or NULL. */
 const char *edit_of(const conventions *c, int32_t key, int32_t modifiers);
 

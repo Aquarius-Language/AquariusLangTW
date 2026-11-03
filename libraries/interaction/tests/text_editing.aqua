@@ -113,3 +113,16 @@ TE.Handle(m, {"type": "drag", "x": 60, "y": 25}, layout); show("drag by words", 
 TE.Handle(m, {"type": "press", "x": 33, "y": 45, "button": 0, "count": 3}, layout); show("triple click line", m);
 TE.Handle(m, {"type": "press", "x": 20, "y": 5, "button": 0, "count": 1}, layout);
 TE.Handle(m, {"type": "press", "x": 50, "y": 25, "button": 0, "count": 1, "shift": true}, layout); show("shift click", m);
+
+# Events pass through other coordinates and back without anyone listing their fields: Fields() gives a hash, Event() an
+# event object again (UI libraries hand embedded widgets the hash; widgets written for Interaction events rebuild them).
+var r = ix.Create();
+var seen = null;
+r.On("key", function(e) { if (e.action == "press") { seen = e.Fields(); } return true; });
+r.Feed({"type": "key", "key": 263, "action": 1, "mods": 3});
+r.Dispatch();
+seen["x"] = 5;
+var back = ix.Event(seen);
+print("fields", seen["type"], seen["edit"], seen["shift"], "event", back.type, back.edit, back.key, back.shift, back.x, back.action);
+var made = ix.Event({"type": "press", "x": 3, "y": 4, "button": 0, "count": 2, "shift": true, "pointerType": "mouse"});
+print("made", made.type, made.x, made.count, made.shift, made.pointerType, made.edit);

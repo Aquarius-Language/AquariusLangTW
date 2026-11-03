@@ -66,3 +66,5 @@ shift click [first line
 second
 
 third line here] 2 16
+fields key wordLeft 真 event key wordLeft 263 真 5 press
+made press 3 2 真 mouse null
