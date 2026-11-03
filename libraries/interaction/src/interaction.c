@@ -72,7 +72,7 @@ static aqua_class *conventions_class, *safe_area_class;
 static void event_finalize(aqua_runtime *rt, void *data) { (void)rt; free(data); }
 
 #define EVENT_FIELDS(STRING, NUMBER, INTEGER, BOOLEAN) \
-    STRING("type", type) STRING("source", source) STRING("command", command) STRING("edit", edit) STRING("pointerType", pointer_type) \
+    STRING("type", type) STRING("source", source) STRING("command", command) STRING("edit", edit) STRING("codeEdit", code_edit) STRING("pointerType", pointer_type) \
     STRING("action", action) STRING("phase", phase) NUMBER("time", time) NUMBER("x", x) NUMBER("y", y) \
     NUMBER("startX", start_x) NUMBER("startY", start_y) NUMBER("dx", dx) NUMBER("dy", dy) NUMBER("velocityX", velocity_x) \
     NUMBER("velocityY", velocity_y) NUMBER("scale", scale) NUMBER("width", width) NUMBER("height", height) \
@@ -99,6 +99,76 @@ static void event_primary(aqua_call *call) {
     const conventions *c = platform();
     int32_t mask = c->either_primary ? MOD_CONTROL | MOD_SUPER : c->primary;
     aqua_return_bool(call, (((ievent *)aqua_self(call))->modifiers & mask) != 0);
+}
+
+/* The fields of an event as a hash (every field it has, plus text, shift, alt and primary): for UI libraries that pass
+   events on in other coordinates (SaturnUI's Immediate widgets), so no library keeps its own list of the fields. */
+static void event_fields(aqua_call *call) {
+    const ievent *e = aqua_self(call);
+    aqua_runtime *rt = aqua_call_runtime(call);
+    aqua_value h = aqua_hash_new(rt, 32);
+#define PUT_STRING(name, field) if (e->field) aqua_hash_set_field(rt, h, name, aqua_cstring(rt, e->field));
+#define PUT_NUMBER(name, field) if (!isnan(e->field)) aqua_hash_set_field(rt, h, name, aqua_double(e->field));
+#define PUT_INTEGER(name, field) if (e->field != INT32_MIN) aqua_hash_set_field(rt, h, name, aqua_int(e->field));
+#define PUT_BOOLEAN(name, field) if (e->field != INT32_MIN) aqua_hash_set_field(rt, h, name, aqua_bool(e->field != 0));
+    EVENT_FIELDS(PUT_STRING, PUT_NUMBER, PUT_INTEGER, PUT_BOOLEAN)
+#undef PUT_STRING
+#undef PUT_NUMBER
+#undef PUT_INTEGER
+#undef PUT_BOOLEAN
+    if (e->text[0]) aqua_hash_set_field(rt, h, "text", aqua_cstring(rt, e->text));
+    const conventions *c = platform();
+    int32_t primary = c->either_primary ? MOD_CONTROL | MOD_SUPER : c->primary;
+    int32_t modifiers = e->modifiers == INT32_MIN ? 0 : e->modifiers;
+    aqua_hash_set_field(rt, h, "shift", aqua_bool((modifiers & MOD_SHIFT) != 0));
+    aqua_hash_set_field(rt, h, "alt", aqua_bool((modifiers & MOD_ALT) != 0));
+    aqua_hash_set_field(rt, h, "primary", aqua_bool((modifiers & primary) != 0));
+    aqua_return(call, h);
+}
+
+/* Words an event's strings can be: events point at these, never at script memory. */
+static const char *const event_words[] = {"press", "release", "click", "move", "dragStart", "drag", "dragEnd", "longPress",
+    "pinch", "contextMenu", "scroll", "zoom", "key", "text", "composition", "command", "back", "forward", "resize", "focus",
+    "visibility", "pause", "resume", "leave", "mouse", "touch", "pen", "repeat", "start", "update", "end", "change", "cancel",
+    "wheel", "keyboard", "system", "pointer"};
+static const char *event_word(const char *s) {
+    for (size_t i = 0; i < sizeof event_words / sizeof *event_words; i++) if (strcmp(event_words[i], s) == 0) return event_words[i];
+    return action_name(s);
+}
+
+/* Event(fields): an event object from a hash of its fields (as Fields() gives them, in any coordinates), so code written
+   for Interaction's events (dot access, every field) takes events a UI library passed on. "shift", "alt" and "primary"
+   set the modifiers when "modifiers" is absent; a numeric "action" is a window event's (0 release, 1 press, 2 repeat). */
+static void interaction_event(aqua_call *call) {
+    aqua_runtime *rt = aqua_call_runtime(call);
+    aqua_value hash = aqua_arg(call, 0), v;
+    ievent *e = malloc(sizeof *e);
+    *e = event_new(NULL, NAN);
+    e->modifiers = INT32_MIN;
+#define READ_STRING(name, field) if (aqua_hash_field(rt, hash, name, &v) && v.type == AQUA_STRING) e->field = event_word(aqua_str_of(call, v).data);
+#define READ_NUMBER(name, field) if (aqua_hash_field(rt, hash, name, &v) && aqua_is_numeric(v)) e->field = aqua_number_of(v);
+#define READ_INTEGER(name, field) if (aqua_hash_field(rt, hash, name, &v) && aqua_is_numeric(v)) e->field = (int32_t)aqua_number_of(v);
+#define READ_BOOLEAN(name, field) if (aqua_hash_field(rt, hash, name, &v) && v.type == AQUA_BOOL) e->field = v.number != 0;
+    EVENT_FIELDS(READ_STRING, READ_NUMBER, READ_INTEGER, READ_BOOLEAN)
+#undef READ_STRING
+#undef READ_NUMBER
+#undef READ_INTEGER
+#undef READ_BOOLEAN
+    if (aqua_hash_field(rt, hash, "action", &v) && aqua_is_numeric(v)) {
+        int32_t action = (int32_t)aqua_number_of(v);
+        e->action = action == 0 ? "release" : action == 2 ? "repeat" : "press";
+    }
+    if (aqua_hash_field(rt, hash, "text", &v) && v.type == AQUA_STRING) snprintf(e->text, sizeof e->text, "%s", aqua_str_of(call, v).data);
+    if (e->modifiers == INT32_MIN) {
+        const conventions *c = platform();
+        int32_t modifiers = 0;
+        if (aqua_hash_field(rt, hash, "shift", &v) && v.type == AQUA_BOOL && v.number != 0) modifiers |= MOD_SHIFT;
+        if (aqua_hash_field(rt, hash, "alt", &v) && v.type == AQUA_BOOL && v.number != 0) modifiers |= MOD_ALT;
+        if (aqua_hash_field(rt, hash, "primary", &v) && v.type == AQUA_BOOL && v.number != 0) modifiers |= c->either_primary ? MOD_CONTROL : c->primary;
+        e->modifiers = modifiers;
+    }
+    if (!e->type) { free(e); aqua_fail(call, "Interaction.Event: expected a known \"type\" (press, key, text, ...)."); return; }
+    aqua_return(call, aqua_object_new(rt, event_class, e));
 }
 
 /* ---- Sessions ---- */
@@ -390,10 +460,13 @@ static void interaction_create(aqua_call *call) {
     aqua_return(call, aqua_object_new(aqua_call_runtime(call), session_class, session_new(call)));
 }
 
-/* EditAction(key, modifiers): what the key means in editable text on this platform ("wordLeft", "copy", ...), or null;
-   for key events that did not come through a session (theirs carry it as `edit`). Modifiers are GLFW bits. */
+/* EditAction(key, modifiers | code): what the key means in editable text on this platform ("wordLeft", "copy", ...), or
+   in a code editor when `code` is true ("moveLineUp", ...), or null; for key events that did not come through a
+   session (theirs carry it as `edit` and `codeEdit`). Modifiers are GLFW bits. */
 static void interaction_edit_action(aqua_call *call) {
-    const char *action = edit_of(platform(), aqua_arg_int(call, 0), aqua_argc(call) > 1 ? aqua_arg_int(call, 1) : 0);
+    int32_t key = aqua_arg_int(call, 0), modifiers = aqua_argc(call) > 1 ? aqua_arg_int(call, 1) : 0;
+    bool code = aqua_argc(call) > 2 && aqua_arg_bool(call, 2);
+    const char *action = code ? code_edit_of(platform(), key, modifiers) : edit_of(platform(), key, modifiers);
     if (action) aqua_return_cstring(call, action); else aqua_return_null(call);
 }
 /* ClipboardText() / SetClipboardText(text): the system clipboard's plain text, at once (text widgets' copy, cut and
@@ -611,7 +684,8 @@ AQUA_LIBRARY(interaction) {
     aqua_define_function(module, "Attach|附加", interaction_attach, "|v");
     aqua_define_function(module, "Create|建立", interaction_create, "");
     aqua_define_function(module, "ShortcutLabel|快捷鍵標籤", interaction_shortcut_label, "s");
-    aqua_define_function(module, "EditAction|編輯動作", interaction_edit_action, "i|i");
+    aqua_define_function(module, "EditAction|編輯動作", interaction_edit_action, "i|ib");
+    aqua_define_function(module, "Event|事件", interaction_event, "h");
     aqua_define_function(module, "ClipboardText|剪貼簿文字", interaction_clipboard_text, "");
     aqua_define_function(module, "SetClipboardText|設定剪貼簿文字", interaction_set_clipboard_text, "s");
 
@@ -639,6 +713,7 @@ AQUA_LIBRARY(interaction) {
     aqua_define_property(event_class, "primary", event_primary);
     /* The platform's conventions, so a UI library fed these events follows them without being told (ImGui does). */
     aqua_define_property(event_class, "conventions", interaction_conventions);
+    aqua_define_function(event_class, "Fields|欄位", event_fields, "");
 
     conventions_class = define_record(library, "Interaction.Conventions", convention_fields, 17);
     static const char *const safe_area_fields[] = {"left", "top", "right", "bottom", "keyboardVisible"};

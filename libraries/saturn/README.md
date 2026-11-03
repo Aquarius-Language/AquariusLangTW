@@ -188,7 +188,7 @@ the surface afterwards, so there is no `setState`; `context.rebuild()` covers ti
 | menus | `MenuBar` (`menus`) of `Menu` (`label`, `items`, `disabled`) holding `MenuItem` (`label`, `shortcut` text, `onSelect`, `disabled`, `checked`) and `MenuSeparator` |
 | overlays | `Dialog` (`open`, `title`, `content`, `actions`, `onDismiss`), `Tooltip` (`message`); dropdown menus |
 | behavior | `Gesture` (`onTap`, `onDoubleTap`, `onLongPress`, `onHover`, `onPress`, `onRelease`, `onDragStart`, `onDrag`, `onDragEnd`, `cursor`), the same handlers on `Box`, `onTap` on `Card` |
-| structure | `Stateful` (`init`, `build(state, context)`, `dispose`), `Builder` (`build(context)`), `Themed` (a subtree with its own theme), `Immediate` (`paint(x, y, w, h)` returns another library's draw list; `feed(event)` gets its events in its own coordinates and returns whether it used them, so an unused wheel turn scrolls the view around it; `ime()` gives the caret's box in its own coordinates while it takes text, for `ImeRect`; `focus(focused)` hears it gain and lose the keyboard) |
+| structure | `Stateful` (`init`, `build(state, context)`, `dispose`), `Builder` (`build(context)`), `Themed` (a subtree with its own theme), `Immediate` (`paint(x, y, w, h)` returns another library's draw list; `feed(event)` gets its events in its own coordinates (a hash with every Interaction field, from `event.Fields()`; `Interaction.Event(hash)` makes it an event object again; keys, text, input-method composition and commands such as copy and undo reach the focused one) and returns whether it used them, so an unused wheel turn scrolls the view around it; `ime()` gives the caret's box in its own coordinates while it takes text, for `ImeRect`; `focus(focused)` hears it gain and lose the keyboard) |
 
 Your own widgets are functions that return widgets.
 
@@ -203,7 +203,9 @@ caret blinks at the platform's rate (`caretBlinkTime`, solid while typing), and 
 input-method windows open beside it. `value` is the application's: the field reports each edit through `onChanged`
 and follows `value` when the application changes it, never undoing an edit the application has not rebuilt with yet.
 Enter calls `onSubmit` in a single-line field and breaks the line in a multi-line one. `autofocus: true` takes the
-keyboard when the field appears (a dialog's field) with its text selected. Keys and text do not rebuild the tree per
+keyboard when the field appears (a dialog's field) with its text selected. While a text field or an `Immediate` widget
+has the keyboard, the "back" and "forward" that Alt+Left/Right also are stay with it (they move through the text), and
+on the web the browser does not act on the editing combinations either. Keys and text do not rebuild the tree per
 event: the next frame does.
 
 **Menus and dropdowns** follow the native rules, built in: a menu bar title opens its menu on press; while a menu is

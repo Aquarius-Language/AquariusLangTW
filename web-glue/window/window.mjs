@@ -26,6 +26,8 @@ const modifiers = (e) => (e.shiftKey ? 1 : 0) | (e.ctrlKey ? 2 : 0) | (e.altKey 
 const glfwButton = (b) => (b === 1 ? 2 : b === 2 ? 1 : b);
 const CURSORS = { 0x36001: 'default', 0x36002: 'text', 0x36003: 'crosshair', 0x36004: 'pointer', 0x36005: 'ew-resize', 0x36006: 'ns-resize',
     0x36007: 'nwse-resize', 0x36008: 'nesw-resize', 0x36009: 'move', 0x3600a: 'not-allowed' };
+// Arrows, Home/End, Page Up/Down, Backspace, Delete, Enter, and L, K, /, [, ], \ (editing.def's keys with modifiers).
+const EDITING_CODES = new Set([262, 263, 264, 265, 266, 267, 268, 269, 259, 261, 257, 335, 76, 75, 47, 91, 93, 92]);
 const EVENT = { KEY: 1, POINTER: 2, BUTTON: 3, SCROLL: 4, FOCUS: 5, VISIBLE: 6, ENTER: 7, DROP: 8, CLOSE: 9, CAPTURE_LOST: 10, TEXT: 12,
     COMPOSITION_START: 13, COMPOSITION_UPDATE: 14, COMPOSITION_END: 15, RESIZE: 16 };
 
@@ -85,6 +87,10 @@ registerGlue('window', (context) => {
                 if (action && !this.textEnabled && e.key?.length === 1 && !e.ctrlKey && !e.metaKey) this.push(EVENT.TEXT, { text: e.key });
                 // Keep game keys from scrolling or moving focus; leave shortcuts with modifiers to the browser.
                 if (!e.ctrlKey && !e.metaKey && !e.altKey && (code < 290 || code > 314) && document.activeElement === c) e.preventDefault();
+                // While text is being edited, the editing combinations are the application's, not the browser's
+                // (Alt+arrows would go back, Ctrl+L to the address bar). Copy, cut and paste stay with the browser so
+                // its clipboard events still happen.
+                if (this.textEnabled && (e.ctrlKey || e.metaKey || e.altKey) && EDITING_CODES.has(code)) e.preventDefault();
             };
             window.addEventListener('keydown', (e) => key(e, 1), { signal });
             window.addEventListener('keyup', (e) => key(e, 0), { signal });

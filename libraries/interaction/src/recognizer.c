@@ -30,10 +30,20 @@ static const shortcut shortcuts[] = {
 typedef struct edit_key { const char *name; int32_t key, modifiers, where; bool extends; } edit_key;
 static const edit_key edit_keys[] = {
 #define EDIT(name, key, modifiers, where, extends) {name, key, modifiers, where, extends},
+#define CODE(name, key, modifiers, where, extends)
 #include "editing.def"
 #undef EDIT
+#undef CODE
 };
 #define EDIT_KEY_COUNT (sizeof edit_keys / sizeof *edit_keys)
+static const edit_key code_keys[] = {
+#define EDIT(name, key, modifiers, where, extends)
+#define CODE(name, key, modifiers, where, extends) {name, key, modifiers, where, extends},
+#include "editing.def"
+#undef EDIT
+#undef CODE
+};
+#define CODE_KEY_COUNT (sizeof code_keys / sizeof *code_keys)
 
 /* ---- Commands ---- */
 
@@ -51,16 +61,30 @@ const char *command_of(const conventions *c, int32_t key, int32_t modifiers) {
     return NULL;
 }
 
+/* The table's own copy of a command or editing action name (events keep pointers to names that never move), or NULL. */
+const char *action_name(const char *name) {
+    for (size_t i = 0; i < SHORTCUT_COUNT; i++) if (strcmp(shortcuts[i].name, name) == 0) return shortcuts[i].name;
+    for (size_t i = 0; i < EDIT_KEY_COUNT; i++) if (strcmp(edit_keys[i].name, name) == 0) return edit_keys[i].name;
+    for (size_t i = 0; i < CODE_KEY_COUNT; i++) if (strcmp(code_keys[i].name, name) == 0) return code_keys[i].name;
+    return NULL;
+}
+
 /* The editing action of a key in editable text (editing.def), or NULL. Shift may be added to the moves that extend. */
-const char *edit_of(const conventions *c, int32_t key, int32_t modifiers) {
+static const char *table_match(const edit_key *keys, size_t count, const conventions *c, int32_t key, int32_t modifiers) {
     modifiers &= MOD_KEYS;
-    for (size_t i = 0; i < EDIT_KEY_COUNT; i++) {
-        const edit_key *k = &edit_keys[i];
+    for (size_t i = 0; i < count; i++) {
+        const edit_key *k = &keys[i];
         shortcut s = {k->name, k->key, k->modifiers, k->where};
         if (shortcut_matches(c, &s, key, modifiers)) return k->name;
         if (k->extends && (modifiers & MOD_SHIFT) && !(k->modifiers & SHIFT) && shortcut_matches(c, &s, key, modifiers & ~MOD_SHIFT)) return k->name;
     }
     return NULL;
+}
+const char *edit_of(const conventions *c, int32_t key, int32_t modifiers) { return table_match(edit_keys, EDIT_KEY_COUNT, c, key, modifiers); }
+/* A code editor's action for the key: its own rows first (editing.def's CODE), else the text action. */
+const char *code_edit_of(const conventions *c, int32_t key, int32_t modifiers) {
+    const char *code = table_match(code_keys, CODE_KEY_COUNT, c, key, modifiers);
+    return code ? code : edit_of(c, key, modifiers);
 }
 
 static const char *key_label(int32_t key, bool apple, char *buffer) {
@@ -344,7 +368,7 @@ static void key(recognizer *r, const aqua_window_event *in) {
     e.key = in->key;
     e.action = in->action == 0 ? "release" : in->action == 2 ? "repeat" : "press";
     if (in->text) snprintf(e.text, sizeof e.text, "%s", in->text);
-    if (!bit) e.edit = edit_of(&r->conventions, in->key, r->modifiers);
+    if (!bit) { e.edit = edit_of(&r->conventions, in->key, r->modifiers); e.code_edit = code_edit_of(&r->conventions, in->key, r->modifiers); }
     emit(r, &e);
     if (in->action == 0 || bit) return;
 

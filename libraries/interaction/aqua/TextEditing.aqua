@@ -19,7 +19,7 @@ var _interaction = import("Interaction");
 struct Editor {
     text; anchor; caret; multiline; maxLength; readOnly; obscure; apple;
     composition; compositionCursor; overwrite; undo; redo; group; preferredX; pressCount; pressAnchor;
-    changed; submitted; editTime
+    changed; submitted; editTime; kill
 }
 
 var _min = function(a, b) { if (a < b) { return a; } return b; };
@@ -38,7 +38,7 @@ var Create = function(text, options) {
         maxLength: Hash.Get(o, "maxLength", null), readOnly: Hash.Get(o, "readOnly", false) == true,
         obscure: Hash.Get(o, "obscure", false) == true, apple: c.primaryModifier == "Cmd",
         composition: null, compositionCursor: 0, overwrite: false, undo: [], redo: [], group: null, preferredX: null,
-        pressCount: 1, pressAnchor: null, changed: false, submitted: false, editTime: 0);
+        pressCount: 1, pressAnchor: null, changed: false, submitted: false, editTime: 0, kill: "");
 };
 
 # ---- Text boundaries -------------------------------------------------------------------------------------------------
@@ -144,6 +144,58 @@ var WordLeft = function(text, i, apple) {
     return at;
 };
 # The word (a run of one class) around a position: [start, end].
+# Word parts (Alt+Left/Right; Ctrl+Option on Apple targets): the humps of camelCase and PascalCase, runs of capitals
+# (HTMLParser is HTML and Parser), digits, and the pieces between underscores.
+var _part = function(c) {
+    if (c < 0) { return "end"; }
+    var k = _class(c);
+    if (k == 0) { return "space"; }
+    if (k == 2) { return "cjk"; }
+    if (k == 3) { return "punct"; }
+    if (c == 95) { return "_"; }
+    if (c >= 48 && c <= 57) { return "digit"; }
+    if ((c >= 65 && c <= 90) || (c >= 192 && c <= 222 && c != 215) || (c >= 913 && c <= 937) || (c >= 1040 && c <= 1071)) { return "upper"; }
+    return "lower";
+};
+var _partAt = function(text, i) { return _part(_code(text, i)); };
+var _partBefore = function(text, i) { if (i <= 0) { return "end"; } return _partAt(text, Previous(text, i)); };
+var WordPartRight = function(text, i) {
+    var n = len(text);
+    var at = i;
+    if (at >= n) { return n; }
+    for (; at < n && (_partAt(text, at) == "space" || _partAt(text, at) == "_");) { at = Next(text, at); }
+    if (at >= n) { return n; }
+    var p = _partAt(text, at);
+    if (p == "upper") {
+        at = Next(text, at);
+        if (_partAt(text, at) == "lower") { for (; at < n && _partAt(text, at) == "lower";) { at = Next(text, at); } }
+        else {
+            # A run of capitals stops before the capital that starts the next hump.
+            for (; at < n && _partAt(text, at) == "upper" && _partAt(text, Next(text, at)) != "lower";) { at = Next(text, at); }
+        }
+        return at;
+    }
+    for (; at < n && _partAt(text, at) == p;) { at = Next(text, at); }
+    return at;
+};
+var WordPartLeft = function(text, i) {
+    var at = i;
+    for (; at > 0 && (_partBefore(text, at) == "space" || _partBefore(text, at) == "_");) { at = Previous(text, at); }
+    if (at <= 0) { return 0; }
+    var p = _partBefore(text, at);
+    if (p == "lower") {
+        for (; at > 0 && _partBefore(text, at) == "lower";) { at = Previous(text, at); }
+        if (_partBefore(text, at) == "upper") { at = Previous(text, at); }
+        return at;
+    }
+    if (p == "upper") {
+        for (; at > 0 && _partBefore(text, at) == "upper";) { at = Previous(text, at); }
+        return at;
+    }
+    for (; at > 0 && _partBefore(text, at) == p;) { at = Previous(text, at); }
+    return at;
+};
+
 var WordAt = function(text, i) {
     var n = len(text);
     if (n == 0) { return [0, 0]; }
@@ -315,6 +367,8 @@ var _move = function(ed, action, extend, layout) {
     elif (action == "right") { to = if (collapsing) { SelectionEnd(ed); } else { Next(text, ed.caret); }; }
     elif (action == "wordLeft") { to = WordLeft(text, ed.caret, ed.apple); }
     elif (action == "wordRight") { to = WordRight(text, ed.caret, ed.apple); }
+    elif (action == "wordPartLeft") { to = WordPartLeft(text, ed.caret); }
+    elif (action == "wordPartRight") { to = WordPartRight(text, ed.caret); }
     elif (action == "lineStart") { to = _lineEnds(ed, layout, ed.caret)[0]; }
     elif (action == "lineEnd") { to = _lineEnds(ed, layout, ed.caret)[1]; }
     elif (action == "paragraphStart") {
@@ -350,7 +404,8 @@ var _move = function(ed, action, extend, layout) {
     return true;
 };
 
-var _deletes = ["deleteBackward", "deleteForward", "deleteWordBackward", "deleteWordForward", "deleteToLineStart", "deleteToLineEnd"];
+var _deletes = ["deleteBackward", "deleteForward", "deleteWordBackward", "deleteWordForward", "deleteWordPartBackward",
+    "deleteWordPartForward", "deleteToLineStart", "deleteToLineEnd"];
 var _delete = function(ed, action, layout) {
     if (!Array.Contains(_deletes, action)) { return false; }
     if (ed.readOnly) { return true; }
@@ -361,11 +416,14 @@ var _delete = function(ed, action, layout) {
     elif (action == "deleteForward") { if (c < len(text)) { _replace(ed, c, Next(text, c), "", "delete"); } }
     elif (action == "deleteWordBackward") { var a = WordLeft(text, c, ed.apple); if (a < c) { _replace(ed, a, c, "", null); } }
     elif (action == "deleteWordForward") { var b = WordRight(text, c, ed.apple); if (b > c) { _replace(ed, c, b, "", null); } }
+    elif (action == "deleteWordPartBackward") { var pa = WordPartLeft(text, c); if (pa < c) { _replace(ed, pa, c, "", null); } }
+    elif (action == "deleteWordPartForward") { var pb = WordPartRight(text, c); if (pb > c) { _replace(ed, c, pb, "", null); } }
     elif (action == "deleteToLineStart") { var s = _lineEnds(ed, layout, c)[0]; if (s < c) { _replace(ed, s, c, "", null); } }
     elif (action == "deleteToLineEnd") {
         var e = _lineEnds(ed, layout, c)[1];
         if (e == c && c < len(text)) { e = Next(text, c); }             # at a line's end, Ctrl+K joins the next line
-        if (e > c) { _replace(ed, c, e, "", null); }
+        # What Ctrl+K cuts goes to the editor's kill buffer, which Ctrl+Y yanks back (Apple's text system).
+        if (e > c) { ed.kill = String.Slice(text, c, e); _replace(ed, c, e, "", null); }
     } else { return false; }
     return true;
 };
@@ -383,6 +441,27 @@ var Do = function(ed, action, extend, layout) {
     if (action == "cut") { Cut(ed); return true; }
     if (action == "paste") { if (!ed.readOnly) { Paste(ed); } return true; }
     if (action == "toggleOverwrite") { ed.overwrite = !ed.overwrite; return true; }
+    if (action == "transpose") {
+        # Swaps the characters around the caret (the last two at a line's end) and moves past them.
+        if (ed.readOnly || HasSelection(ed) || len(ed.text) < 2) { return true; }
+        var at = ed.caret;
+        if (at >= len(ed.text) || _code(ed.text, at) == 10) { at = Previous(ed.text, at); }
+        if (at <= 0) { return true; }
+        var left = Previous(ed.text, at);
+        var right = Next(ed.text, at);
+        var swapped = String.Slice(ed.text, at, right) + String.Slice(ed.text, left, at);
+        _replace(ed, left, right, swapped, null);
+        return true;
+    }
+    if (action == "openLine") {
+        # A line break after the caret; the caret stays.
+        if (!ed.multiline || ed.readOnly) { return true; }
+        var stay = SelectionStart(ed);
+        _replace(ed, stay, SelectionEnd(ed), String.FromCode(10), null);
+        ed.anchor = stay; ed.caret = stay;
+        return true;
+    }
+    if (action == "yank") { if (!ed.readOnly && len(ed.kill) > 0) { ed.group = null; _replace(ed, SelectionStart(ed), SelectionEnd(ed), ed.kill, null); } return true; }
     if (action == "newline") {
         if (!ed.multiline) { ed.submitted = true; return true; }
         ed.group = null;

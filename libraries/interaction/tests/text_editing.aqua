@@ -113,3 +113,37 @@ TE.Handle(m, {"type": "drag", "x": 60, "y": 25}, layout); show("drag by words", 
 TE.Handle(m, {"type": "press", "x": 33, "y": 45, "button": 0, "count": 3}, layout); show("triple click line", m);
 TE.Handle(m, {"type": "press", "x": 20, "y": 5, "button": 0, "count": 1}, layout);
 TE.Handle(m, {"type": "press", "x": 50, "y": 25, "button": 0, "count": 1, "shift": true}, layout); show("shift click", m);
+
+# Events pass through other coordinates and back without anyone listing their fields: Fields() gives a hash, Event() an
+# event object again (UI libraries hand embedded widgets the hash; widgets written for Interaction events rebuild them).
+var r = ix.Create();
+var seen = null;
+r.On("key", function(e) { if (e.action == "press") { seen = e.Fields(); } return true; });
+r.Feed({"type": "key", "key": 263, "action": 1, "mods": 3});
+r.Dispatch();
+seen["x"] = 5;
+var back = ix.Event(seen);
+print("fields", seen["type"], seen["edit"], seen["shift"], "event", back.type, back.edit, back.key, back.shift, back.x, back.action);
+var made = ix.Event({"type": "press", "x": 3, "y": 4, "button": 0, "count": 2, "shift": true, "pointerType": "mouse"});
+print("made", made.type, made.x, made.count, made.shift, made.pointerType, made.edit);
+
+# Word parts (Alt+Left/Right on Windows, Linux and the web), the Windows Alt+Backspace undo, and the code-editor layer.
+print("part keys", ix.EditAction(263, 4), ix.EditAction(262, 5), ix.EditAction(259, 4), ix.EditAction(259, 6), ix.EditAction(265, 4),
+    ix.EditAction(265, 4, true), ix.EditAction(47, 2, true), ix.EditAction(75, 3, true), ix.EditAction(263, 2, true));
+var parts = TE.Create("parseHTMLDocument_v2 = getX(10)", null);
+press(parts, 268, 0);
+var stops = [];
+for (var i = 0; i < 8; i++) { press(parts, 262, 4); Array.Append(stops, parts.caret); }
+print("part stops", stops);
+var back = [];
+for (var i = 0; i < 4; i++) { press(parts, 263, 4); Array.Append(back, parts.caret); }
+print("part stops back", back);
+press(parts, 268, 0); press(parts, 262, 4); press(parts, 262, 4); press(parts, 259, 6);
+show("delete word part", parts);
+press(parts, 259, 4); show("alt backspace undoes", parts);
+var tr = TE.Create("abcd", null);
+TE.Select(tr, 2, 2); TE.Do(tr, "transpose", false, null); show("transpose", tr);
+var k = TE.Create("one two" + String.FromCode(10) + "three", {"multiline": true});
+TE.Select(k, 3, 3); TE.Do(k, "deleteToLineEnd", false, null); show("kill", k);
+TE.Do(k, "documentEnd", false, null); TE.Do(k, "yank", false, null); show("yank", k);
+TE.Select(k, 0, 0); TE.Do(k, "openLine", false, null); show("open line", k);
