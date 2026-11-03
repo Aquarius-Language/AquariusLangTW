@@ -16,6 +16,7 @@ aqua new MyApp; aqua new MyLibrary --type library
 aqua build MyApp [--target PLATFORM] [--locked] [--offline]
 aqua library build path/to/library --targets windows-x64,web
 aqua repl
+aqua well [folder | notebook.ipynb] [--port 8888] ...   # runs aqua_wellplay (the notebook server) with these arguments
 ```
 
 - The default target is `wasm`. `--root` and repeatable `--assets` apply to source builds; `--entry` selects the
@@ -27,6 +28,8 @@ aqua repl
 - `aqua repl` replays the session: each input is compiled after the earlier accepted inputs and the program runs again,
   showing only the new input's output and value. Earlier inputs therefore run again each time (their output is hidden,
   but their side effects, such as files they write, repeat). An input that fails is left out of the session.
+- `aqua well ...` starts `aqua_wellplay`, found beside `aqua` (the package) or on `PATH`, with the same arguments,
+  standard streams and exit code (`Tools.cs` maps tool commands to executables).
 - Compile errors name their place: `main.aqua:12:5: message` (file, line, column; one line per error).
 - `aqua run scratch.aqua` inside a project folder runs a script the project does not declare on its own, with the
   project's libraries (as a library's tests do): experiments and notebook kernels next to a project. `aqua build`

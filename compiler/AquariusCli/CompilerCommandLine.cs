@@ -8,14 +8,14 @@ using AquariusLang.Packaging;
 namespace AquariusLang.Cli;
 
 public static class CompilerCommandLine {
-    public const string Usage = "aqua build main.aqua [more.aqua ...] [--root directory] [--assets path ...] [--entry main.aqua] [-o app.wasm]\n" +
+    public static readonly string Usage = "aqua build main.aqua [more.aqua ...] [--root directory] [--assets path ...] [--entry main.aqua] [-o app.wasm]\n" +
         "aqua build (main.aqua ... | app.wasm) --target web -o site-directory [--entry main.aqua]\n" +
         "aqua build (main.aqua ... | app.wasm) --target windows -o app.exe [--entry main.aqua] [--hide-terminal true|false] [--onnx-cuda true|false] [--optimize true|false]\n" +
         "aqua build (main.aqua ... | app.wasm) --target linux -o app [--entry main.aqua] [--onnx-cuda true|false] [--optimize true|false]\n" +
         "aqua build (main.aqua ... | app.wasm) --target android -o app.apk [--entry main.aqua] [--application-id org.example.app] [--app-name Name] [--keystore file --key-alias name]\n" +
         "aqua build [aqua.toml|project-directory] [--target PLATFORM] [--platform PLATFORM] [-o output] [--locked] [--offline]\n" +
         "aqua run (app.wasm | main.aqua | project-directory) [--entry main.aqua] [argument ...]\n" +
-        "aqua repl\n" + "aqua --version\n" + BottleCommandLine.Usage + "\n" + LibraryBuilder.Usage + "\n" +
+        "aqua repl\n" + "aqua --version\n" + Tools.Usage + "\n" + BottleCommandLine.Usage + "\n" + LibraryBuilder.Usage + "\n" +
         "--hide-terminal true builds a Windows GUI executable without a console ([desktop] hide_terminal = true in aqua.toml).\n" +
         "--onnx-cuda true uses the runtime pack built with ONNX Runtime's CUDA providers ([onnx] cuda = true in aqua.toml).\n" +
         "--optimize true compiles the application ahead of time with the pinned wasm2c and Clang (installed on first use) into\n" +
@@ -27,6 +27,8 @@ public static class CompilerCommandLine {
 
     public static int Run(string[] args) {
         try {
+            // Tool commands pass every argument on, --help included.
+            if (Tools.TryRun(args, out int toolExit)) return toolExit;
             if (args.Length == 0 || args is ["--help"] or ["-h"] || args is [_, "--help"]) { Console.WriteLine(Usage); return 0; }
             if (args is ["--version"] or ["-v"] or ["version"]) { Console.WriteLine("AquariusLang " + AquariusVersion.Current); return 0; }
             switch (args[0]) {

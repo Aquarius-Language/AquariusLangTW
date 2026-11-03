@@ -60,7 +60,10 @@ Tools:
   which streams text, errors and rich outputs (`Display`: Markdown, tables, charts, images, JSON, progress, updatable
   outputs) and shows a cell's last value as `Out[n]`. Light and dark themes, a file browser, Jupyter's shortcuts,
   autosave, interrupt and restart. The release builds `aqua_wellplay(.exe)` beside `aqua` (`scripts/publish-cli`
-  builds every tool under `tools/`). See [tools/aqua_wellplay](tools/aqua_wellplay/README.md).
+  builds every tool under `tools/`, and the release runs each tool's own tests). A menu bar (File, Edit, View, Run,
+  Kernel, Help) and File › Examples: a gallery of 26 ready-to-run notebooks (language, numbers, async and network,
+  Processing graphics, SaturnUI, ImGui and Clay). `aqua well ...` runs it. See
+  [tools/aqua_wellplay](tools/aqua_wellplay/README.md).
 
 Compiler and CLI:
 - Compile errors carry their line and column: `main.aqua:2:14: message` (`CompilationException.Diagnostics`).

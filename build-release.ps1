@@ -133,7 +133,21 @@ try {
         [IO.File]::WriteAllText((Join-Path $smoke 'tools.aqua'), "var add = function(a, b) { return a + b; };`n", [Text.UTF8Encoding]::new($false))
         Invoke-Published $aqua @('--help') 'aqua build' $smoke
         $wellplay = Join-Path $package "aqua_wellplay$exe"
-        if (Test-Path -LiteralPath $wellplay) { Invoke-Published $wellplay @('--version') 'aqua_wellplay' $smoke }
+        if (Test-Path -LiteralPath $wellplay) {
+            Invoke-Published $wellplay @('--version') 'aqua_wellplay' $smoke
+            Invoke-Published $aqua @('well', '--version') 'aqua_wellplay' $smoke
+        }
+        # Tools test themselves against the aqua just published (tools/<name>/tests/run.ps1 -Aqua <aqua>), so a change to
+        # the language or a library that breaks a tool fails the release instead of surfacing later.
+        if (-not $SkipTests) {
+            foreach ($tool in Get-ChildItem -LiteralPath (Join-Path $repository 'tools') -Directory -ErrorAction SilentlyContinue) {
+                $test = Join-Path $tool.FullName 'tests/run.ps1'
+                if (-not (Test-Path -LiteralPath $test)) { continue }
+                & $test -Aqua $aqua
+                if (-not $?) { throw "The tests of tools/$($tool.Name) failed." }
+                Write-Host "PASS tools/$($tool.Name)"
+            }
+        }
         Invoke-Published $aqua @('build', 'main.aqua', 'tools.aqua', '--root', '.', '-o', 'app.wasm') 'Compiled 2 script(s)' $smoke
         Invoke-Published $aqua @('run', 'app.wasm') '42' $smoke
         Invoke-Published $aqua @('run', (Join-Path $repository 'examples/starship_expedition/main.aqua')) '' $smoke

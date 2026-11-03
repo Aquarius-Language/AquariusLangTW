@@ -86,8 +86,11 @@ scripts/             toolchain pins and installers, runtime/library builds, web-
   it in `runtime/host` or the platform layers, raise `AQUA_API_VERSION` once released.
 - **A tool:** an AquariusLang application in `tools/<name>/`, its own repository added as a git submodule, with
   `build.ps1 -Aqua <aqua> -Output <package>` (and `build.sh <aqua> <package>`) that builds it into the package;
-  `scripts/publish-cli` runs every tool's build with the aqua it just published. It follows the rules above like any
-  application (its own native code is a library; no JavaScript of its own).
+  `scripts/publish-cli` runs every tool's build with the aqua it just published, and `build-release.ps1` runs its
+  `tests/run.ps1 -Aqua <aqua>`, so the pinned submodule commit is the only thing to keep in sync. A tool builds with the
+  default libraries of the aqua building it (never copies of them); `aqua <command> ...` forwarding to it is one entry
+  in `compiler/AquariusCli/Tools.cs`. It follows the rules above like any application (its own native code is a
+  library; no JavaScript of its own).
 - **A target:** a toolchain file, a `runtime/platform/<os>` layer, pins, the compiler's build target, and the
   libraries' platform branches. Nothing else should need to know.
 
