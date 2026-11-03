@@ -87,7 +87,8 @@ blurred shadows, linear gradients, lines, text, images, textured meshes and the 
 sketch by id and updated by region), nested clips, transforms and opacity. Everything becomes unlit triangles in the
 canvas's batch, so a whole interface is a handful of GPU draws. Drawn on a `createGraphics` canvas, an interface is a
 texture for any 2D or 3D shape. `uiTextMetrics(text, family, size | weight, italic)` returns `[width, ascent,
-descent]` of the box `drawUI` draws text in; give it to the libraries' text measurers (`Saturn.SetTextMeasurer`,
+descent, advance]`: the box `drawUI` draws text in, and the advance to the text's end as `drawUI` really draws it (at
+the screen's pixel density, without the box's overhang), which is where a caret after it belongs; give it to the libraries' text measurers (`Saturn.SetTextMeasurer`,
 `Clay.SetMeasureText`) so layout matches the pixels. Font names may end in `:<weight>` and `:italic`
 (`"Segoe UI:700:italic"`) everywhere text is drawn: GDI, Pango, Android's `Typeface` and the web's CSS font apply them.
 Test: `tests/draw_ui.aqua`.

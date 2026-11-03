@@ -102,8 +102,9 @@ whether the last paint was mid-transition.
   position to a point, never inside a combining sequence). Lines break between words, around CJK
   characters (not before closing or after opening punctuation), at newlines, and between characters for a word wider
   than the line.
-- **The text measurer**: `Saturn.SetTextMeasurer(f(text, family, size, weight, italic) -> [width, ascent, descent])`;
-  pass `p.uiTextMetrics` (graphics) so layout matches what `drawUI` draws. Without one Saturn uses a fixed
+- **The text measurer**: `Saturn.SetTextMeasurer(f(text, family, size, weight, italic) -> [width, ascent, descent,
+  advance])` (the advance, optional, is where the next character starts as drawn: carets, selections and clicks use it;
+  layout uses the width); pass `p.uiTextMetrics` (graphics) so layout and carets match what `drawUI` draws. Without one Saturn uses a fixed
   approximation that is identical on every target (tests). `Saturn.MeasureText(text | style)`, `ClearTextCache()`.
 - `node.SetImage(image | width, height)` or the `image` style key: any renderer's image value (a Processing image or
   canvas for `drawUI`); its `width`/`height` members give the intrinsic size `objectFit` uses.

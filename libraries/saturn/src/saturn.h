@@ -140,7 +140,9 @@ struct Config {
     aqua_ref logger = 0;
 };
 
-struct Metrics { float width, ascent, descent; };
+/* A run's box (width: what layout reserves), its font's ascent and descent, and its advance (where the next character
+   starts as the renderer draws it: what carets and selections use; the width when the measurer gives none). */
+struct Metrics { float width, ascent, descent, advance = -1; };
 
 /* Per-runtime state: the text measurer and its cache, and the first error raised inside a layout callback. */
 struct State {

@@ -80,3 +80,9 @@ print("escape closes it", s.HasPopup());
 var p = UI.Surface(300, 80, UI.Column(children: [UI.TextField(value: "", placeholder: "Name", key: "a"), UI.TextField(value: "pw", obscure: true, key: "b")]), {"conventions": conventions});
 p.Frame(0);
 print("placeholder", p.tree.children[0].children[0].children[0].node.GetText(), "password", p.tree.children[0].children[1].children[0].node.GetText());
+# The caret uses the measurer's advance (where the next character starts as drawn), not the box layout reserves.
+Saturn.SetTextMeasurer((text, family, size, weight, italic) => [len(text) * 10 + 2, 12, 3, len(text) * 10]);
+var m = UI.Surface(300, 60, UI.TextField(value: "abcdef", key: "m"), {"conventions": conventions});
+m.Frame(0);
+var mt = m.tree.children[0].children[0];
+print("caret at the advance", mt.node.TextCaret(3)["x"], mt.node.TextIndexAt(31, 5), mt.node.TextIndexAt(36, 5));

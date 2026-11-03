@@ -16,3 +16,4 @@ ime at the caret 真 真
 context menu 真 [Undo, Redo, Cut, Copy, Paste, Delete, Select all] disabled [Cut, Copy, Delete]
 escape closes it 假
 placeholder Name password ••
+caret at the advance 30 3 4

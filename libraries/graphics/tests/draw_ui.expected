@@ -2,6 +2,6 @@ solid FFFF0000 FF00FF00 FF000000 FFFFFF00 FF000000
 gradient 0 真 真
 opacity 真 真
 texture 真 真 真 真 line FFFF00FF
-metrics 3 真 真
+metrics 4 真 真 advance 真 真
 canvas FF0080FF 真
 Processing.drawUI: drawUI: malformed command at 0.

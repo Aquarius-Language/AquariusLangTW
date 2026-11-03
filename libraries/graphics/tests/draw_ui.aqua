@@ -32,7 +32,7 @@ var draw = function() {
     var right = p.get(118, 50);
     print("texture", p.red(left) < 40, p.green(left) > 215, p.red(right) > 215, p.green(right) < 40, "line", hex(p.get(60, 79)));
     var metrics = p.uiTextMetrics("Saturn", "sans-serif", 16);
-    print("metrics", len(metrics), metrics[0] > 30, metrics[1] + metrics[2] > 12);
+    print("metrics", len(metrics), metrics[0] > 30, metrics[1] + metrics[2] > 12, "advance", metrics[3] > metrics[0] - 4, metrics[3] <= metrics[0]);
     var canvas = p.createGraphics(40, 40, p.P2D);
     canvas.beginDraw();
     canvas.background(0, 0, 0, 0);

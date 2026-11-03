@@ -106,7 +106,11 @@ Libraries:
   the system clipboard, overwrite), double and triple presses, drag selection, a context menu, sideways scrolling,
   input-method composition and the caret at the platform's blink rate; new `multiline`, `maxLength`, `readOnly` and
   `autofocus`. Fast typing no longer loses characters (an older `value` never undoes an edit the application has not
-  rebuilt with), and keys no longer rebuild the whole tree per event.
+  rebuilt with), and keys no longer rebuild the whole tree per event. Carets, selections and clicks use the measurer's
+  new advance (`uiTextMetrics` returns `[width, ascent, descent, advance]`: the advance as `drawUI` really draws the
+  text, at the screen's pixel density and without the box's 2-pixel overhang), so the caret sits between the drawn
+  characters at any display scaling and in any font. A click on a menu item counts even if a rebuild between its press
+  and release moved the hit test.
 - `interaction`: `src/editing.def` says once what each key means in editable text on each platform; key events carry it
   as `edit` and `Interaction.EditAction(key, modifiers)` gives it for any key. The new `TextEditing` module implements a
   native text field's editing for any UI library (cluster-safe positions, words, lines, undo, clipboard, composition,

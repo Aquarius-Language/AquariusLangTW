@@ -4,6 +4,7 @@
  * text, images, triangle meshes and the textures they sample, nested clips, transforms and opacity. Everything is
  * drawn as unlit triangles through the canvas's batch, so a whole interface is a handful of GPU draws. */
 #include "processing.h"
+#include "../platform/platform.h"
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -331,9 +332,9 @@ static bool text_op(ui_painter *u, const ui_list *l, const float *a) {
     return ok;
 }
 
-/* uiTextMetrics(text, family, size | weight, italic) -> [width, ascent, descent]: the box drawUI draws text in. */
+/* uiTextMetrics(text, family, size | weight, italic) -> [width, ascent, descent, advance]: the box drawUI draws text in,
+   and the advance to the text's end. */
 static void p_uiTextMetrics(aqua_call *call, processing *p) {
-    (void)p;
     aqua_runtime *rt = aqua_call_runtime(call);
     aqua_value text = aqua_arg(call, 0), family = aqua_arg(call, 1);
     double size = aqua_is_numeric(aqua_arg(call, 2)) ? aqua_number_of(aqua_arg(call, 2)) : 0;
@@ -349,9 +350,25 @@ static void p_uiTextMetrics(aqua_call *call, processing *p) {
     int w = 0, h = 0;
     if (length) gfx_text_measure_line(font, (float)size, utf8, length, &w, &h);
     else gfx_text_measure_line(font, (float)size, " ", 1, &w, &h), w = 0;
+    /* The advance: where the next character starts, as drawUI really draws the text (rasterized at the screen's pixel
+       density, without the box's overhang padding), so carets and selections built from it sit between the drawn
+       characters at any display scaling. */
+    double density = 1;
+    if (p && p->screen && p->screen->width > 0 && p->screen->pixel_width > 0) {
+        density = rint((double)p->screen->pixel_width / p->screen->width * 1000) / 1000;
+        if (density < 1) density = 1;
+        if (density > 8) density = 8;
+    }
+    double advance = 0;
+    if (length) {
+        int dw = 0, dh = 0;
+        bool platform = gfx_text_measure_line(font, (float)(size * density), utf8, length, &dw, &dh);
+        advance = (dw - (platform ? gfx_platform_text_padding() : 0)) / density;
+        if (advance < 0) advance = 0;
+    }
     aqua_free(utf8);
-    double metrics[3] = {w, h * 0.8, h * 0.2};
-    aqua_return(call, aqua_array_from_f64(rt, metrics, 3, AQUA_DOUBLE));
+    double metrics[4] = {w, h * 0.8, h * 0.2, advance};
+    aqua_return(call, aqua_array_from_f64(rt, metrics, 4, AQUA_DOUBLE));
 }
 
 /* ---- The list ---- */

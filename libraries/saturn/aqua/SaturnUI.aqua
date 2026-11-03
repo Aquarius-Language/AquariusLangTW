@@ -996,9 +996,15 @@ var menuHover = function(owner, path) {
     var items = owner.data["menuItems"];
     owner.data["active"] = if (menuItemUsable(items[item])) { item; } else { -1; };
 };
-# A release over a usable item chooses it.
-var menuRelease = function(owner, path) {
+# A release over a usable item chooses it; so does a click on one (a release where its press was, even if a rebuild
+# between them moved the hit test).
+var menuRelease = function(owner, path, event) {
     var item = menuItemAt(owner, path);
+    var press = Hash.Get(owner.data, "pressItem", null);
+    owner.data["pressItem"] = null;
+    if (item == null && press != null && event != null) {
+        if (Processing_abs(event["x"] - press[1]) + Processing_abs(event["y"] - press[2]) < 6) { item = press[0]; }
+    }
     if (item == null) { return null; }
     var items = owner.data["menuItems"];
     if (menuItemUsable(items[item])) { chooseMenuItem(owner, items[item]); }
@@ -1074,7 +1080,7 @@ kinds["MenuBar"] = {"update": function(e, w) {
     var i = menuTitleAt(e, path);
     if (i != null && i != Hash.Get(e.data, "open", -1) && e.widget.menus[i].disabled != true) { openMenu(e, i); }
     menuHover(e, path);
-}, "popupRelease": function(e, path, event) { menuRelease(e, path); },
+}, "popupRelease": function(e, path, event) { menuRelease(e, path, event); },
 "popupKey": function(e, key) {
     var menus = e.widget.menus;
     if (key == 263) { openMenu(e, nextMenu(menus, e.data["open"], -1)); }         # Left
@@ -1326,7 +1332,7 @@ kinds["TextField"] = {"update": function(e, w) {
 },
 # The context menu (popup protocol).
 "popupMove": function(e, path) { menuHover(e, path); },
-"popupRelease": function(e, path, event) { menuRelease(e, path); },
+"popupRelease": function(e, path, event) { menuRelease(e, path, event); },
 "popupKey": function(e, key) { menuKey(e, key); },
 "close": function(e) { e.data["menuOpen"] = false; e.data["active"] = -1; }};
 
@@ -1742,6 +1748,10 @@ var CreateSurface = function(width, height, root, options) {
         # The release of a press that only closed a popup or ended autoscrolling.
         if (type == "release" && s.swallow) { s.swallow = false; return true; }
         if (type == "press" && popupPress(ev)) { return true; }
+        if (type == "press" && s.popup != null) {
+            var pressed = menuItemAt(s.popup, s.pathAt(ev["x"], ev["y"]));
+            s.popup.data["pressItem"] = if (pressed == null) { null; } else { [pressed, ev["x"], ev["y"]]; };
+        }
         if (s.popup != null) {
             var taken = popupEvent(ev, type);
             if (taken != null) { return taken; }

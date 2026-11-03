@@ -69,21 +69,29 @@ Metrics measure_run(State *state, std::string_view text, const TextStyle &style)
             m.width = (float)aqua_number_of(result);
         } else if (result.type == AQUA_ARRAY && aqua_array_length(rt, result) >= 1) {
             aqua_value w = aqua_array_get(rt, result, 0), a = aqua_array_get(rt, result, 1), d = aqua_array_get(rt, result, 2);
+            if (aqua_array_length(rt, result) >= 4) {
+                aqua_value advance = aqua_array_get(rt, result, 3);
+                if (aqua_is_numeric(advance)) m.advance = (float)aqua_number_of(advance);
+            }
             if (aqua_is_numeric(w)) m.width = (float)aqua_number_of(w);
             if (aqua_is_numeric(a)) m.ascent = (float)aqua_number_of(a);
             if (aqua_is_numeric(d)) m.descent = (float)aqua_number_of(d);
         } else if (result.type == AQUA_HASH || result.type == AQUA_STRUCT || result.type == AQUA_NATIVE) {
-            aqua_value w, a, d;
+            aqua_value w, a, d, advance = aqua_null();
             if (result.type == AQUA_NATIVE) {
                 w = aqua_object_member(rt, result, "width"); a = aqua_object_member(rt, result, "ascent"); d = aqua_object_member(rt, result, "descent");
+                advance = aqua_object_member(rt, result, "advance");
             } else {
                 aqua_hash_field(rt, result, "width", &w); aqua_hash_field(rt, result, "ascent", &a); aqua_hash_field(rt, result, "descent", &d);
+                aqua_hash_field(rt, result, "advance", &advance);
             }
+            if (aqua_is_numeric(advance)) m.advance = (float)aqua_number_of(advance);
             if (aqua_is_numeric(w)) m.width = (float)aqua_number_of(w);
             if (aqua_is_numeric(a)) m.ascent = (float)aqua_number_of(a);
             if (aqua_is_numeric(d)) m.descent = (float)aqua_number_of(d);
         }
     }
+    if (m.advance < 0) m.advance = m.width;
     if (state->cache.size() > 50000) state->cache.clear();
     state->cache.emplace(std::move(key), m);
     return m;
@@ -372,7 +380,7 @@ static void node_text_caret(aqua_call *call) {
     float x = f.left, y = f.top;
     if (!t.lines.empty()) {
         size_t from = starts[i], to = std::min(byte, line_end(t, starts, i));
-        x = line_x(t, f, i) + (to > from ? measure_run(n->state, std::string_view(t.content).substr(from, to - from), t.resolved).width : 0);
+        x = line_x(t, f, i) + (to > from ? measure_run(n->state, std::string_view(t.content).substr(from, to - from), t.resolved).advance : 0);
         y = f.top + (float)i * f.line_height;
     }
     aqua_value h = aqua_hash_new(rt, 4);
@@ -406,7 +414,7 @@ static void node_text_index_at(aqua_call *call) {
             if (!joins_previous(next_code_point(content, &peek))) break;
             k = peek;
         }
-        double edge = origin + measure_run(n->state, content.substr(from, k - from), t.resolved).width;
+        double edge = origin + measure_run(n->state, content.substr(from, k - from), t.resolved).advance;
         double distance = std::fabs(x - edge);
         if (distance < best_distance) { best_distance = distance; best = k; }
         if (edge > x) break;
@@ -444,10 +452,11 @@ static void module_measure_text(aqua_call *call) {
     Metrics m = measure_run(state, std::string_view(text.data, text.length), style);
     if (!state->error.empty()) { aqua_fail(call, "%s", state->error.c_str()); state->error.clear(); return; }
     aqua_runtime *rt = aqua_call_runtime(call);
-    aqua_value h = aqua_hash_new(rt, 3);
+    aqua_value h = aqua_hash_new(rt, 4);
     aqua_hash_set_field(rt, h, "width", aqua_double(m.width));
     aqua_hash_set_field(rt, h, "ascent", aqua_double(m.ascent));
     aqua_hash_set_field(rt, h, "descent", aqua_double(m.descent));
+    aqua_hash_set_field(rt, h, "advance", aqua_double(m.advance));
     aqua_return(call, h);
 }
 
