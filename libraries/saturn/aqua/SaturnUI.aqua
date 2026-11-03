@@ -234,26 +234,28 @@ var ThemeSheet = function(t) {
 var NL = String.FromCode(10);
 var NBSP = String.FromCode(160);
 
-# Contained failures. Code a surface calls (painters, Immediate widgets, builders, event handlers) runs guarded: an
-# error there is recorded in surface.Errors() and printed once, that part draws nothing or that event is dropped, and
-# everything else keeps working, so one failing widget never blanks the window or stops the input.
-var attempt = function(s, what, action) {
-    # Saturn.Contain runs the callback to completion in place (never pausing), as code called from painting must.
-    var result = Saturn.Contain(action);
-    if (result["Success"]) { return {"Success": true, "Value": result["Value"]}; }
-    var message = what + ": " + String.From(result["Message"]);
-    if (!Array.Contains(s.errors, message)) {
-        if (len(s.errors) >= 32) { Array.Delete(s.errors, 0, 1); }
-        Array.Append(s.errors, message);
-        print("SaturnUI: " + message);
-    }
-    return {"Success": false, "Value": null};
-};
-var guarded = function(s, what, action) {
-    var result = attempt(s, what, action);
-    if (result["Success"]) { return result["Value"]; }
+# Contained failures. Code a surface calls while building and painting (painters, Immediate widgets, builders) runs
+# guarded: an error there is recorded in Errors() and printed once, that part draws nothing, and everything else keeps
+# working, so one failing widget never blanks the window. Event handlers are not guarded (they may wait for
+# asynchronous results); their failures reach the caller.
+#
+# record keeps an owner's (a surface's or a layer stack's) latest 32 distinct failures, each printed once.
+var record = function(owner, message) {
+    if (Array.Contains(owner.errors, message)) { return null; }
+    if (len(owner.errors) >= 32) { Array.Delete(owner.errors, 0, 1); }
+    Array.Append(owner.errors, message);
+    print("SaturnUI: " + message);
     return null;
 };
+# attempt runs action through Saturn.Contain (to completion in place, never pausing, as code called from painting must)
+# and returns its {Success, Value, Message}, recording a failure.
+var attempt = function(owner, what, action) {
+    var result = Saturn.Contain(action);
+    if (!result["Success"]) { record(owner, what + ": " + String.From(result["Message"])); }
+    return result;
+};
+# attempt's value, or null when the action failed.
+var guarded = function(owner, what, action) { return attempt(owner, what, action)["Value"]; };
 # A painter that never takes the rest of the paint down with it.
 var safePainter = function(e, painter) {
     if (painter == null) { return null; }
@@ -1628,7 +1630,7 @@ var CreateSurface = function(width, height, root, options) {
         for (var i = 0; i < len(e.children); i++) { syncScroll(e.children[i]); }
     };
 
-    var frameUnguarded = function(time) {
+    var frame = function(time) {
         var elapsed = time - s.time;
         s.time = time;
         Saturn.SetTime(time);
@@ -1645,7 +1647,7 @@ var CreateSurface = function(width, height, root, options) {
         s.rootNode.CalculateLayout(s.width, s.height);
     };
     # A frame whose building fails keeps the tree it had; painting falls back to the last list that painted.
-    s.Frame = function(time) { guarded(s, "frame", () => frameUnguarded(time)); return null; };
+    s.Frame = function(time) { guarded(s, "frame", () => frame(time)); return null; };
     s.Paint = function() {
         var list = guarded(s, "paint", () => s.rootNode.Paint());
         if (list != null) { s.painted = list; return list; }
@@ -1755,7 +1757,7 @@ var CreateSurface = function(width, height, root, options) {
 
     # Feed(event): Interaction events or hashes of the same fields. Returns whether the surface used it (the pointer is
     # over one of its widgets, or a focused field took a key), so layered UIs pass the rest on.
-    var feedUnguarded = function(raw) {
+    s.Feed = function(raw) {
         var ev = eventOf(raw);
         var type = ev["type"];
         # Pointer events hit-test the current layout; keys and text do not wait for a rebuild (typing fast must not
@@ -1991,10 +1993,8 @@ var CreateSurface = function(width, height, root, options) {
         }
         return false;
     };
-    # Events run directly (their handlers may wait for asynchronous results); a failure reaches the caller.
-    s.Feed = feedUnguarded;
     # Where an input method's window should open: {x, y, width, height} of the focused text field, or null.
-    var imeUnguarded = function() {
+    var imeRect = function() {
         if (s.focus == null) { return null; }
         if (s.focus.type == "Immediate") {
             # An Immediate widget that takes text gives its caret's box in its own coordinates.
@@ -2011,7 +2011,7 @@ var CreateSurface = function(width, height, root, options) {
         var caret = text.TextCaret(TextEditing.Display(s.focus.state)[1]);
         return {"x": box["x"] + caret["x"] - Hash.Get(s.focus.data, "scrollX", 0), "y": box["y"] + caret["y"], "width": 1, "height": caret["height"]};
     };
-    s.ImeRect = function() { return guarded(s, "ime", () => imeUnguarded()); };
+    s.ImeRect = function() { return guarded(s, "ime", imeRect); };
     s.Dispose = function() { dispose(host); };
     # An open popup or autoscroll takes the whole window, so layers below see no press until it ends.
     s.Wants = function(x, y) {

@@ -131,7 +131,8 @@ Libraries:
   (recorded once in `surface.Errors()`; guarded by the new synchronous `Saturn.Contain`, never by an asynchronous try,
   which left pending tasks behind on every paint), so one failing widget never blanks the window (WellPlay's code
   cells turned the window white after Ctrl+A, Ctrl+C, Ctrl+V, Ctrl+Z, when the editor drew language-server markers on
-  lines the undo had removed); layer stacks do the same per layer.
+  lines the undo had removed); layer stacks do the same per layer. WellPlay's outputs and frame use it too (they used
+  `Network.Try`, which filled the native resource table after a cell ran).
 - `imgui`: key releases from Interaction (`action: "release"`) were taken as presses, so keys stayed held; copy and
   paste use the system clipboard unless `SetClipboardHandlers` is given; `UseConventions` (applied by itself from the
   first Interaction event) sets double-click time, drag threshold, caret blinking and Mac-style editing.
