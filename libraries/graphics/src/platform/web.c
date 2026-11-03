@@ -55,12 +55,13 @@ bool gfx_platform_text_box(const char *family, float size, const char *text, siz
     return true;
 }
 
-bool gfx_platform_text_raster(const char *family, float size, const char *text, size_t length, int width, int height, uint8_t *alpha) {
+bool gfx_platform_text_raster(const char *family, float size, const char *text, size_t length, int width, int height, int margin,
+                              uint8_t *alpha) {
     double m[3];
     if (!measure(family, size, NULL, text, length, m)) return false;
     char font[600];
     int n = css_font(font, sizeof font, family, size, NULL);
-    return web_draw_text(font, n, text, (int32_t)length, width, height, 0, m[1], alpha) != 0;
+    return web_draw_text(font, n, text, (int32_t)length, width + 2 * margin, height + 2 * margin, margin, margin + m[1], alpha) != 0;
 }
 
 bool gfx_platform_text_advance(const char *family, float size, const char *text, size_t length, double *advance) {

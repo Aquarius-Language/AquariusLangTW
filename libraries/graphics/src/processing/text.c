@@ -1,7 +1,9 @@
 /* Processing text: fonts, sizes, alignment, wrapping and drawing lines as cached rasters. Each line is rasterized by
    the platform's text system (src/platform) at the scale it appears on screen, cached as an image per text, font and
-   raster size, and drawn snapped to device pixels under 2D translate/scale transforms so it stays sharp. Without a
-   platform text system, a small built-in bitmap font is used. */
+   raster size, and drawn snapped to device pixels under 2D translate/scale transforms so it stays sharp. A raster has
+   a margin around the line's box, so ink drawn outside the font's box (an underscore below the descent) shows, as in
+   a browser, without changing the box layout uses. Without a platform text system, a small built-in bitmap font is
+   used. */
 #include "processing.h"
 #include "../common/unicode.h"
 #include "../platform/platform.h"
@@ -53,7 +55,8 @@ static bool line_box(const char *font, float size, const char *text, size_t leng
     return false;
 }
 
-static void bitmap_raster(float size, const char *text, size_t length, int w, int h, uint8_t *alpha) {
+/* Draws into the box (w x h) of a mask `stride` pixels wide, from `alpha` (the box's top-left). */
+static void bitmap_raster(float size, const char *text, size_t length, int w, int h, int stride, uint8_t *alpha) {
     float scale = size / 8;
     int index = 0;
     for (size_t i = 0; i < length; index++) {
@@ -68,7 +71,7 @@ static void bitmap_raster(float size, const char *text, size_t length, int w, in
                 if (pattern[row * 5 + col] != '1') continue;
                 for (int y = (int)(row * scale); y < (int)ceilf((row + 1) * scale) && y < h; y++)
                     for (int x = (int)((index * 6 + col) * scale); x < (int)ceilf((index * 6 + col + 1) * scale) && x < w; x++)
-                        alpha[(size_t)y * (size_t)w + (size_t)x] = 255;
+                        alpha[(size_t)y * (size_t)stride + (size_t)x] = 255;
             }
     }
 }
@@ -82,7 +85,11 @@ static bool measure(aqua_call *call, const char *font, float size, const char *t
 
 /* ---- The raster cache ---- */
 
-typedef struct cached { pimage *image; int64_t last_frame; } cached;
+/* A line's raster: its box with `margin` pixels on every side. */
+typedef struct cached { pimage *image; int margin; int64_t last_frame; } cached;
+
+/* Ink outside a font's box stays within a quarter of the size. */
+static int ink_margin(float size) { return (int)ceilf(size / 4); }
 
 static size_t cache_key(char *key, size_t capacity, const char *text, size_t length, const char *font, float size) {
     size_t font_length = strlen(font);
@@ -94,7 +101,7 @@ static size_t cache_key(char *key, size_t capacity, const char *text, size_t len
     return length + font_length + 2 + sizeof size;
 }
 
-static pimage *cached_raster(aqua_call *call, processing *p, const char *text, size_t length, const char *font, float size) {
+static const cached *cached_raster(aqua_call *call, processing *p, const char *text, size_t length, const char *font, float size) {
     char stack[1024];
     size_t capacity = length + strlen(font) + 2 + sizeof size;
     char *key = capacity <= sizeof stack ? stack : malloc(capacity);
@@ -103,13 +110,15 @@ static pimage *cached_raster(aqua_call *call, processing *p, const char *text, s
     if (entry && !entry->image->disposed) {
         entry->last_frame = p->text_frame;
         if (key != stack) free(key);
-        return entry->image;
+        return entry;
     }
-    int w, h;
-    bool platform = line_box(font, size, text, length, &w, &h);
+    int box_w, box_h, margin = ink_margin(size);
+    bool platform = line_box(font, size, text, length, &box_w, &box_h);
+    int w = box_w + 2 * margin, h = box_h + 2 * margin;
     if (w > 8192 || h > 8192) { if (key != stack) free(key); gfx_fail(call, "Rendered text is too large."); return NULL; }
     uint8_t *alpha = calloc((size_t)w * (size_t)h, 1);
-    if (!platform || !gfx_platform_text_raster(font, size, text, length, w, h, alpha)) bitmap_raster(size, text, length, w, h, alpha);
+    if (!platform || !gfx_platform_text_raster(font, size, text, length, box_w, box_h, margin, alpha))
+        bitmap_raster(size, text, length, box_w, box_h, w, alpha + (size_t)margin * (size_t)w + (size_t)margin);
     pimage *image = gfx_image_detached(p, w, h);
     for (size_t i = 0, n = (size_t)w * (size_t)h; i < n; i++) {
         image->bytes[i * 4] = image->bytes[i * 4 + 1] = image->bytes[i * 4 + 2] = 255;
@@ -119,11 +128,12 @@ static pimage *cached_raster(aqua_call *call, processing *p, const char *text, s
     if (entry) { p->text_bytes -= (size_t)entry->image->width * (size_t)entry->image->height * 4; gfx_image_free(entry->image); free(entry); }
     entry = malloc(sizeof *entry);
     entry->image = image;
+    entry->margin = margin;
     entry->last_frame = p->text_frame;
     gfx_map_put(&p->text_cache, key, key_length, entry);
     p->text_bytes += (size_t)w * (size_t)h * 4;
     if (key != stack) free(key);
-    return image;
+    return entry;
 }
 
 typedef struct eviction { gfx_map_entry *items; size_t count, capacity; } eviction;
@@ -211,6 +221,16 @@ static void align_to_pixels(const canvas *c, float *x, float *y, float *w, float
         if (fabsf(exact_h - *h) * fabsf(sy) >= 0.01f && fabsf(exact_h - *h) <= 2.0f) *h = exact_h;
     }
     *x = snapped_x; *y = snapped_y;
+}
+
+/* Draws a line's raster with the line's box (w x h) at (x, y): the box maps onto the raster's box, and the margin
+   around it is drawn around the box at the same scale. */
+static bool draw_raster(aqua_call *call, canvas *c, const cached *raster, float x, float y, float w, float h, float density) {
+    int box_w = raster->image->width - 2 * raster->margin, box_h = raster->image->height - 2 * raster->margin;
+    align_to_pixels(c, &x, &y, &w, &h, box_w, box_h, density);
+    float margin_x = (float)raster->margin * w / (float)box_w, margin_y = (float)raster->margin * h / (float)box_h;
+    float outer_w = w + 2 * margin_x, outer_h = h + 2 * margin_y;
+    return gfx_canvas_image(call, c, raster->image, x - margin_x, y - margin_y, &outer_w, &outer_h);
 }
 
 /* ---- Members ---- */
@@ -365,17 +385,15 @@ static void p_text(aqua_call *call, processing *p, canvas *c) {
         int w, h;
         if (!(ok = measure(call, c->style.font, c->style.text_size, lines[i].text, lines[i].length, &w, &h))) break;
         float density = raster_scale(c, x, line_y);
-        pimage *image = cached_raster(call, p, lines[i].text, lines[i].length, c->style.font, c->style.text_size * density);
-        if (!(ok = image != NULL)) break;
+        const cached *raster = cached_raster(call, p, lines[i].text, lines[i].length, c->style.font, c->style.text_size * density);
+        if (!(ok = raster != NULL)) break;
         style saved = c->style;
         c->style.tint = saved.fill;
         c->style.image_mode = 0;
         int align = c->style.text_align;
         float left = boxed ? x + (align == 2 ? (box_w - (float)w) / 2 : align == 1 ? box_w - (float)w : 0)
                            : x - (align == 2 ? (float)w / 2.0f : align == 1 ? (float)w : 0);
-        float draw_x = left, draw_y = line_y, draw_w = (float)w, draw_h = (float)h;
-        align_to_pixels(c, &draw_x, &draw_y, &draw_w, &draw_h, image->width, image->height, density);
-        ok = gfx_canvas_image(call, c, image, draw_x, draw_y, &draw_w, &draw_h);
+        ok = draw_raster(call, c, raster, left, line_y, (float)w, (float)h, density);
         c->style = saved;
     }
     c->model = old_model;
@@ -418,14 +436,12 @@ bool gfx_text_draw_line(aqua_call *call, processing *p, canvas *c, const char *f
     int w, h;
     if (!measure(call, font, size, text, length, &w, &h)) return false;
     float density = raster_scale(c, x, y);
-    pimage *image = cached_raster(call, p, text, length, font, size * density);
-    if (!image) return false;
+    const cached *raster = cached_raster(call, p, text, length, font, size * density);
+    if (!raster) return false;
     style saved = c->style;
     c->style.tint = color;
     c->style.image_mode = 0;
-    float draw_x = x, draw_y = y, draw_w = (float)w, draw_h = (float)h;
-    align_to_pixels(c, &draw_x, &draw_y, &draw_w, &draw_h, image->width, image->height, density);
-    bool ok = gfx_canvas_image(call, c, image, draw_x, draw_y, &draw_w, &draw_h);
+    bool ok = draw_raster(call, c, raster, x, y, (float)w, (float)h, density);
     c->style = saved;
     return ok;
 }

@@ -167,7 +167,10 @@ bool gfx_platform_text_box(const char *font, float size, const char *text, size_
     return ok;
 }
 
-bool gfx_platform_text_raster(const char *font, float size, const char *text, size_t length, int width, int height, uint8_t *alpha) {
+bool gfx_platform_text_raster(const char *font, float size, const char *text, size_t length, int width, int height, int margin,
+                              uint8_t *alpha) {
+    width += 2 * margin;
+    height += 2 * margin;
     JNIEnv *env = aqua_android_jni();
     if (!env || (*env)->PushLocalFrame(env, 32) != 0) return false;
     bool ok = false;
@@ -187,7 +190,7 @@ bool gfx_platform_text_raster(const char *font, float size, const char *text, si
             jclass paint_class = (*env)->GetObjectClass(env, p);
             (*env)->CallVoidMethod(env, p, (*env)->GetMethodID(env, paint_class, "setColor", "(I)V"), (jint)0xFFFFFFFF);
             (*env)->CallVoidMethod(env, canvas, (*env)->GetMethodID(env, canvas_class, "drawText", "(Ljava/lang/String;FFLandroid/graphics/Paint;)V"),
-                                   s, 0.0f, -box.ascent, p);
+                                   s, (float)margin, margin - box.ascent, p);
             jintArray pixels = (*env)->NewIntArray(env, width * height);
             (*env)->CallVoidMethod(env, bitmap, (*env)->GetMethodID(env, bitmap_class, "getPixels", "([IIIIIII)V"), pixels, 0, width, 0, 0, width, height);
             if (!failed(env) && pixels) {

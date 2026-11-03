@@ -1,0 +1,10 @@
+# A frame makes painters (and their bound methods) for its CustomPaint and Immediate widgets, each a native object freed
+# by a collection. More of them than the runtime has native resource slots (65,536) never fill the table.
+var Saturn = import("Saturn");
+var made = 0;
+for (var i = 0; i < 200000; i++) {
+    var p = Saturn.Painter();
+    p.Rect(0, 0, 1, 1, [0, 0, 0, 255]);
+    made++;
+}
+print("painters", made);

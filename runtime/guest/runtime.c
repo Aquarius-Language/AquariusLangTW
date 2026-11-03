@@ -99,6 +99,9 @@ static int collection_due(void);
 /* Collection is due after gc_threshold bytes of allocation that were not explicitly released.
    The threshold grows with the live heap so repeated collections of large live graphs stay amortized. */
 static u32 gc_threshold=8u*1024*1024, gc_armed;
+/* The host frees its native objects (handles) only after a collection. They cost the guest a few bytes each, so the
+   host asks for a collection when it has made many since the last one, before its handle table fills. */
+static u32 collection_requested;
 static u32 scope_epoch=1, epoch_era=1;
 static u32 numeric_fast_calls, numeric_fallback_calls, numeric_depth_fallbacks, numeric_deopts;
 u32 aqua_numeric_deopts(void) { return numeric_deopts; }
@@ -130,6 +133,7 @@ static void initialize_allocation(void *p,u32 n,u32 kind) {
 /* Allocation slow paths stay out of line so the common cases (an exact-size free block, or bumping the heap end)
    inline into the hot constructors. */
 static void arm_collection(void) { if(!gc_armed&&collection_due()){gc_armed=1;for(Execution*e=executions;e;e=e->next)e->poll=1;} }
+u32 aqua_request_collection(void) { collection_requested=1;arm_collection();return 0; }
 /* When another module sharing this memory grew it since the heap last did, its pages lie between heap_limit and the
    memory's end: cover them (and the heap's unused tail) with a FOREIGN block and continue the heap after them. The
    block's header goes at heap_end, so the heap never fills the last sizeof(Block) bytes below heap_limit: otherwise the
@@ -179,7 +183,7 @@ u32 aqua_heap_bytes(void) { return heap_end-heap_start; }
 u32 aqua_heap_free(void) { u32 n=0;for(u32 a=heap_start;a<heap_end;a+=sizeof(Block)+((Block*)pointer(a))->size)if(((Block*)pointer(a))->kind==FREE)n+=((Block*)pointer(a))->size;return n; }
 /* Net allocation leads; growth triggers only at twice the threshold, so it backs up net allocation when releases keep
    that low (a repeatedly regrown array) without collecting earlier than before in ordinary programs. */
-static int collection_due(void) { return bytes_since_collection>=gc_threshold||heap_growth/2>=gc_threshold; }
+static int collection_due(void) { return collection_requested||bytes_since_collection>=gc_threshold||heap_growth/2>=gc_threshold; }
 u32 aqua_collection_due(void) { return (u32)collection_due(); }
 u32 aqua_collection_generation(void) { return collection_generation; }
 u32 aqua_value(void) { return address(allocate(sizeof(Value),RAW)); }
@@ -979,7 +983,7 @@ static void mark_ref(void*p){u32 addr=address(p);if(!p||addr<heap_start||addr>=h
     if(b->kind==FREE||b->marked)return;b->marked=mark_pending|1;mark_pending=addr;}
 static void mark_value(Value v){if(v.tag==NATIVE){if(v.ref<65536&&!native_live[v.ref]){native_live[v.ref]=1;marked_native_ids[marked_native_count++]=v.ref;}}else if(v.tag>=STRING&&v.tag<=MODULE||v.tag==ERROR||v.tag==STRUCT||v.tag==STRUCT_TYPE)mark_ref(pointer(v.ref));}
 u32 aqua_collect(void){memset(member_cache,0,sizeof member_cache);
-    bytes_since_collection=0;heap_growth=0;gc_armed=0;for(Execution*e=executions;e;e=e->next)e->poll=0;
+    bytes_since_collection=0;heap_growth=0;gc_armed=0;collection_requested=0;for(Execution*e=executions;e;e=e->next)e->poll=0;
     // Marks are clear here: allocation clears them and the sweep below resets every survivor.
     for(u32 i=0;i<marked_native_count;i++)native_live[marked_native_ids[i]]=0;marked_native_count=0;mark_pending=0;
     for(Execution*e=executions;e;e=e->next)mark_ref(e);for(Pin*p=pins;p;p=p->next)mark_ref(p);for(u32 i=0;i<builtin_context_count;i++)mark_ref(builtin_scopes[builtin_contexts[i]]);for(u32 i=0;i<5;i++)if(portable_modules[i])mark_ref(portable_modules[i]);

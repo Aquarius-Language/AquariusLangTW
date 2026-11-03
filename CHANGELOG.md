@@ -74,7 +74,17 @@ Compiler and CLI:
 - `aqua run` takes a script inside a project folder that the project does not declare, running it with the project's
   libraries (it used to fail with `Source is not declared in project.sources.`; builds still require it).
 
+Runtime:
+- Native objects never fill the runtime's resource table. They are freed by a garbage collection, which used to start
+  for memory alone and to free them only between run slices, so programs that make many small native objects (a UI
+  that paints with `Saturn.Painter` each frame: WellPlay at 250 % scale, after a few seconds) failed with "Native
+  resource table capacity exceeded" and then "Not a function: native value". The host now asks for a collection after
+  16,384 new native objects and reuses the freed slots at once; a full table reports its own error for methods too.
+
 Libraries:
+- `graphics`: text keeps ink drawn outside its font's box. Each line is rasterized with a margin around its box, so an
+  underscore below the descent (細明體/MingLiU, Chrome's monospace for Traditional Chinese, at some sizes and scales)
+  shows instead of being cut off; boxes, layout and `textWidth` are unchanged.
 - `terminal`: `Terminal.Start(executable, arguments, options)` returns a `Terminal.Process` whose output reaches
   `OnOutput` / `OnError` callbacks as it arrives (in order; a callback may be async and wait), with `Wait`,
   `WaitAsync`, `Kill` (the whole tree), `Running` and `Result`.

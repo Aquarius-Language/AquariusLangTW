@@ -47,7 +47,10 @@ bool gfx_platform_text_box(const char *name, float size, const char *text, size_
     return true;
 }
 
-bool gfx_platform_text_raster(const char *name, float size, const char *text, size_t length, int width, int height, uint8_t *alpha) {
+bool gfx_platform_text_raster(const char *name, float size, const char *text, size_t length, int width, int height, int margin,
+                              uint8_t *alpha) {
+    width += 2 * margin;
+    height += 2 * margin;
     int count;
     wchar_t *w = wide(text, length, &count);
     HDC dc = CreateCompatibleDC(NULL);
@@ -68,7 +71,7 @@ bool gfx_platform_text_raster(const char *name, float size, const char *text, si
         memset(pixels, 0, (size_t)width * (size_t)height * 4);
         SetBkMode(dc, TRANSPARENT);
         SetTextColor(dc, RGB(255, 255, 255));
-        ok = TextOutW(dc, 0, 0, w, count) != 0;
+        ok = TextOutW(dc, margin, margin, w, count) != 0;
         GdiFlush();
         const uint8_t *bgra = pixels;
         for (size_t i = 0, n = (size_t)width * (size_t)height; i < n; i++) {

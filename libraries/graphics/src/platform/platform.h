@@ -13,8 +13,11 @@
 /* The raster box of `text` (UTF-8, one line) at `size` pixels in `font` ("sans-serif", "monospace" or a family):
    what textWidth reports and the size of the raster. False when the platform has no text system. */
 bool gfx_platform_text_box(const char *font, float size, const char *text, size_t length, int *width, int *height);
-/* Draws `text` white into a width x height alpha mask (row-major, zeroed by the caller), as boxed above. */
-bool gfx_platform_text_raster(const char *font, float size, const char *text, size_t length, int width, int height, uint8_t *alpha);
+/* Draws `text` white into an alpha mask (row-major, zeroed by the caller) of the box (width x height, as above) with
+   `margin` pixels on every side, the box's top-left at (margin, margin): glyphs drawn outside their font's box (an
+   underscore below the descent in some fonts and sizes) land in the margin instead of being cut off. */
+bool gfx_platform_text_raster(const char *font, float size, const char *text, size_t length, int width, int height, int margin,
+                              uint8_t *alpha);
 /* The advance of `text`: where a following character would start, measured from the box's left edge (where every
    platform's raster puts the pen), fractional where the platform gives it. Carets and selections sit at advances.
    False when the platform has no text system. */

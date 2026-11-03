@@ -55,6 +55,9 @@ uint32_t context_new(aqua_runtime *rt, const char *script) {
 /* ---- Handles ---- */
 
 uint32_t handle_new(aqua_runtime *rt, handle_kind kind, aqua_class *cls, void *data) {
+    /* The guest collects inside long runs (at its checkpoints): reuse what its latest collection left unreached before
+       growing the table. */
+    if (!rt->handle_free) handles_sweep(rt);
     uint32_t id = rt->handle_free;
     if (id) rt->handle_free = rt->handles[id].next_free;
     else {
@@ -66,7 +69,13 @@ uint32_t handle_new(aqua_runtime *rt, handle_kind kind, aqua_class *cls, void *d
     h->kind = kind; h->cls = cls; h->data = data;
     /* The guest may have collected since the last sweep: a handle made now postdates that collection. */
     h->generation = guest(rt, GUEST_collection_generation, 0, 0, 0, 0);
+    /* Handles are freed only after a collection, which the guest otherwise starts for memory alone: a program making
+       many small native objects (painters, events) would fill the table first. A quarter of it asks for one. */
+    if (++rt->handles_made == HANDLE_LIMIT / 4) guest(rt, GUEST_request_collection, 0, 0, 0, 0);
     return id;
+}
+aqua_value handles_exhausted(aqua_runtime *rt) {
+    return host_error(rt, "Native resource table capacity exceeded (%u objects).", HANDLE_LIMIT);
 }
 handle *handle_get(aqua_runtime *rt, uint32_t id) {
     if (id == 0 || id >= rt->handle_count || rt->handles[id].kind == HANDLE_FREE) return NULL;
@@ -87,6 +96,7 @@ void handles_sweep(aqua_runtime *rt) {
     uint32_t generation = guest(rt, GUEST_collection_generation, 0, 0, 0, 0);
     if (generation == rt->collection_generation) return;
     rt->collection_generation = generation;
+    rt->handles_made = 0;
     uint32_t count = rt->handle_count;
     unsigned char *live = calloc(count ? count : 1, 1);
     for (uint32_t i = 1; i < count; i++) {
@@ -144,8 +154,9 @@ aqua_value member_value(aqua_runtime *rt, uint32_t self, uint32_t member_index, 
     switch (m->kind) {
     case MEMBER_FUNCTION: {
         aqua_value v = {AQUA_NATIVE, bound_handle(rt, self, member_index), 0};
+        if (!v.ref) { *cacheable = false; return handles_exhausted(rt); }
         /* Handed to the guest after its latest collection: keep it through the sweep of that collection. */
-        if (v.ref) rt->handles[v.ref].generation = guest(rt, GUEST_collection_generation, 0, 0, 0, 0);
+        rt->handles[v.ref].generation = guest(rt, GUEST_collection_generation, 0, 0, 0, 0);
         return v;
     }
     case MEMBER_INT: return aqua_int((int32_t)m->number);

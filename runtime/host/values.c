@@ -332,7 +332,7 @@ bool aqua_hash_set_field(aqua_runtime *rt, aqua_value hash, const char *name, aq
 
 aqua_value aqua_object_new(aqua_runtime *rt, aqua_class *cls, void *data) {
     aqua_value v = {AQUA_NATIVE, handle_new(rt, HANDLE_OBJECT, cls, data), 0};
-    if (!v.ref) return host_error(rt, "Native resource table capacity exceeded (%u objects).", HANDLE_LIMIT);
+    if (!v.ref) return handles_exhausted(rt);
     return v;
 }
 void *aqua_object_data(aqua_runtime *rt, aqua_value value, aqua_class *cls) {

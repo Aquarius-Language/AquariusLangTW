@@ -164,6 +164,7 @@ struct aqua_runtime {
     void **states;                   /* per-library state, by library index */
     uint32_t *state_order; uint32_t state_count;
     uint32_t collection_generation;  /* last guest collection the handles were swept against */
+    uint32_t handles_made;           /* handles made since that collection (many ask the guest for a new one) */
     uint32_t pending_block;          /* guest Pending*, 0 for runtimes without one */
     uint32_t quantum;
     task *tasks; task *current;
@@ -196,6 +197,7 @@ int32_t guest_member_index(aqua_runtime *rt, const aqua_class *c, uint32_t text)
 
 /* ---- Host core internals shared between files. ------------------------------------------------------------------ */
 uint32_t handle_new(aqua_runtime *rt, handle_kind kind, aqua_class *cls, void *data);
+aqua_value handles_exhausted(aqua_runtime *rt);   /* the error when handle_new returns 0 */
 handle *handle_get(aqua_runtime *rt, uint32_t id);
 void handles_sweep(aqua_runtime *rt);
 uint32_t module_handle(aqua_runtime *rt, aqua_class *module);

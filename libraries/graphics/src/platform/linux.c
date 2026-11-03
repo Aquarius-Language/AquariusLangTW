@@ -114,7 +114,10 @@ bool gfx_platform_text_box(const char *font, float size, const char *text, size_
     return true;
 }
 
-bool gfx_platform_text_raster(const char *font, float size, const char *text, size_t length, int width, int height, uint8_t *alpha) {
+bool gfx_platform_text_raster(const char *font, float size, const char *text, size_t length, int width, int height, int margin,
+                              uint8_t *alpha) {
+    width += 2 * margin;
+    height += 2 * margin;
     layout l;
     if (!layout_make(&l, font, size, text, length)) return false;
     void *surface = api.cairo_image_surface_create(0, width, height);
@@ -122,7 +125,7 @@ bool gfx_platform_text_raster(const char *font, float size, const char *text, si
     if (ok) {
         void *context = api.cairo_create(surface);
         api.cairo_set_source_rgba(context, 1, 1, 1, 1);
-        api.cairo_move_to(context, -l.x, -l.y);
+        api.cairo_move_to(context, margin - l.x, margin - l.y);
         api.pango_cairo_show_layout(context, l.handle);
         ok = api.cairo_status(context) == 0;
         api.cairo_surface_flush(surface);
