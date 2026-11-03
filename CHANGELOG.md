@@ -66,6 +66,9 @@ Tools:
   [tools/aqua_wellplay](tools/aqua_wellplay/README.md).
 
 Compiler and CLI:
+- `aqua build --optimize` works on Windows without OpenSSL: WABT's `wasm2c.exe` imports `SHA256` from
+  `libcrypto-3-x64.dll`, which its release does not ship (it only ran when Git's `mingw64/bin` was on `PATH`);
+  `install-toolchain.ps1` now builds that one function (`scripts/wabt-sha256.c`) beside it with the pinned Clang.
 - Compile errors carry their line and column: `main.aqua:2:14: message` (`CompilationException.Diagnostics`).
 - `aqua run` takes a script inside a project folder that the project does not declare, running it with the project's
   libraries (it used to fail with `Source is not declared in project.sources.`; builds still require it).

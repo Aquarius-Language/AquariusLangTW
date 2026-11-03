@@ -62,6 +62,20 @@ foreach ($tool in @('cmake', 'ninja', 'wabt')) {
 }
 if (-not $aquaWindows) { & chmod +x $AquaToolchain.Ninja }   # .zip archives carry no permissions
 if ($Targets -contains 'windows-x64') { Install-Archive $AquaPins.mingw.url $AquaPins.mingw.sha256 $AquaToolchain.MinGW }
+# WABT's Windows wasm2c imports SHA256 from OpenSSL's libcrypto-3-x64.dll, which its release does not ship: build that
+# one function (scripts/wabt-sha256.c) beside wasm2c.exe with the pinned Clang.
+if ($aquaWindows -and (Test-Path -LiteralPath $AquaToolchain.MinGW)) {
+    $wabtBin = Join-Path $toolchains ($AquaPins.wabt.directory.Replace('{platform}', $AquaToolchain.Platform) + '/bin')
+    $libcrypto = Join-Path $wabtBin 'libcrypto-3-x64.dll'
+    if (-not (Test-Path -LiteralPath $libcrypto)) {
+        # The MinGW sysroot's clang resource directory and LLVM's runtimes, as runtime/sdk/cmake/toolchains/windows-x64.cmake.
+        $resource = (Get-ChildItem -LiteralPath (Join-Path $AquaToolchain.MinGW 'lib/clang') -Directory | Select-Object -First 1).FullName
+        & $AquaToolchain.Clang --target=x86_64-w64-mingw32 "--sysroot=$($AquaToolchain.MinGW)" -resource-dir $resource -fuse-ld=lld `
+            -rtlib=compiler-rt -unwindlib=libunwind -shared -O2 -static-libgcc `
+            -o $libcrypto (Join-Path $PSScriptRoot 'wabt-sha256.c')
+        if ($LASTEXITCODE -ne 0) { throw 'Building libcrypto-3-x64.dll for wasm2c failed.' }
+    }
+}
 if ($Targets -match '^android-') {
     $jdk = $AquaPins.jdk.($AquaToolchain.Platform)
     Install-Archive ($AquaPins.jdk.base + $jdk.file) $jdk.sha256 $AquaToolchain.Jdk
