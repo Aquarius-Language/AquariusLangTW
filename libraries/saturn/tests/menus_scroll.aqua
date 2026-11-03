@@ -1,0 +1,204 @@
+# SaturnUI's MenuBar and scrolling rules without a window: a menu opens on press, moving over another title switches
+# menus, a press outside closes it without reaching what lies below, keys move through items and menus; the wheel goes
+# to the view that can still move, a mouse's left drag never scrolls on a desktop while a finger pans, the scrollbar
+# thumb drags and its track pages, the middle button autoscrolls (Windows, Linux) or pans (Apple), and a release
+# that never arrived leaves nothing stuck.
+var UI = import("SaturnUI");
+var log = [];
+var desktop = {"platform": "windows", "formFactor": "desktop", "primaryModifier": "Ctrl", "scrollbars": "classic"};
+
+# ---- MenuBar ----
+var below = 0;
+var bar = UI.MenuBar(key: "bar", menus: [
+    UI.Menu(label: "File", items: [
+        UI.MenuItem(label: "New", shortcut: "Ctrl+N", onSelect: () => Array.Append(log, "new")),
+        UI.MenuSeparator(),
+        UI.MenuItem(label: "Locked", disabled: true, onSelect: () => Array.Append(log, "locked")),
+        UI.MenuItem(label: "Quit", onSelect: () => Array.Append(log, "quit"))]),
+    UI.Menu(label: "Edit", items: [UI.MenuItem(label: "Undo", checked: true, onSelect: () => Array.Append(log, "undo"))]),
+    UI.Menu(label: "Help", items: [UI.MenuItem(label: "About", onSelect: () => Array.Append(log, "about"))])]);
+var s = UI.Surface(400, 300, UI.Column(crossAxis: "stretch", children: [
+    bar,
+    UI.Button(label: "Below", key: "below", onPress: function() { below += 1; })]), {"conventions": desktop});
+s.Frame(0);
+var barElement = s.tree.children[0].children[0];
+var center = function(e) {
+    var b = e.node.GetAbsoluteLayout();
+    return [b["x"] + b["width"] / 2, b["y"] + b["height"] / 2];
+};
+var title = function(i) { return center(barElement.children[i]); };
+var press = function(at) { s.Feed({"type": "press", "x": at[0], "y": at[1], "button": 0, "pointerType": "mouse"}); s.Frame(s.time + 16); };
+var release = function(at) { s.Feed({"type": "release", "x": at[0], "y": at[1], "button": 0, "pointerType": "mouse"}); s.Frame(s.time + 16); };
+var move = function(at) { s.Feed({"type": "move", "x": at[0], "y": at[1], "pointerType": "mouse"}); s.Frame(s.time + 16); };
+var key = function(code) { s.Feed({"type": "key", "key": code, "action": "press"}); s.Feed({"type": "key", "key": code, "action": "release"}); s.Frame(s.time + 16); };
+var popup = function() {
+    for (var i = 0; i < len(barElement.children); i++) { if (barElement.children[i].type == "MenuPopup") { return barElement.children[i]; } }
+    return null;
+};
+var row = function(i) { return center(popup().children[i]); };
+var belowButton = s.tree.children[0].children[1];
+
+press(title(0));
+print("opens on press", barElement.data["open"], s.HasPopup(), popup() != null);
+release(title(0));
+print("stays open after click", barElement.data["open"], len(popup().children));
+move(title(1));
+print("hover switches", barElement.data["open"]);
+move(title(2));
+print("hover switches again", barElement.data["open"]);
+# A press outside closes the menu and reaches nothing: the button below is not pressed.
+var outside = [390, center(belowButton)[1]];
+press(outside);
+release(outside);
+print("outside closes", barElement.data["open"], s.HasPopup(), "below", below);
+# Click an item.
+press(title(0)); release(title(0));
+move(row(0));
+print("hover highlights", barElement.data["active"]);
+press(row(0)); release(row(0));
+print("item chosen", log, barElement.data["open"]);
+# Press on a title, drag to an item, release there.
+press(title(0));
+s.Feed({"type": "dragStart", "x": row(3)[0], "y": row(3)[1], "button": 0, "pointerType": "mouse"});
+s.Frame(s.time + 16);
+release(row(3));
+print("press-drag-release", log);
+# Disabled items and separators do nothing.
+press(title(0)); release(title(0));
+press(row(2)); release(row(2));
+press(row(1)); release(row(1));
+print("disabled and separator", log, barElement.data["open"]);
+# The keyboard: Down skips the separator and the disabled item, Right switches menus, Enter chooses, Escape closes.
+key(264); key(264);
+print("down twice", barElement.data["active"]);
+key(265);
+print("up", barElement.data["active"]);
+key(262);
+print("right", barElement.data["open"], barElement.data["active"]);
+key(264); key(257);
+print("enter", log, barElement.data["open"]);
+press(title(1)); release(title(1));
+key(263);
+print("left", barElement.data["open"]);
+key(256);
+print("escape", barElement.data["open"], s.HasPopup());
+# A press on the open title closes it.
+press(title(1)); release(title(1));
+press(title(1)); release(title(1));
+print("toggle", barElement.data["open"]);
+# A Dropdown follows the same rule: a press outside closes it without pressing what is there.
+var choice = "B";
+var d = UI.Surface(300, 300, UI.Column(crossAxis: "start", gap: 10, children: [
+    UI.Dropdown(value: "B", options: ["A", "B", "C"], key: "choice", onChanged: function(v) { choice = v; }),
+    UI.Button(label: "Below", key: "below", onPress: function() { below += 1; })]), {"conventions": desktop});
+d.Frame(0);
+var dropdown = d.tree.children[0].children[0];
+var c = center(dropdown);
+d.Feed({"type": "press", "x": c[0], "y": c[1], "button": 0}); d.Feed({"type": "release", "x": c[0], "y": c[1], "button": 0}); d.Frame(16);
+var b = center(d.tree.children[0].children[1]);
+d.Feed({"type": "press", "x": b[0], "y": 290, "button": 0}); d.Feed({"type": "release", "x": b[0], "y": 290, "button": 0}); d.Frame(32);
+print("dropdown outside", dropdown.data["open"], d.HasPopup(), "below", below, choice);
+
+# ---- Scrolling ----
+var rows = function(n, prefix) {
+    var list = [];
+    for (var i = 0; i < n; i++) { Array.Append(list, UI.SizedBox(height: 40, child: UI.Text(prefix + String.From(i)), key: i)); }
+    return list;
+};
+var makeScroll = function(options) {
+    var surface = UI.Surface(300, 200, UI.ScrollView(key: "outer", style: {"flexGrow": 1}, child: UI.Column(crossAxis: "stretch", children: [
+        UI.SizedBox(height: 100, child: UI.ScrollView(key: "inner", style: {"flexGrow": 1}, child: UI.Column(crossAxis: "stretch", children: rows(4, "inner ")))),
+        ...rows(10, "row ")])), options);
+    surface.Frame(0);
+    return surface;
+};
+var v = makeScroll({"conventions": desktop});
+var outer = v.tree.children[0];
+var inner = outer.children[0].children[0].children[0].children[0];
+print("views", outer.key, inner.key, outer.data["limit"], inner.data["limit"]);
+# The wheel scrolls the inner view to its end, then the outer one.
+v.Feed({"type": "scroll", "x": 100, "y": 50, "dy": 40}); v.Frame(16);
+print("wheel inner", inner.data["scrollY"], outer.data["scrollY"]);
+v.Feed({"type": "scroll", "x": 100, "y": 50, "dy": 100}); v.Frame(32);
+v.Feed({"type": "scroll", "x": 100, "y": 50, "dy": 100}); v.Frame(48);
+print("wheel chains", inner.data["scrollY"], outer.data["scrollY"]);
+v.Feed({"type": "scroll", "x": 100, "y": 150, "dy": -1000}); v.Frame(64);
+print("wheel back", inner.data["scrollY"], outer.data["scrollY"]);
+# A mouse's left drag does not scroll on a desktop.
+v.Feed({"type": "press", "x": 100, "y": 150, "button": 0, "pointerType": "mouse"});
+v.Feed({"type": "dragStart", "x": 100, "y": 50, "button": 0, "pointerType": "mouse"});
+v.Feed({"type": "drag", "x": 100, "y": 20, "button": 0, "pointerType": "mouse"});
+v.Feed({"type": "release", "x": 100, "y": 20, "button": 0, "pointerType": "mouse"}); v.Frame(80);
+print("mouse drag", outer.data["scrollY"]);
+# A finger pans.
+v.Feed({"type": "press", "x": 100, "y": 150, "button": 0, "pointerType": "touch"});
+v.Feed({"type": "dragStart", "x": 100, "y": 140, "button": 0, "pointerType": "touch"});
+v.Feed({"type": "drag", "x": 100, "y": 90, "button": 0, "pointerType": "touch"}); v.Frame(96);
+v.Feed({"type": "release", "x": 100, "y": 90, "button": 0, "pointerType": "touch"}); v.Frame(112);
+print("touch pan", outer.data["scrollY"]);
+# The thumb drags; the track pages.
+v.Feed({"type": "scroll", "x": 100, "y": 150, "dy": -1000}); v.Frame(128);
+v.Feed({"type": "move", "x": 295, "y": 150, "pointerType": "mouse"}); v.Frame(144);
+print("strip hover", outer.data["barHover"]);
+# Scrolled to 150, the outer thumb (80 of the 200 high track) spans 60..140; grabbed at 100 and moved to 130 it
+# puts the view at (130 - 40) / (200 - 80) of its 300.
+v.Feed({"type": "scroll", "x": 100, "y": 150, "dy": 150}); v.Frame(150);
+v.Feed({"type": "press", "x": 295, "y": 100, "button": 0, "pointerType": "mouse"});
+v.Feed({"type": "dragStart", "x": 295, "y": 110, "button": 0, "pointerType": "mouse"});
+v.Feed({"type": "drag", "x": 295, "y": 130, "button": 0, "pointerType": "mouse"}); v.Frame(160);
+var thumbScroll = outer.data["scrollY"];
+v.Feed({"type": "release", "x": 295, "y": 130, "button": 0, "pointerType": "mouse"}); v.Frame(176);
+print("thumb drag", thumbScroll, outer.data["drag"]);
+v.Feed({"type": "scroll", "x": 100, "y": 150, "dy": -1000}); v.Frame(192);
+v.Feed({"type": "press", "x": 295, "y": 190, "button": 0, "pointerType": "mouse"});
+v.Feed({"type": "release", "x": 295, "y": 190, "button": 0, "pointerType": "mouse"}); v.Frame(208);
+print("track page", outer.data["scrollY"]);
+# Middle button on Windows: hold and move below the start point, and the view scrolls down, faster the farther.
+v.Feed({"type": "scroll", "x": 100, "y": 150, "dy": -1000}); v.Frame(224);
+v.Feed({"type": "press", "x": 100, "y": 150, "button": 2, "pointerType": "mouse"});
+v.Feed({"type": "dragStart", "x": 100, "y": 190, "button": 2, "pointerType": "mouse"});
+v.Frame(324);
+var first = outer.data["scrollY"];
+v.Frame(424);
+print("autoscroll down", first > 0, outer.data["scrollY"] > first, v.Cursor());
+v.Feed({"type": "release", "x": 100, "y": 190, "button": 2, "pointerType": "mouse"});
+var stopped = outer.data["scrollY"];
+v.Frame(524);
+print("autoscroll ends on release", outer.data["scrollY"] == stopped, v.Cursor());
+# A middle click without moving keeps autoscrolling until the next press, which does nothing else.
+v.Feed({"type": "press", "x": 100, "y": 150, "button": 2, "pointerType": "mouse"});
+v.Feed({"type": "release", "x": 100, "y": 150, "button": 2, "pointerType": "mouse"});
+v.Feed({"type": "move", "x": 100, "y": 100, "pointerType": "mouse"});
+var before = outer.data["scrollY"];
+v.Frame(624);
+print("sticky autoscroll up", outer.data["scrollY"] < before);
+v.Feed({"type": "press", "x": 100, "y": 100, "button": 0, "pointerType": "mouse"});
+v.Feed({"type": "release", "x": 100, "y": 100, "button": 0, "pointerType": "mouse"});
+before = outer.data["scrollY"];
+v.Frame(724);
+print("press ends it", outer.data["scrollY"] == before, v.Cursor());
+# Apple platforms: a middle drag pans with the pointer like a finger.
+var mac = makeScroll({"conventions": {"platform": "macos", "formFactor": "desktop", "primaryModifier": "Cmd", "scrollbars": "overlay"}});
+var macOuter = mac.tree.children[0];
+mac.Feed({"type": "press", "x": 100, "y": 150, "button": 2, "pointerType": "mouse"});
+mac.Feed({"type": "dragStart", "x": 100, "y": 140, "button": 2, "pointerType": "mouse"});
+mac.Feed({"type": "drag", "x": 100, "y": 110, "button": 2, "pointerType": "mouse"}); mac.Frame(16);
+mac.Feed({"type": "release", "x": 100, "y": 110, "button": 2, "pointerType": "mouse"});
+print("apple middle pans", macOuter.data["scrollY"]);
+# A release that never arrived: the next hover move lets go of the thumb.
+v.Feed({"type": "scroll", "x": 100, "y": 150, "dy": -1000}); v.Frame(824);
+v.Feed({"type": "scroll", "x": 100, "y": 150, "dy": 150}); v.Frame(830);
+v.Feed({"type": "press", "x": 295, "y": 100, "button": 0, "pointerType": "mouse"});
+v.Feed({"type": "dragStart", "x": 295, "y": 110, "button": 0, "pointerType": "mouse"});
+v.Feed({"type": "move", "x": 100, "y": 150, "pointerType": "mouse"});
+v.Feed({"type": "move", "x": 100, "y": 20, "pointerType": "mouse"}); v.Frame(840);
+var held = outer.data["scrollY"];
+v.Feed({"type": "scroll", "x": 100, "y": 150, "dy": 40}); v.Frame(856);
+print("not stuck", outer.data["drag"], outer.data["scrollY"] - held);
+# A horizontal view takes the sideways wheel (Shift+wheel on Windows and Linux).
+var h = UI.Surface(200, 80, UI.ScrollView(horizontal: true, style: {"flexGrow": 1}, child: UI.Row(children: [
+    for (var i = 0; i < 8; i++) UI.SizedBox(width: 60, height: 40, key: i)])), {"conventions": desktop});
+h.Frame(0);
+var hv = h.tree.children[0];
+h.Feed({"type": "scroll", "x": 100, "y": 40, "dx": 50, "dy": 0}); h.Frame(16);
+print("horizontal", hv.data["axis"], hv.data["limit"], hv.data["scrollX"]);

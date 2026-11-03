@@ -1,0 +1,33 @@
+opens on press 0 真 真
+stays open after click 0 4
+hover switches 1
+hover switches again 2
+outside closes -1 假 below 0
+hover highlights 0
+item chosen [new] -1
+press-drag-release [new, quit]
+disabled and separator [new, quit] 0
+down twice 3
+up 0
+right 1 -1
+enter [new, quit, undo] -1
+left 0
+escape -1 假
+toggle -1
+dropdown outside 假 假 below 0 B
+views outer inner 300 60
+wheel inner 40 0
+wheel chains 60 100
+wheel back 60 0
+mouse drag 0
+touch pan 60
+strip hover 真
+thumb drag 225 null
+track page 175
+autoscroll down 真 真 move
+autoscroll ends on release 真 arrow
+sticky autoscroll up 真
+press ends it 真 arrow
+apple middle pans 40
+not stuck null 40
+horizontal x 280 50

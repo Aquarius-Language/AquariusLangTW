@@ -92,6 +92,14 @@ Libraries:
   sliders, text fields, dropdowns, tabs, dialogs, tooltips, scrolling and virtualized lists), themes and style sheets
   with state and breakpoint selectors, events through Interaction, surfaces that draw anywhere, `UI.Layers` that mix
   SaturnUI, ImGui and Clay with one input router, and `UI.RunApp`. See [saturn](libraries/saturn/README.md).
+  `UI.MenuBar` (`Menu`, `MenuItem` with shortcut text, checks and disabled items, `MenuSeparator`) behaves like native
+  menus: open on press, switch by hovering another title, a press outside closes it and goes no further, arrow keys,
+  Enter and Escape; dropdowns follow the same modal rule (`surface.HasPopup()`). Scrolling follows the platform: the
+  wheel goes to the innermost view that can still move and then to the one around it, horizontal views take the
+  sideways wheel, a mouse's left drag never scrolls on a desktop while touch and pen pan, scrollbar thumbs drag and
+  tracks page, the middle button autoscrolls on Windows, Linux and desktop browsers (pans on Apple platforms), and a
+  release lost outside the window no longer leaves a view stuck to the pointer. Key releases no longer reach widgets
+  as a second press, and `UI.RunApp` follows the window's size every frame.
 - `imgui` (new): Dear ImGui 1.93.0 (docking branch) for any renderer: contexts fed by Interaction events, fonts with
   system CJK fonts merged, the widget API under Dear ImGui's names (editors return the new value), draw lists, docking,
   drag and drop, styles, and `Embed` items other UI libraries draw into. See [imgui](libraries/imgui/README.md).

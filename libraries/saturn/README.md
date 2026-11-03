@@ -182,11 +182,38 @@ the surface afterwards, so there is no `setState`; `context.rebuild()` covers ti
 | layout | `Row`, `Column` (`gap`, `mainAxis`, `crossAxis`: `start`, `center`, `end`, `stretch`, `between`, `around`, `evenly`; `wrap`), `Stack` + `Positioned`, `Expanded`, `Flexible`, `Spacer`, `Padding`, `Center`, `Align` (`topLeft` .. `bottomRight`), `SizedBox`, `AspectRatio`, `Wrap`, `Grid` (`columns`), `ScrollView`, `ListView` (`itemCount`, `itemBuilder`; virtualized with `itemExtent`), `Box`, `Card`, `Divider` |
 | content | `Text` (`maxLines`, `ellipsis`, `align`; a plain string or number is a Text), `RichText` + `Span`, `Image` (`fit`, `radius`), `Icon` (`check`, `close`, `plus`, `minus`, `chevronLeft/Right/Up/Down`, `menu`, `search`, `star`, `heart`, `home`, `settings`, `arrowLeft/Right`, `dot`, `circle`, `info`, `user`, `play`, `fastForward`, `stop`, `refresh`, `save`, `trash`, `file`, `folder`, `notebook`, `sun`, `moon`, `code`, `text`, `copy`, `more`, `edit`), `CustomPaint` (`paint(painter, w, h)`) |
 | controls | `Button` (`label`, `icon`, `onPress`, `variant`: `outline`, `text`, `tonal`, `danger`; `disabled`), `IconButton`, `Checkbox`, `Switch`, `Radio` (`value`, `group`), `Slider` (`min`, `max`, `step`), `ProgressBar`, `TextField` (`placeholder`, `obscure`, `onSubmit`), `Dropdown` (`options`), `Tabs` (`labels`, `index`) |
+| menus | `MenuBar` (`menus`) of `Menu` (`label`, `items`, `disabled`) holding `MenuItem` (`label`, `shortcut` text, `onSelect`, `disabled`, `checked`) and `MenuSeparator` |
 | overlays | `Dialog` (`open`, `title`, `content`, `actions`, `onDismiss`), `Tooltip` (`message`); dropdown menus |
 | behavior | `Gesture` (`onTap`, `onDoubleTap`, `onLongPress`, `onHover`, `onPress`, `onRelease`, `onDragStart`, `onDrag`, `onDragEnd`, `cursor`), the same handlers on `Box`, `onTap` on `Card` |
 | structure | `Stateful` (`init`, `build(state, context)`, `dispose`), `Builder` (`build(context)`), `Themed` (a subtree with its own theme), `Immediate` (`paint(x, y, w, h)` returns another library's draw list; `feed(event)` gets its events in its own coordinates and returns whether it used them, so an unused wheel turn scrolls the view around it; `ime()` gives the caret's box in its own coordinates while it takes text, for `ImeRect`; `focus(focused)` hears it gain and lose the keyboard) |
 
 Your own widgets are functions that return widgets.
+
+**Menus and dropdowns** follow the native rules, built in: a menu bar title opens its menu on press; while a menu is
+open, moving over another title opens that one; items fire on release (so press on a title, drag to an item and
+release works); disabled items and separators do nothing; Up/Down move through the usable items, Left/Right switch
+menus, Enter or Space chooses and Escape closes. An open `MenuBar` or `Dropdown` is modal: a press anywhere outside
+closes it and goes no further (nor does its release), hover shows only inside it, the wheel scrolls nothing below it
+and the keyboard goes to it, so apps feed keys to the surface first while `HasPopup()` is true. The popup opens under
+its title and moves left to stay in the window. Theme them with `MenuBar`, `MenuBarTitle` (`:selected` is the open
+one), `MenuPopup`, `MenuRow` (`:selected` is the highlighted item, `:disabled`), `MenuCheck`, `MenuLabel`,
+`MenuShortcut` and `MenuSeparator`.
+
+**Scrolling** (`ScrollView`, `horizontal: true` for a row, and `ListView`) follows the platform:
+
+| Input | Behavior |
+| --- | --- |
+| wheel, touchpad | scrolls the innermost view under the pointer that can still move that way; at its end the turn goes to the view around it (horizontal views take `dx`: Shift+wheel on Windows and Linux) |
+| touch, pen | drags pan the view, even starting on a button (moving past the slop cancels the tap); a drag an `Immediate` widget does not use pans the view around it |
+| mouse left button | never scrolls on a desktop (it selects, drags, or does nothing); with `formFactor: "mobile"` (a mouse on Android) it pans like a finger |
+| scrollbar | the strip at the view's edge (12 wide) widens its thumb on hover; dragging the thumb scrolls, a press on the track pages toward it |
+| middle button | Windows, Linux and desktop browsers: autoscroll (hold and move away from the start point, the view scrolls toward the pointer, faster farther away; a click without moving keeps autoscrolling until the next press or Escape, with the `move` cursor). Apple (`primaryModifier` `Cmd`) and mobile: pans with the pointer |
+| keys | without a focused field, Page Up / Page Down / Home / End scroll the view under the pointer |
+
+The conventions come from `Interaction.Conventions()` when first needed; the surface options `conventions`
+(`{"platform", "formFactor", "primaryModifier", "scrollbars"}`) and `middleButton` (`"autoscroll"`, `"pan"`, `"none"`)
+override them. A press, or a hover move from Interaction (no button held), lets go of whatever an earlier press held,
+so a release lost outside the window never leaves a view stuck to the pointer.
 
 **Styling** applies, in order: the theme's style sheet (every built-in widget and its states), the theme's `sheet`,
 the app's `sheet` (`RunApp` / `Surface` options), each with the widget's type (`"Button"`), its variant
@@ -197,10 +224,10 @@ widget's inline `style` (a hash or `UI.Style(...)`). Styles take every key of `S
 `UI.Theme(mode: "dark", primary: "#ff7a59", radius: 12, ...)` fills what it leaves out for its mode
 (`UI.ResolveTheme`), and `surface.SetTheme(theme)` switches at run time.
 
-**Surfaces**: `UI.Surface(width, height, root, options)` (options `theme`, `sheet`, `transparent: true` for a HUD or a bar over other content) → `Frame(timeMs)` (rebuild, layout, scrolling),
+**Surfaces**: `UI.Surface(width, height, root, options)` (options `theme`, `sheet`, `transparent: true` for a HUD or a bar over other content, `conventions` and `middleButton` (see Scrolling)) → `Frame(timeMs)` (rebuild, layout, scrolling),
 `Paint()` (the draw list), `Feed(event)` (Interaction events, or hashes with `type`, `x`, `y`, `button`, `dx`, `dy`,
 `key`, `action`, `text`; returns whether the surface used it), `Wants(x, y)`, `Resize`, `SetRoot`, `SetTheme`,
-`Rebuild`, `Cursor()` (for `session.SetCursor`), `ImeRect()`, `NeedsFrame()`. A surface draws nothing and owns no
+`Rebuild`, `Cursor()` (for `session.SetCursor`), `ImeRect()`, `HasPopup()` (a menu or dropdown is open), `NeedsFrame()`. A surface draws nothing and owns no
 window: put its list on a window, a canvas, a texture on a 3D object (feed it events mapped onto the object), or save
 it. `UI.RunApp(root, options)` does the window, input and drawing for the common case.
 

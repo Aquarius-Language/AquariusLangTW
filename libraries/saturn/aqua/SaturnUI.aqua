@@ -51,6 +51,13 @@ struct Builder { build; key }
 struct Stateful { init; build; dispose; key }
 struct Immediate { width; height; paint; feed; style; key; ime; focus }
 struct Themed { theme; child; key }
+# A menu bar: menus of items. A press on a title opens its menu; while one is open, moving over another title opens
+# that one, a press anywhere outside closes it (and does nothing else), Escape closes it, the arrow keys move through
+# items and menus and Enter or Space chooses. Items fire on release, so press-drag-release on an item works too.
+struct MenuBar { menus = []; style; class; key }
+struct Menu { label; items = []; disabled = false; key }
+struct MenuItem { label; shortcut; onSelect; disabled = false; checked; key }
+struct MenuSeparator { key }
 
 # Style properties, named as Saturn's SetStyle names them (CSS names). Fields left out keep their defaults.
 struct Style {
@@ -76,9 +83,11 @@ struct Element { widget; type; node; children; parent; surface; state; data; key
 struct SaturnSurface {
     width; height; root; theme; sheets; tree; rootNode; overlayNode; dirty; hover; pressed; captured; focus;
     time; cursor; pressX; pressY; pressTime; lastTap; lastTapTime; tooltip; tooltipAt; pathAt; fontOf; textColor; pointer;
-    Frame; Paint; Feed; Wants; Resize; SetRoot; SetTheme; Rebuild; Cursor; NeedsFrame; ImeRect; Dispose
+    popup; autoscroll; swallow; conventions; options;
+    Frame; Paint; Feed; Wants; Resize; SetRoot; SetTheme; Rebuild; Cursor; NeedsFrame; ImeRect; HasPopup; Dispose
 }
 struct DropdownMenu { owner; options; value; key }
+struct MenuPopup { owner; key }
 struct TooltipBubble { text; owner; key }
 
 # ---- Themes and style sheets --------------------------------------------------------------------------------------
@@ -180,6 +189,21 @@ var ThemeSheet = function(t) {
         "MenuItem": {"paddingHorizontal": 10, "height": 30, "justifyContent": "center", "borderRadius": r - 2, "cursor": "pointer"},
         "MenuItem:hover": {"background": t.primarySoft},
         "MenuItem:selected": {"color": t.primary, "fontWeight": 600},
+        "MenuBar": {"flexDirection": "row", "alignItems": "center", "gap": 2, "flexShrink": 0},
+        "MenuBarTitle": {"paddingHorizontal": 10, "height": 28, "justifyContent": "center", "borderRadius": r - 2, "transition": 80},
+        "MenuBarTitle:hover": {"background": t.surfaceHover},
+        "MenuBarTitle:selected": {"background": t.primarySoft, "color": t.primary},
+        "MenuBarTitle:disabled": {"opacity": 0.45d},
+        "MenuPopup": {"position": "absolute", "background": t.surface, "borderRadius": r, "padding": 4, "shadow": shadow,
+            "borderWidth": 1, "borderColor": t.border, "minWidth": 200},
+        "MenuRow": {"flexDirection": "row", "alignItems": "center", "gap": 8, "height": 28, "paddingHorizontal": 8,
+            "borderRadius": r - 2},
+        "MenuRow:selected": {"background": t.primarySoft},
+        "MenuRow:disabled": {"opacity": 0.45d},
+        "MenuCheck": {"width": 16, "alignItems": "center", "justifyContent": "center"},
+        "MenuLabel": {"flexGrow": 1, "flexShrink": 1},
+        "MenuShortcut": {"color": t.muted, "fontSize": t.fontSize - 1, "marginLeft": 24},
+        "MenuSeparator": {"height": 1, "background": t.border, "marginVertical": 4, "marginHorizontal": 6},
         "Tabs": {"flexDirection": "row", "gap": 4, "borderColor": t.border, "borderBottomWidth": 1},
         "Tab": {"paddingHorizontal": 14, "height": 36, "justifyContent": "center", "cursor": "pointer", "color": t.muted,
             "borderBottomWidth": 2, "borderColor": "transparent", "transition": 120},
@@ -194,7 +218,11 @@ var ThemeSheet = function(t) {
         "TooltipBubble": {"position": "absolute", "background": if (t.mode == "dark") { "#e8eaf2"; } else { "#1b1f2e"; },
             "color": if (t.mode == "dark") { "#12141c"; } else { "#ffffff"; }, "paddingHorizontal": 8, "paddingVertical": 4,
             "borderRadius": 6, "fontSize": t.fontSize - 2, "pointerEvents": "none"},
-        "ScrollThumb": {"position": "absolute", "width": 6, "right": 2, "borderRadius": 3, "background": t.muted, "opacity": 0.6d,
+        # Scroll thumbs take no hits themselves: the surface finds presses on the bar's strip by geometry (wider than
+        # the thumb drawn) and widens the thumb while the pointer is over the strip.
+        "ScrollThumb": {"position": "absolute", "width": 6, "right": 2, "borderRadius": 3, "background": t.muted, "opacity": 0.55d,
+            "pointerEvents": "none"},
+        "ScrollThumbX": {"position": "absolute", "height": 6, "bottom": 2, "borderRadius": 3, "background": t.muted, "opacity": 0.55d,
             "pointerEvents": "none"},
         "Link": {"color": t.primary, "cursor": "pointer"}
     };
@@ -456,6 +484,8 @@ var dispose = function(e) {
     if (s.pressed == e) { s.pressed = null; }
     if (s.captured == e) { s.captured = null; }
     if (s.focus == e) { s.focus = null; }
+    if (s.popup == e) { s.popup = null; }
+    if (s.autoscroll != null) { if (s.autoscroll["element"] == e) { s.autoscroll = null; } }
     if (e.overlay) {
         var parent = e.node.GetParent();
         if (parent != null) { parent.RemoveChild(e.node); }
@@ -715,9 +745,10 @@ kinds["ScrollView"] = {"update": function(e, w) {
     # the content's own width.
     var align = if (w.horizontal == true) { "flex-start"; } else { "stretch"; };
     var content = Box(child: w.child, style: {"flexDirection": direction, "flexShrink": 0, "alignSelf": align, "minWidth": "100%"}, key: "content");
-    var thumb = Box(class: "ScrollThumb", key: "thumb");
+    var thumb = Box(class: if (w.horizontal == true) { "ScrollThumbX"; } else { "ScrollThumb"; }, key: "thumb");
     reconcile(e, [content, thumb]);
     e.data["scrollable"] = true;
+    e.data["axis"] = if (w.horizontal == true) { "x"; } else { "y"; };
 }};
 kinds["ListView"] = {"update": function(e, w) {
     # A list fills the space its parent gives it (a style height or flexGrow 0 overrides that): its rows never size it or
@@ -944,6 +975,34 @@ kinds["TextField"] = {"update": function(e, w) {
 }};
 
 # Overlays: dropdown menus, dialogs and tooltips live above the tree, in the surface's overlay layer.
+
+# Popups: an open Dropdown or MenuBar is the surface's popup, and it is modal the way native menus are: a press
+# outside it closes it and goes no further (nor does its release), the pointer hovers only inside it, the wheel
+# scrolls nothing below it and keys go to it (Escape closes). Its kind gives "close"(e) and optionally "popupMove"(e,
+# path), "popupRelease"(e, path, event) and "popupKey"(e, key).
+var closePopup = function(s) {
+    var e = s.popup;
+    if (e == null) { return null; }
+    s.popup = null;
+    kinds[e.type]["close"](e);
+    s.dirty = true;
+};
+var openPopup = function(e) {
+    var s = e.surface;
+    if (s.popup != null && s.popup != e) { closePopup(s); }
+    s.popup = e;
+    s.dirty = true;
+};
+# Whether a hit path lies inside a popup: on its owner or on the overlay the owner opened.
+var inPopup = function(path, owner) {
+    for (var i = 0; i < len(path); i++) {
+        var e = path[i];
+        if (e == owner) { return true; }
+        if ((e.type == "DropdownMenu" || e.type == "MenuPopup") && e.widget.owner == owner) { return true; }
+    }
+    return false;
+};
+
 kinds["Dropdown"] = {"update": function(e, w) {
     restyle(e, {"width": w.width}, ["Dropdown"], null);
     var options = w.options;
@@ -953,10 +1012,16 @@ kinds["Dropdown"] = {"update": function(e, w) {
     var children = [Text(text: label, key: "value"), Icon(name: if (open) { "chevronUp"; } else { "chevronDown"; }, size: 16, key: "chevron")];
     if (open) { Array.Append(children, DropdownMenu(owner: e, options: options, value: w.value, key: "menu")); }
     reconcile(e, children);
-}, "tap": function(e, event) { e.data["open"] = !(Hash.Get(e.data, "open", false) == true); }};
+}, "tap": function(e, event) {
+    if (Hash.Get(e.data, "open", false) == true) { closePopup(e.surface); return null; }
+    e.data["open"] = true;
+    openPopup(e);
+}, "close": function(e) { e.data["open"] = false; }};
 kinds["DropdownMenu"] = {"overlay": true, "update": function(e, w) {
-    var box = w.owner.node.GetAbsoluteLayout();
-    restyle(e, {"left": box["x"], "top": box["y"] + box["height"] + 4, "width": box["width"], "zIndex": 10}, ["Menu"], null);
+    restyle(e, {"zIndex": 10}, ["Menu"], null);
+    e.data["anchor"] = w.owner;
+    e.data["anchorGap"] = 4;
+    e.data["matchWidth"] = true;
     var items = [];
     for (var i = 0; i < len(w.options); i++) { Array.Append(items, Box(class: "MenuItem", key: i, child: Text(text: String.From(w.options[i])))); }
     reconcile(e, items);
@@ -968,12 +1033,128 @@ kinds["DropdownMenu"] = {"overlay": true, "update": function(e, w) {
 }, "tap": function(e, event) {
     var path = e.surface.pathAt(event["x"], event["y"]);
     var owner = e.widget.owner;
+    var chosen = null;
+    for (var i = 0; i < len(path); i++) { if (path[i].parent == e) { chosen = path[i].data["option"]; } }
+    closePopup(e.surface);
+    if (chosen != null && owner.widget.onChanged != null) { owner.widget.onChanged(e.widget.options[chosen]); }
+}};
+
+# Menu bars. The bar keeps which menu is open ("open", -1 for none) and the highlighted item ("active", -1 for none;
+# the pointer and the arrow keys move the same highlight).
+var menuTitleAt = function(bar, path) {
+    for (var i = 0; i < len(path); i++) { if (path[i].parent == bar && path[i].type == "Box") { return path[i].data["menu"]; } }
+    return null;
+};
+var menuItemAt = function(bar, path) {
     for (var i = 0; i < len(path); i++) {
-        if (path[i].parent == e) {
-            if (owner.widget.onChanged != null) { owner.widget.onChanged(e.widget.options[path[i].data["option"]]); }
+        var parent = path[i].parent;
+        if (parent != null && parent.type == "MenuPopup" && parent.widget.owner == bar) { return path[i].data["item"]; }
+    }
+    return null;
+};
+var menuItemUsable = function(item) { return typeOf(item) == "MenuItem" && item.disabled != true; };
+var openMenu = function(bar, index) {
+    bar.data["open"] = index;
+    bar.data["active"] = -1;
+    openPopup(bar);
+};
+# The next menu (step 1 or -1) that is not disabled, around the ends.
+var nextMenu = function(menus, from, step) {
+    var n = len(menus);
+    for (var k = 1; k <= n; k++) {
+        var i = ((from + step * k) % n + n) % n;
+        if (menus[i].disabled != true) { return i; }
+    }
+    return from;
+};
+var chooseMenuItem = function(bar, item) {
+    closePopup(bar.surface);
+    if (item.onSelect != null) { item.onSelect(); }
+};
+kinds["MenuBar"] = {"update": function(e, w) {
+    restyle(e, {}, selectorsOf("MenuBar", null, w.class), w.style);
+    var menus = w.menus;
+    var open = Hash.Get(e.data, "open", -1);
+    if (open >= len(menus)) { open = -1; e.data["open"] = -1; }
+    var children = [];
+    for (var i = 0; i < len(menus); i++) { Array.Append(children, Box(class: "MenuBarTitle", key: "menu" + String.From(i), child: Text(text: menus[i].label))); }
+    if (open >= 0) { Array.Append(children, MenuPopup(owner: e, key: "popup")); }
+    reconcile(e, children);
+    for (var i = 0; i < len(menus); i++) {
+        var title = e.children[i];
+        title.data["menu"] = i;
+        title.data["selected"] = i == open;
+        title.data["disabled"] = menus[i].disabled == true;
+        update(title, title.widget);
+    }
+}, "press": function(e, event, path) {
+    var i = menuTitleAt(e, path);
+    if (i == null) { return false; }
+    if (Hash.Get(e.data, "open", -1) == i) { closePopup(e.surface); }
+    elif (e.widget.menus[i].disabled != true) { openMenu(e, i); }
+    return true;
+}, "popupMove": function(e, path) {
+    # Moving over another title opens its menu; moving over an item highlights it.
+    var i = menuTitleAt(e, path);
+    if (i != null && i != Hash.Get(e.data, "open", -1) && e.widget.menus[i].disabled != true) { openMenu(e, i); }
+    var item = menuItemAt(e, path);
+    if (item != null) {
+        var menu = e.widget.menus[e.data["open"]];
+        e.data["active"] = if (menuItemUsable(menu.items[item])) { item; } else { -1; };
+    }
+}, "popupRelease": function(e, path, event) {
+    var item = menuItemAt(e, path);
+    if (item == null) { return null; }
+    var menu = e.widget.menus[e.data["open"]];
+    if (menuItemUsable(menu.items[item])) { chooseMenuItem(e, menu.items[item]); }
+}, "popupKey": function(e, key) {
+    var menus = e.widget.menus;
+    var open = e.data["open"];
+    var items = menus[open].items;
+    var active = Hash.Get(e.data, "active", -1);
+    if (key == 263) { openMenu(e, nextMenu(menus, open, -1)); }        # Left
+    elif (key == 262) { openMenu(e, nextMenu(menus, open, 1)); }       # Right
+    elif (key == 264 || key == 265) {                                  # Down, Up: the next usable item, around the ends
+        var step = if (key == 264) { 1; } else { -1; };
+        var n = len(items);
+        var at = active;
+        if (at < 0 && step < 0) { at = n; }
+        for (var k = 1; k <= n; k++) {
+            var i = ((at + step * k) % n + n) % n;
+            if (menuItemUsable(items[i])) { e.data["active"] = i; break; }
+        }
+    } elif (key == 257 || key == 335 || key == 32) {                   # Enter, Space
+        if (active >= 0 && active < len(items) && menuItemUsable(items[active])) { chooseMenuItem(e, items[active]); }
+    }
+}, "close": function(e) { e.data["open"] = -1; e.data["active"] = -1; }};
+kinds["MenuPopup"] = {"overlay": true, "update": function(e, w) {
+    var bar = w.owner;
+    var open = bar.data["open"];
+    var menu = bar.widget.menus[open];
+    restyle(e, {"zIndex": 40}, ["MenuPopup"], null);
+    e.data["anchor"] = bar.children[open];
+    e.data["anchorGap"] = 2;
+    var active = Hash.Get(bar.data, "active", -1);
+    var rows = [];
+    for (var i = 0; i < len(menu.items); i++) {
+        var item = menu.items[i];
+        if (typeOf(item) == "MenuItem") {
+            Array.Append(rows, Box(class: "MenuRow", key: "item" + String.From(i), children: [
+                Box(class: "MenuCheck", key: "check", child: if (item.checked == true) { Icon(name: "check", size: 14); } else { null; }),
+                Text(text: item.label, class: "MenuLabel", key: "label"),
+                if (item.shortcut != null) { Text(text: item.shortcut, class: "MenuShortcut", key: "shortcut"); } else { null; }]));
+        } else {
+            Array.Append(rows, Box(class: "MenuSeparator", key: "separator" + String.From(i)));
         }
     }
-    owner.data["open"] = false;
+    reconcile(e, rows);
+    for (var i = 0; i < len(e.children); i++) {
+        var row = e.children[i];
+        row.data["item"] = i;
+        row.data["selected"] = i == active;
+        row.data["disabled"] = typeOf(menu.items[i]) == "MenuItem" && menu.items[i].disabled == true;
+        update(row, row.widget);
+    }
 }};
 kinds["Dialog"] = {"overlay": true, "update": function(e, w) {
     if (w.open != true) { restyle(e, {"display": "none"}, [], null); reconcile(e, []); return null; }
@@ -1003,17 +1184,6 @@ kinds["TooltipBubble"] = {"overlay": true, "update": function(e, w) {
     reconcile(e, [Text(text: w.text, key: "text")]);
 }};
 
-var closeMenus = function(e, path) {
-    if (e.type == "Dropdown" && Hash.Get(e.data, "open", false) == true) {
-        var inside = Array.Contains(path, e);
-        for (var i = 0; i < len(path); i++) { if (path[i].type == "DropdownMenu") { inside = true; } }
-        if (!inside) { e.data["open"] = false; }
-    }
-    for (var i = 0; i < len(e.children); i++) { closeMenus(e.children[i], path); }
-};
-
-
-
 # ---- Surfaces ------------------------------------------------------------------------------------------------------
 
 # The element of the widget whose handler a kind or field offers for an event, from the deepest hit upward.
@@ -1031,6 +1201,114 @@ var handlerOf = function(path, field) {
 var scrollableOf = function(path) {
     for (var i = len(path) - 1; i >= 0; i -= 1) { if (Hash.Get(path[i].data, "scrollable", false) == true) { return path[i]; } }
     return null;
+};
+
+# ---- Scrolling -----------------------------------------------------------------------------------------------------
+# A scrollable element scrolls along one axis ("axis": "y", or "x" for a horizontal ScrollView); its offset is
+# data["scrollY"] or data["scrollX"], and the surface's layout pass stores how far it can go ("limit"). The rules are
+# the platforms' own:
+# - The wheel and touchpad scroll the innermost view under the pointer that can still move that way; at its end the
+#   turn goes to the view around it, so an inner view at its end never swallows the wheel.
+# - Touch and pen drags pan the content (a press that turns into a pan is no tap). A mouse's left drag never scrolls
+#   on a desktop (it selects, drags, or does nothing); on a mobile form factor a mouse pans like a finger.
+# - A press on the scrollbar strip drags the thumb, or pages toward the pointer on the track.
+# - The middle button autoscrolls on Windows, Linux and desktop browsers: hold it and move away from where it went
+#   down, and the view scrolls toward the pointer, faster the farther it is; a middle click without moving keeps
+#   autoscrolling until the next press or Escape. On Apple platforms a middle drag pans the way a finger does.
+#   Surface option "middleButton": "autoscroll" | "pan" | "none" overrides that.
+var scrollKey = function(e) { if (Hash.Get(e.data, "axis", "y") == "x") { return "scrollX"; } return "scrollY"; };
+var along = function(e, x, y) { if (Hash.Get(e.data, "axis", "y") == "x") { return x; } return y; };
+var scrollTo = function(e, offset) {
+    var limit = Hash.Get(e.data, "limit", null);
+    var v = Processing_max(0, offset);
+    if (limit != null) { v = Processing_min(v, limit); }
+    e.data[scrollKey(e)] = v;
+    if (Hash.Get(e.data, "virtual", false) == true) { e.surface.dirty = true; }
+};
+# Scrolls the innermost scrollable of the path that can move by the wheel's dx, dy; returns it, or null.
+var wheelTarget = function(path, dx, dy) {
+    for (var i = len(path) - 1; i >= 0; i -= 1) {
+        var e = path[i];
+        if (Hash.Get(e.data, "scrollable", false) != true) { continue; }
+        var d = pick(along(e, dx, dy), 0);
+        if (d == 0) { continue; }
+        var at = Hash.Get(e.data, scrollKey(e), 0);
+        var limit = Hash.Get(e.data, "limit", null);
+        if (limit == null || (d < 0 && at > 0) || (d > 0 && at < limit)) { scrollTo(e, at + d); return e; }
+    }
+    return null;
+};
+# The innermost scrollable of the path whose content is larger than it.
+var overflowingOf = function(path) {
+    for (var i = len(path) - 1; i >= 0; i -= 1) {
+        var e = path[i];
+        if (Hash.Get(e.data, "scrollable", false) == true && Hash.Get(e.data, "limit", 0) > 0.5d) { return e; }
+    }
+    return null;
+};
+var BarGrip = 12;
+# The scrollbar of a scrollable element in window coordinates: the track (start and length along the axis), the
+# thumb (offset into the track and size), or null when the content fits.
+var barOf = function(e) {
+    var limit = Hash.Get(e.data, "limit", 0);
+    if (limit <= 0.5d) { return null; }
+    var box = e.node.GetAbsoluteLayout();
+    var vertical = Hash.Get(e.data, "axis", "y") == "y";
+    var length = if (vertical) { box["height"]; } else { box["width"]; };
+    var size = Processing_min(length, Processing_max(24, length * length / (length + limit)));
+    return {"box": box, "vertical": vertical, "start": if (vertical) { box["y"]; } else { box["x"]; }, "length": length,
+        "size": size, "thumb": (length - size) * Hash.Get(e.data, scrollKey(e), 0) / limit};
+};
+# Whether (x, y) is on the element's scrollbar strip (the edge where its thumb runs).
+var onBar = function(e, x, y) {
+    var bar = barOf(e);
+    if (bar == null) { return false; }
+    var b = bar["box"];
+    if (bar["vertical"]) { return x >= b["x"] + b["width"] - BarGrip && x < b["x"] + b["width"] && y >= b["y"] && y < b["y"] + b["height"]; }
+    return y >= b["y"] + b["height"] - BarGrip && y < b["y"] + b["height"] && x >= b["x"] && x < b["x"] + b["width"];
+};
+# The scrollable of the path whose scrollbar strip is under (x, y), innermost first.
+var barAt = function(path, x, y) {
+    for (var i = len(path) - 1; i >= 0; i -= 1) {
+        if (Hash.Get(path[i].data, "scrollable", false) == true && onBar(path[i], x, y)) { return path[i]; }
+    }
+    return null;
+};
+# The platform conventions the scrolling rules follow: the surface option "conventions" ({"platform", "formFactor",
+# "primaryModifier", "scrollbars"}), else the Interaction library's, read when first needed.
+var conventionsOf = function(s) {
+    if (s.conventions == null) {
+        var given = if (s.options == null) { null; } else { s.options["conventions"]; };
+        if (given == null) {
+            var c = import("Interaction").Conventions();
+            given = {"platform": c.platform, "formFactor": c.formFactor, "primaryModifier": c.primaryModifier, "scrollbars": c.scrollbars};
+        }
+        s.conventions = given;
+    }
+    return s.conventions;
+};
+var middleButtonOf = function(s) {
+    if (s.options != null && s.options["middleButton"] != null) { return s.options["middleButton"]; }
+    var c = conventionsOf(s);
+    if (Hash.Get(c, "formFactor", "desktop") == "mobile") { return "pan"; }
+    if (Hash.Get(c, "primaryModifier", "Ctrl") == "Cmd") { return "pan"; }
+    return "autoscroll";
+};
+# Whether a press of this pointer pans scroll views by dragging.
+var pans = function(s, ev) {
+    var kind = ev["pointerType"];
+    if (kind == "touch" || kind == "pen") { return true; }
+    return Hash.Get(conventionsOf(s), "formFactor", "desktop") == "mobile";
+};
+# Autoscroll speed in logical units a second for a pointer `distance` from where it started: none in a small dead
+# zone, then growing with the distance, as Windows and browsers do.
+var autoscrollSpeed = function(distance) {
+    var dead = 10;
+    var d = Processing_abs(distance);
+    if (d <= dead) { return 0; }
+    var v = (d - dead) * 6 + (d - dead) * (d - dead) * 0.04d;
+    if (distance < 0) { return -v; }
+    return v;
 };
 # Whether the pointer is over something of the surface: a widget that paints (a background, text, an image) or takes
 # input. Transparent layout boxes let it through to what lies below (other layers, a 3D scene).
@@ -1065,7 +1343,7 @@ var CreateSurface = function(width, height, root, options) {
     if (options != null && options["transparent"] == true) { clear = {"background": "transparent"}; }
     var s = SaturnSurface(width: width, height: height, root: root, theme: theme, sheets: [ThemeSheet(theme), theme.sheet, sheet],
         dirty: true, hover: [], pressed: null, captured: null, focus: null, time: 0, cursor: "arrow", lastTapTime: -1000,
-        tooltip: null, tooltipAt: 0);
+        tooltip: null, tooltipAt: 0, popup: null, autoscroll: null, swallow: false, conventions: null, options: options);
     s.rootNode = Saturn.Node();
     s.overlayNode = Saturn.Node();
     s.overlayNode.SetStyle({"position": "absolute", "left": 0, "top": 0, "right": 0, "bottom": 0, "pointerEvents": "none"});
@@ -1089,33 +1367,65 @@ var CreateSurface = function(width, height, root, options) {
         s.dirty = true;
     };
     s.Resize = function(w, h) { if (w != s.width || h != s.height) { s.width = w; s.height = h; s.dirty = true; } };
-    s.Cursor = function() { return s.cursor; };
-    s.NeedsFrame = function() { return s.dirty || Saturn.Animating() || s.focus != null || s.tooltip != null; };
+    s.Cursor = function() { if (s.autoscroll != null) { return "move"; } return s.cursor; };
+    s.NeedsFrame = function() { return s.dirty || Saturn.Animating() || s.focus != null || s.tooltip != null || s.autoscroll != null; };
+    # Whether a dropdown or menu is open: it takes the keyboard and the pointer until it closes.
+    s.HasPopup = function() { return s.popup != null; };
 
     var syncScroll = function(e) {
         # Clamp scroll offsets to the content and place the scroll thumb.
         if (Hash.Get(e.data, "scrollable", false) == true && len(e.children) > 0) {
             var content = e.children[0].node;
-            var viewport = e.node.GetComputedHeight();
-            var extent = content.GetComputedHeight();
-            var y = clamp(Hash.Get(e.data, "scrollY", 0), 0, Processing_max(0, extent - viewport));
-            e.data["scrollY"] = y;
+            var horizontal = Hash.Get(e.data, "axis", "y") == "x";
+            var viewport = if (horizontal) { e.node.GetComputedWidth(); } else { e.node.GetComputedHeight(); };
+            var extent = if (horizontal) { content.GetComputedWidth(); } else { content.GetComputedHeight(); };
+            var limit = Processing_max(0, extent - viewport);
+            var key = scrollKey(e);
+            var at = clamp(Hash.Get(e.data, key, 0), 0, limit);
+            e.data[key] = at;
+            e.data["limit"] = limit;
             e.data["viewport"] = viewport;
-            e.node.SetScrollOffset(0, y);
+            if (horizontal) { e.node.SetScrollOffset(at, 0); } else { e.node.SetScrollOffset(0, at); }
             if (len(e.children) > 1) {
                 var thumb = e.children[1];
-                var visible = extent > viewport + 0.5d;
-                var size = if (extent > 0) { viewport * viewport / extent; } else { 0; };
-                thumb.node.SetStyle({"display": if (visible) { "flex"; } else { "none"; }, "top": y + (viewport - size) * (y / Processing_max(1, extent - viewport)), "height": size});
+                var bar = barOf(e);
+                # The thumb widens while the pointer is over its strip or drags it.
+                var hot = Hash.Get(e.data, "barHover", false) == true || Hash.Get(e.data, "drag", null) == "thumb";
+                var thickness = if (hot) { 10; } else { 6; };
+                if (bar == null) { thumb.node.SetStyle({"display": "none"}); }
+                elif (horizontal) {
+                    thumb.node.SetStyle({"display": "flex", "left": bar["thumb"], "width": bar["size"], "height": thickness,
+                        "borderRadius": thickness / 2, "opacity": if (hot) { 0.85d; } else { 0.55d; }});
+                } else {
+                    thumb.node.SetStyle({"display": "flex", "top": at + bar["thumb"], "height": bar["size"], "width": thickness,
+                        "borderRadius": thickness / 2, "opacity": if (hot) { 0.85d; } else { 0.55d; }});
+                }
             }
+        }
+        # A popup opens under its anchor (where this frame's layout put it), moved left if it would cross the window's
+        # right edge.
+        var anchor = Hash.Get(e.data, "anchor", null);
+        if (anchor != null) {
+            var a = anchor.node.GetAbsoluteLayout();
+            var width = if (Hash.Get(e.data, "matchWidth", false) == true) { a["width"]; } else { e.node.GetComputedWidth(); };
+            var place = {"left": Processing_max(4, Processing_min(a["x"], s.width - width - 4)), "top": a["y"] + a["height"] + Hash.Get(e.data, "anchorGap", 2)};
+            if (Hash.Get(e.data, "matchWidth", false) == true) { place["width"] = width; }
+            e.node.SetStyle(place);
         }
         for (var i = 0; i < len(e.children); i++) { syncScroll(e.children[i]); }
     };
 
     s.Frame = function(time) {
+        var elapsed = time - s.time;
         s.time = time;
         Saturn.SetTime(time);
         if (s.tooltip != null && s.time - s.tooltipAt > 450) { s.dirty = true; }
+        if (s.autoscroll != null && s.pointer != null && elapsed > 0) {
+            var a = s.autoscroll;
+            var e = a["element"];
+            var speed = autoscrollSpeed(along(e, s.pointer[0] - a["x"], s.pointer[1] - a["y"]));
+            if (speed != 0) { scrollTo(e, Hash.Get(e.data, scrollKey(e), 0) + speed * Processing_min(elapsed, 100) / 1000.0d); }
+        }
         if (s.dirty) { build(); }
         s.rootNode.CalculateLayout(s.width, s.height);
         syncScroll(host);
@@ -1173,6 +1483,53 @@ var CreateSurface = function(width, height, root, options) {
         var box = e.node.GetAbsoluteLayout();
         return [x - box["x"], y - box["y"]];
     };
+    # The scrollbar strip under the pointer shows its wide thumb.
+    var barHover = null;
+    var setBarHover = function(e) {
+        if (e == barHover) { return null; }
+        if (barHover != null) { barHover.data["barHover"] = false; }
+        if (e != null) { e.data["barHover"] = true; }
+        barHover = e;
+        s.dirty = true;
+    };
+    var endDrag = function() {
+        var c = s.captured;
+        s.captured = null;
+        if (c != null) { if (Hash.Get(c.data, "drag", null) != null) { c.data["drag"] = null; s.dirty = true; } }
+        return c;
+    };
+    var released = function(ev) { return ev["action"] == 0 || ev["action"] == "release"; };
+
+    # A press while a popup is open: inside it, normal handling (false); outside, it closes the popup and is used up.
+    var popupPress = function(ev) {
+        if (s.popup == null) { return false; }
+        if (inPopup(s.pathAt(ev["x"], ev["y"]), s.popup)) { return false; }
+        closePopup(s);
+        s.swallow = true;
+        return true;
+    };
+    # Pointer movement, the wheel and keys while a popup is open; null when the popup does not take the event.
+    var popupEvent = function(ev, type) {
+        var owner = s.popup;
+        var kind = kinds[owner.type];
+        if (type == "move" || type == "drag" || type == "dragStart") {
+            if (s.captured != null || ev["x"] == null) { return null; }
+            s.pointer = [ev["x"], ev["y"]];
+            var path = s.pathAt(ev["x"], ev["y"]);
+            setHover(if (inPopup(path, owner)) { path; } else { []; });
+            if (kind["popupMove"] != null) { kind["popupMove"](owner, path); s.dirty = true; }
+            return true;
+        }
+        if (type == "scroll") { return true; }
+        if (type == "key") {
+            if (released(ev)) { return true; }
+            if (ev["key"] == 256) { closePopup(s); return true; }                  # Escape
+            if (kind["popupKey"] != null) { kind["popupKey"](owner, ev["key"]); s.dirty = true; }
+            return true;
+        }
+        if (type == "text") { return true; }
+        return null;
+    };
 
     # Feed(event): Interaction events or hashes of the same fields. Returns whether the surface used it (the pointer is
     # over one of its widgets, or a focused field took a key), so layered UIs pass the rest on.
@@ -1180,6 +1537,33 @@ var CreateSurface = function(width, height, root, options) {
         var ev = eventOf(raw);
         var type = ev["type"];
         if (s.dirty) { s.Frame(s.time); }
+        # Interaction's "move" means no button is held (held ones drag): one while something holds the pointer means
+        # its release never arrived (it happened outside the window, or another layer took it), so nothing stays stuck
+        # to the pointer. (Hand-made events without a pointerType may move while pressed.)
+        if (type == "move" && s.captured != null && ev["pointerType"] != null) {
+            var stale = endDrag();
+            if (stale.type == "Gesture" && stale.widget.onDragEnd != null) { stale.widget.onDragEnd(ev); }
+            if (s.pressed != null) { s.pressed.data["pressed"] = false; s.pressed = null; }
+        }
+        # Autoscrolling: any press ends it and goes no further; the middle button's release after a move ends it too.
+        if (s.autoscroll != null) {
+            if (type == "press") { s.autoscroll = null; s.swallow = true; s.dirty = true; return true; }
+            if (type == "release" && ev["button"] == 2) {
+                var a = s.autoscroll;
+                if (Processing_abs(ev["x"] - a["x"]) + Processing_abs(ev["y"] - a["y"]) >= 8) { s.autoscroll = null; }
+                s.dirty = true;
+                return true;
+            }
+            if (type == "key" && ev["key"] == 256 && !released(ev)) { s.autoscroll = null; s.dirty = true; return true; }
+            if (type == "move" || type == "drag" || type == "dragStart" || type == "dragEnd") { if (ev["x"] != null) { s.pointer = [ev["x"], ev["y"]]; } return true; }
+        }
+        # The release of a press that only closed a popup or ended autoscrolling.
+        if (type == "release" && s.swallow) { s.swallow = false; return true; }
+        if (type == "press" && popupPress(ev)) { return true; }
+        if (s.popup != null) {
+            var taken = popupEvent(ev, type);
+            if (taken != null) { return taken; }
+        }
         # Events over (or captured by) an Immediate widget go to its feed function in its own coordinates.
         var embedded = routeImmediate(s, ev, type);
         if (embedded != null) { return embedded; }
@@ -1188,27 +1572,79 @@ var CreateSurface = function(width, height, root, options) {
             var y = ev["y"];
             s.pointer = [x, y];
             if (s.captured != null) {
-                var kind = kinds[s.captured.type];
-                if (kind != null && kind["drag"] != null) { kind["drag"](s.captured, ev, local(s.captured, x, y)); s.dirty = true; }
-                elif (s.captured.type == "Gesture" && s.captured.widget.onDrag != null) { s.captured.widget.onDrag(ev); s.dirty = true; }
-                elif (Hash.Get(s.captured.data, "scrollable", false) == true) {
-                    s.captured.data["scrollY"] = s.captured.data["dragFrom"] - (y - s.pressY);
+                var c = s.captured;
+                var kind = kinds[c.type];
+                if (kind != null && kind["drag"] != null) { kind["drag"](c, ev, local(c, x, y)); s.dirty = true; }
+                elif (c.type == "Gesture" && c.widget.onDrag != null) { c.widget.onDrag(ev); s.dirty = true; }
+                elif (Hash.Get(c.data, "drag", null) == "thumb") {
+                    var bar = barOf(c);
+                    if (bar != null && bar["length"] > bar["size"]) {
+                        scrollTo(c, (along(c, x, y) - bar["start"] - c.data["grab"]) * c.data["limit"] / (bar["length"] - bar["size"]));
+                    }
+                    s.dirty = true;
+                } elif (Hash.Get(c.data, "drag", null) == "pan") {
+                    scrollTo(c, c.data["dragFrom"] - (along(c, x, y) - along(c, s.pressX, s.pressY)));
                     s.dirty = true;
                 }
                 return true;
             }
             var path = s.pathAt(x, y);
             setHover(path);
+            setBarHover(barAt(path, x, y));
             if (s.pressed != null && !Array.Contains(path, s.pressed)) { s.pressed.data["pressed"] = false; s.dirty = true; }
             return solid(path);
         }
         if (type == "press") {
             var path = s.pathAt(ev["x"], ev["y"]);
             setHover(path);
+            # Whatever an earlier press still held is let go: its release never came.
+            endDrag();
             if (!solid(path)) { if (s.focus != null) { s.focus = null; s.dirty = true; } return false; }
             s.pressX = ev["x"];
             s.pressY = ev["y"];
             s.pressTime = s.time;
+            var button = pick(ev["button"], 0);
+            # The middle button scrolls (see "Scrolling" above); it presses nothing.
+            if (button == 2) {
+                var view = overflowingOf(path);
+                var mode = middleButtonOf(s);
+                if (view != null && mode == "autoscroll") {
+                    s.autoscroll = {"element": view, "x": ev["x"], "y": ev["y"]};
+                } elif (view != null && mode == "pan") {
+                    s.captured = view;
+                    view.data["drag"] = "pan";
+                    view.data["dragFrom"] = Hash.Get(view.data, scrollKey(view), 0);
+                }
+                s.dirty = true;
+                return true;
+            }
+            # A press on a scrollbar strip drags the thumb or pages toward the pointer (not for fingers: overlay
+            # scrollbars are only indicators there).
+            if (button == 0 && ev["pointerType"] != "touch") {
+                var barred = barAt(path, ev["x"], ev["y"]);
+                if (barred != null) {
+                    var bar = barOf(barred);
+                    var at = along(barred, ev["x"], ev["y"]) - bar["start"];
+                    if (at >= bar["thumb"] && at < bar["thumb"] + bar["size"]) {
+                        s.captured = barred;
+                        barred.data["drag"] = "thumb";
+                        barred.data["grab"] = at - bar["thumb"];
+                    } else {
+                        var page = bar["length"] * 0.875d;
+                        if (at < bar["thumb"]) { page = -page; }
+                        scrollTo(barred, Hash.Get(barred.data, scrollKey(barred), 0) + page);
+                    }
+                    s.dirty = true;
+                    return true;
+                }
+            }
+            # Widgets that act on the press itself (menu bar titles open on press, as native menus do).
+            for (var i = len(path) - 1; i >= 0; i -= 1) {
+                var pressKind = kinds[path[i].type];
+                if (pressKind != null && pressKind["press"] != null) {
+                    if (pressKind["press"](path[i], ev, path) == true) { s.dirty = true; return true; }
+                }
+            }
             var target = handlerOf(path, "tap");
             var dragger = handlerOf(path, "drag");
             var focus = handlerOf(path, "focusable");
@@ -1218,9 +1654,14 @@ var CreateSurface = function(width, height, root, options) {
                 s.captured = dragger;
                 if (dragger.type == "Gesture" && dragger.widget.onDragStart != null) { dragger.widget.onDragStart(ev); }
                 elif (kinds[dragger.type] != null && kinds[dragger.type]["drag"] != null) { kinds[dragger.type]["drag"](dragger, ev, local(dragger, ev["x"], ev["y"])); }
-            } else {
-                var scroller = scrollableOf(path);
-                if (scroller != null && (target == null || target.type == "Card")) { s.captured = scroller; scroller.data["dragFrom"] = Hash.Get(scroller.data, "scrollY", 0); }
+            } elif (button == 0) {
+                # Fingers and pens pan the view under them, even from a button (moving past the slop cancels its tap).
+                var scroller = overflowingOf(path);
+                if (scroller != null && pans(s, ev)) {
+                    s.captured = scroller;
+                    scroller.data["drag"] = "pan";
+                    scroller.data["dragFrom"] = Hash.Get(scroller.data, scrollKey(scroller), 0);
+                }
             }
             for (var i = len(path) - 1; i >= 0; i -= 1) {
                 if ((path[i].type == "Box" || path[i].type == "Gesture") && path[i].widget.onPress != null) { path[i].widget.onPress(ev); break; }
@@ -1231,10 +1672,14 @@ var CreateSurface = function(width, height, root, options) {
         if (type == "release") {
             var path = s.pathAt(ev["x"], ev["y"]);
             var pressed = s.pressed;
-            var captured = s.captured;
             s.pressed = null;
-            s.captured = null;
+            var captured = endDrag();
             if (captured != null && captured.type == "Gesture" && captured.widget.onDragEnd != null) { captured.widget.onDragEnd(ev); }
+            # Releasing over a menu item chooses it, whether the press was on the item or on its menu's title.
+            if (s.popup != null && inPopup(path, s.popup)) {
+                var popupKind = kinds[s.popup.type];
+                if (popupKind["popupRelease"] != null) { popupKind["popupRelease"](s.popup, path, ev); }
+            }
             for (var i = len(path) - 1; i >= 0; i -= 1) {
                 if ((path[i].type == "Box" || path[i].type == "Gesture") && path[i].widget.onRelease != null) { path[i].widget.onRelease(ev); break; }
             }
@@ -1252,10 +1697,8 @@ var CreateSurface = function(width, height, root, options) {
                     s.lastTapTime = s.time;
                 }
             }
-            # A tap outside an open dropdown closes it.
-            closeMenus(host, path);
             s.dirty = true;
-            return solid(path) || pressed != null;
+            return solid(path) || pressed != null || captured != null;
         }
         if (type == "longPress") {
             var path = s.pathAt(ev["x"], ev["y"]);
@@ -1270,10 +1713,7 @@ var CreateSurface = function(width, height, root, options) {
             if (ev["x"] != null && ev["y"] != null) { at = [ev["x"], ev["y"]]; }
             if (at == null || at[0] == null) { return false; }
             var path = s.pathAt(at[0], at[1]);
-            var scroller = scrollableOf(path);
-            if (scroller == null) { return false; }
-            scroller.data["scrollY"] = Hash.Get(scroller.data, "scrollY", 0) + pick(ev["dy"], 0);
-            if (Hash.Get(scroller.data, "virtual", false) == true) { s.dirty = true; }
+            if (wheelTarget(path, pick(ev["dx"], 0), pick(ev["dy"], 0)) == null) { return scrollableOf(path) != null; }
             s.Frame(s.time);
             return true;
         }
@@ -1284,7 +1724,23 @@ var CreateSurface = function(width, height, root, options) {
             return false;
         }
         if (type == "key") {
-            if (s.focus == null || ev["action"] == 0) { return false; }
+            if (released(ev)) { return false; }
+            if (s.focus == null) {
+                # Without a focused field, Page Up / Page Down, Home and End scroll the view under the pointer.
+                if (s.pointer == null) { return false; }
+                var view = overflowingOf(s.pathAt(s.pointer[0], s.pointer[1]));
+                if (view == null) { return false; }
+                var at = Hash.Get(view.data, scrollKey(view), 0);
+                var page = Hash.Get(view.data, "viewport", 0) * 0.875d;
+                var key = ev["key"];
+                if (key == 267) { scrollTo(view, at + page); }
+                elif (key == 266) { scrollTo(view, at - page); }
+                elif (key == 268) { scrollTo(view, 0); }
+                elif (key == 269) { scrollTo(view, view.data["limit"]); }
+                else { return false; }
+                s.dirty = true;
+                return true;
+            }
             var kind = kinds[s.focus.type];
             if (kind["key"] != null && kind["key"](s.focus, ev["key"]) == true) { s.dirty = true; return true; }
             return false;
@@ -1306,7 +1762,12 @@ var CreateSurface = function(width, height, root, options) {
         return s.focus.node.GetAbsoluteLayout();
     };
     s.Dispose = function() { dispose(host); };
-    s.Wants = function(x, y) { if (s.dirty) { s.Frame(s.time); } return solid(s.pathAt(x, y)); };
+    # An open popup or autoscroll takes the whole window, so layers below see no press until it ends.
+    s.Wants = function(x, y) {
+        if (s.dirty) { s.Frame(s.time); }
+        if (s.popup != null || s.autoscroll != null) { return true; }
+        return solid(s.pathAt(x, y));
+    };
     return s;
 };
 # The Immediate element an event belongs to: the one holding the pointer capture, under the pointer, or focused for
@@ -1321,7 +1782,12 @@ var routeImmediate = function(s, ev, type) {
         if (s.focus != null && s.focus.type == "Immediate") { target = s.focus; }
     } elif (ev["x"] != null && ev["y"] != null) {
         if (s.captured != null) { if (s.captured.type == "Immediate") { target = s.captured; } else { return null; } }
-        else { target = immediateIn(s.pathAt(ev["x"], ev["y"])); }
+        else {
+            var path = s.pathAt(ev["x"], ev["y"]);
+            # The middle button and presses on a scrollbar strip scroll the view around the widget.
+            if (type == "press" && (ev["button"] == 2 || barAt(path, ev["x"], ev["y"]) != null)) { return null; }
+            target = immediateIn(path);
+        }
     }
     if (target == null) { return null; }
     var copy = Hash.Clone(ev);
@@ -1335,6 +1801,18 @@ var routeImmediate = function(s, ev, type) {
     var used = target.widget.feed(copy) == true;
     s.dirty = true;
     if (used || type == "release" || type == "press") { return true; }
+    # A finger's drag the widget does not use pans the view around it instead.
+    if (type == "dragStart" && (ev["pointerType"] == "touch" || ev["pointerType"] == "pen")) {
+        var view = overflowingOf(s.pathAt(ev["x"], ev["y"]));
+        if (view != null) {
+            s.captured = view;
+            s.pressX = pick(ev["startX"], ev["x"]);
+            s.pressY = pick(ev["startY"], ev["y"]);
+            view.data["drag"] = "pan";
+            view.data["dragFrom"] = Hash.Get(view.data, scrollKey(view), 0);
+            return true;
+        }
+    }
     # Unused: a wheel turn scrolls the view around the widget, a key reaches the surface's own handling.
     return null;
 };
@@ -1499,10 +1977,12 @@ var RunApp = function(root, options) {
         session = Interaction.Attach(p.platformWindow);
         session.On("*", function(event) { return surface.Feed(event); });
         follow = TextInputFollower(session);
-        p.on("windowResized", function() { surface.Resize(p.width, p.height); });
         if (o["setup"] != null) { o["setup"](p, surface); }
     };
     var draw = function() {
+        # The window's size every frame: a resize, and the final size of a page's full-screen canvas (which can differ
+        # from the size known in setup), both show at once.
+        surface.Resize(p.width, p.height);
         surface.Frame(p.millis());
         p.background(0);
         if (o["draw"] != null) { o["draw"](p, surface); }
