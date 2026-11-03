@@ -65,7 +65,7 @@ if ($LASTEXITCODE -ne 0) { throw 'The published aqua does not start.' }
 # their pages; a submodule that is not checked out is skipped.
 foreach ($tool in Get-ChildItem -LiteralPath (Join-Path $repository 'tools') -Directory -ErrorAction SilentlyContinue) {
     $build = Join-Path $tool.FullName 'build.ps1'
-    if (-not (Test-Path -LiteralPath $build)) { Write-Warning "tools/$($tool.Name) is not checked out (git submodule update --init); skipped."; continue }
+    if (-not (Test-Path -LiteralPath $build)) { Write-Warning "tools/$($tool.Name) is not checked out (git submodule update --init --recursive); skipped."; continue }
     if (-not (Test-Path -LiteralPath (Join-Path $Output 'runtime/web'))) { Write-Warning "tools/$($tool.Name) needs the web runtime pack; skipped."; continue }
     & $build -Aqua $aqua -Output $Output
     if (-not $?) { throw "Building tools/$($tool.Name) failed." }
