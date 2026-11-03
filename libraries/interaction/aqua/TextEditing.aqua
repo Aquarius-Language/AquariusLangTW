@@ -318,6 +318,8 @@ var Cut = function(ed) {
 var Paste = function(ed) {
     var text = _interaction.ClipboardText();
     if (text == null || len(text) == 0) { return false; }
+    # Windows' clipboard ends lines with CR LF; the text keeps LF.
+    text = String.Replace(String.Replace(text, String.FromCode(13) + String.FromCode(10), String.FromCode(10)), String.FromCode(13), String.FromCode(10));
     ed.group = null;
     return _replace(ed, SelectionStart(ed), SelectionEnd(ed), text, null);
 };

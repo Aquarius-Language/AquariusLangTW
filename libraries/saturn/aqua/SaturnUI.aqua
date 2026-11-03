@@ -83,8 +83,8 @@ struct Element { widget; type; node; children; parent; surface; state; data; key
 struct SaturnSurface {
     width; height; root; theme; sheets; tree; rootNode; overlayNode; dirty; hover; pressed; captured; focus;
     time; cursor; pressX; pressY; pressTime; lastTap; lastTapTime; tooltip; tooltipAt; pathAt; fontOf; textColor; pointer;
-    popup; autoscroll; swallow; conventions; options;
-    Frame; Paint; Feed; Wants; Resize; SetRoot; SetTheme; Rebuild; Cursor; NeedsFrame; ImeRect; HasPopup; Dispose
+    popup; autoscroll; swallow; conventions; options; errors; painted;
+    Frame; Paint; Feed; Wants; Resize; SetRoot; SetTheme; Rebuild; Cursor; NeedsFrame; ImeRect; HasPopup; Errors; Dispose
 }
 struct DropdownMenu { owner; options; value; key }
 struct MenuPopup { owner; items; at; key }
@@ -233,7 +233,32 @@ var ThemeSheet = function(t) {
 
 var NL = String.FromCode(10);
 var NBSP = String.FromCode(160);
-var Network = null;
+
+# Contained failures. Code a surface calls (painters, Immediate widgets, builders, event handlers) runs guarded: an
+# error there is recorded in surface.Errors() and printed once, that part draws nothing or that event is dropped, and
+# everything else keeps working, so one failing widget never blanks the window or stops the input.
+var attempt = function(s, what, action) {
+    # Saturn.Contain runs the callback to completion in place (never pausing), as code called from painting must.
+    var result = Saturn.Contain(action);
+    if (result["Success"]) { return {"Success": true, "Value": result["Value"]}; }
+    var message = what + ": " + String.From(result["Message"]);
+    if (!Array.Contains(s.errors, message)) {
+        if (len(s.errors) >= 32) { Array.Delete(s.errors, 0, 1); }
+        Array.Append(s.errors, message);
+        print("SaturnUI: " + message);
+    }
+    return {"Success": false, "Value": null};
+};
+var guarded = function(s, what, action) {
+    var result = attempt(s, what, action);
+    if (result["Success"]) { return result["Value"]; }
+    return null;
+};
+# A painter that never takes the rest of the paint down with it.
+var safePainter = function(e, painter) {
+    if (painter == null) { return null; }
+    return function(p, width, height) { guarded(e.surface, e.type + " painter", () => painter(p, width, height)); return null; };
+};
 
 var isArray = function(v) { return typeOf(v) == "array"; };
 var listOf = function(child, children) {
@@ -728,15 +753,15 @@ kinds["Icon"] = {"update": function(e, w) {
     var size = w.size;
     restyle(e, {"width": size, "height": size, "flexShrink": 0}, ["Icon"], null);
     var color = w.color;
-    e.node.SetPainter(function(p, width, height) {
+    e.node.SetPainter(safePainter(e, function(p, width, height) {
         var c = color;
         if (c == null) { c = e.surface.textColor(e); }
         PaintIcon(p, w.name, width, colorArray(c));
-    });
+    }));
 }};
 kinds["CustomPaint"] = {"update": function(e, w) {
     restyle(e, {"width": w.width, "height": w.height}, ["CustomPaint"], w.style);
-    e.node.SetPainter(w.paint);
+    e.node.SetPainter(safePainter(e, w.paint));
     reconcile(e, listOf(w.child, null));
 }};
 kinds["ScrollView"] = {"update": function(e, w) {
@@ -778,14 +803,20 @@ kinds["ListView"] = {"update": function(e, w) {
     }
     e.data["scrollable"] = true;
 }};
+# A build that fails keeps what the widget showed before (the failure is in the surface's Errors()).
 kinds["Builder"] = {"update": function(e, w) {
     restyle(e, {"display": "contents"}, [], null);
-    reconcile(e, [w.build(contextOf(e))]);
+    var built = attempt(e.surface, "Builder build", () => w.build(contextOf(e)));
+    if (built["Success"]) { reconcile(e, [built["Value"]]); }
 }};
 kinds["Stateful"] = {"update": function(e, w) {
-    if (e.state == null && w.init != null) { e.state = w.init(); }
+    if (e.state == null && w.init != null) {
+        var made = attempt(e.surface, "Stateful init", () => w.init());
+        if (made["Success"]) { e.state = made["Value"]; }
+    }
     restyle(e, {"display": "contents"}, [], null);
-    reconcile(e, [w.build(e.state, contextOf(e))]);
+    var built = attempt(e.surface, "Stateful build", () => w.build(e.state, contextOf(e)));
+    if (built["Success"]) { reconcile(e, [built["Value"]]); }
 }};
 kinds["Themed"] = {"update": function(e, w) {
     # A subtree with its own theme: its colors as inherited text and background, its sheet for the widgets inside.
@@ -802,7 +833,7 @@ kinds["Immediate"] = {"update": function(e, w) {
     restyle(e, {"width": w.width, "height": w.height}, ["Immediate"], w.style);
     var paint = w.paint;
     var focus = w.focus;
-    e.node.SetPainter(function(p, width, height) {
+    e.node.SetPainter(safePainter(e, function(p, width, height) {
         # focus(focused) hears when the widget gains or loses the keyboard (a caret to show or hide).
         var focused = e.surface.focus == e;
         if (focus != null && Hash.Get(e.data, "focused", false) != focused) { e.data["focused"] = focused; focus(focused); }
@@ -810,7 +841,7 @@ kinds["Immediate"] = {"update": function(e, w) {
         var box = e.node.GetAbsoluteLayout();
         var list = paint(box["x"], box["y"], width, height);
         if (list != null) { p.PushClip(0, 0, width, height); p.Append(list); p.PopClip(); }
-    });
+    }));
     e.data["immediate"] = true;
 }};
 kinds["Unknown"] = {"update": function(e, w) {
@@ -1243,7 +1274,7 @@ kinds["TextField"] = {"update": function(e, w) {
         Array.Append(children, MenuPopup(owner: e, items: e.data["menuItems"], at: e.data["menuAt"], key: "menu"));
     }
     reconcile(e, children);
-    e.node.SetPainter(function(p, width, height) {
+    e.node.SetPainter(safePainter(e, function(p, width, height) {
         var s = e.surface;
         if (s.focus != e || e.state == null || len(e.children) == 0) { return null; }
         var editor = e.state;
@@ -1280,7 +1311,7 @@ kinds["TextField"] = {"update": function(e, w) {
             var thickness = if (editor.overwrite) { 6; } else { 1.5d; };
             p.Rect(ox + caret["x"], oy + caret["y"] + 2, thickness, caret["height"] - 4, s.textColor(e));
         }
-    });
+    }));
 }, "focusable": true,
 # A press places the caret (Shift extends, a double press selects a word, a triple press all), and the field holds the
 # pointer so dragging selects. A right press opens the context menu.
@@ -1519,7 +1550,7 @@ var CreateSurface = function(width, height, root, options) {
     if (options != null && options["transparent"] == true) { clear = {"background": "transparent"}; }
     var s = SaturnSurface(width: width, height: height, root: root, theme: theme, sheets: [ThemeSheet(theme), theme.sheet, sheet],
         dirty: true, hover: [], pressed: null, captured: null, focus: null, time: 0, cursor: "arrow", lastTapTime: -1000,
-        tooltip: null, tooltipAt: 0, popup: null, autoscroll: null, swallow: false, conventions: null, options: options);
+        tooltip: null, tooltipAt: 0, popup: null, autoscroll: null, swallow: false, conventions: null, options: options, errors: [], painted: null);
     s.rootNode = Saturn.Node();
     s.overlayNode = Saturn.Node();
     s.overlayNode.SetStyle({"position": "absolute", "left": 0, "top": 0, "right": 0, "bottom": 0, "pointerEvents": "none"});
@@ -1597,7 +1628,7 @@ var CreateSurface = function(width, height, root, options) {
         for (var i = 0; i < len(e.children); i++) { syncScroll(e.children[i]); }
     };
 
-    s.Frame = function(time) {
+    var frameUnguarded = function(time) {
         var elapsed = time - s.time;
         s.time = time;
         Saturn.SetTime(time);
@@ -1613,7 +1644,16 @@ var CreateSurface = function(width, height, root, options) {
         syncScroll(host);
         s.rootNode.CalculateLayout(s.width, s.height);
     };
-    s.Paint = function() { return s.rootNode.Paint(); };
+    # A frame whose building fails keeps the tree it had; painting falls back to the last list that painted.
+    s.Frame = function(time) { guarded(s, "frame", () => frameUnguarded(time)); return null; };
+    s.Paint = function() {
+        var list = guarded(s, "paint", () => s.rootNode.Paint());
+        if (list != null) { s.painted = list; return list; }
+        if (s.painted != null) { return s.painted; }
+        return {"version": 1, "commands": [], "strings": [], "images": [], "vertices": [], "indices": []};
+    };
+    # The failures contained so far (newest last, at most 32): "where: message".
+    s.Errors = function() { return s.errors; };
 
     s.pathAt = function(x, y) {
         var nodes = s.rootNode.HitTestPath(x, y);
@@ -1715,7 +1755,7 @@ var CreateSurface = function(width, height, root, options) {
 
     # Feed(event): Interaction events or hashes of the same fields. Returns whether the surface used it (the pointer is
     # over one of its widgets, or a focused field took a key), so layered UIs pass the rest on.
-    s.Feed = function(raw) {
+    var feedUnguarded = function(raw) {
         var ev = eventOf(raw);
         var type = ev["type"];
         # Pointer events hit-test the current layout; keys and text do not wait for a rebuild (typing fast must not
@@ -1951,8 +1991,10 @@ var CreateSurface = function(width, height, root, options) {
         }
         return false;
     };
+    # Events run directly (their handlers may wait for asynchronous results); a failure reaches the caller.
+    s.Feed = feedUnguarded;
     # Where an input method's window should open: {x, y, width, height} of the focused text field, or null.
-    s.ImeRect = function() {
+    var imeUnguarded = function() {
         if (s.focus == null) { return null; }
         if (s.focus.type == "Immediate") {
             # An Immediate widget that takes text gives its caret's box in its own coordinates.
@@ -1969,6 +2011,7 @@ var CreateSurface = function(width, height, root, options) {
         var caret = text.TextCaret(TextEditing.Display(s.focus.state)[1]);
         return {"x": box["x"] + caret["x"] - Hash.Get(s.focus.data, "scrollX", 0), "y": box["y"] + caret["y"], "width": 1, "height": caret["height"]};
     };
+    s.ImeRect = function() { return guarded(s, "ime", () => imeUnguarded()); };
     s.Dispose = function() { dispose(host); };
     # An open popup or autoscroll takes the whole window, so layers below see no press until it ends.
     s.Wants = function(x, y) {
@@ -2031,7 +2074,7 @@ var routeImmediate = function(s, ev, type) {
 # there is over something of it, feed(event) handles an event (returning whether it used it), cursor() names its cursor,
 # text() (optional) gives {x, y, width, height} of its focused text field, or null when it takes no text.
 struct Layer { name; frame; paint; feed; wants; cursor; text }
-struct LayerStack { layers; captured; focused; width; height; Frame; Paint; Feed; Cursor; ImeRect }
+struct LayerStack { layers; captured; focused; width; height; errors; Frame; Paint; Feed; Cursor; ImeRect; Errors }
 
 # A SaturnUI surface as a layer.
 var SurfaceLayer = function(surface) {
@@ -2080,16 +2123,22 @@ var ClayLayer = function(layout, build) {
 # the pointer until the release and takes the keyboard after it; layers below a layer that took a move see the
 # pointer leave, so hover never shows twice. Paint() draws them all in order.
 var Layers = function(list) {
-    var stack = LayerStack(layers: list, captured: null, focused: null, width: 0, height: 0);
+    var stack = LayerStack(layers: list, captured: null, focused: null, width: 0, height: 0, errors: []);
+    # Like a surface's parts, each layer fails alone: its frame, painting or event is dropped and recorded in Errors().
+    stack.Errors = function() { return stack.errors; };
     var away = {"type": "move", "x": -100000, "y": -100000};
     stack.Frame = function(width, height, time) {
         stack.width = width;
         stack.height = height;
-        for (var i = 0; i < len(list); i++) { list[i].frame(width, height, time); }
+        for (var i = 0; i < len(list); i++) { var layer = list[i]; guarded(stack, layer.name + " frame", () => layer.frame(width, height, time)); }
     };
     stack.Paint = function() {
         var lists = [];
-        for (var i = 0; i < len(list); i++) { Array.Append(lists, list[i].paint()); }
+        for (var i = 0; i < len(list); i++) {
+            var layer = list[i];
+            var painted = guarded(stack, layer.name + " paint", () => layer.paint());
+            if (painted != null) { Array.Append(lists, painted); }
+        }
         return Saturn.Combine(lists);
     };
     stack.Feed = function(raw) {

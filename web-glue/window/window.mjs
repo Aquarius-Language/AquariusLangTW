@@ -145,7 +145,13 @@ registerGlue('window', (context) => {
             Object.assign(text.style, { position: 'fixed', opacity: '0.01', width: '1px', height: '1px', pointerEvents: 'none', left: '0', top: '0' });
             text.setAttribute('aria-label', 'Aquarius text input');
             document.body.append(text);
-            text.addEventListener('input', (e) => { if (!e.isComposing && e.data) { this.push(EVENT.TEXT, { text: e.data }); text.value = ''; } }, { signal });
+            // Pasting is the application's (its paste command reads the clipboard the document's paste event kept), so the
+            // browser's own insertion of the pasted text is cancelled instead of arriving a second time as typed text.
+            text.addEventListener('paste', (e) => e.preventDefault(), { signal });
+            text.addEventListener('input', (e) => {
+                if (!e.isComposing && e.data && e.inputType !== 'insertFromPaste' && e.inputType !== 'insertFromDrop') this.push(EVENT.TEXT, { text: e.data });
+                text.value = '';
+            }, { signal });
             text.addEventListener('compositionstart', () => { this.composing = true; this.push(EVENT.COMPOSITION_START, { text: '' }); }, { signal });
             text.addEventListener('compositionupdate', (e) => this.push(EVENT.COMPOSITION_UPDATE, { text: e.data, cursor: e.data.length }), { signal });
             text.addEventListener('compositionend', (e) => {
