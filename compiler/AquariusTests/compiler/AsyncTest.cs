@@ -118,16 +118,17 @@ public class AsyncTest
     [RuntimeFact]
     public void TasksInterleaveWhileTheyWait()
     {
-        // Distinct delays make the order independent of timer precision.
+        // The gaps (100 ms) are far wider than a sleep's granularity (about 16 ms on Windows) and the lateness it
+        // adds up over the steps, so the order does not depend on timer precision.
         Assert.Equal("[a0, b0, a1, b1, a2, b2]\n[a, b]\n", WasmTestHost.Output("""
             var Array = import("Array"); var String = import("String");
             var log = [];
             var worker = async function(name, offset) {
                 await Promise.Delay(offset);
-                for (var i = 0; i < 3; i++) { Array.Append(log, name + String.From(i)); await Promise.Delay(20); }
+                for (var i = 0; i < 3; i++) { Array.Append(log, name + String.From(i)); await Promise.Delay(200); }
                 return name;
             };
-            var names = await Promise.All([worker("a", 0), worker("b", 10)]);
+            var names = await Promise.All([worker("a", 0), worker("b", 100)]);
             print(log);
             print(names);
             """));

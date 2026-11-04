@@ -115,6 +115,8 @@ bool aqua_window_composition_supported(aqua_window *window);
 typedef enum aqua_surface_kind {
     AQUA_SURFACE_NONE = 0, AQUA_SURFACE_WIN32 = 1, AQUA_SURFACE_X11 = 2, AQUA_SURFACE_WAYLAND = 3, AQUA_SURFACE_METAL = 4,
     AQUA_SURFACE_ANDROID = 5, AQUA_SURFACE_CANVAS = 6,
+    AQUA_SURFACE_FRAMES = 7,     /* no OS surface: the window is shown elsewhere (aqua/remote_window.h); draw offscreen and
+                                    hand every finished frame to aqua_window_present */
 } aqua_surface_kind;
 typedef struct aqua_surface {
     aqua_surface_kind kind;
@@ -124,6 +126,10 @@ typedef struct aqua_surface {
 /* On the web the window's <canvas> element has the id "aqua-window-<number>": WebGPU surfaces select it with
    WGPUEmscriptenSurfaceSourceCanvasHTMLSelector and the selector "#aqua-window-<number>". */
 bool aqua_window_surface(aqua_window *window, aqua_surface *surface);
+/* API 4: shows a finished frame on a window whose surface is AQUA_SURFACE_FRAMES: `width` x `height` top-down RGBA8
+   pixels (its framebuffer size), rows `stride` bytes apart, copied before the call returns. False for other windows.
+   OpenGL windows need nothing: aqua_window_swap presents their frame. */
+bool aqua_window_present(aqua_window *window, const uint8_t *rgba, int32_t width, int32_t height, int32_t stride);
 
 /* OpenGL windows. */
 void aqua_window_make_current(aqua_window *window);

@@ -1,0 +1,73 @@
+# desktop only, needs a GPU (environment AQUARIUS_REMOTE_WINDOW=127.0.0.1:18791): a Processing sketch opens its window
+# as usual and this same program is its viewer. Frames arrive through the runtime's remote window (no screen is used),
+# the viewer's input moves the sketch's mouse and its View changes the sketch's size and density.
+var RW = import("RemoteWindow");
+var Network = import("Network");
+var p = import("Processing");
+
+var listener = Network.ListenTCP("127.0.0.1", 18791, {"Timeout": 5000});
+var viewer = RW.Viewer();
+var stream = null;
+var id = 0;
+var frame = 0;
+var log = [];
+# The next record of `type`, reading while none has arrived (the runtime sends without waiting for this program).
+var queue = [];
+var until = function(type) {
+    for (var i = 0; i < 100; i++) {
+        for (; len(queue) > 0;) {
+            var r = queue[0];
+            Array.Delete(queue, 0, 1);
+            if (r["type"] == "open") { id = r["window"]; }
+            if (r["type"] == type) { return r; }
+        }
+        queue = viewer.Feed(stream.Read(1 << 20));
+    }
+    return null;
+};
+var pixel = function(image, x, y) {
+    var pixels = image.Pixels();
+    var at = (y * image.width + x) * 4;
+    return Array.Slice(pixels, at, at + 4);
+};
+
+p.run(function() { p.size(120, 80, p.P2D, "remote sketch"); }, function() {
+    if (frame == 0) {
+        # The window connected while it opened.
+        stream = listener.Accept(5000);
+        var opened = until("open");
+        print("open", opened["title"], opened["width"], opened["height"], p.width, p.height);
+    }
+    p.background(255, 0, 0);
+    p.noStroke();
+    p.fill(0, 0, 255);
+    p.rect(60, 40, 60, 40);
+    if (frame == 1) {
+        var shown = until("frame");
+        var image = viewer.Image(id);
+        print("frame", shown["width"], shown["height"], pixel(image, 10, 10), pixel(image, 100, 70));
+        # A click and a move at (30, 20) of a 240 x 160 painting: (15, 10) in the window.
+        viewer.Paint(id, 0, 0, 240, 160);
+        viewer.Send(id, {"type": "move", "x": 30, "y": 20});
+        viewer.Send(id, {"type": "press", "x": 30, "y": 20, "button": 0});
+        viewer.Send(id, {"type": "key", "key": 65, "action": "press", "text": "A"});
+        stream.Write(viewer.Outgoing());
+    }
+    if (frame == 4) {
+        print("input", p.mouseX, p.mouseY, p.isMousePressed, p.isKeyPressed, p.key);
+        viewer.View(id, 160, 100, 2);
+        stream.Write(viewer.Outgoing());
+    }
+    if (frame == 8) {
+        # The last frame again, whole (the viewer attached anew), then the new size at twice the density.
+        var resized = until("frame");
+        for (; resized != null && resized["width"] != 320;) { resized = until("frame"); }
+        print("view", p.width, p.height, resized["width"], resized["height"], resized["scale"]);
+        viewer.Close(id);
+        stream.Write(viewer.Outgoing());
+    }
+    frame++;
+    if (frame > 200) { p.exit(); }
+});
+print("closed", frame < 200, until("close") != null);
+var done = true;

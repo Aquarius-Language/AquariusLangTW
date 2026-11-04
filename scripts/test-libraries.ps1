@@ -11,6 +11,7 @@
 #                                       run only with -Devices
 #   web only | windows only | desktop only | desktop and web | (Windows, Linux, Android) | not Android
 #                                       the targets it runs on (default: every target)
+# A case naming "(environment NAME=value, ...)" gets those variables in its native runs (Windows, Linux).
 # A case naming "servers/<file>.aqua serving http://host:port" gets that peer server compiled and run on this machine
 # while it runs (Android reaches it through adb reverse), stopped afterwards. tests/downloads.json pins files the tests
 # read that are not committed (models): they are downloaded and SHA-256 checked before the library's first case.
@@ -76,7 +77,10 @@ function Get-CaseFacts([string]$File) {
     $device = $line -match '\bneeds?\b[^.;]*\b(window|device|gpu|camera|clipboard|driver|display|peer|server|models?)\b'
     # A peer server the case names as "servers/<file>.aqua serving http://host:port" runs natively during its runs.
     $server = if ($line -match '\b(servers/[^\s)]+\.aqua) serving https?://[^\s:/)]+:(\d+)') { [pscustomobject]@{ Source = $Matches[1]; Port = [int]$Matches[2] } } else { $null }
-    return [pscustomobject]@{ Targets = $targets; NeedsDevice = $device; Server = $server }
+    $environment = @{}
+    $first = (Get-Content -LiteralPath $File -TotalCount 1 -Encoding UTF8) + ''
+    if ($first -match '\(environment ([^)]+)\)') { foreach ($pair in $Matches[1] -split ',\s*') { $name, $value = $pair -split '=', 2; $environment[$name.Trim()] = $value } }
+    return [pscustomobject]@{ Targets = $targets; NeedsDevice = $device; Server = $server; Environment = $environment }
 }
 
 # tests/downloads.json pins files a library's tests read that are not committed (models): each is downloaded once into
@@ -174,15 +178,15 @@ foreach ($folder in $folders) {
             $storage = Join-Path ([IO.Path]::GetTempPath()) ("aquarius-test-storage-" + [Guid]::NewGuid().ToString('N'))
             [void](New-Item -ItemType Directory -Path $storage)
             switch -Wildcard ($target) {
-                'windows-x64' { $run = Invoke-Captured (Join-Path $pack 'aquarius.exe') @($wasm) @{ AQUARIUS_STORAGE_ROOT = $storage } }
+                'windows-x64' { $run = Invoke-Captured (Join-Path $pack 'aquarius.exe') @($wasm) (@{ AQUARIUS_STORAGE_ROOT = $storage } + $facts.Environment) }
                 'linux-x64' {
                     # On Linux itself (CI) the pack runs directly; on Windows it runs in WSL.
                     if ($IsLinux) {
-                        $run = Invoke-Captured (Join-Path $pack 'aquarius') @($wasm) @{ AQUARIUS_STORAGE_ROOT = $storage } $tests
+                        $run = Invoke-Captured (Join-Path $pack 'aquarius') @($wasm) (@{ AQUARIUS_STORAGE_ROOT = $storage } + $facts.Environment) $tests
                     } else {
                         $env:MSYS_NO_PATHCONV = '1'
                         $run = Invoke-Captured 'wsl.exe' @('-d', $Distribution, '--cd', (ConvertTo-Wsl $tests), (ConvertTo-Wsl (Join-Path $pack 'aquarius')), (ConvertTo-Wsl $wasm)) `
-                            @{ AQUARIUS_STORAGE_ROOT = $storage; WSLENV = 'AQUARIUS_STORAGE_ROOT/p' }
+                            (@{ AQUARIUS_STORAGE_ROOT = $storage; WSLENV = (@('AQUARIUS_STORAGE_ROOT/p') + @($facts.Environment.Keys)) -join ':' } + $facts.Environment)
                     }
                 }
                 'web' { $run = Invoke-Captured 'node' @((Join-Path $PSScriptRoot 'web-run.mjs'), $pack, $wasm, '--timeout', "$TimeoutSeconds", '--fake-camera') }

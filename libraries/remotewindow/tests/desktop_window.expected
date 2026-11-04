@@ -1,0 +1,5 @@
+open remote sketch 120 80 120 80
+frame 120 80 [255, 0, 0, 255] [0, 0, 255, 255]
+input 15 10 真 真 A
+view 160 100 320 200 2
+closed 真 真

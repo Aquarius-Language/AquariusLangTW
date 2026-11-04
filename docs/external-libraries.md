@@ -121,6 +121,15 @@ aqua_define_function(module, "Query|查詢", query, "s");
 aqua_define_async(module, "QueryAsync|非同步查詢", query, "s");
 ```
 
+SDK API 4 adds remote windows (`aqua/remote_window.h`): a desktop runtime started with
+`AQUARIUS_REMOTE_WINDOW=host:port` shows every window on a viewer elsewhere (a WellPlay notebook output, a web page)
+instead of the screen. Input still arrives through `aqua_window_listen`, so libraries that only read events need
+nothing. A renderer of its own must handle the surface kind `AQUA_SURFACE_FRAMES` that `aqua_window_surface` then
+reports: draw offscreen and hand each finished frame (top-down RGBA8, the framebuffer size) to
+`aqua_window_present(window, rgba, width, height, stride)`, as the graphics library does. OpenGL renderers need no
+change: `aqua_window_swap` reads the frame back and presents it. Libraries built for API 3 keep loading; a renderer
+that does not know the new kind simply cannot show its window remotely.
+
 ## Installing and shipping
 
 `aqua bottle install` snapshots a library into the per-user cache with its manifest, Aquarius sources, assets and the

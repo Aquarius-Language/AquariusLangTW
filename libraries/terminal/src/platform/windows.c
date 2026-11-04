@@ -205,6 +205,41 @@ static void *supervise(void *data) {
     return NULL;
 }
 
+/* The child's environment block (UTF-16, NUL-separated, ending in an empty string): the runtime's, with the job's
+   variables set ("NAME=value") or removed ("NAME"); names compare without case, as Windows does. NULL: inherit. */
+static bool same_name(const wchar_t *entry, const wchar_t *variable) {
+    size_t n = wcscspn(variable, L"=");
+    return _wcsnicmp(entry, variable, n) == 0 && entry[n] == L'=';
+}
+static wchar_t *child_environment(const terminal_job *job) {
+    if (!job->variable_count) return NULL;
+    wchar_t **variables = calloc(job->variable_count, sizeof *variables);
+    for (uint32_t v = 0; v < job->variable_count; v++) variables[v] = wide(job->variables[v]);
+    wchar_t *current = GetEnvironmentStringsW();
+    text_buffer block = {0};
+    for (const wchar_t *e = current; e && *e; e += wcslen(e) + 1) {
+        bool replaced = false;
+        /* Entries such as "=C:=C:\\" (a drive's working directory) start with '=' and are kept. */
+        for (uint32_t v = 0; v < job->variable_count && !replaced && *e != L'='; v++) replaced = same_name(e, variables[v]);
+        if (replaced) continue;
+        for (const wchar_t *c = e; *c; c++) put(&block, *c);
+        put(&block, 0);
+    }
+    if (current) FreeEnvironmentStringsW(current);
+    for (uint32_t v = 0; v < job->variable_count; v++) {
+        bool later = false;   /* a name given twice: the last one counts */
+        size_t n = wcscspn(variables[v], L"=");
+        for (uint32_t w = v + 1; w < job->variable_count && !later; w++)
+            later = wcscspn(variables[w], L"=") == n && _wcsnicmp(variables[v], variables[w], n) == 0;
+        if (!later && variables[v][n] == L'=') { for (const wchar_t *c = variables[v]; *c; c++) put(&block, *c); put(&block, 0); }
+        free(variables[v]);
+    }
+    free(variables);
+    put(&block, 0);
+    put(&block, 0);
+    return block.data;
+}
+
 /* ---- terminal.h ---- */
 
 static void release(process *p) {
@@ -252,9 +287,12 @@ bool terminal_platform_start(terminal_job *job, char **error) {
               UpdateProcThreadAttribute(startup.lpAttributeList, 0, PROC_THREAD_ATTRIBUTE_HANDLE_LIST, inherited, sizeof inherited, NULL, NULL);
     PROCESS_INFORMATION info = {0};
     wchar_t *directory = job->directory ? wide(job->directory) : NULL;
-    if (ok) ok = CreateProcessW(NULL, command.data, NULL, NULL, TRUE, CREATE_NO_WINDOW | CREATE_SUSPENDED | EXTENDED_STARTUPINFO_PRESENT,
-                                NULL, directory, &startup.StartupInfo, &info);
+    wchar_t *environment = child_environment(job);
+    if (ok) ok = CreateProcessW(NULL, command.data, NULL, NULL, TRUE,
+                                CREATE_NO_WINDOW | CREATE_SUSPENDED | EXTENDED_STARTUPINFO_PRESENT | CREATE_UNICODE_ENVIRONMENT,
+                                environment, directory, &startup.StartupInfo, &info);
     DWORD code = GetLastError();
+    free(environment);
     DeleteProcThreadAttributeList(startup.lpAttributeList);
     free(startup.lpAttributeList);
     free(command.data);

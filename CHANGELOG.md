@@ -64,6 +64,12 @@ Tools:
   Kernel, Help) and File › Examples: a gallery of 26 ready-to-run notebooks (language, numbers, async and network,
   Processing graphics, SaturnUI, ImGui and Clay). `aqua well ...` runs it. See
   [tools/aqua_wellplay](tools/aqua_wellplay/README.md).
+- `aqua_wellplay`: live windows. Every window a cell opens (`p.run`, SaturnUI, ImGui, Clay, WGPU, OpenGL,
+  `Display.Sketch`) shows live in the cell's output instead of on the server's screen and takes the mouse, wheel,
+  touch, keyboard, input method and clipboard there, through remote windows: the server relays each program's stream to
+  the frontends over `/windows` without decoding frames, and the frontend paints it with a `RemoteWindow.Viewer` in a
+  SaturnUI `Immediate` widget. Replayed cells' windows close at once, so replays never wait for them.
+  `Display.Sketch(..., frames: 0)` and `Display.UI(..., frames: 0)` run until the window is closed.
 
 Compiler and CLI:
 - `aqua build --optimize` needs no OpenSSL: WABT's prebuilt `wasm2c` needed `libcrypto-3-x64.dll` on Windows (which
@@ -80,8 +86,25 @@ Runtime:
   that paints with `Saturn.Painter` each frame: WellPlay at 250 % scale, after a few seconds) failed with "Native
   resource table capacity exceeded" and then "Not a function: native value". The host now asks for a collection after
   16,384 new native objects and reuses the freed slots at once; a full table reports its own error for methods too.
+- Remote windows (SDK API 4, `aqua/remote_window.h`): with `AQUARIUS_REMOTE_WINDOW=host:port` (and
+  `AQUARIUS_REMOTE_WINDOW_TOKEN`) the desktop runtime shows every window it opens on a viewer elsewhere instead of the
+  screen, without a display: Processing, WGPU, OpenGL, ImGui, Clay and SaturnUI programs run unchanged. Frames go out
+  as the 64-pixel tiles that changed, losslessly compressed (QOI), with at most two frames waiting for the viewer;
+  input, the viewer's size and pixel density, the cursor, text input and the clipboard travel with them. The header is
+  the single definition of the wire format, with the encoders and decoders both ends use. Renderers see the surface
+  kind `AQUA_SURFACE_FRAMES` and present with `aqua_window_present`; OpenGL windows are read back on swap. Standard
+  output printed before a window opens is written before the window is announced, so a reader of both sees them in
+  order.
 
 Libraries:
+- `remotewindow` (new): `RemoteWindow` / `遠端視窗`, the remote window protocol on every target. `Viewer` decodes an
+  application's windows into images or UI draw lists that update only the regions that changed (for SaturnUI's
+  `Immediate`, `drawUI` and any renderer of the draw list) and sends input back, raw or as Interaction's events;
+  `Relay` forwards whole messages between an application and viewers that come and go (a notebook server) and can
+  close a window nobody should see; `Sender` lets any program show images on a viewer.
+- `terminal`: the `Environment` option sets (or, with `null`, leaves out) environment variables for the child.
+- `graphics`: windows whose surface is `AQUA_SURFACE_FRAMES` render offscreen and present each frame through the
+  runtime, so they can be shown remotely.
 - `graphics`: text keeps ink drawn outside its font's box. Each line is rasterized with a margin around its box, so an
   underscore below the descent (細明體/MingLiU, Chrome's monospace for Traditional Chinese, at some sizes and scales)
   shows instead of being cut off; boxes, layout and `textWidth` are unchanged.

@@ -28,6 +28,7 @@ struct gpu_device {
     WGPUQueue queue;
     aqua_window *window;
     void *surface_handle;    /* the OS surface it was made for: Android replaces it across pause/resume */
+    bool frames;             /* the window has no OS surface (a remote window): frames are read back and presented */
     WGPUSurface surface;
     WGPUSurfaceConfiguration config;
     bool configured;
@@ -380,8 +381,11 @@ void gpu_device_create(aqua_runtime *rt, aqua_window *window, gpu_device_done do
         d->window = window;
         aqua_surface s;
         if (aqua_window_surface(window, &s)) d->surface_handle = s.handle;
-        d->surface = gpu_surface_create(d->instance, window);
-        if (!d->surface) { finish_creation(d, "wgpu surface creation failed."); return; }
+        d->frames = s.kind == AQUA_SURFACE_FRAMES;
+        if (!d->frames) {
+            d->surface = gpu_surface_create(d->instance, window);
+            if (!d->surface) { finish_creation(d, "wgpu surface creation failed."); return; }
+        }
     }
     WGPURequestAdapterOptions options = WGPU_REQUEST_ADAPTER_OPTIONS_INIT;
     options.compatibleSurface = d->surface;
@@ -515,9 +519,34 @@ static void configure(gpu_device *d) {
     d->configured = true;
 }
 
+typedef struct frame_delivery { gpu_device *device; bool done; } frame_delivery;
+static void deliver_frame(void *data, const uint8_t *rgba, int width, int height, const char *error) {
+    frame_delivery *f = data;
+    if (rgba && !error) aqua_window_present(f->device->window, rgba, width, height, width * 4);
+    f->done = true;
+}
+
 bool gpu_device_present(gpu_device *d, gpu_target *target, char *error, size_t error_size) {
     if (!d->window) { snprintf(error, error_size, "This wgpu device has no window surface; create it with WGPU.CreateDevice(window)."); return false; }
     gpu_target_flush(target);
+    /* A remote window (aqua/remote_window.h): the finished frame is read back and handed to the window, which sends it
+       to its viewer. Native readbacks complete before gpu_target_read returns. */
+    if (d->frames) {
+        frame_delivery f = {d, false};
+        gpu_target *source = target, *converted = NULL;
+        if (gpu_target_format(target) != WGPUTextureFormat_RGBA8Unorm) {
+            /* Other formats (HDR, BGRA) are drawn into an RGBA8 copy first, as the blit to a window surface does. */
+            converted = gpu_target_create(d, gpu_target_width(target), gpu_target_height(target), WGPUTextureFormat_RGBA8Unorm);
+            if (converted) gpu_device_blit(d, gpu_texture_view(gpu_target_color(target)), gpu_texture_view(gpu_target_color(converted)), WGPUTextureFormat_RGBA8Unorm, 1);
+            source = converted;
+        }
+        if (source) gpu_target_read(source, deliver_frame, &f);
+        if (converted) gpu_target_free(converted);
+        gpu_device_release_retired(d);
+        const char *failure = gpu_device_take_error(d);
+        if (failure) { snprintf(error, error_size, "%s", failure); return false; }
+        return true;
+    }
     /* A window whose OS surface was replaced (Android after a pause) gets a new webgpu.h surface. */
     aqua_surface s;
     if (!aqua_window_surface(d->window, &s)) return true;

@@ -1,6 +1,7 @@
 /* aqua/window.h on Windows and Linux, over GLFW 3.4 (fetched and pinned by runtime/CMakeLists.txt). On Windows the
    window procedure is subclassed for input-method composition (IMM) and for libraries' message hooks (accessibility,
-   pointer capture). */
+   pointer capture). With AQUARIUS_REMOTE_WINDOW set, windows are remote (window_remote.c): a viewer shows them, and the
+   functions below hand each one's work there (an OpenGL one keeps a hidden GLFW window for its context). */
 #if defined(__linux__) && !defined(_GNU_SOURCE)
 #define _GNU_SOURCE
 #endif
@@ -26,6 +27,7 @@
 #include <string.h>
 #include "desktop.h"
 #include "window_desktop.h"
+#include "window_remote.h"
 #include "../../host/host.h"
 
 typedef struct listener { aqua_window_listener run; void *data; } listener;
@@ -37,6 +39,8 @@ struct aqua_window {
     double pointer_x, pointer_y; bool has_pointer;
     bool text_enabled, composing;
     int32_t keypad[11];     /* the key each held keypad key pressed (host_keypad_key), so its release matches */
+    remote_window *remote;  /* a window a viewer shows (then glfw is NULL, or a hidden window holding an OpenGL context) */
+    uint8_t *readback;      /* a remote OpenGL window's last frame, read on swap */
     aqua_window *next;
 #if defined(_WIN32)
     HWND hwnd;
@@ -79,7 +83,7 @@ static void ensure_glfw(void) {
 static aqua_window *of(GLFWwindow *g) { return glfwGetWindowUserPointer(g); }
 static void emit(aqua_window *w, aqua_window_event *e) {
     if (!w) return;
-    e->time = glfwGetTime();
+    e->time = w->remote ? remote_time() : glfwGetTime();
     /* Listeners may add or remove listeners: iterate a snapshot. */
     uint32_t n = w->listener_count;
     listener copy[16];
@@ -88,6 +92,15 @@ static void emit(aqua_window *w, aqua_window_event *e) {
     for (uint32_t i = 0; i < n; i++) list[i].run(w, e, list[i].data);
     if (list != copy) free(list);
 }
+void desktop_window_emit(aqua_window *w, aqua_window_event *e) { emit(w, e); }
+/* A remote OpenGL window renders into its hidden window at the viewer's pixel size. */
+void desktop_window_resized(aqua_window *w) {
+    if (!w->remote || !w->glfw) return;
+    int32_t width, height;
+    remote_framebuffer_size(w->remote, &width, &height);
+    glfwSetWindowSize(w->glfw, width, height);
+}
+
 static void on_key(GLFWwindow *g, int key, int scancode, int action, int mods) {
     aqua_window *w = of(g);
     aqua_window_event e = {AQUA_EVENT_KEY}; e.key = key; e.scancode = scancode; e.action = action; e.mods = mods; e.text = glfwGetKeyName(key, scancode);
@@ -255,7 +268,39 @@ static void wake_events(void) { if (initialized && windows) glfwPostEmptyEvent()
 
 void aqua_window_hint(int32_t hint, int32_t value) { ensure_glfw(); if (initialized) glfwWindowHint(hint, value); }
 
+static aqua_window *create_remote(aqua_runtime *rt, int32_t width, int32_t height, const char *title, uint32_t flags, char **error) {
+    aqua_window *w = calloc(1, sizeof *w);
+    w->rt = rt;
+    if (flags & AQUA_WINDOW_OPENGL) {
+        ensure_glfw();
+        if (initialized) {
+            glfwWindowHint(GLFW_CLIENT_API, GLFW_OPENGL_API);
+            glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
+            glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
+            glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
+            glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GLFW_TRUE);
+            glfwWindowHint(GLFW_VISIBLE, GLFW_FALSE);
+            glfwWindowHint(GLFW_SCALE_FRAMEBUFFER, GLFW_FALSE);
+            w->glfw = glfwCreateWindow(width > 0 ? width : 1, height > 0 ? height : 1, title ? title : "", NULL, NULL);
+        }
+        if (!w->glfw) {
+            const char *message = NULL;
+            if (initialized) glfwGetError(&message);
+            if (error) *error = strdup(message ? message : "A remote OpenGL window needs an OpenGL context, and none is available.");
+            free(w);
+            return NULL;
+        }
+        glfwSetWindowUserPointer(w->glfw, w);
+    }
+    w->remote = remote_open(w, width, height, title ? title : "", flags, error);
+    if (!w->remote) { if (w->glfw) glfwDestroyWindow(w->glfw); free(w); return NULL; }
+    w->next = windows;
+    windows = w;
+    return w;
+}
+
 aqua_window *aqua_window_create(aqua_runtime *rt, int32_t width, int32_t height, const char *title, uint32_t flags, char **error) {
+    if (remote_enabled()) return create_remote(rt, width, height, title, flags, error);
     ensure_glfw();
     if (!initialized) {
         const char *message = NULL;
@@ -315,6 +360,14 @@ void aqua_window_destroy(aqua_window *w) {
     aqua_window_event e = {AQUA_EVENT_DESTROYED};
     emit(w, &e);
     for (aqua_window **p = &windows; *p; p = &(*p)->next) if (*p == w) { *p = w->next; break; }
+    if (w->remote) {
+        remote_close(w->remote);
+        if (w->glfw) glfwDestroyWindow(w->glfw);
+        free(w->readback);
+        free(w->listeners);
+        free(w);
+        return;
+    }
 #if defined(_WIN32)
     SetWindowLongPtrW(w->hwnd, GWLP_WNDPROC, (LONG_PTR)w->previous);
     RemovePropW(w->hwnd, property_name);
@@ -326,15 +379,33 @@ void aqua_window_destroy(aqua_window *w) {
 }
 
 aqua_runtime *aqua_window_runtime(aqua_window *w) { return w->rt; }
-bool aqua_window_should_close(aqua_window *w) { return glfwWindowShouldClose(w->glfw); }
-void aqua_window_set_should_close(aqua_window *w, bool close) { glfwSetWindowShouldClose(w->glfw, close); }
-void aqua_window_size(aqua_window *w, int32_t *width, int32_t *height) { glfwGetWindowSize(w->glfw, width, height); }
-void aqua_window_framebuffer_size(aqua_window *w, int32_t *width, int32_t *height) { glfwGetFramebufferSize(w->glfw, width, height); }
-float aqua_window_content_scale(aqua_window *w) { float x = 1, y = 1; glfwGetWindowContentScale(w->glfw, &x, &y); return x; }
-void aqua_window_set_size(aqua_window *w, int32_t width, int32_t height) { glfwSetWindowSize(w->glfw, width, height); }
-void aqua_window_set_position(aqua_window *w, int32_t x, int32_t y) { glfwSetWindowPos(w->glfw, x, y); }
-void aqua_window_set_title(aqua_window *w, const char *title) { glfwSetWindowTitle(w->glfw, title); }
+bool aqua_window_should_close(aqua_window *w) { return w->remote ? remote_should_close(w->remote) : glfwWindowShouldClose(w->glfw); }
+void aqua_window_set_should_close(aqua_window *w, bool close) {
+    if (w->remote) remote_set_should_close(w->remote, close); else glfwSetWindowShouldClose(w->glfw, close);
+}
+void aqua_window_size(aqua_window *w, int32_t *width, int32_t *height) {
+    if (w->remote) remote_size(w->remote, width, height); else glfwGetWindowSize(w->glfw, width, height);
+}
+void aqua_window_framebuffer_size(aqua_window *w, int32_t *width, int32_t *height) {
+    if (w->remote && w->glfw) glfwGetFramebufferSize(w->glfw, width, height);   /* the hidden window follows the viewer */
+    else if (w->remote) remote_framebuffer_size(w->remote, width, height);
+    else glfwGetFramebufferSize(w->glfw, width, height);
+}
+float aqua_window_content_scale(aqua_window *w) {
+    if (w->remote) return remote_scale(w->remote);
+    float x = 1, y = 1;
+    glfwGetWindowContentScale(w->glfw, &x, &y);
+    return x;
+}
+void aqua_window_set_size(aqua_window *w, int32_t width, int32_t height) {
+    if (w->remote) remote_set_size(w->remote, width, height); else glfwSetWindowSize(w->glfw, width, height);
+}
+void aqua_window_set_position(aqua_window *w, int32_t x, int32_t y) { if (!w->remote) glfwSetWindowPos(w->glfw, x, y); }
+void aqua_window_set_title(aqua_window *w, const char *title) {
+    if (w->remote) remote_set_title(w->remote, title); else glfwSetWindowTitle(w->glfw, title);
+}
 bool aqua_window_set_fullscreen(aqua_window *w, bool fullscreen) {
+    if (w->remote) return false;
     GLFWmonitor *monitor = glfwGetPrimaryMonitor();
     const GLFWvidmode *mode = monitor ? glfwGetVideoMode(monitor) : NULL;
     if (!mode) return false;
@@ -342,9 +413,10 @@ bool aqua_window_set_fullscreen(aqua_window *w, bool fullscreen) {
     else glfwSetWindowMonitor(w->glfw, NULL, mode->width / 4, mode->height / 4, mode->width / 2, mode->height / 2, 0);
     return true;
 }
-bool aqua_window_focused(aqua_window *w) { return glfwGetWindowAttrib(w->glfw, GLFW_FOCUSED) != 0; }
+bool aqua_window_focused(aqua_window *w) { return w->remote ? remote_focused(w->remote) : glfwGetWindowAttrib(w->glfw, GLFW_FOCUSED) != 0; }
 bool aqua_display_size(aqua_runtime *rt, int32_t *width, int32_t *height) {
     (void)rt;
+    if (remote_enabled()) return false;   /* the viewer's screen is not this machine's */
     ensure_glfw();
     GLFWmonitor *monitor = initialized ? glfwGetPrimaryMonitor() : NULL;
     const GLFWvidmode *mode = monitor ? glfwGetVideoMode(monitor) : NULL;
@@ -353,21 +425,35 @@ bool aqua_display_size(aqua_runtime *rt, int32_t *width, int32_t *height) {
     return true;
 }
 
-void aqua_windows_poll(aqua_runtime *rt) { (void)rt; if (initialized) glfwPollEvents(); }
-double aqua_window_time(aqua_runtime *rt) { ensure_glfw(); return initialized ? glfwGetTime() : aqua_now_ms(rt) / 1000.0; }
+void aqua_windows_poll(aqua_runtime *rt) {
+    (void)rt;
+    if (remote_enabled()) remote_poll();
+    if (initialized) glfwPollEvents();
+}
+double aqua_window_time(aqua_runtime *rt) {
+    if (remote_enabled()) return remote_time();
+    ensure_glfw();
+    return initialized ? glfwGetTime() : aqua_now_ms(rt) / 1000.0;
+}
 
 int32_t aqua_window_key(aqua_window *w, int32_t key) {
+    if (w->remote) return remote_key(w->remote, key);
     for (int i = 0; i < 11; i++) if (w->keypad[i] == key && key != GLFW_KEY_KP_0 + i) return GLFW_PRESS;   /* a navigation key held on the keypad */
     if (key >= GLFW_KEY_KP_0 && key <= GLFW_KEY_KP_DECIMAL && w->keypad[key - GLFW_KEY_KP_0] != 0 && w->keypad[key - GLFW_KEY_KP_0] != key) return GLFW_RELEASE;
     return glfwGetKey(w->glfw, key);
 }
-int32_t aqua_window_mouse_button(aqua_window *w, int32_t button) { return glfwGetMouseButton(w->glfw, button); }
-void aqua_window_cursor(aqua_window *w, double *x, double *y) { glfwGetCursorPos(w->glfw, x, y); }
+int32_t aqua_window_mouse_button(aqua_window *w, int32_t button) {
+    return w->remote ? remote_mouse_button(w->remote, button) : glfwGetMouseButton(w->glfw, button);
+}
+void aqua_window_cursor(aqua_window *w, double *x, double *y) { if (w->remote) remote_cursor(w->remote, x, y); else glfwGetCursorPos(w->glfw, x, y); }
 void aqua_window_set_cursor_mode(aqua_window *w, int32_t mode) {
+    /* A viewer can hide its pointer but not lock it: disabled (relative motion) shows as hidden. */
+    if (w->remote) { remote_set_cursor(w->remote, mode == GLFW_CURSOR_NORMAL ? 0 : -1); return; }
     glfwSetInputMode(w->glfw, GLFW_CURSOR, mode);
     if (mode == GLFW_CURSOR_DISABLED && glfwRawMouseMotionSupported()) glfwSetInputMode(w->glfw, GLFW_RAW_MOUSE_MOTION, GLFW_TRUE);
 }
 bool aqua_window_set_cursor_shape(aqua_window *w, int32_t shape) {
+    if (w->remote) { remote_set_cursor(w->remote, shape); return true; }
     GLFWcursor *cursor = shape ? glfwCreateStandardCursor(shape) : NULL;
     if (shape && !cursor) return false;
     glfwSetCursor(w->glfw, cursor);
@@ -376,6 +462,7 @@ bool aqua_window_set_cursor_shape(aqua_window *w, int32_t shape) {
     return true;
 }
 bool aqua_window_set_cursor_image(aqua_window *w, int32_t width, int32_t height, const uint8_t *rgba, int32_t hot_x, int32_t hot_y) {
+    if (w->remote) return false;
     GLFWimage image = {width, height, (unsigned char *)rgba};
     GLFWcursor *cursor = glfwCreateCursor(&image, hot_x, hot_y);
     if (!cursor) return false;
@@ -386,6 +473,7 @@ bool aqua_window_set_cursor_image(aqua_window *w, int32_t width, int32_t height,
 }
 bool aqua_window_capture_pointer(aqua_window *w, bool capture) {
 #if defined(_WIN32)
+    if (w->remote) return false;   /* the viewer keeps a pressed pointer's events itself */
     if (capture) { SetCapture(w->hwnd); return GetCapture() == w->hwnd; }
     return ReleaseCapture() != 0;
 #else
@@ -413,6 +501,7 @@ void aqua_window_unlisten(aqua_window *w, aqua_window_listener run, void *data) 
 
 void aqua_window_text_input(aqua_window *w, bool enabled) {
     if (w->text_enabled == enabled) return;
+    if (w->remote) { w->text_enabled = enabled; remote_text_input(w->remote, enabled); return; }
 #if defined(_WIN32)
     if (!enabled && w->composing) {
         HIMC context = ImmGetContext(w->hwnd);
@@ -424,6 +513,7 @@ void aqua_window_text_input(aqua_window *w, bool enabled) {
 }
 bool aqua_window_text_input_enabled(aqua_window *w) { return w && w->text_enabled; }
 void aqua_window_text_rect(aqua_window *w, int32_t x, int32_t y, int32_t width, int32_t height) {
+    if (w->remote) { remote_text_rect(w->remote, x, y, width, height); return; }
 #if defined(_WIN32)
     w->caret.left = x; w->caret.top = y; w->caret.right = x + width; w->caret.bottom = y + height;
     if (w->text_enabled) position_ime(w);
@@ -432,7 +522,7 @@ void aqua_window_text_rect(aqua_window *w, int32_t x, int32_t y, int32_t width, 
 #endif
 }
 bool aqua_window_composition_supported(aqua_window *w) {
-    (void)w;
+    if (w->remote) return true;   /* the viewer's input method composes */
 #if defined(_WIN32)
     return true;
 #else
@@ -442,6 +532,11 @@ bool aqua_window_composition_supported(aqua_window *w) {
 
 bool aqua_window_surface(aqua_window *w, aqua_surface *s) {
     memset(s, 0, sizeof *s);
+    if (w->remote) {
+        if (w->glfw) return false;   /* OpenGL: frames go out on swap */
+        s->kind = AQUA_SURFACE_FRAMES; s->handle = (void *)(uintptr_t)remote_id(w->remote);
+        return true;
+    }
 #if defined(_WIN32)
     s->kind = AQUA_SURFACE_WIN32; s->display = GetModuleHandleW(NULL); s->handle = w->hwnd;
     return true;
@@ -458,19 +553,70 @@ bool aqua_window_surface(aqua_window *w, aqua_surface *s) {
 #endif
 }
 
-void aqua_window_make_current(aqua_window *w) { glfwMakeContextCurrent(w ? w->glfw : NULL); }
-void aqua_window_swap(aqua_window *w) { glfwSwapBuffers(w->glfw); }
-void aqua_window_swap_interval(aqua_runtime *rt, int32_t interval) { (void)rt; glfwSwapInterval(interval); }
+void aqua_window_make_current(aqua_window *w) { if (initialized) glfwMakeContextCurrent(w ? w->glfw : NULL); }
+
+/* A remote OpenGL window's frame: the back buffer of its hidden window, read before the swap and turned top-down. */
+typedef void (*gl_get_integer)(uint32_t name, int32_t *value);
+typedef void (*gl_bind_framebuffer)(uint32_t target, uint32_t framebuffer);
+typedef void (*gl_set_int)(uint32_t name, int32_t value);
+typedef void (*gl_read_buffer)(uint32_t mode);
+typedef void (*gl_read_pixels)(int32_t x, int32_t y, int32_t width, int32_t height, uint32_t format, uint32_t type, void *pixels);
+enum { GL_READ_FRAMEBUFFER_ = 0x8CA8, GL_READ_FRAMEBUFFER_BINDING_ = 0x8CAA, GL_PACK_ALIGNMENT_ = 0x0D05, GL_BACK_ = 0x0405,
+       GL_READ_BUFFER_ = 0x0C02, GL_RGBA_ = 0x1908, GL_UNSIGNED_BYTE_ = 0x1401 };
+static void present_gl(aqua_window *w) {
+    gl_get_integer get = (gl_get_integer)glfwGetProcAddress("glGetIntegerv");
+    gl_bind_framebuffer bind = (gl_bind_framebuffer)glfwGetProcAddress("glBindFramebuffer");
+    gl_set_int pack = (gl_set_int)glfwGetProcAddress("glPixelStorei");
+    gl_read_buffer read_buffer = (gl_read_buffer)glfwGetProcAddress("glReadBuffer");
+    gl_read_pixels read = (gl_read_pixels)glfwGetProcAddress("glReadPixels");
+    if (!get || !bind || !pack || !read_buffer || !read) return;
+    int32_t width, height;
+    glfwGetFramebufferSize(w->glfw, &width, &height);
+    if (width <= 0 || height <= 0) return;
+    size_t row = (size_t)width * 4;
+    uint8_t *pixels = realloc(w->readback, row * (size_t)height * 2);
+    if (!pixels) return;
+    w->readback = pixels;
+    int32_t framebuffer = 0, alignment = 4, source = GL_BACK_;
+    get(GL_READ_FRAMEBUFFER_BINDING_, &framebuffer);
+    get(GL_PACK_ALIGNMENT_, &alignment);
+    get(GL_READ_BUFFER_, &source);
+    bind(GL_READ_FRAMEBUFFER_, 0);
+    read_buffer(GL_BACK_);
+    pack(GL_PACK_ALIGNMENT_, 1);
+    uint8_t *flipped = pixels + row * (size_t)height;
+    read(0, 0, width, height, GL_RGBA_, GL_UNSIGNED_BYTE_, flipped);
+    pack(GL_PACK_ALIGNMENT_, alignment);
+    bind(GL_READ_FRAMEBUFFER_, (uint32_t)framebuffer);
+    if (framebuffer) read_buffer((uint32_t)source);
+    for (int32_t y = 0; y < height; y++) memcpy(pixels + (size_t)y * row, flipped + (size_t)(height - 1 - y) * row, row);
+    remote_present(w->remote, pixels, width, height, (int32_t)row);
+}
+void aqua_window_swap(aqua_window *w) {
+    if (w->remote) { if (w->glfw) { present_gl(w); glfwSwapBuffers(w->glfw); } return; }
+    glfwSwapBuffers(w->glfw);
+}
+void aqua_window_swap_interval(aqua_runtime *rt, int32_t interval) {
+    (void)rt;
+    /* A hidden window has no display to wait for: remote OpenGL windows swap at once. */
+    if (initialized) glfwSwapInterval(remote_enabled() ? 0 : interval);
+}
+
+bool aqua_window_present(aqua_window *w, const uint8_t *rgba, int32_t width, int32_t height, int32_t stride) {
+    return w && w->remote && !w->glfw && remote_present(w->remote, rgba, width, height, stride);
+}
 void *aqua_gl_proc(const char *name) { return (void *)glfwGetProcAddress(name); }
 
 char *aqua_clipboard_text(aqua_runtime *rt) {
     (void)rt;
+    if (remote_enabled()) return remote_clipboard_text();
     ensure_glfw();
     const char *text = initialized ? glfwGetClipboardString(NULL) : NULL;
     return text ? strdup(text) : NULL;
 }
 bool aqua_clipboard_set_text(aqua_runtime *rt, const char *utf8) {
     (void)rt;
+    if (remote_enabled()) return remote_clipboard_set(utf8);
     ensure_glfw();
     if (!initialized) return false;
     glfwSetClipboardString(NULL, utf8);
@@ -478,6 +624,7 @@ bool aqua_clipboard_set_text(aqua_runtime *rt, const char *utf8) {
 }
 
 void *aqua_window_native(aqua_window *w) {
+    if (w->remote) return NULL;
 #if defined(_WIN32)
     return w->hwnd;
 #elif defined(AQUA_GLFW_X11)

@@ -130,6 +130,11 @@ bool aqua_window_surface(aqua_window *w, aqua_surface *s) {
 void aqua_window_make_current(aqua_window *w) { (void)w; } /* WebGL contexts belong to their canvas */
 void aqua_window_swap(aqua_window *w) { (void)w; }       /* the browser presents after each animation frame */
 void aqua_window_swap_interval(aqua_runtime *rt, int32_t interval) { (void)rt; (void)interval; }
+/* Windows here are always on this screen (remote windows are a desktop runtime's, aqua/remote_window.h). */
+bool aqua_window_present(aqua_window *w, const uint8_t *rgba, int32_t width, int32_t height, int32_t stride) {
+    (void)w; (void)rgba; (void)width; (void)height; (void)stride;
+    return false;
+}
 void *aqua_gl_proc(const char *name) { (void)name; return NULL; } /* gl* functions are glue imports by name */
 char *aqua_clipboard_text(aqua_runtime *rt) { (void)rt; return web_clipboard_text(); }
 bool aqua_clipboard_set_text(aqua_runtime *rt, const char *utf8) { (void)rt; return web_clipboard_set_text(utf8) != 0; }

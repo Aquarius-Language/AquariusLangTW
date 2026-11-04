@@ -1,0 +1,28 @@
+# Needs child processes (Windows, Linux or Android): Environment sets and removes the child's variables (null removes);
+# the runtime's own environment and other children keep theirs.
+var Terminal = import("Terminal");
+var Network = import("Network");
+var windows = isOSWindows();
+var clean = text => String.Trim(String.Replace(text, String.FromCode(13), ""));
+
+# 設定兩個變數；null 表示不給子程序這個變數。 / Set two variables; null leaves one out of the child's environment.
+var variables = {"AQUA_ONE": "aqua one", "AQUA_TWO": "2", "AQUA_GONE": null};
+var shown = if (windows) { Terminal.Run("cmd.exe", ["/d", "/c", "set AQUA_& if defined AQUA_GONE (echo AQUA_GONE set) else (echo AQUA_GONE unset)"], {"Environment": variables}); }
+    else { Terminal.Run("/bin/sh", ["-c", "echo AQUA_ONE=$AQUA_ONE; echo AQUA_TWO=$AQUA_TWO; echo AQUA_GONE ${AQUA_GONE:-unset}"], {"Environment": variables}); };
+print(clean(shown.StandardOutput));
+
+# 其他子程序不受影響。 / Other children are unaffected.
+var plain = if (windows) { Terminal.Run("cmd.exe", ["/d", "/c", "if defined AQUA_ONE (echo AQUA_ONE set) else (echo AQUA_ONE unset)"]); }
+    else { Terminal.Run("/bin/sh", ["-c", "echo AQUA_ONE ${AQUA_ONE:-unset}"]); };
+print(clean(plain.StandardOutput));
+
+# Start 也接受。 / Start takes it too.
+var started = if (windows) { Terminal.Start("cmd.exe", ["/d", "/c", "echo %AQUA_THREE%"], {"Environment": {"AQUA_THREE": "three"}}); }
+    else { Terminal.Start("/bin/sh", ["-c", "echo $AQUA_THREE"], {"Environment": {"AQUA_THREE": "three"}}); };
+print(clean(started.Wait().StandardOutput));
+
+# 檢查。 / Checks.
+print(Network.Try(() => Terminal.Run("cmd", [], {"Environment": "A=1"})).Error.Message);
+print(Network.Try(() => Terminal.Run("cmd", [], {"Environment": {"A=B": "1"}})).Error.Message);
+print(Network.Try(() => Terminal.Run("cmd", [], {"Environment": {"A": 1}})).Error.Message);
+var done = true;
