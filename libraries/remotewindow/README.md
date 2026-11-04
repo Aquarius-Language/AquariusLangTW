@@ -23,7 +23,8 @@ var listener = Network.ListenTCP("127.0.0.1", 18791);
 var stream = listener.Accept(5000);
 var viewer = RW.Viewer(token);                     # the token the application was given, or no argument
 var records = viewer.Feed(stream.Read(1 << 20));   # [{"type": "hello" | "open" | "frame" | ..., "window", ...}]
-var list = viewer.Paint(id, x, y, width, height);  # a UI draw list: hand it to p.drawUI, return it from Immediate.paint
+var list = viewer.Paint(id, x, y, width, height);  # a UI draw list for p.drawUI (an Immediate widget's paint draws in
+                                                   # its own coordinates: Paint(id, 0, 0, w, h))
 viewer.Send(id, event);                            # input, raw or as Interaction's events
 stream.Write(viewer.Outgoing());                   # acknowledgements, input and sizes back to the application
 ```
@@ -39,7 +40,7 @@ stream.Write(viewer.Outgoing());                   # acknowledgements, input and
 | `View(id, width, height[, scale])` / `檢視` | the size to show the window at (logical units; the application's window takes it) and the viewer's pixel density (the application renders that many pixels per unit). Also how a viewer attaches: the application sends its next frame whole |
 | `Paste(text)` / `貼上` | the viewer's clipboard text, for the application's next paste |
 | `Close(id)` / `關閉` | asks the window to close, as its close button would |
-| `ImeRect(id)` / `輸入法位置` | `[x, y, width, height]` of the text caret relative to the painted rectangle while the window takes text, else null (SaturnUI's `Immediate.ime`) |
+| `ImeRect(id)` / `輸入法位置` | `{x, y, width, height}` of the text caret relative to the painted rectangle while the window takes text, else null (what SaturnUI's `Immediate.ime` returns) |
 | `Forget(id)` / `移除` | drops a closed window; returns a draw list that frees its texture in the renderer |
 
 `Send` takes either shape of event hash, so any UI library can host a remote window:

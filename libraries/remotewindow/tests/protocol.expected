@@ -12,7 +12,7 @@ frame [frame] 2
 update 11 64 64 36 6 864 10
 pixel [255, 0, 0, 255]
 state [title, cursor, text, clipboard] renamed hand 真 copied
-ime [20, 40, 4, 32]
+ime 20 40 4 32
 真
 derived 假 假
 event 1 button 25 17.5 0 1 1 0 0 mouse  0 null

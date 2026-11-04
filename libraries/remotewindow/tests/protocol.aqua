@@ -56,7 +56,8 @@ sender.TextInput(id, true, 10, 20, 2, 16);
 sender.Clipboard("copied");
 got = viewer.Feed(sender.Outgoing());
 print("state", types(got), got[0]["title"], got[1]["cursor"], got[2]["enabled"], got[3]["text"]);
-print("ime", viewer.ImeRect(id));
+var caret = viewer.ImeRect(id);
+print("ime", caret["x"], caret["y"], caret["width"], caret["height"]);
 
 # Input. Positions are relative to the painted rectangle (200 x 140 for a 100 x 70 window: halved).
 print(viewer.Send(id, {"type": "press", "x": 50, "y": 35, "button": 0, "modifiers": 1, "pointerType": "mouse"}));

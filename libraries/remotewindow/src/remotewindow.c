@@ -598,8 +598,8 @@ static void viewer_close(aqua_call *call) {
     aqua_return_null(call);
 }
 
-/* ImeRect(window): where the window's text caret is, relative to the rectangle it was last painted in, while it takes
-   text input; null otherwise. */
+/* ImeRect(window): {x, y, width, height} of the window's text caret, relative to the rectangle it was last painted in,
+   while it takes text input (SaturnUI's Immediate.ime); null otherwise. */
 static void viewer_ime_rect(aqua_call *call) {
     viewer *v = aqua_self(call);
     aqua_runtime *rt = aqua_call_runtime(call);
@@ -607,8 +607,12 @@ static void viewer_ime_rect(aqua_call *call) {
     if (!w) return;
     if (!w->text_enabled || w->closed) { aqua_return_null(call); return; }
     double sx = w->painted_width > 0 ? w->painted_width / w->width : 1, sy = w->painted_height > 0 ? w->painted_height / w->height : 1;
-    double rect[4] = {w->text[0] * sx, w->text[1] * sy, w->text[2] * sx, w->text[3] * sy};
-    aqua_return(call, aqua_array_from_f64(rt, rect, 4, AQUA_DOUBLE));
+    aqua_value rect = aqua_hash_new(rt, 4);
+    aqua_hash_set_field(rt, rect, "x", aqua_double(w->text[0] * sx));
+    aqua_hash_set_field(rt, rect, "y", aqua_double(w->text[1] * sy));
+    aqua_hash_set_field(rt, rect, "width", aqua_double(w->text[2] * sx));
+    aqua_hash_set_field(rt, rect, "height", aqua_double(w->text[3] * sy));
+    aqua_return(call, rect);
 }
 
 /* Forget(window): drops a closed window (and frees its texture in the renderer the returned draw list goes to). */
