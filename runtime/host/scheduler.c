@@ -69,6 +69,15 @@ static void process_posts(aqua_runtime *rt) {
     while (ordered) { posted *next = ordered->next; ordered->run(rt, ordered->data); free(ordered); ordered = next; }
 }
 
+#if defined(AQUA_OS_WEB)
+/* A deferred call nobody waits for any more; aqua_resolve frees it when the library settles it. */
+static void abandon(aqua_pending *pending) {
+    if (!pending) return;
+    pending->task = NULL;
+    pending->abandoned = true;
+}
+#endif
+
 /* Runs a task that is not on the loop's list until it finishes. Waiting for a deferred result is allowed natively,
    where the platform keeps delivering posted work; the web cannot block its only thread. */
 static void delivered(aqua_runtime *rt, bool ok, aqua_value result, void *data) { (void)rt; (void)ok; (void)result; (void)data; }
@@ -78,6 +87,9 @@ static bool run_to_end(aqua_runtime *rt, task *t) {
         uint32_t status = run_slice(rt, t);
         if (status != G_STATUS_Suspended || t->finished) continue;
 #if defined(AQUA_OS_WEB)
+        /* The library still holds the deferred call and settles it later: detach it from this task, which ends now. */
+        abandon(t->pending);
+        t->pending = NULL;
         task_finish(rt, t, false, host_error(rt, "This call cannot wait for an asynchronous operation on the web; call it from the main script or an event handler."));
         return false;
 #else
@@ -115,13 +127,15 @@ bool aqua_invoke(aqua_runtime *rt, aqua_value function, const aqua_value *argume
         outcome = call_native(rt, function.ref, arguments, count, 0, &pending);
         if (pending) {
 #if defined(AQUA_OS_WEB)
-            outcome = host_error(rt, "This call cannot wait for an asynchronous operation on the web.");
+            if (!pending->settled) {
+                outcome = host_error(rt, "This call cannot wait for an asynchronous operation on the web.");
+                abandon(pending); /* the library settles it later */
+                pending = NULL;
+            }
 #else
             while (!pending->settled) { process_posts(rt); if (!pending->settled) platform_wait(rt, 50); }
-            outcome = pending->result;
-            aqua_release(rt, pending->result_ref);
 #endif
-            free(pending);
+            if (pending) { outcome = pending->result; aqua_release(rt, pending->result_ref); free(pending); }
         }
         ok = outcome.type != AQUA_ERROR;
     } else {
@@ -172,6 +186,7 @@ void aqua_resolve(aqua_pending *pending, aqua_value result) {
     pending->settled = true;
     if (pending->promise) { promise_settle_pending(rt, pending->promise, result); free(pending); return; }
     task *t = pending->task;
+    if (!t && pending->abandoned) { free(pending); return; }
     if (!t) { pending->result = result; pending->result_ref = aqua_retain(rt, result); return; } /* a synchronous waiter takes it */
     t->pending = NULL;
     if (t->execution) {

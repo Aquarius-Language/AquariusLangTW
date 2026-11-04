@@ -121,7 +121,8 @@ typedef struct handle {
 /* ---- Scheduling. ------------------------------------------------------------------------------------------------ */
 typedef struct task task;
 struct aqua_pending { aqua_runtime *rt; task *task; bool settled; aqua_value result; aqua_ref result_ref; struct promise *promise;
-    bool awaiting; /* an await of a promise: only other tasks can settle it, nothing outside keeps it alive */ };
+    bool awaiting; /* an await of a promise: only other tasks can settle it, nothing outside keeps it alive */
+    bool abandoned; /* its caller gave up waiting (the web cannot block): the library's later result is dropped */ };
 struct task {
     uint32_t execution;      /* guest Execution* */
     aqua_pending *pending;   /* while waiting for a deferred library call */

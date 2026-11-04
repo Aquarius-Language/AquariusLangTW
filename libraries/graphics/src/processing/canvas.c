@@ -44,7 +44,10 @@ canvas *gfx_canvas_new(processing *p, int width, int height, bool is3d, bool off
 }
 
 bool gfx_canvas_initialize(aqua_call *call, canvas *c, gpu_device *device) {
-    c->target = gpu_target_create(device, c->pixel_width, c->pixel_height, c->color_format);
+    /* A window with no pixels yet (a web page still laying out its canvas) gets a 1x1 target, which gfx_canvas_bind
+       resizes once the window has a size: a texture of size zero is invalid and fails every pass drawn into it. */
+    int width = c->pixel_width > 0 ? c->pixel_width : 1, height = c->pixel_height > 0 ? c->pixel_height : 1;
+    c->target = gpu_target_create(device, width, height, c->color_format);
     if (!c->target) { gfx_fail(call, "wgpu render target creation failed."); return false; }
     if (c->offscreen) {
         pimage *surface = calloc(1, sizeof *surface);
