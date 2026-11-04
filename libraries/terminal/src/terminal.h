@@ -49,6 +49,8 @@ typedef struct terminal_job {
     uint32_t count;
     char *directory;           /* working directory, or NULL for the runtime's */
     int32_t timeout_ms;        /* 0: no limit (Start without TimeoutMs) */
+    char **variables;          /* Environment: "NAME=value" sets, "NAME" removes; the rest is the runtime's */
+    uint32_t variable_count;
 
     int32_t exit_code;         /* -1 after a timeout */
     bool timed_out;

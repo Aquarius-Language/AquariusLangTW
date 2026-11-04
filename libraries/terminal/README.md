@@ -30,8 +30,9 @@ server.Kill();
 print(server.Wait().ExitCode);
 ```
 
-Options: `TimeoutMs` (integer 1..3,600,000, default 60,000; `Start` has no limit unless given) and `WorkingDirectory`;
-`Start` also takes `OnOutput` and `OnError`, functions called with each piece of text (whole UTF-8 sequences) on the
+Options: `TimeoutMs` (integer 1..3,600,000, default 60,000; `Start` has no limit unless given), `WorkingDirectory` and
+`Environment` (a map of variable names to strings the child gets on top of the runtime's environment; `null` leaves a
+variable out; names compare without case on Windows); `Start` also takes `OnOutput` and `OnError`, functions called with each piece of text (whole UTF-8 sequences) on the
 runtime's thread, one call at a time per process and in order (a callback may be an async function that waits, such
 as one sending the text over a network; the next piece waits for it). Unknown options and wrong types fail
 before anything starts, with the old messages (`Terminal / 終端機.Run: Unknown terminal option.`). Executable paths
@@ -74,4 +75,5 @@ None: Win32 and winpthreads (linked statically) on Windows, POSIX and pthreads e
 
 `tests/processes.aqua` (echo, exit codes, closed standard input, argument boundaries, working directory, timeout),
 `tests/streaming.aqua` (`Start`: streamed output in order, waiting callbacks, `Wait` / `WaitAsync`, `Kill`),
+`tests/environment.aqua` (variables set and left out for one child only),
 `tests/validation.aqua` (desktop and Android) and `tests/unsupported.aqua` (web).

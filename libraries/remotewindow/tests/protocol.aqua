@@ -1,0 +1,129 @@
+# The protocol in one script, on every target: a Sender's window, frames, title, cursor and text input reach a Viewer;
+# the Viewer's input (raw and Interaction-shaped events, its size, the clipboard) reaches the Sender.
+var RW = import("RemoteWindow");
+var Network = import("Network");
+print("version", RW.VERSION, RW.版本);
+
+var sender = RW.Sender("secret");
+var viewer = RW.Viewer("secret");
+var types = list => Array.Map(list, r => r["type"]);
+
+# A 100 x 70 frame: red, a blue square from (64, 64) on. Tiles are 64 x 64, so it spans four.
+var frame = function(blueFrom) {
+    var bytes = [];
+    for (var y = 0; y < 70; y++) {
+        for (var x = 0; x < 100; x++) {
+            if (x >= blueFrom && y >= blueFrom) { Array.Append(bytes, 0); Array.Append(bytes, 0); Array.Append(bytes, 255); }
+            else { Array.Append(bytes, 255); Array.Append(bytes, 0); Array.Append(bytes, 0); }
+            Array.Append(bytes, 7);    # alpha: windows are opaque, so it arrives as 255
+        }
+    }
+    return bytes;
+};
+var id = sender.Open(100, 70, "星泉 window");
+print("number", sender.Frame(id, frame(64), 100, 70), sender.Behind(id));
+var got = viewer.Feed(sender.Outgoing());
+print("feed", types(got), got[1]["title"], got[2]["width"], got[2]["height"], got[2]["number"]);
+var w = viewer.Window(id);
+print("window", w["width"], w["height"], w["frameWidth"], w["cursor"], w["textInput"], w["closed"]);
+var image = viewer.Image(id);
+var pixels = image.Pixels();
+var at = (x, y) => Array.Slice(pixels, (y * 100 + x) * 4, (y * 100 + x) * 4 + 4);
+print("image", image.width, image.height, at(0, 0), at(70, 66));
+
+# Painting: the first list carries the whole frame as a texture, then a textured quad.
+var list = viewer.Paint(id, 10, 20, 200, 140);
+var c = list["commands"];
+print("paint", c[0], c[2], c[3], c[5], c[6], c[7], c[8], len(list["images"][0]), c[9], len(list["vertices"]), list["indices"]);
+print("quad", Array.Slice(list["vertices"], 0, 4), Array.Slice(list["vertices"], 16, 20));
+print("acknowledged", sender.Feed(viewer.Outgoing()), sender.Behind(id));
+
+# The same frame again: nothing changed, nothing sent. A changed blue square: only the tiles that changed.
+print("unchanged", sender.Frame(id, frame(64), 100, 70));
+print("changed", sender.Frame(id, frame(66), 100, 70), sender.Behind(id));
+got = viewer.Feed(sender.Outgoing());
+print("frame", types(got), got[0]["number"]);
+list = viewer.Paint(id, 10, 20, 200, 140);
+c = list["commands"];
+# One row of changed tiles (64..100, 64..70), then the quad.
+print("update", c[0], c[5], c[6], c[7], c[8], len(list["images"][0]), c[9]);
+print("pixel", Array.Slice(viewer.Image(id).Pixels(), (65 * 100 + 65) * 4, (65 * 100 + 65) * 4 + 4));
+
+# Title, cursor, text input and the clipboard.
+sender.Title(id, "renamed");
+sender.Cursor(id, "hand");
+sender.TextInput(id, true, 10, 20, 2, 16);
+sender.Clipboard("copied");
+got = viewer.Feed(sender.Outgoing());
+print("state", types(got), got[0]["title"], got[1]["cursor"], got[2]["enabled"], got[3]["text"]);
+print("ime", viewer.ImeRect(id));
+
+# Input. Positions are relative to the painted rectangle (200 x 140 for a 100 x 70 window: halved).
+print(viewer.Send(id, {"type": "press", "x": 50, "y": 35, "button": 0, "modifiers": 1, "pointerType": "mouse"}));
+viewer.Send(id, {"type": "drag", "x": 60, "y": 40, "button": 0});
+viewer.Send(id, {"type": "release", "x": 60, "y": 40, "button": 0});
+viewer.Send(id, {"type": "key", "key": 65, "action": "press", "modifiers": 2, "text": "A"});
+viewer.Send(id, {"type": "text", "text": "星"});
+viewer.Send(id, {"type": "composition", "phase": "update", "text": "ㄒ", "cursor": 1});
+viewer.Send(id, {"type": "scroll", "x": 50, "y": 35, "dx": 0, "dy": -80, "conventions": {"wheelStep": 40}});
+viewer.Send(id, {"type": "zoom", "scale": 1.21d});
+viewer.Send(id, {"type": "focus", "state": false});
+viewer.Send(id, {"type": "pointer", "x": 20, "y": 10, "pointerType": "touch", "pointer": 3});
+viewer.Send(id, {"type": "scroll", "x": 1, "y": -2});
+print("derived", viewer.Send(id, {"type": "click", "x": 1, "y": 1}), viewer.Send(id, {"type": "resize", "x": 1, "y": 1}));
+viewer.View(id, 100, 70, 2);
+viewer.Paste("pasted");
+var received = sender.Feed(viewer.Outgoing());
+for (var i = 0; i < len(received); i++) {
+    var r = received[i];
+    if (r["type"] == "event") {
+        var e = r["event"];
+        print("event", r["window"], e["type"], e["x"], e["y"], e["button"], e["action"], e["mods"], e["key"], e["pointer"], e["pointerType"], e["text"], e["cursor"], e["phase"]);
+    } else { print(r["type"], r["window"], r["width"], r["height"], r["scale"], r["text"]); }
+}
+# After a View the next frame is whole (four tiles), and the viewer's texture too.
+sender.Frame(id, frame(66), 100, 70, 2);
+got = viewer.Feed(sender.Outgoing());
+print("whole", got[0]["scale"], viewer.Paint(id, 0, 0, 100, 70)["commands"][8]);
+
+# The relay: whole messages forward, windows reported, and a snapshot for a viewer joining later.
+var relay = RW.Relay();
+var app = RW.Sender("token");
+var second = app.Open(30, 20, "second");
+app.Title(second, "late title");
+app.Cursor(second, "text");
+app.Frame(second, frame(0), 100, 70);
+var bytes = app.Outgoing();
+var half = Array.Slice(bytes, 0, 20);
+var first = relay.FromApplication(half);
+print("relay partial", len(first["forward"]), types(first["messages"]));
+var rest = relay.FromApplication(Array.Slice(bytes, 20, len(bytes)));
+print("relay", len(first["forward"]) + len(rest["forward"]) == len(bytes), types(rest["messages"]), first["messages"][0]["token"]);
+var late = RW.Viewer();
+print("snapshot", types(late.Feed(relay.Snapshot())), late.Window(second)["title"], late.Window(second)["cursor"], len(relay.Windows()));
+late.View(second, 30, 20, 1);
+late.Send(second, {"type": "button", "action": 1, "button": 1, "x": 3, "y": 4});
+var back = relay.FromViewer(late.Outgoing());
+print("relay back", types(app.Feed(back)));
+print("bad viewer", Network.Try(() => relay.FromViewer(Array.Slice(bytes, 0, 30))).Error.Message);
+
+# Closing.
+print("close", sender.Close(id), sender.Close(id));
+got = viewer.Feed(sender.Outgoing());
+print("closed", types(got), viewer.Window(id)["closed"], viewer.Send(id, {"type": "press", "x": 1, "y": 1}));
+var forgotten = viewer.Forget(id);
+print("forget", forgotten["commands"][0], forgotten["commands"][4], viewer.Window(id), len(viewer.Windows()));
+
+# Failures.
+print(Network.Try(() => RW.Viewer("other").Feed(RW.Sender("secret").Outgoing())).Error.Message);
+var broken = RW.Viewer();
+print(Network.Try(() => broken.Feed([1, 0, 0, 0, 2])).Error.Message);
+print(Network.Try(() => broken.Feed([])).Error.Message);
+print(Network.Try(() => RW.Viewer().Feed([0, 0, 0, 0, 1])).Error.Message);
+print(Network.Try(() => viewer.Paint(99, 0, 0, 1, 1)).Error.Message);
+print(Network.Try(() => app.Frame(second, [1, 2, 3], 1, 1)).Error.Message);
+print(Network.Try(() => app.Frame(second, "pixels")).Error.Message);
+print(Network.Try(() => late.View(second, 0, 1)).Error.Message);
+print(Network.Try(() => late.Send(second, {"x": 1})).Error.Message);
+print(Network.Try(() => late.Feed([300])).Error.Message);
+var done = true;

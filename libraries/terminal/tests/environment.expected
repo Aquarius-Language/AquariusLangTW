@@ -1,0 +1,8 @@
+AQUA_ONE=aqua one
+AQUA_TWO=2
+AQUA_GONE unset
+AQUA_ONE unset
+three
+Terminal / 終端機.Run: Environment must be a map of strings.
+Terminal / 終端機.Run: Environment names must be non-empty and without '='.
+Terminal / 終端機.Run: Expected a string without NUL characters.

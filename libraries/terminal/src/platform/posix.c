@@ -154,6 +154,34 @@ static void *supervise(void *data) {
     return NULL;
 }
 
+/* The child's environment: the runtime's, with the job's variables set ("NAME=value") or removed ("NAME"). Built before
+   fork, since the child may only make async-signal-safe calls. */
+static bool same_name(const char *entry, const char *variable) {
+    size_t n = strcspn(variable, "=");
+    return strncmp(entry, variable, n) == 0 && entry[n] == '=';
+}
+static char **child_environment(const terminal_job *job) {
+    if (!job->variable_count) return environ;
+    size_t n = 0;
+    while (environ[n]) n++;
+    char **list = calloc(n + job->variable_count + 1, sizeof *list);
+    if (!list) return NULL;
+    size_t count = 0;
+    for (size_t i = 0; i < n; i++) {
+        bool replaced = false;
+        for (uint32_t v = 0; v < job->variable_count && !replaced; v++) replaced = same_name(environ[i], job->variables[v]);
+        if (!replaced) list[count++] = environ[i];
+    }
+    for (uint32_t v = 0; v < job->variable_count; v++) {
+        bool later = false;   /* a name given twice: the last one counts */
+        for (uint32_t w = v + 1; w < job->variable_count && !later; w++)
+            later = strcspn(job->variables[v], "=") == strcspn(job->variables[w], "=") &&
+                    strncmp(job->variables[v], job->variables[w], strcspn(job->variables[v], "=")) == 0;
+        if (!later && strchr(job->variables[v], '=')) list[count++] = job->variables[v];
+    }
+    return list;
+}
+
 /* ---- terminal.h ---- */
 
 static void release(process *p) {
@@ -175,6 +203,15 @@ bool terminal_platform_start(terminal_job *job, char **error) {
         return false;
     }
     char **argv = calloc(job->count + 2, sizeof *argv);
+    char **envp = child_environment(job);
+    if (!argv || !envp) {
+        *error = strdup("Out of memory.");
+        for (int i = 0; i < 2; i++) { close_fd(&input[i]); close_fd(&output[i]); close_fd(&error_output[i]); close_fd(&report[i]); }
+        free(argv);
+        release(p);
+        free(program);
+        return false;
+    }
     argv[0] = job->executable;
     for (uint32_t i = 0; i < job->count; i++) argv[i + 1] = job->arguments[i];
 
@@ -192,13 +229,14 @@ bool terminal_platform_start(terminal_job *job, char **error) {
         int code = 0;
         if (dup2(input[0], 0) < 0 || dup2(output[1], 1) < 0 || dup2(error_output[1], 2) < 0) code = errno;
         if (!code && job->directory && chdir(job->directory) != 0) code = errno;
-        if (!code) { execve(program, argv, environ); code = errno; }
+        if (!code) { execve(program, argv, envp); code = errno; }
         ssize_t ignored = write(report[1], &code, sizeof code);
         (void)ignored;
         _exit(127);
     }
     int fork_error = errno;
     free(argv);
+    if (envp != environ) free(envp);
     free(program);
     close_fd(&input[0]); close_fd(&input[1]); /* standard input is closed: commands read the end of input */
     close_fd(&output[1]); close_fd(&error_output[1]); close_fd(&report[1]);

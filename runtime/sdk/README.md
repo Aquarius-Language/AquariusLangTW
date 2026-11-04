@@ -92,6 +92,16 @@ AQUA_LIBRARY(sample) {
 libraries create surfaces from `aqua_window_surface` (HWND, X11/Wayland, ANativeWindow, or a canvas handle on the web)
 and receive input through `aqua_window_listen`. Libraries never call GLFW, Win32 windowing or DOM APIs directly.
 
+Remote windows (API 4, `<aqua/remote_window.h>`): a desktop runtime started with `AQUARIUS_REMOTE_WINDOW=host:port`
+(and `AQUARIUS_REMOTE_WINDOW_TOKEN`) connects to a viewer there and shows every window it opens on it instead of the
+screen; the `remotewindow` library is the viewer side on every target. The surface kind is then
+`AQUA_SURFACE_FRAMES`: a renderer draws offscreen and passes each finished frame to `aqua_window_present`, while OpenGL
+windows render into a hidden context that `aqua_window_swap` reads back. Frames travel as the 64-pixel tiles that
+changed, losslessly compressed (QOI), with at most two frames waiting for the viewer, so a slow viewer gets the latest
+picture instead of a backlog. Input comes back as `aqua_window_event` records through the same listeners, and the
+viewer's size and pixel density arrive as `AQUA_EVENT_RESIZE`. The header holds the whole wire format and its encoders
+and decoders, used by both ends.
+
 ### Platform branches
 
 Use `#if defined(AQUA_OS_WINDOWS)` / `AQUA_OS_LINUX` / `AQUA_OS_ANDROID` / `AQUA_OS_WEB` (and `AQUA_DESKTOP`,

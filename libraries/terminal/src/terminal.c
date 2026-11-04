@@ -167,6 +167,8 @@ static void job_free(aqua_runtime *rt, terminal_job *job) {
     for (uint32_t i = 0; i < job->count; i++) free(job->arguments[i]);
     free(job->arguments);
     free(job->directory);
+    for (uint32_t i = 0; i < job->variable_count; i++) free(job->variables[i]);
+    free(job->variables);
     free(job->output.data);
     free(job->error_output.data);
     free(job->error);
@@ -327,7 +329,33 @@ static char *resolve_path(aqua_call *call, const char *path) {
     return resolved;
 }
 
-/* The options hash: WorkingDirectory and TimeoutMs, and for Start the OnOutput / OnError callbacks. */
+/* Environment: {"NAME": "value" | null}, set in (or, null, removed from) the runtime's environment for the child. */
+static bool read_environment(aqua_call *call, aqua_value variables, terminal_job *job) {
+    aqua_runtime *rt = aqua_call_runtime(call);
+    if (variables.type != AQUA_HASH) { fail(call, job->function, "Environment must be a map of strings."); return false; }
+    uint32_t count = aqua_hash_count(rt, variables);
+    char **list = realloc(job->variables, ((size_t)job->variable_count + count + 1) * sizeof *list);
+    if (!list) { fail(call, job->function, "Out of memory."); return false; }
+    job->variables = list;
+    for (uint32_t i = 0; i < count; i++) {
+        aqua_value key, value;
+        aqua_hash_entry(rt, variables, i, &key, &value);
+        char *name = text_value(call, key, job->function);
+        if (!name) return false;
+        if (!*name || strchr(name, '=')) { free(name); fail(call, job->function, "Environment names must be non-empty and without '='."); return false; }
+        char *text = value.type == AQUA_NULL ? NULL : text_value(call, value, job->function);
+        if (value.type != AQUA_NULL && !text) { free(name); return false; }
+        size_t n = strlen(name) + (text ? strlen(text) + 2 : 1);
+        char *entry = malloc(n);
+        snprintf(entry, n, text ? "%s=%s" : "%s", name, text ? text : "");
+        free(name);
+        free(text);
+        job->variables[job->variable_count++] = entry;
+    }
+    return true;
+}
+
+/* The options hash: WorkingDirectory, TimeoutMs and Environment, and for Start the OnOutput / OnError callbacks. */
 static bool read_options(aqua_call *call, uint32_t index, terminal_job *job) {
     aqua_runtime *rt = aqua_call_runtime(call);
     if (aqua_argc(call) <= index) return true;
@@ -344,6 +372,8 @@ static bool read_options(aqua_call *call, uint32_t index, terminal_job *job) {
             char *directory = text_value(call, value, job->function);
             ok = directory != NULL;
             if (ok) { free(job->directory); job->directory = resolve_path(call, directory); free(directory); }
+        } else if (strcmp(name, "Environment") == 0) {
+            ok = read_environment(call, value, job);
         } else if (strcmp(name, "TimeoutMs") == 0) {
             double n = value.number;
             ok = aqua_is_number(value) && n >= 1 && n <= MAXIMUM_TIMEOUT_MS && n == (double)(int32_t)n;

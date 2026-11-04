@@ -67,7 +67,7 @@ runtime/
   platform/<os>/     windows, linux, posix, desktop (Windows+Linux), android (+ java/ activity shim), web
   sdk/               the library SDK: include/aqua/*.h, api.def, cmake/ (AquariusLibrary.cmake, toolchains/), example/
 libraries/<name>/    default libraries (application, audio, camera, clay, graphics, imgui, input, interaction, network, onnx,
-                     opengl, saturn, terminal, webframe)
+                     opengl, remotewindow, saturn, terminal, webframe)
 web-glue/            core/, page/, index.mjs and one folder per Web API domain
 tools/<name>/        tools written in AquariusLang that ship beside aqua (aqua_wellplay), each a git submodule
 scripts/             toolchain pins and installers, runtime/library builds, web-run.mjs, android-run.ps1, release

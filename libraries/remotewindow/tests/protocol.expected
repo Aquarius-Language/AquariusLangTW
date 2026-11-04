@@ -1,0 +1,49 @@
+version 1 1
+number 1 1
+feed [hello, open, frame] 星泉 window 100 70 1
+window 100 70 100 arrow 假 假
+image 100 70 [255, 0, 0, 255] [0, 0, 255, 255]
+paint 11 100 70 0 0 100 70 28000 10 32 [0, 1, 2, 0, 2, 3]
+quad [10, 20, 0, 0] [210, 160, 1, 1]
+acknowledged [] 0
+unchanged 0
+changed 2 1
+frame [frame] 2
+update 11 64 64 36 6 864 10
+pixel [255, 0, 0, 255]
+state [title, cursor, text, clipboard] renamed hand 真 copied
+ime [20, 40, 4, 32]
+真
+derived 假 假
+event 1 button 25 17.5 0 1 1 0 0 mouse  0 null
+event 1 pointer 30 20 0 0 0 0 0 mouse  0 null
+event 1 button 30 20 0 0 0 0 0 mouse  0 null
+event 1 key 0 0 0 1 2 65 0 mouse A 0 null
+event 1 text 0 0 0 0 0 0 0 mouse 星 0 null
+event 1 composition 0 0 0 0 0 0 0 mouse ㄒ 1 update
+event 1 scroll 0 2 0 0 0 0 0 mouse  0 null
+event 1 scroll 0 2 0 0 0 0 0 mouse  0 null
+event 1 focus 0 0 0 0 0 0 0 mouse  0 null
+event 1 pointer 10 5 0 0 0 0 3 touch  0 null
+event 1 scroll 1 -2 0 0 0 0 0 mouse  0 null
+view 1 100 70 2 null
+paste null null null null pasted
+whole 2 70
+relay partial 20 [hello]
+relay 真 [open, title, cursor] token
+snapshot [hello, open, cursor, text] late title text 1
+relay back [view, event]
+bad viewer RemoteWindow.Relay.FromViewer: The viewer's stream is malformed.
+close 真 假
+closed [close] 真 假
+forget 11 -1 null 0
+RemoteWindow.Viewer.Feed: The application's token does not match.
+RemoteWindow.Viewer.Feed: The stream does not start with HELLO.
+RemoteWindow.Viewer.Feed: The stream failed earlier; open a new viewer.
+RemoteWindow.Viewer.Feed: The stream is malformed.
+RemoteWindow.Viewer.Paint: No window 99.
+RemoteWindow.Sender.Frame: Expected width x height x 4 bytes of a size 1..16384.
+RemoteWindow.Sender.Frame: Expected an image, or RGBA bytes with their width and height.
+RemoteWindow.Viewer.View: The size must be 1..16384 and the scale 0.25..8.
+RemoteWindow.Viewer.Send: An event needs a "type" string.
+RemoteWindow.Viewer.Feed: Expected bytes (integers 0..255).
