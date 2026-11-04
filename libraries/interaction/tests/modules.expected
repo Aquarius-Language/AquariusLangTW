@@ -8,6 +8,7 @@ clamped 真 0 真 900
 thumb dragged to 900
 panned 440 flinging 真
 fling went further 真 and stopped 真 真
+reduced motion 440 flinging 假 假
 navigation push list
 navigation push editor
 asks to discard changes
