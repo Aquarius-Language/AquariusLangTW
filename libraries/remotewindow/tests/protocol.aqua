@@ -105,6 +105,8 @@ late.View(second, 30, 20, 1);
 late.Send(second, {"type": "button", "action": 1, "button": 1, "x": 3, "y": 4});
 var back = relay.FromViewer(late.Outgoing());
 print("relay back", types(app.Feed(back)));
+var closing = app.Feed(relay.Close(second));
+print("relay close", types(closing), closing[0]["window"] == second, closing[0]["event"]["type"]);
 print("bad viewer", Network.Try(() => relay.FromViewer(Array.Slice(bytes, 0, 30))).Error.Message);
 
 # Closing.

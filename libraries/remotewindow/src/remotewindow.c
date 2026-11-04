@@ -445,19 +445,21 @@ static void viewer_paint(aqua_call *call) {
 
 /* ---- Input: events to the application ---- */
 
-static void send_event(viewer *v, uint32_t window, const aqua_window_event *e) {
-    size_t at = aqua_remote_begin(&v->out, AQUA_REMOTE_EVENT);
-    aqua_remote_u32(&v->out, window);
-    aqua_remote_i32(&v->out, e->type);
-    aqua_remote_i32(&v->out, e->key); aqua_remote_i32(&v->out, e->scancode); aqua_remote_i32(&v->out, e->action);
-    aqua_remote_i32(&v->out, e->mods); aqua_remote_i32(&v->out, e->button);
-    aqua_remote_f64(&v->out, e->x); aqua_remote_f64(&v->out, e->y);
-    aqua_remote_u32(&v->out, e->pointer); aqua_remote_i32(&v->out, e->pointer_type);
-    aqua_remote_f32(&v->out, e->pressure); aqua_remote_f32(&v->out, e->tilt_x); aqua_remote_f32(&v->out, e->tilt_y);
-    aqua_remote_i32(&v->out, e->cursor); aqua_remote_i32(&v->out, e->index); aqua_remote_i32(&v->out, e->count);
-    aqua_remote_string(&v->out, e->text);
-    aqua_remote_end(&v->out, at);
+static void put_event(aqua_remote_buffer *b, uint32_t window, const aqua_window_event *e) {
+    size_t at = aqua_remote_begin(b, AQUA_REMOTE_EVENT);
+    aqua_remote_u32(b, window);
+    aqua_remote_i32(b, e->type);
+    aqua_remote_i32(b, e->key); aqua_remote_i32(b, e->scancode); aqua_remote_i32(b, e->action);
+    aqua_remote_i32(b, e->mods); aqua_remote_i32(b, e->button);
+    aqua_remote_f64(b, e->x); aqua_remote_f64(b, e->y);
+    aqua_remote_u32(b, e->pointer); aqua_remote_i32(b, e->pointer_type);
+    aqua_remote_f32(b, e->pressure); aqua_remote_f32(b, e->tilt_x); aqua_remote_f32(b, e->tilt_y);
+    aqua_remote_i32(b, e->cursor); aqua_remote_i32(b, e->index); aqua_remote_i32(b, e->count);
+    aqua_remote_string(b, e->text);
+    aqua_remote_end(b, at);
 }
+
+static void send_event(viewer *v, uint32_t window, const aqua_window_event *e) { put_event(&v->out, window, e); }
 
 static bool field_number(aqua_runtime *rt, aqua_value hash, const char *name, double *out) {
     aqua_value value;
@@ -772,6 +774,18 @@ static void relay_windows(aqua_call *call) {
     aqua_return(call, list);
 }
 
+/* Close(window): the bytes of the close request a viewer's close button would send, for the relay's owner to write to
+   the application itself (a window nobody should see). */
+static void relay_close(aqua_call *call) {
+    int32_t id = aqua_arg_int(call, 0);
+    if (id < 0) { aqua_fail(call, "RemoteWindow.Relay.Close: Expected a window id."); return; }
+    aqua_remote_buffer b = {0};
+    aqua_window_event e = {AQUA_EVENT_CLOSE};
+    put_event(&b, (uint32_t)id, &e);
+    aqua_return(call, take_bytes(aqua_call_runtime(call), &b));
+    aqua_remote_free(&b);
+}
+
 static void module_relay(aqua_call *call) {
     aqua_return(call, aqua_object_new(aqua_call_runtime(call), relay_class, calloc(1, sizeof(relay))));
 }
@@ -1076,6 +1090,7 @@ AQUA_LIBRARY(remotewindow) {
     aqua_define_function(relay_class, "FromViewer|來自檢視器", relay_from_viewer, "a");
     aqua_define_function(relay_class, "Snapshot|快照", relay_snapshot, "");
     aqua_define_function(relay_class, "Windows|視窗清單", relay_windows, "");
+    aqua_define_function(relay_class, "Close|關閉", relay_close, "i");
 
     sender_class = aqua_define_class(library, "RemoteWindow.Sender", sender_finalize);
     aqua_define_function(sender_class, "Open|開啟", sender_open, "iis|i");

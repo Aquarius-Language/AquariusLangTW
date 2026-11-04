@@ -64,6 +64,7 @@ learns what it needs without decoding frames:
 | `FromViewer(bytes)` / `來自檢視器` | the whole viewer messages to pass on; anything that is not a viewer message fails |
 | `Snapshot()` / `快照` | what a viewer joining now needs first: HELLO and every open window with its title, cursor and text input. Its `View` then has the application send each frame whole |
 | `Windows()` / `視窗清單` | the open windows |
+| `Close(id)` / `關閉` | the bytes of a close request for the application, as a viewer's close button sends it (for windows the server shows to nobody) |
 
 ## The sender
 

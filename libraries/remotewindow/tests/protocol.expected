@@ -33,6 +33,7 @@ relay partial 20 [hello]
 relay 真 [open, title, cursor] token
 snapshot [hello, open, cursor, text] late title text 1
 relay back [view, event]
+relay close [event] 真 close
 bad viewer RemoteWindow.Relay.FromViewer: The viewer's stream is malformed.
 close 真 假
 closed [close] 真 假
