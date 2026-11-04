@@ -35,6 +35,8 @@ Author: 林天牧 / Temple Lin.
   [native-like applications guide](docs/native-like-apps.md) is the checklist for building them.
 - **Models and PBR:** [OBJ/MTL parsing and shared WGSL rendering](libraries/graphics/docs/pbr-models.md),
   plus [named shader textures, cube mip chains and floating render targets](libraries/graphics/docs/wgpu-textures.md).
+- **Notebooks:** [Aqua WellPlay](#notebooks-aqua-wellplay) (`aqua well`) runs AquariusLang notebooks in the
+  browser, JupyterLab style, with rich output and inline sketches and interfaces.
 - **Audio:** [miniaudio decoding and mixing](libraries/audio/README.md),
   including files, tones, loops, panning, pitch and offline sample output.
 - **Inference:** [ONNX Runtime and the MediaPipe pose tracker](libraries/onnx/README.md) with ranked execution
@@ -48,6 +50,7 @@ Author: 林天牧 / Temple Lin.
 - [Compile, run and export](#compile-run-and-export)
 - [Syntax](#syntax)
 - [Libraries and examples](#libraries-and-examples)
+- [Notebooks: Aqua WellPlay](#notebooks-aqua-wellplay)
 - [Development and tests](#development-and-tests)
 - [Project structure](#project-structure)
 - [Editors and further documentation](#editors-and-further-documentation)
@@ -292,6 +295,30 @@ The language itself has the portable [Array](docs/arrays.md), [Hash and String](
 [bilingual functions](examples/bilingual_library/README.md) and [arrays in both syntaxes](examples/arrays/README.md)
 show the language. Jolt physics is the independent `Aqua_JoltPhysics` Bottle library.
 
+## Notebooks: Aqua WellPlay
+
+[Aqua WellPlay](tools/aqua_wellplay/README.md) (`aqua_wellplay`, 星泉筆記本) is a notebook server in the spirit of
+JupyterLab, written in AquariusLang and shipped in the release package beside `aqua`. It serves a folder over HTTP; the
+browser page is itself an AquariusLang SaturnUI app built for the web, and every cell runs on the computer running the
+server, as Jupyter kernels do.
+
+```powershell
+aqua well                              # the current folder: http://127.0.0.1:8888/?token=..., opens a browser
+aqua well D:\notes --port 9000         # the same as aqua_wellplay D:\notes --port 9000
+aqua well D:\notes\Report.ipynb        # open one notebook in its folder
+```
+
+- Notebooks are Jupyter `.ipynb` files (nbformat 4.5), so GitHub, JupyterLab and VS Code open them too.
+- Cells are full editors with the built-in language server: highlighting, completion, hover and diagnostics.
+- `Display` / `顯示` shows Markdown, tables, charts, images, JSON and progress; `Display.Sketch` and `Display.UI` show
+  Processing sketches and SaturnUI, ImGui or Clay interfaces inline.
+- File › Examples opens a gallery of ready-to-run notebooks, from warm-ups to canvas art and UI workshops.
+
+WellPlay lives in its own repository, [aqua_wellplay](https://github.com/Aquarius-Language/aqua_wellplay), linked here
+as the `tools/aqua_wellplay` submodule (`git submodule update --init --recursive`). The release builds it with the
+`aqua` it just published and runs its end-to-end tests, so a language or library change that breaks it fails the
+release. See its [README](tools/aqua_wellplay/README.md) for the Display API, the protocol and how the kernel works.
+
 ## Development and tests
 
 From the repository root:
@@ -322,6 +349,7 @@ run on Windows, Linux (WSL), the web (Chromium) and Android (`-Targets android-x
 | `runtime/` | C, the run time of every target: `guest/` (the runtime linked into applications), `host/` (the host core), `platform/<os>/` (thin per-OS layers), `sdk/` (the library SDK and toolchain files). |
 | `libraries/<name>/` | The default libraries, one self-contained folder each. |
 | `web-glue/` | The only JavaScript: starts applications and exposes Web APIs, one folder per API. |
+| `tools/<name>/` | Tools written in AquariusLang that ship beside `aqua`, each its own repository as a submodule: [aqua_wellplay](tools/aqua_wellplay/README.md). |
 | `scripts/` | Toolchain pins and installers, runtime builds, library tests, web and Android runners, release packaging. |
 | `examples/`, `tests/` | Examples and shared language test data. |
 | `editors/vscode`, `website/` | The VS Code extension and the introduction website. |
