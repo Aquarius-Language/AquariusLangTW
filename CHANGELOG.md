@@ -95,8 +95,16 @@ Runtime:
   kind `AQUA_SURFACE_FRAMES` and present with `aqua_window_present`; OpenGL windows are read back on swap. Standard
   output printed before a window opens is written before the window is announced, so a reader of both sees them in
   order.
+- On the web, a deferred library call made inside a callback that runs synchronously (a Clay children function, an
+  Interaction handler) fails with "cannot wait for an asynchronous operation on the web" as before, but the library's
+  result arriving later is now dropped instead of resuming the finished callback: it used to trap with "function
+  signature mismatch" (seen as `aqua_resolve <- network.wasm socket_task_run` when WellPlay sent window input from
+  painting callbacks). A native function called that way that settles at once now returns its result.
 
 Libraries:
+- Graphics: a Processing sketch whose window has no pixels yet when `size()` finishes (a web page still laying out its
+  canvas) draws into a 1x1 target until the window has a size, instead of an invalid zero-size texture that made the
+  first passes fail with "Invalid TextureView ... BeginRenderPass".
 - `remotewindow` (new): `RemoteWindow` / `遠端視窗`, the remote window protocol on every target. `Viewer` decodes an
   application's windows into images or UI draw lists that update only the regions that changed (for SaturnUI's
   `Immediate`, `drawUI` and any renderer of the draw list) and sends input back, raw or as Interaction's events;

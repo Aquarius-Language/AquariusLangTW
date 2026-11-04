@@ -28,6 +28,15 @@
 通訊端.傳送位元組([0, 255, 7]);
 訊息 = 通訊端.接收();
 印出("位元組", 訊息.資料, 訊息.是文字);
+# 同步呼叫的回呼（Clay 的子元素函式）裡送出：網頁上它不能等待，但之後送達的結果不再讓執行環境出錯。 / Sending in a
+# callback called synchronously (Clay's children function): on the web it cannot wait, but the result arriving later no
+# longer traps the runtime.
+變數 版面庫 = 匯入("Clay");
+變數 版面 = 版面庫.Create(100, 100);
+版面.Begin();
+網路.嘗試(函式() { 版面庫.Element({"id": "send"}, 函式() { 通訊端.傳送文字("回呼"); 回傳 空值; }); });
+版面.End();
+印出("回呼", 通訊端.接收().文字);
 通訊端.關閉();
 印出("關閉後", 網路.嘗試(函式() { 回傳 通訊端.傳送文字("x"); }).錯誤.訊息);
 印出("錯誤網址", 網路.嘗試(函式() { 回傳 網路.連接網頁通訊端("http://127.0.0.1:18790/socket"); }).錯誤.訊息);
