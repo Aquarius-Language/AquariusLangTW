@@ -3,8 +3,8 @@
 #   scripts/test-libraries.ps1                                   # every library, windows-x64 and web
 #   scripts/test-libraries.ps1 -Libraries audio,graphics -Targets windows-x64,web,linux-x64
 #   scripts/test-libraries.ps1 -Devices                          # also cases that need a window, device or service
-# Runtime packs come from .native-build/install/<target> (scripts/build-runtime.ps1). linux-x64 runs in WSL, Android
-# targets run on the connected device or emulator through scripts/android-run.ps1 (only with -Devices).
+# Runtime packs come from .native-build/install/<target> (scripts/build-runtime.ps1). linux-x64 runs in WSL (directly
+# on Linux), Android targets run on the connected device or emulator through scripts/android-run.ps1 (only with -Devices).
 #
 # A case says on its first line what it needs and where it runs (a # comment):
 #   needs <a window | a ... device | a GPU | a camera | the clipboard | a driver | a peer server | models ...>
@@ -35,7 +35,8 @@ $Cases = @($Cases | ForEach-Object { $_ -split ',' } | Where-Object { $_ })
 foreach ($target in $Targets) { if ($AquaTargets -notcontains $target) { throw "Unknown target $target; use $($AquaTargets -join ', ')." } }
 
 if (-not $Compiler) {
-    $Compiler = @('Release', 'Debug') | ForEach-Object { Join-Path $repository "compiler/AquariusCli/bin/$_/net8.0/aqua.dll" } |
+    # Linux builds write to bin/linux/ (compiler/Directory.Build.props), so WSL and Windows can share a checkout.
+    $Compiler = @('Release', 'Debug') | ForEach-Object { $c = $_; @('', 'linux/') | ForEach-Object { Join-Path $repository "compiler/AquariusCli/bin/$_$c/net8.0/aqua.dll" } } |
         Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
     if (-not $Compiler) { throw 'Build the compiler first (dotnet build compiler/AquariusCli -c Release) or pass -Compiler aqua.dll.' }
 }
@@ -45,8 +46,9 @@ function ConvertTo-WindowsArgument([string]$Argument) {
     if ($Argument -and $Argument -notmatch '[\s"]') { return $Argument }  # wsl.exe does not unquote its own options
     '"' + [regex]::Replace([regex]::Replace($Argument, '(\\*)"', '$1$1\"'), '(\\+)$', '$1$1') + '"'
 }
-function Invoke-Captured([string]$Program, [string[]]$Arguments, [hashtable]$Environment = @{}) {
+function Invoke-Captured([string]$Program, [string[]]$Arguments, [hashtable]$Environment = @{}, [string]$Directory = '') {
     $start = [Diagnostics.ProcessStartInfo]::new($Program)
+    if ($Directory) { $start.WorkingDirectory = $Directory }
     $start.Arguments = ($Arguments | ForEach-Object { ConvertTo-WindowsArgument $_ }) -join ' '
     foreach ($key in $Environment.Keys) { $start.Environment[$key] = $Environment[$key] }
     $start.UseShellExecute = $false; $start.CreateNoWindow = $true
@@ -174,9 +176,14 @@ foreach ($folder in $folders) {
             switch -Wildcard ($target) {
                 'windows-x64' { $run = Invoke-Captured (Join-Path $pack 'aquarius.exe') @($wasm) @{ AQUARIUS_STORAGE_ROOT = $storage } }
                 'linux-x64' {
-                    $env:MSYS_NO_PATHCONV = '1'
-                    $run = Invoke-Captured 'wsl.exe' @('-d', $Distribution, '--cd', (ConvertTo-Wsl $tests), (ConvertTo-Wsl (Join-Path $pack 'aquarius')), (ConvertTo-Wsl $wasm)) `
-                        @{ AQUARIUS_STORAGE_ROOT = $storage; WSLENV = 'AQUARIUS_STORAGE_ROOT/p' }
+                    # On Linux itself (CI) the pack runs directly; on Windows it runs in WSL.
+                    if ($IsLinux) {
+                        $run = Invoke-Captured (Join-Path $pack 'aquarius') @($wasm) @{ AQUARIUS_STORAGE_ROOT = $storage } $tests
+                    } else {
+                        $env:MSYS_NO_PATHCONV = '1'
+                        $run = Invoke-Captured 'wsl.exe' @('-d', $Distribution, '--cd', (ConvertTo-Wsl $tests), (ConvertTo-Wsl (Join-Path $pack 'aquarius')), (ConvertTo-Wsl $wasm)) `
+                            @{ AQUARIUS_STORAGE_ROOT = $storage; WSLENV = 'AQUARIUS_STORAGE_ROOT/p' }
+                    }
                 }
                 'web' { $run = Invoke-Captured 'node' @((Join-Path $PSScriptRoot 'web-run.mjs'), $pack, $wasm, '--timeout', "$TimeoutSeconds", '--fake-camera') }
                 'android-*' {

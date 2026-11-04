@@ -8,7 +8,10 @@ jobs:
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '8.0.x'
+      # The action installs the retired 'tools' package by default, which sdkmanager no longer finds.
       - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
       - name: Android SDK pieces pinned in scripts/toolchain.json
         shell: pwsh
         run: sdkmanager 'platforms;android-36' 'build-tools;36.0.0' 'ndk;28.2.13676358'
