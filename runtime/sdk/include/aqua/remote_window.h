@@ -12,7 +12,8 @@
  * application) to the viewer, the others back.
  *
  *   HELLO   u32 magic 'AQRW', u16 version, string token            first message; the viewer checks the token
- *   OPEN    u32 window, i32 width, i32 height, u32 flags, string title     (logical units, AQUA_WINDOW_* flags)
+ *   OPEN    u32 window, i32 width, i32 height, u32 flags, string title     (logical units, AQUA_WINDOW_* flags);
+ *           the process's standard output up to the window's opening is written before it is sent
  *   CLOSE   u32 window
  *   TITLE   u32 window, string title
  *   SIZE    u32 window, i32 width, i32 height                   the application resized its window

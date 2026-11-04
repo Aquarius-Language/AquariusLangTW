@@ -228,6 +228,9 @@ static void send_text_state(remote_window *r) {
 }
 
 remote_window *remote_open(aqua_window *window, int32_t width, int32_t height, const char *title, uint32_t flags, char **error) {
+    /* What the program printed before the window opened reaches its reader first, so a server that reads both (a
+       notebook attributing windows to the cell that printed last) sees them in order. */
+    platform_flush();
     if (!connect_viewer(error)) return NULL;
     remote_window *r = calloc(1, sizeof *r);
     r->window = window;
