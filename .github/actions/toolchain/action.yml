@@ -9,12 +9,17 @@ inputs:
 runs:
   using: composite
   steps:
+    # Cache keys cannot contain commas, so the target list goes into the key with '+' between targets.
+    - id: key
+      shell: pwsh
+      run: |
+        "targets=$('${{ inputs.targets }}'.Replace(',', '+'))" >> $env:GITHUB_OUTPUT
     - uses: actions/cache@v4
       with:
         path: |
           .native-build/toolchains
           .native-build/sdk
-        key: toolchain-${{ runner.os }}-${{ inputs.targets }}-${{ hashFiles('scripts/toolchain.json') }}
+        key: toolchain-${{ runner.os }}-${{ steps.key.outputs.targets }}-${{ hashFiles('scripts/toolchain.json') }}
     - name: Install the toolchain and check the guest runtime
       shell: pwsh
       run: |
