@@ -20,6 +20,7 @@ C# 只作為編譯器，執行時不需要 .NET。
 - **圖學**：[WebGPU、Processing 繪圖、文字輸入與 GPU 數學](libraries/graphics/README.md)使用 wgpu-native 或瀏覽器的 WebGPU；桌面另有 [OpenGL](libraries/opengl/README.md)。
 - **原生感介面**：[互動／Interaction](libraries/interaction/README.md)讓任何繪圖函式庫繪製的介面具備各平台的點擊、拖曳、長按、右鍵選單、返回、快捷鍵與捲動行為；[原生感應用程式指南](docs/native-like-apps.md)是建置時的檢查清單。
 - **PBR 與模型匯入**：[Models／PBR](libraries/graphics/docs/pbr-models.md)在 Wasm 解析 OBJ／MTL，並以共用 WGSL 提供金屬度／粗糙度即時渲染；另有[具名 shader 紋理、cube mip chains 與線性浮點 render targets](libraries/graphics/docs/wgpu-textures.md)。
+- **筆記本**：[星泉筆記本 Aqua WellPlay](#筆記本星泉筆記本-aqua-wellplay)（`aqua well`）在瀏覽器中執行星泉筆記本，風格類似 JupyterLab，提供豐富輸出，並可直接顯示素描與介面。
 - **跨平台音訊**：[音訊函式庫](libraries/audio/README.md)以 miniaudio 解碼與混音，支援音檔、音調、循環、聲像、音高及無硬體的離線樣本輸出。
 - **模型推論**：[ONNX Runtime 與 MediaPipe 姿態追蹤](libraries/onnx/README.md)依平台排序執行提供者，可選用 CUDA／TensorRT（於 `aqua.toml` 設定 `[onnx] cuda = true`），網頁使用以 C++ 原始碼建置的 ONNX Runtime；附 [繁體中文姿態範例](examples/mediapipe/README.md)。
 
@@ -30,6 +31,7 @@ C# 只作為編譯器，執行時不需要 .NET。
 - [編譯、執行與平台輸出](#編譯執行與平台輸出)
 - [語法](#語法)
 - [函式庫與範例](#函式庫與範例)
+- [筆記本：星泉筆記本 Aqua WellPlay](#筆記本星泉筆記本-aqua-wellplay)
 - [開發與測試](#開發與測試)
 - [專案結構](#專案結構)
 - [編輯器與延伸文件](#編輯器與延伸文件)
@@ -273,6 +275,29 @@ var flags: bool[] = Array.Make(10, true);
 [星艦遠征](examples/starship_expedition/README.md)與[雙語函式庫](examples/bilingual_library/README.md)示範語言功能。
 Jolt 物理由獨立的 `Aqua_JoltPhysics` Bottle 函式庫提供。
 
+## 筆記本：星泉筆記本 Aqua WellPlay
+
+[Aqua WellPlay](tools/aqua_wellplay/README.md)（`aqua_wellplay`，星泉筆記本）是風格類似 JupyterLab 的筆記本伺服器，
+以星泉撰寫，隨正式版套件與 `aqua` 一起發行。它在指定的資料夾上啟動網頁伺服器；瀏覽器中的頁面本身就是以星泉撰寫、
+編譯成網頁的 SaturnUI 應用程式，而每個儲存格都在執行伺服器的這台電腦上執行，和 Jupyter 的核心相同。
+
+```powershell
+aqua well                              # 目前的資料夾：http://127.0.0.1:8888/?token=...，並開啟瀏覽器
+aqua well D:\notes --port 9000         # 等同 aqua_wellplay D:\notes --port 9000
+aqua well D:\notes\Report.ipynb        # 在筆記本所在的資料夾開啟它
+```
+
+- 筆記本是 Jupyter 的 `.ipynb`（nbformat 4.5），GitHub、JupyterLab 與 VS Code 也能開啟。
+- 儲存格是內建語言伺服器的完整編輯器：語法上色、補全、懸停說明與診斷。
+- `顯示` / `Display` 可顯示 Markdown、表格、圖表、圖片、JSON 與進度；`Display.Sketch` 與 `Display.UI` 直接在儲存格中
+  顯示 Processing 素描，以及 SaturnUI、ImGui 或 Clay 介面。
+- 「檔案 › 範例」開啟可直接執行的範例筆記本集，從暖身練習到畫布藝術與介面工作坊。
+
+星泉筆記本有自己的儲存庫 [aqua_wellplay](https://github.com/Aquarius-Language/aqua_wellplay)，在此以
+`tools/aqua_wellplay` 子模組連結（`git submodule update --init --recursive`）。正式版會用剛發行的 `aqua` 建置它並執行
+端對端測試，因此任何使它失效的語言或函式庫變更都會讓那次發行失敗。Display API、通訊協定與核心運作方式見它的
+[README](tools/aqua_wellplay/README.md)。
+
 ## 開發與測試
 
 在專案根目錄：
@@ -303,6 +328,7 @@ dotnet run --project compiler/AquariusCli -- repl
 | `runtime/` | C，所有平台的執行環境：`guest/`（連結進應用程式的客體執行環境）、`host/`（主機核心）、`platform/<os>/`（很薄的作業系統層）、`sdk/`（函式庫 SDK 與工具鏈檔案）。 |
 | `libraries/<名稱>/` | 預設函式庫，每個一個自成一體的資料夾。 |
 | `web-glue/` | 唯一的 JavaScript：啟動應用程式並提供網頁 API，每個 API 一個資料夾。 |
+| `tools/<名稱>/` | 以星泉撰寫、與 `aqua` 一起發行的工具，各自為獨立儲存庫並以子模組連結：[aqua_wellplay](tools/aqua_wellplay/README.md)。 |
 | `scripts/` | 工具鏈版本與安裝、執行環境建置、函式庫測試、網頁與 Android 執行、正式版打包。 |
 | `examples/`、`tests/` | 範例與共用的語言測試資料。 |
 | `editors/vscode`、`website/` | VS Code 擴充套件與介紹網站。 |
