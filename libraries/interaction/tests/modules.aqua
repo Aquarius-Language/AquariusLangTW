@@ -42,7 +42,9 @@ if (view.overlay == false) {
     print("thumb dragged to", 900.0d);
 }
 
-# A touch fling scrolls on after the finger lifts, then stops.
+# A touch fling scrolls on after the finger lifts, then stops. The view follows the system's reduced motion setting
+# (on by default on Windows Server, as on CI machines); this checks the motion itself, so it asks for it.
+view.reducedMotion = false;
 sv.ScrollTo(view, 0, 400);
 s.Feed({"type": "button", "time": 2.0d, "pointer": 3, "pointerType": "touch", "button": 0, "action": 1, "x": 100, "y": 100});
 s.Feed({"type": "pointer", "time": 2.02d, "pointer": 3, "pointerType": "touch", "x": 100, "y": 80});
@@ -54,6 +56,16 @@ print("panned", afterPan, "flinging", view.velocityY > 0);
 var frames = 0;
 for (var i = 0; i < 600 && sv.Update(view, 1.0d / 60); i++) { frames++; }
 print("fling went further", view.y > afterPan, "and stopped", view.velocityY == 0, frames < 600);
+
+# With reduced motion the content stops where the finger lifts.
+view.reducedMotion = true;
+sv.ScrollTo(view, 0, 400);
+s.Feed({"type": "button", "time": 3.0d, "pointer": 3, "pointerType": "touch", "button": 0, "action": 1, "x": 100, "y": 100});
+s.Feed({"type": "pointer", "time": 3.02d, "pointer": 3, "pointerType": "touch", "x": 100, "y": 80});
+s.Feed({"type": "pointer", "time": 3.04d, "pointer": 3, "pointerType": "touch", "x": 100, "y": 60});
+s.Feed({"type": "button", "time": 3.05d, "pointer": 3, "pointerType": "touch", "button": 0, "action": 0, "x": 100, "y": 60});
+s.Dispatch();
+print("reduced motion", view.y, "flinging", view.velocityY > 0, sv.Update(view, 1.0d / 60));
 
 # ---- Navigation: back pops screens, a screen can keep itself, the first screen leaves it to the system ----
 var s2 = ix.Create();
