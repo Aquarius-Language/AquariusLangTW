@@ -369,9 +369,9 @@ public class BottleLibraryTest
         var unknown = AquaCli.Run(t, tools, "library", "build", "tiny", "--targets", "windows-arm64");
         Assert.Equal(2, unknown.Code); Assert.Contains("Unknown target windows-arm64", unknown.Error);
         // Native binaries are built on their own operating system.
-        string foreign = OperatingSystem.IsWindows() ? "linux-x64" : "windows-x64";
+        string foreign = AquariusInstallation.HostTarget == "windows-x64" ? "linux-x64" : "windows-x64";
         var cross = AquaCli.Run(t, tools, "library", "build", "tiny", "--targets", foreign);
-        Assert.Equal(2, cross.Code); Assert.Contains($"Build {foreign} binaries on", cross.Error);
+        Assert.Equal(2, cross.Code); Assert.Contains($"for {foreign} build on a {foreign} host", cross.Error);
         foreach (var (folder, error) in new[] {
                      ("greeting", "has no native part to build"), ("nosource", "has no native part to build"), ("app", "is not a library manifest"),
                      ("nocmake", "has no CMakeLists.txt") }) {
