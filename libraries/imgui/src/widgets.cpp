@@ -179,6 +179,28 @@ static void Embed(aqua_call *call) {
     RETURN_BOOL(ImGui::IsItemHovered());
 }
 
+/* Splitter(id, size1, size2 | vertical, thickness, min1, min2, length): a bar between two panes (child windows placed
+   after it, sized size1 and size2) that the mouse drags to move the space between them; returns [size1, size2] after
+   this frame's drag, neither below its minimum. With vertical (the default) the bar stands between panes side by side;
+   otherwise it lies between panes one above the other. length is the bar's long side (default: the space left). The
+   hovered or dragged bar shows the resize cursor (context.MouseCursor). */
+static void Splitter(aqua_call *call) {
+    FRAME;
+    float size1 = num(call, 1), size2 = num(call, 2);
+    bool vertical = bool_arg(call, 3, true);
+    float thickness = float_arg(call, 4, 6), length = float_arg(call, 7, -1);
+    ImGuiWindow *window = ImGui::GetCurrentWindow();
+    if (!window->SkipItems) {
+        ImVec2 at = window->DC.CursorPos;
+        if (vertical) at.x += size1; else at.y += size1;
+        ImVec2 size = ImGui::CalcItemSize(vertical ? ImVec2(thickness, length) : ImVec2(length, thickness), 0, 0);
+        ImRect bar(at, ImVec2(at.x + size.x, at.y + size.y));
+        ImGui::SplitterBehavior(bar, window->GetID(text_arg(call, 0)), vertical ? ImGuiAxis_X : ImGuiAxis_Y, &size1, &size2,
+                                float_arg(call, 5, 0), float_arg(call, 6, 0), 4.0f, 0.04f);
+    }
+    RETURN_VALUE(vec2_value(rt_of(call), ImVec2(size1, size2)));
+}
+
 /* ---- Text ---- */
 
 static void Text(aqua_call *call) { FRAME; DO(ImGui::TextUnformatted(text_arg(call, 0))); }
@@ -654,7 +676,7 @@ void define_widgets(aqua_class *m) {
         E(Unindent, "|n"), E(BeginGroup, ""), E(EndGroup, ""), E(AlignTextToFramePadding, ""), E(GetTextLineHeight, ""),
         E(GetTextLineHeightWithSpacing, ""), E(GetFrameHeight, ""), E(GetFrameHeightWithSpacing, ""), E(PushItemWidth, "n"),
         E(PopItemWidth, ""), E(SetNextItemWidth, "n"), E(CalcItemWidth, ""), E(PushTextWrapPos, "|n"), E(PopTextWrapPos, ""),
-        E(PushID, "v"), E(PopID, ""), E(CalcTextSize, "v|bn"), E(BeginDisabled, "|b"), E(EndDisabled, ""), E(Embed, "vnn"),
+        E(PushID, "v"), E(PopID, ""), E(CalcTextSize, "v|bn"), E(BeginDisabled, "|b"), E(EndDisabled, ""), E(Embed, "vnn"), E(Splitter, "vnn|bnnnn"),
         E(Text, "v"), E(TextColored, "vv"), E(TextDisabled, "v"), E(TextWrapped, "v"), E(LabelText, "vv"), E(BulletText, "v"),
         E(TextLink, "v"), E(Bullet, ""), E(Button, "v|nn"), E(SmallButton, "v"), E(InvisibleButton, "vnn|i"), E(ArrowButton, "vi"),
         E(Checkbox, "vv"), E(RadioButton, "vv|i"), E(ProgressBar, "n|nnv"), E(Image, "vnn|vv"), E(ImageButton, "vvnn|vvvv"),

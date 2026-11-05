@@ -45,6 +45,11 @@ struct Tabs { labels = []; index = 0; onChanged; key }
 struct Dialog { open = false; title; content; actions = []; onDismiss; width = 360; key }
 struct Tooltip { message; child; key }
 struct Divider { thickness = 1; color; vertical = false; key }
+# Two panes with a bar between them that the pointer drags to resize them (see kinds["SplitView"]).
+struct SplitView {
+    first; second; direction = "row"; size = 240; min = 0; max; minSecond = 0; onResize; collapsed = false; thickness = 1;
+    grip = 8; style; class; key
+}
 struct Card { child; children; style; class; key; onTap }
 struct Gesture { child; onTap; onDoubleTap; onLongPress; onHover; onPress; onRelease; onDragStart; onDrag; onDragEnd; cursor; key }
 struct Builder { build; key }
@@ -89,6 +94,7 @@ struct SaturnSurface {
 struct DropdownMenu { owner; options; value; key }
 struct MenuPopup { owner; items; at; key }
 struct TooltipBubble { text; owner; key }
+struct SplitHandle { row; at; hidden; thickness; grip; key }
 
 # ---- Themes and style sheets --------------------------------------------------------------------------------------
 
@@ -225,7 +231,11 @@ var ThemeSheet = function(t) {
             "pointerEvents": "none"},
         "ScrollThumbX": {"position": "absolute", "height": 6, "bottom": 2, "borderRadius": 3, "background": t.muted, "opacity": 0.55d,
             "pointerEvents": "none"},
-        "Link": {"color": t.primary, "cursor": "pointer"}
+        "Link": {"color": t.primary, "cursor": "pointer"},
+        # A SplitView's bar: a thin line in a wider strip that takes the pointer, in the primary color while hovered or
+        # dragged.
+        "SplitLine": {"background": t.border, "transition": 120},
+        "SplitLine:selected": {"background": t.primary}
     };
 };
 
@@ -719,6 +729,78 @@ kinds["Divider"] = {"update": function(e, w) {
     var base = if (w.vertical == true) { {"width": t, "alignSelf": "stretch"}; } else { {"height": t, "alignSelf": "stretch"}; };
     if (w.color != null) { base["background"] = w.color; }
     restyle(e, base, ["Divider"], null);
+}};
+
+# SplitView: first and second side by side (direction "row") or one above the other ("column"), the first `size` long,
+# with a line `thickness` thick between them in a strip `grip` wide that shows the resize cursor and that the pointer
+# drags. The first pane stays between min and max and leaves the second at least minSecond, also when the view shrinks.
+# The view keeps a dragged size itself and reports it to onResize(size); a different `size` from the app replaces it.
+# collapsed shows only the second pane (the first keeps its state for when it comes back).
+var splitLimit = function(e, size) {
+    var w = e.widget;
+    var hi = w.max;
+    var total = Hash.Get(e.data, "total", null);
+    if (total != null) {
+        var room = total - w.thickness - pick(w.minSecond, 0);
+        if (hi == null || room < hi) { hi = room; }
+    }
+    if (hi != null && size > hi) { size = hi; }
+    return Processing_max(size, pick(w.min, 0));
+};
+var splitSize = e => splitLimit(e, Hash.Get(e.data, "size", e.widget.size));
+var splitAxis = function(w) { if (w.direction == "column") { return "height"; } return "width"; };
+kinds["SplitView"] = {"update": function(e, w) {
+    var row = w.direction != "column";
+    if (Hash.Get(e.data, "given", null) != w.size) { e.data["given"] = w.size; e.data["size"] = w.size; }
+    restyle(e, {"flexDirection": if (row) { "row"; } else { "column"; }, "flexGrow": 1, "alignSelf": "stretch", "minWidth": 0, "minHeight": 0},
+        selectorsOf("SplitView", null, w.class), w.style);
+    var shown = if (w.collapsed == true) { "none"; } else { "flex"; };
+    var size = splitSize(e);
+    var first = {"flexShrink": 0, "display": shown};
+    first[splitAxis(w)] = size;
+    var line = {"flexShrink": 0, "display": shown};
+    line[splitAxis(w)] = w.thickness;
+    reconcile(e, [
+        Box(child: Expanded(child: w.first), style: first, key: "first"),
+        Box(class: "SplitLine", style: line, key: "line"),
+        Box(child: Expanded(child: w.second), style: {"flexGrow": 1, "flexShrink": 1, "flexBasis": 0, "minWidth": 0, "minHeight": 0}, key: "second"),
+        SplitHandle(row: row, at: size + w.thickness / 2.0d, hidden: w.collapsed == true, grip: w.grip, key: "grip"),
+    ]);
+    # The line lights up while the strip is hovered or dragged.
+    var grip = e.children[3];
+    var lit = Hash.Get(grip.data, "hover", false) == true || Hash.Get(grip.data, "drag", null) != null;
+    var bar = e.children[1];
+    if (Hash.Get(bar.data, "selected", false) != lit) { bar.data["selected"] = lit; update(bar, bar.widget); }
+}, "layout": function(e) {
+    # A view that changed size keeps its first pane within the limits at once (no frame with the old size).
+    var w = e.widget;
+    var total = if (w.direction == "column") { e.node.GetComputedHeight(); } else { e.node.GetComputedWidth(); };
+    if (total == Hash.Get(e.data, "total", null)) { return null; }
+    e.data["total"] = total;
+    var size = splitSize(e);
+    var first = {};
+    first[splitAxis(w)] = size;
+    e.children[0].node.SetStyle(first);
+    var grip = e.children[3];
+    grip.widget.at = size + w.thickness / 2.0d;
+    update(grip, grip.widget);
+}};
+kinds["SplitHandle"] = {"update": function(e, w) {
+    var half = w.grip / 2.0d;
+    var base = if (w.row) { {"left": w.at - half, "top": 0, "bottom": 0, "width": w.grip, "cursor": "col-resize"}; }
+        else { {"top": w.at - half, "left": 0, "right": 0, "height": w.grip, "cursor": "row-resize"}; };
+    base["position"] = "absolute";
+    base["display"] = if (w.hidden) { "none"; } else { "flex"; };
+    restyle(e, base, ["SplitHandle"], null);
+}, "drag": function(e, event, local) {
+    # The press remembers where the drag starts; each move sets the size that far from it.
+    var split = e.parent;
+    var at = if (e.widget.row) { event["x"]; } else { event["y"]; };
+    if (event["type"] == "press") { e.data["drag"] = "split"; e.data["from"] = splitSize(split); e.data["start"] = at; return null; }
+    var size = splitLimit(split, e.data["from"] + at - e.data["start"]);
+    if (size == splitSize(split)) { return null; }
+    split.data["size"] = size;
+    if (split.widget.onResize != null) { split.widget.onResize(size); }
 }};
 kinds["Text"] = {"update": function(e, w) {
     var base = {"maxLines": w.maxLines, "textAlign": w.align};
@@ -1529,12 +1611,18 @@ var solid = function(path) {
     for (var i = 0; i < len(path); i++) {
         var e = path[i];
         if (e.node.Paints()) { return true; }
-        if (kinds[e.type] != null) { if (kinds[e.type]["tap"] != null) { return true; } }
+        if (kinds[e.type] != null) { if (kinds[e.type]["tap"] != null || kinds[e.type]["drag"] != null) { return true; } }
         if ((e.type == "Box" || e.type == "Gesture" || e.type == "Card") && e.widget.onTap != null) { return true; }
         if (Hash.Get(e.data, "scrollable", false) == true) { return true; }
     }
     return false;
 };
+# The style's cursor as Interaction names it: its own names ("hand", "resizeHorizontal", ...) or their CSS names.
+var cssCursors = {"pointer": "hand", "default": "arrow", "auto": "arrow", "col-resize": "resizeHorizontal",
+    "ew-resize": "resizeHorizontal", "row-resize": "resizeVertical", "ns-resize": "resizeVertical",
+    "nwse-resize": "resizeDiagonal", "nesw-resize": "resizeAntiDiagonal", "not-allowed": "notAllowed"};
+var cursorName = function(c) { return Hash.Get(cssCursors, c, c); };
+
 var eventOf = function(raw) {
     if (typeOf(raw) == "hash") { return raw; }
     # Every field of an Interaction event, as Interaction lists them (Immediate widgets see modifiers, editing actions,
@@ -1694,13 +1782,14 @@ var CreateSurface = function(width, height, root, options) {
         }
         s.hover = path;
         # The cursor of the deepest element that sets one; tooltips start counting.
-        s.cursor = "arrow";
+        s.cursor = null;
         var tip = null;
         for (var i = len(path) - 1; i >= 0; i -= 1) {
             var c = path[i].node.GetCursor();
-            if (c != null && s.cursor == "arrow") { s.cursor = if (c == "pointer") { "hand"; } else { c; }; }
+            if (c != null && s.cursor == null) { s.cursor = cursorName(c); }
             if (path[i].type == "Tooltip" && tip == null) { tip = path[i]; }
         }
+        if (s.cursor == null) { s.cursor = "arrow"; }
         if (tip != s.tooltip) { s.tooltip = tip; s.tooltipAt = s.time; s.dirty = true; }
     };
     var local = function(e, x, y) {

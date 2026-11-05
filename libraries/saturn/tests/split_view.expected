@@ -1,0 +1,12 @@
+panes 240 1 241 559
+hover resizeHorizontal 真
+away arrow 假
+drag resizeHorizontal 300 300 301
+max 400 400
+min 100 100
+shrunk 349 150 346
+collapsed 0 500 Text
+restored 真 349
+heard [300, 400, 100]
+column resizeVertical 180 181
+cursors [notAllowed, resizeVertical, arrow, arrow]

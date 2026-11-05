@@ -6,3 +6,6 @@ outside window 假
 values 2 假 Saturn [1, 0.5, 0.25] 2 1.93.0
 recovered 真
 key released 真 假
+splitter hover resizeHorizontal
+splitter drag [150, 130]
+splitter limit [200, 80]

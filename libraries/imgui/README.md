@@ -69,7 +69,7 @@ drag and drop (payloads are any values), styles (`StyleColors*`, `PushStyleColor
 `SetStyleColor`, `ScaleAllSizes`), fonts, the demo, metrics, debug log, ID stack, about and style editor windows, and
 draw lists (`GetWindowDrawList`, `GetForegroundDrawList`, `GetBackgroundDrawList` with `AddLine`, `AddRect(Filled)`,
 `AddCircle(Filled)`, `AddText`, `AddPolyline`, `AddConvexPolyFilled`, `AddBezierCubic`, `AddImage`, paths, clip rects,
-channels; valid during their frame). `ImGui.Embed(id, w, h)` reserves an item another library draws (see Render).
+channels; valid during their frame). `ImGui.Embed(id, w, h)` reserves an item another library draws (see Render). `sizes = ImGui.Splitter(id, size1, size2 | vertical, thickness, min1, min2, length)` is a bar between two panes (child windows placed after it) that the mouse drags, with the resize cursor: it returns `[size1, size2]` after the drag, neither below its minimum; `vertical` (the default) stands it between panes side by side, `false` lays it between panes one above the other, and `length` is its long side (default: the space left).
 
 Misuse never aborts: assertions become errors of the call (`src/aqua_imconfig.h`), widget calls outside a frame are
 errors, and mismatched Begin/End are repaired by Dear ImGui's error recovery.
