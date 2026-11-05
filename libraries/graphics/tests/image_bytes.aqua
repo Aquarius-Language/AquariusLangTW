@@ -1,4 +1,5 @@
-# loadImage(bytes): an encoded image held in memory (a PNG made with the Images module) becomes a Processing image.
+# loadImage(bytes) and loadImage(data URI): an encoded image held in memory (a PNG made with the Images module) becomes a
+# Processing image.
 var p = import("Processing");
 var Images = import("Images");
 var png = Images.Encode(Images.Create(2, 1, [255, 0, 0, 255, 0, 0, 255, 255]), "png", {});
@@ -6,3 +7,20 @@ var image = p.loadImage(png);
 print(image.width, image.height, p.red(image.get(0, 0)), p.blue(image.get(1, 0)));
 var Network = import("Network");
 print(Network.Try(() => p.loadImage([1, 2, 3])).Success);
+# 同一張 PNG 的 data URI（Base64）。 / The same PNG as a data URI (Base64).
+var alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+var base64 = function(bytes) {
+    var text = "";
+    for (var i = 0; i < len(bytes); i += 3) {
+        var b1 = if (i + 1 < len(bytes)) { bytes[i + 1]; } else { 0; };
+        var b2 = if (i + 2 < len(bytes)) { bytes[i + 2]; } else { 0; };
+        var v = (bytes[i] << 16) | (b1 << 8) | b2;
+        text += alphabet[(v >> 18) & 63] + alphabet[(v >> 12) & 63];
+        text += if (i + 1 < len(bytes)) { alphabet[(v >> 6) & 63]; } else { "="; };
+        text += if (i + 2 < len(bytes)) { alphabet[v & 63]; } else { "="; };
+    }
+    return text;
+};
+var fromUri = p.loadImage("data:image/png;base64," + base64(png));
+print(fromUri.width, fromUri.height, p.red(fromUri.get(0, 0)), p.blue(fromUri.get(1, 0)));
+print(Network.Try(() => p.loadImage("data:image/png;base64,AAAA")).Success);

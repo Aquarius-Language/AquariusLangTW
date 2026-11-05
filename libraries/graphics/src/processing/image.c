@@ -784,31 +784,79 @@ static void p_createImage(aqua_call *call, processing *p) {
     aqua_return(call, gfx_image_object(aqua_call_runtime(call), image));
 }
 
-/* loadImage(path | bytes): a file or asset, or the encoded bytes of a PNG, JPEG, GIF or BMP (an image received over
-   the network on the web, where no path reaches it). */
+/* A Processing image from encoded bytes (PNG, JPEG, GIF or BMP); fails the call and returns NULL when they do not
+   decode. */
+static pimage *image_from_encoded(aqua_call *call, processing *p, const uint8_t *bytes, size_t length) {
+    int width, height;
+    const char *reason = NULL;
+    uint8_t *pixels = gfx_codec_decode(bytes, length, &width, &height, &reason);
+    if (!pixels) { gfx_fail(call, "%s", reason ? reason : "Image decode failed."); return NULL; }
+    pimage *image = gfx_image_new(p, width, height);
+    if (!image) { free(pixels); gfx_fail(call, "Image dimensions must be 1..8192 with at most 16 million pixels."); return NULL; }
+    memcpy(image->bytes, pixels, (size_t)width * (size_t)height * 4);
+    free(pixels);
+    return image;
+}
+
+/* The value of one Base64 character, or -1 for any other character (whitespace, padding). */
+static int base64_value(char c) {
+    if (c >= 'A' && c <= 'Z') return c - 'A';
+    if (c >= 'a' && c <= 'z') return c - 'a' + 26;
+    if (c >= '0' && c <= '9') return c - '0' + 52;
+    if (c == '+' || c == '-') return 62;
+    if (c == '/' || c == '_') return 63;
+    return -1;
+}
+
+/* The bytes of a `data:[<type>][;base64],<data>` URI's Base64 data (malloc'd), or NULL when it is not one. */
+static uint8_t *data_uri_bytes(const char *uri, size_t length, size_t *size) {
+    if (length < 5 || strncmp(uri, "data:", 5) != 0) return NULL;
+    const char *comma = memchr(uri, ',', length);
+    if (!comma || comma - uri < 12 || strncmp(comma - 7, ";base64", 7) != 0) return NULL;
+    const char *data = comma + 1;
+    size_t count = length - (size_t)(data - uri);
+    uint8_t *bytes = malloc(count / 4 * 3 + 3);
+    if (!bytes) return NULL;
+    uint32_t buffer = 0;
+    int bits = 0;
+    size_t n = 0;
+    for (size_t i = 0; i < count; i++) {
+        int v = base64_value(data[i]);
+        if (v < 0) continue;
+        buffer = (buffer << 6) | (uint32_t)v;
+        bits += 6;
+        if (bits >= 8) { bits -= 8; bytes[n++] = (uint8_t)(buffer >> bits); }
+    }
+    *size = n;
+    return bytes;
+}
+
+/* loadImage(path | data URI | bytes): a file or asset, a `data:image/...;base64,...` URI (as p5.js takes), or the
+   encoded bytes of a PNG, JPEG, GIF or BMP (an image received over the network on the web, where no path reaches it).
+   A data URI decodes entirely in native code, so a large image costs the script no array of its bytes. */
 static void p_loadImage(aqua_call *call, processing *p) {
     aqua_runtime *rt = aqua_call_runtime(call);
     aqua_value source = aqua_arg(call, 0);
+    pimage *image = NULL;
     if (source.type == AQUA_ARRAY) {
         uint32_t length = aqua_array_length(rt, source);
         uint8_t *bytes = malloc(length ? length : 1);
         if (!aqua_array_read_u8(rt, source, 0, length, bytes)) { free(bytes); gfx_fail(call, "loadImage: bytes must be integers 0..255."); return; }
-        int width, height;
-        const char *reason = NULL;
-        uint8_t *pixels = gfx_codec_decode(bytes, length, &width, &height, &reason);
+        image = image_from_encoded(call, p, bytes, length);
         free(bytes);
-        if (!pixels) { gfx_fail(call, "%s", reason ? reason : "Image decode failed."); return; }
-        pimage *image = gfx_image_new(p, width, height);
-        if (!image) { free(pixels); gfx_fail(call, "Image dimensions must be 1..8192 with at most 16 million pixels."); return; }
-        memcpy(image->bytes, pixels, (size_t)width * (size_t)height * 4);
-        free(pixels);
-        aqua_return(call, gfx_image_object(rt, image));
-        return;
+    } else {
+        aqua_str path = gfx_text(call, 0);
+        if (aqua_failed(call)) return;
+        size_t size = 0;
+        uint8_t *bytes = data_uri_bytes(path.data, path.length, &size);
+        if (bytes) {
+            image = image_from_encoded(call, p, bytes, size);
+            free(bytes);
+        } else {
+            image = gfx_image_load(call, p, path.data);
+        }
     }
-    aqua_str path = gfx_text(call, 0);
-    if (aqua_failed(call)) return;
-    pimage *image = gfx_image_load(call, p, path.data);
-    if (image) aqua_return(call, gfx_image_object(aqua_call_runtime(call), image));
+    if (image) aqua_return(call, gfx_image_object(rt, image));
 }
 
 /* ---- Properties ---- */
