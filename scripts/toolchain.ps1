@@ -19,6 +19,11 @@ $aquaNative = if ($env:AQUARIUS_NATIVE_BUILD) { $env:AQUARIUS_NATIVE_BUILD } els
 $aquaToolchains = Join-Path $aquaNative 'toolchains'
 $aquaLlvm = if ($env:AQUARIUS_LLVM) { $env:AQUARIUS_LLVM } else { Join-Path $aquaToolchains $AquaPins.llvm.directory.Replace('{platform}', $aquaPlatform) }
 $aquaExe = if ($aquaWindows) { '.exe' } else { '' }
+# The Android SDK: ANDROID_HOME, else where Android Studio installs it on this host.
+$aquaAndroidSdk = if ($env:ANDROID_HOME) { $env:ANDROID_HOME }
+    elseif ($aquaWindows) { Join-Path $env:LOCALAPPDATA 'Android/Sdk' }
+    elseif ($aquaPlatform -like 'macos-*') { Join-Path $HOME 'Library/Android/sdk' }
+    else { Join-Path $HOME 'Android/Sdk' }
 $AquaToolchain = [pscustomobject]@{
     Version = $AquaPins.llvm.version
     Platform = $aquaPlatform
@@ -35,6 +40,12 @@ $AquaToolchain = [pscustomobject]@{
     CMake = Join-Path $aquaToolchains "$($AquaPins.cmake.directory.Replace('{platform}', $aquaPlatform))/$($AquaPins.cmake.$aquaPlatform.bin)/cmake$aquaExe"
     Ninja = Join-Path $aquaToolchains "$($AquaPins.ninja.directory.Replace('{platform}', $aquaPlatform))/ninja$aquaExe"
     Wabt = Join-Path $aquaToolchains $AquaPins.wabt.directory.Replace('{platform}', $aquaPlatform)
+    # Suffixes of this host's programs and of the Android build-tools' wrapper scripts (apksigner.bat on Windows).
+    Exe = $aquaExe
+    Script = if ($aquaWindows) { '.bat' } else { '' }
+    AndroidSdk = $aquaAndroidSdk
+    # The PowerShell running this script, for scripts that start another one (powershell.exe or pwsh).
+    PowerShell = (Get-Process -Id $PID).Path
 }
 # Wasm feature baseline of every built binary: lime1 (bulk-memory-opt, call-indirect-overlong, extended-const, multivalue,
 # mutable-globals, nontrapping-fptoint, sign-ext). Freestanding builds that relied on -mbulk-memory still pass it.
@@ -42,6 +53,8 @@ $AquaWasmCpu = @('-mcpu=lime1')
 # Every target the runtime and libraries build for. Adding a platform adds a row here, a CMake toolchain file in
 # runtime/sdk/cmake/toolchains/, a runtime/platform/<os> layer and a build target in compiler/AquariusBuild/Targets.
 $AquaTargets = @('windows-x64', 'linux-x64', 'android-arm64-v8a', 'android-x86_64', 'web')
+# The desktop targets: their native binaries build and run only on a host of the same platform.
+$AquaDesktopTargets = @($AquaTargets | Where-Object { $_ -notlike 'android-*' -and $_ -ne 'web' })
 function Assert-AquaToolchain {
     if (-not (Test-Path -LiteralPath $AquaToolchain.Clang)) { throw "Pinned clang not found at $($AquaToolchain.Clang). Run scripts/install-toolchain.ps1." }
     $version = (& $AquaToolchain.Clang --version | Select-Object -First 1)

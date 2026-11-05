@@ -1,10 +1,12 @@
 # Runs the default libraries' tests on the runtime packs: every libraries/<name>/tests/<case>.aqua is compiled with the
 # repository's compiler and run on each target; its standard output must equal <case>.expected exactly (LF endings).
-#   scripts/test-libraries.ps1                                   # every library, windows-x64 and web
+#   scripts/test-libraries.ps1                                   # every library, this host's target and web
 #   scripts/test-libraries.ps1 -Libraries audio,graphics -Targets windows-x64,web,linux-x64
 #   scripts/test-libraries.ps1 -Devices                          # also cases that need a window, device or service
-# Runtime packs come from .native-build/install/<target> (scripts/build-runtime.ps1). linux-x64 runs in WSL (directly
-# on Linux), Android targets run on the connected device or emulator through scripts/android-run.ps1 (only with -Devices).
+# Runs under Windows PowerShell 5.1 or PowerShell 7 (pwsh) on any host. Runtime packs come from
+# .native-build/install/<target> (scripts/build-runtime.ps1). Desktop targets run on their own host; on Windows,
+# linux-x64 runs in WSL. Android targets run on the connected device or emulator through scripts/android-run.ps1
+# (only with -Devices).
 #
 # A case says on its first line what it needs and where it runs (a # comment):
 #   needs <a window | a ... device | a GPU | a camera | the clipboard | a driver | a peer server | models ...>
@@ -19,7 +21,7 @@
 # The program is compiled beside the case, so files it reads relative to its folder are found on native targets.
 param(
     [string[]]$Libraries = @(),
-    [string[]]$Targets = @('windows-x64', 'web'),
+    [string[]]$Targets = @(),
     [string[]]$Cases = @(),
     [switch]$Devices,
     [string]$Compiler = '',
@@ -32,6 +34,7 @@ $ErrorActionPreference = 'Stop'
 $repository = $AquaToolchain.Repository
 $Libraries = @($Libraries | ForEach-Object { $_ -split ',' } | Where-Object { $_ })
 $Targets = @($Targets | ForEach-Object { $_ -split ',' } | Where-Object { $_ })
+if (-not $Targets.Count) { $Targets = @($AquaToolchain.Platform, 'web') }
 $Cases = @($Cases | ForEach-Object { $_ -split ',' } | Where-Object { $_ })
 foreach ($target in $Targets) { if ($AquaTargets -notcontains $target) { throw "Unknown target $target; use $($AquaTargets -join ', ')." } }
 
@@ -62,6 +65,8 @@ function Invoke-Captured([string]$Program, [string[]]$Arguments, [hashtable]$Env
     $process.WaitForExit()
     return [pscustomobject]@{ Code = $process.ExitCode; Output = $output.Result.Replace("`r`n", "`n"); Error = $errors.Result }
 }
+# Windows runs the linux-x64 pack in WSL (-Distribution).
+$wslRuns = $AquaToolchain.Platform -like 'windows-*'
 function ConvertTo-Wsl([string]$Path) { '/mnt/' + $Path.Substring(0, 1).ToLowerInvariant() + $Path.Substring(2).Replace('\', '/') }
 
 # The targets a case runs on and whether it needs something this machine may not have, from its first line.
@@ -70,8 +75,8 @@ function Get-CaseFacts([string]$File) {
     $targets = $AquaTargets
     if ($line -match '\bweb only\b') { $targets = @('web') }
     elseif ($line -match '\bwindows only\b') { $targets = @('windows-x64') }
-    elseif ($line -match '\bdesktop only\b') { $targets = @('windows-x64', 'linux-x64') }
-    elseif ($line -match '\bdesktop and web\b') { $targets = @('windows-x64', 'linux-x64', 'web') }
+    elseif ($line -match '\bdesktop only\b') { $targets = $AquaDesktopTargets }
+    elseif ($line -match '\bdesktop and web\b') { $targets = @($AquaDesktopTargets) + 'web' }
     elseif ($line -match '\(windows, linux,? (or |and )?android\)') { $targets = @($AquaTargets | Where-Object { $_ -ne 'web' }) }
     elseif ($line -match '\bnot android\b') { $targets = @($AquaTargets | Where-Object { $_ -notlike 'android-*' }) }
     $device = $line -match '\bneeds?\b[^.;]*\b(window|device|gpu|camera|clipboard|driver|display|peer|server|models?)\b'
@@ -112,7 +117,7 @@ function Start-PeerServer([string]$Tests, $Server) {
     $wasm = Join-Path $Tests ".aqua-test-server-$([IO.Path]::GetFileNameWithoutExtension($Server.Source)).wasm"
     $build = Invoke-Captured $Dotnet @($Compiler, 'build', (Join-Path $Tests $Server.Source), '--root', $Tests, '-o', $wasm)
     if ($build.Code -ne 0) { throw "Cannot compile the peer server $($Server.Source): $($build.Output)$($build.Error)" }
-    $start = [Diagnostics.ProcessStartInfo]::new((Join-Path $AquaToolchain.Native 'install/windows-x64/aquarius.exe'), (ConvertTo-WindowsArgument $wasm))
+    $start = [Diagnostics.ProcessStartInfo]::new((Join-Path $AquaToolchain.Native "install/$($AquaToolchain.Platform)/aquarius$($AquaToolchain.Exe)"), (ConvertTo-WindowsArgument $wasm))
     $start.UseShellExecute = $false; $start.CreateNoWindow = $true; $start.RedirectStandardOutput = $true; $start.RedirectStandardError = $true
     $process = [Diagnostics.Process]::Start($start)
     [void]$process.StandardOutput.ReadToEndAsync(); [void]$process.StandardError.ReadToEndAsync()
@@ -129,8 +134,8 @@ function Stop-PeerServer($Peer) {
     if (-not $Peer.Process.HasExited) { $Peer.Process.Kill(); [void]$Peer.Process.WaitForExit(5000) }
     Remove-Item -LiteralPath $Peer.Wasm -Force -ErrorAction SilentlyContinue
 }
-$sdk = if ($env:ANDROID_HOME) { $env:ANDROID_HOME } else { Join-Path $env:LOCALAPPDATA 'Android/Sdk' }
-$adb = Join-Path $sdk 'platform-tools/adb.exe'
+
+$adb = Join-Path $AquaToolchain.AndroidSdk "platform-tools/adb$($AquaToolchain.Exe)"
 
 $results = [Collections.Generic.List[object]]::new()
 $folders = Get-ChildItem -LiteralPath (Join-Path $repository 'libraries') -Directory | Sort-Object Name
@@ -164,6 +169,9 @@ foreach ($folder in $folders) {
             if (-not (Test-Path -LiteralPath $expectedFile)) { $row.Result = 'FAIL'; $row.Detail = "missing $name.expected"; continue }
             $pack = Join-Path $AquaToolchain.Native "install/$target"
             if (-not (Test-Path -LiteralPath $pack)) { $row.Result = 'skip'; $row.Detail = "no $target runtime pack"; continue }
+            if ($AquaDesktopTargets -contains $target -and $target -ne $AquaToolchain.Platform -and -not ($target -eq 'linux-x64' -and $wslRuns)) {
+                $row.Result = 'skip'; $row.Detail = "runs on a $target host"; continue
+            }
             if (-not $compiled) {
                 Install-TestDownloads $tests
                 $arguments = @($Compiler, 'build', $case.FullName) + $modules + @('--root', $tests, '--entry', $case.Name, '-o', $wasm)
@@ -178,12 +186,11 @@ foreach ($folder in $folders) {
             $storage = Join-Path ([IO.Path]::GetTempPath()) ("aquarius-test-storage-" + [Guid]::NewGuid().ToString('N'))
             [void](New-Item -ItemType Directory -Path $storage)
             switch -Wildcard ($target) {
-                'windows-x64' { $run = Invoke-Captured (Join-Path $pack 'aquarius.exe') @($wasm) (@{ AQUARIUS_STORAGE_ROOT = $storage } + $facts.Environment) }
+                # This host's desktop target runs its pack directly.
+                $AquaToolchain.Platform { $run = Invoke-Captured (Join-Path $pack "aquarius$($AquaToolchain.Exe)") @($wasm) (@{ AQUARIUS_STORAGE_ROOT = $storage } + $facts.Environment) $tests }
+                # linux-x64 from Windows runs in WSL (see $wslRuns).
                 'linux-x64' {
-                    # On Linux itself (CI) the pack runs directly; on Windows it runs in WSL.
-                    if ($IsLinux) {
-                        $run = Invoke-Captured (Join-Path $pack 'aquarius') @($wasm) (@{ AQUARIUS_STORAGE_ROOT = $storage } + $facts.Environment) $tests
-                    } else {
+                    if ($wslRuns) {
                         $env:MSYS_NO_PATHCONV = '1'
                         $run = Invoke-Captured 'wsl.exe' @('-d', $Distribution, '--cd', (ConvertTo-Wsl $tests), (ConvertTo-Wsl (Join-Path $pack 'aquarius')), (ConvertTo-Wsl $wasm)) `
                             (@{ AQUARIUS_STORAGE_ROOT = $storage; WSLENV = (@('AQUARIUS_STORAGE_ROOT/p') + @($facts.Environment.Keys)) -join ':' } + $facts.Environment)
@@ -199,13 +206,13 @@ foreach ($folder in $folders) {
                     # The device reaches the peer server at its own 127.0.0.1:port through adb reverse.
                     if ($peer) { & $adb reverse "tcp:$($peer.Port)" "tcp:$($peer.Port)" | Out-Null }
                     try {
-                        $run = Invoke-Captured 'powershell' $androidArguments
+                        $run = Invoke-Captured $AquaToolchain.PowerShell $androidArguments
                         # adb's own server sometimes stops mid-run on this kind of machine (it restarts on the next
                         # command): a run that failed because adb was down, not because of its output, runs once more.
                         if ($run.Code -ne 0 -and $run.Error -match 'daemon (still )?not running|no devices/emulators found|device offline') {
                             & $adb start-server 2>$null | Out-Null; & $adb wait-for-device | Out-Null
                             if ($peer) { & $adb reverse "tcp:$($peer.Port)" "tcp:$($peer.Port)" | Out-Null }
-                            $run = Invoke-Captured 'powershell' $androidArguments
+                            $run = Invoke-Captured $AquaToolchain.PowerShell $androidArguments
                             $retried = $true
                         }
                     }

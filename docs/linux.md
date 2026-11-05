@@ -8,18 +8,26 @@ needed only to run the compiler, never by applications.
 
 Inside Ubuntu (on Windows: WSL2 with WSLg):
 
+The build and test scripts are the same PowerShell scripts as on Windows, run by PowerShell 7 (`pwsh`), which installs
+as a .NET tool. The compiler (C#) and the toolchain (the pinned LLVM, CMake and Ninja that `build-runtime.ps1`
+downloads into `.native-build`) need nothing else from the distribution than the window system's headers:
+
 ```sh
 sudo apt-get update
-sudo apt-get install -y build-essential cmake pkg-config dotnet-sdk-8.0 \
+sudo apt-get install -y dotnet-sdk-8.0 curl xz-utils \
   libx11-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev \
-  libwayland-dev libxkbcommon-dev wayland-protocols
-bash scripts/install-toolchain.sh linux-x64        # pinned LLVM, WASI sysroot, Wasmtime C API
-export AQUARIUS_LLVM=$HOME/aquarius-toolchains/llvm-23.1.3-linux-x64   # or the path the installer prints
-bash scripts/test-linux.sh                          # builds .native-build/install/linux-x64, then dotnet test
+  libwayland-dev libxkbcommon-dev wayland-protocols libgl1-mesa-dev
+dotnet tool install --global PowerShell && export PATH="$PATH:$HOME/.dotnet/tools"   # Node.js 24 too, for web runs
+pwsh scripts/build-runtime.ps1 -Targets linux-x64,web   # the pinned toolchain, then .native-build/install/<target>
+dotnet test compiler/AquariusTests -c Release
+pwsh scripts/test-libraries.ps1 -Targets linux-x64,web  # web runs need `npm ci --prefix scripts` and Playwright's Chromium
+pwsh ./build-release.ps1 -Targets linux-x64,web          # the release for this host (dist/aqua, dist/releases)
 ```
 
 From Windows, `scripts/build-runtime.ps1 -Targets linux-x64` builds the same pack in WSL (`-Distribution` picks the
-distribution) and `scripts/test-libraries.ps1 -Targets linux-x64` runs the libraries' tests there.
+distribution; its Linux toolchain is installed in the distribution's `~/.aquarius/native-build`) and
+`scripts/test-libraries.ps1 -Targets linux-x64` runs the libraries' tests there. Without PowerShell,
+`scripts/install-toolchain.sh` installs the pinned toolchain alone (the compiler uses it for `aqua build --optimize`).
 
 ```sh
 aqua build examples/increment.aqua -o app.wasm

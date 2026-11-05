@@ -34,8 +34,7 @@ public static class LibraryBuilder {
         }
         var built = new List<string>();
         foreach (string target in targets) {
-            if (target.StartsWith("linux-", StringComparison.Ordinal) && !OperatingSystem.IsLinux()) throw new ArgumentException($"Build {target} binaries on Linux (on Windows, run aqua in WSL).");
-            if (target.StartsWith("windows-", StringComparison.Ordinal) && !OperatingSystem.IsWindows()) throw new ArgumentException($"Build {target} binaries on Windows.");
+            AquariusInstallation.RequireBuildableHere(target, "Library binaries");
             string toolchain = Path.Combine(installation.Sdk, "cmake", "toolchains", target + ".cmake");
             if (!File.Exists(toolchain)) throw new IOException($"The SDK has no toolchain file for {target}: {toolchain}");
             string build = Path.Combine(manifest.Root, "build", target);

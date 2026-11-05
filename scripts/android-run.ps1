@@ -21,15 +21,16 @@ param(
 )
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'toolchain.ps1')
-# Comma-separated values arrive as one string through powershell -File.
+# Comma-separated values arrive as one string through powershell -File (or pwsh -File).
 $Libraries = @($Libraries | ForEach-Object { $_ -split ',' } | Where-Object { $_ })
 $Permissions = @($Permissions | ForEach-Object { $_ -split ',' } | Where-Object { $_ })
 $Grant = @($Grant | ForEach-Object { $_ -split ',' } | Where-Object { $_ })
 
-$sdk = if ($env:ANDROID_HOME) { $env:ANDROID_HOME } else { Join-Path $env:LOCALAPPDATA 'Android/Sdk' }
+$sdk = $AquaToolchain.AndroidSdk
+$exe = $AquaToolchain.Exe
 $tools = Join-Path $sdk "build-tools/$($AquaPins.androidSdk.buildTools)"
 $androidJar = Join-Path $sdk "platforms/android-$($AquaPins.androidSdk.platform)/android.jar"
-$adb = Join-Path $sdk 'platform-tools/adb.exe'
+$adb = Join-Path $sdk "platform-tools/adb$exe"
 $env:JAVA_HOME = $AquaToolchain.Jdk
 foreach ($path in @($tools, $androidJar, (Join-Path $AquaToolchain.Jdk 'bin'))) {
     if (-not (Test-Path -LiteralPath $path)) { throw "$path is missing (install-toolchain.ps1 -Targets android-x86_64 and sdkmanager)." }
@@ -50,7 +51,7 @@ try {
         Replace('@VERSION_CODE@', '1').Replace('@VERSION_NAME@', '1.0').Replace('@PERMISSIONS@', $permissionLines)
     [IO.File]::WriteAllText((Join-Path $work 'AndroidManifest.xml'), $manifest, [Text.UTF8Encoding]::new($false))
     $unsigned = Join-Path $work 'unsigned.apk'
-    & (Join-Path $tools 'aapt2.exe') link -o $unsigned --manifest (Join-Path $work 'AndroidManifest.xml') -I $androidJar
+    & (Join-Path $tools "aapt2$exe") link -o $unsigned --manifest (Join-Path $work 'AndroidManifest.xml') -I $androidJar
     if ($LASTEXITCODE -ne 0) { throw 'aapt2 link failed.' }
 
     # Code, native libraries and the program, stored uncompressed (the JDK's jar tool: zip method "stored"), so the
@@ -70,21 +71,21 @@ try {
         $root = (Resolve-Path -LiteralPath $Assets).Path
         foreach ($file in Get-ChildItem -LiteralPath $root -File -Recurse) { Add-File $file.FullName ('assets/aquarius/assets/' + $file.FullName.Substring($root.Length + 1)) }
     }
-    & (Join-Path $AquaToolchain.Jdk 'bin/jar.exe') --update --no-compress --no-manifest --file $unsigned -C $stage .
+    & (Join-Path $AquaToolchain.Jdk "bin/jar$exe") --update --no-compress --no-manifest --file $unsigned -C $stage .
     if ($LASTEXITCODE -ne 0) { throw 'Adding files to the APK failed.' }
 
     $aligned = Join-Path $work 'aligned.apk'
-    & (Join-Path $tools 'zipalign.exe') -P 16 -f 4 $unsigned $aligned
+    & (Join-Path $tools "zipalign$exe") -P 16 -f 4 $unsigned $aligned
     if ($LASTEXITCODE -ne 0) { throw 'zipalign failed.' }
     $keystore = Join-Path $AquaToolchain.Native 'android/debug.keystore'
     if (-not (Test-Path -LiteralPath $keystore)) {
         New-Item -ItemType Directory -Path (Split-Path $keystore) -Force | Out-Null
-        & (Join-Path $AquaToolchain.Jdk 'bin/keytool.exe') -genkeypair -keystore $keystore -alias androiddebugkey -keyalg RSA -keysize 2048 `
+        & (Join-Path $AquaToolchain.Jdk "bin/keytool$exe") -genkeypair -keystore $keystore -alias androiddebugkey -keyalg RSA -keysize 2048 `
             -validity 10000 -dname 'CN=Android Debug,O=Android,C=US' -storepass android -keypass android | Out-Null
         if ($LASTEXITCODE -ne 0) { throw 'keytool failed.' }
     }
     $apk = if ($Output) { $Output } else { Join-Path $work 'app.apk' }
-    & (Join-Path $tools 'apksigner.bat') sign --ks $keystore --ks-pass pass:android --key-pass pass:android --out $apk $aligned
+    & (Join-Path $tools "apksigner$($AquaToolchain.Script)") sign --ks $keystore --ks-pass pass:android --key-pass pass:android --out $apk $aligned
     if ($LASTEXITCODE -ne 0) { throw 'apksigner failed.' }
     if (-not $Run) { Write-Output $apk; return }
 
