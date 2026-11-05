@@ -43,10 +43,13 @@ aqua_value websocket_object(aqua_runtime *rt, websocket *ws) {
     return object_wrap(rt, o);
 }
 
+/* A received message: a text message carries Text (and an empty Data), a binary one Data (and an empty Text). Only the
+   message's own form is made: a byte array costs the script a value per byte, so a large text message (a JSON-RPC
+   notification with an image) would otherwise cost many times its size. */
 aqua_value message_record(aqua_runtime *rt, const uint8_t *data, size_t length, bool is_text, bool closed) {
     net_object *o = object_create(CLASS_message, NULL);
-    object_field(rt, o, FIELD_OF(message, text), aqua_text(rt, length ? (const char *)data : "", length));
-    object_field(rt, o, FIELD_OF(message, data), bytes_value(rt, data, length));
+    object_field(rt, o, FIELD_OF(message, text), aqua_text(rt, is_text && length ? (const char *)data : "", is_text ? length : 0));
+    object_field(rt, o, FIELD_OF(message, data), bytes_value(rt, data, is_text ? 0 : length));
     object_field(rt, o, FIELD_OF(message, is_text), aqua_bool(is_text));
     object_field(rt, o, FIELD_OF(message, closed), aqua_bool(closed));
     object_field(rt, o, FIELD_OF(message, close_code), aqua_int(0));
