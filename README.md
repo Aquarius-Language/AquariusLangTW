@@ -79,8 +79,8 @@ default libraries' manifests and Aquarius sources, `sdk/` the library SDK and `e
 ## Build and package a release
 
 `build-release.ps1` produces this host's compiler package and the VS Code extension with its language server. It is
-verified on **Windows x64**; it is written with PowerShell 7's cross-platform idioms so it can later run on Linux and
-macOS with `pwsh`. Prepare:
+verified on **Windows x64** and **Linux x64** (`pwsh`, Ubuntu 22.04 / WSL2; see the [Linux guide](docs/linux.md)), and
+written so a macOS host needs only its runtime target. Prepare:
 
 | Tool | Purpose |
 | --- | --- |
@@ -115,7 +115,7 @@ dist/releases/aquariuslang-tw-<version>-<build-id>.vsix.sha256
 ```
 
 Verify with `Get-FileHash "package.zip" -Algorithm SHA256`. Failures return a nonzero exit code. For Linux see the
-[Linux guide](docs/linux.md) (`scripts/publish-cli.sh`); for Android, the [Android guide](docs/android.md).
+[Linux guide](docs/linux.md) (`pwsh ./build-release.ps1` there); for Android, the [Android guide](docs/android.md).
 
 ## Compile, run and export
 

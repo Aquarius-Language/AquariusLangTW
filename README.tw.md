@@ -61,8 +61,8 @@ C# 只作為編譯器，執行時不需要 .NET。
 
 ## 正式版編譯器：一鍵建置與打包
 
-`build-release.ps1` 產生本機平台的編譯器套件與 VS Code 擴充功能（含語言伺服器）。目前在 **Windows x64** 上驗證；腳本以
-PowerShell 7 的跨平台寫法撰寫，日後可在 Linux／macOS 以 `pwsh` 執行。請準備：
+`build-release.ps1` 產生本機平台的編譯器套件與 VS Code 擴充功能（含語言伺服器）。目前在 **Windows x64** 與 **Linux x64**（`pwsh`，Ubuntu 22.04／WSL2，見
+[Linux 桌面指南](docs/linux.md)）上驗證；macOS 主機只需補上其執行環境目標。請準備：
 
 | 工具 | 用途 |
 | --- | --- |
@@ -94,7 +94,7 @@ dist/releases/aquariuslang-tw-<版本>-<建置識別>.vsix.sha256
 ```
 
 可用 `Get-FileHash "套件.zip" -Algorithm SHA256` 比對校驗值。任一步驟失敗會回傳非零結束碼。
-Linux 見 [Linux 桌面指南](docs/linux.md)（`scripts/publish-cli.sh`），Android 見 [Android 平台](docs/android.md)。
+Linux 見 [Linux 桌面指南](docs/linux.md)（在 Linux 上執行 `pwsh ./build-release.ps1`），Android 見 [Android 平台](docs/android.md)。
 
 ## 編譯、執行與平台輸出
 

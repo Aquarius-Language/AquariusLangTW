@@ -36,8 +36,8 @@ aqua build app.wasm --target linux -o app    # aquarius with the application app
 ./app
 ```
 
-Exports are marked executable; transfers that drop permissions need `chmod +x app`. `bash scripts/publish-cli.sh`
-publishes the compiler distribution to `dist/aqua-linux-x64`.
+Exports are marked executable; transfers that drop permissions need `chmod +x app`. `pwsh scripts/publish-cli.ps1` publishes
+the compiler distribution alone; `pwsh ./build-release.ps1` also tests and archives it.
 
 ## Run-time requirements
 
