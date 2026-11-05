@@ -5,9 +5,13 @@ var UI = import("SaturnUI");
 var width = 240;
 var collapsed = false;
 var heard = [];
-var root = UI.Builder(build: context => UI.SplitView(size: width, min: 100, max: 400, minSecond: 150, collapsed: collapsed,
-    onResize: size => { width = size; Array.Append(heard, size); },
-    first: UI.Text("files", key: "files"), second: UI.Text("notebook", key: "notebook")));
+var builds = 0;
+var root = UI.Builder(build: function(context) {
+    builds++;
+    return UI.SplitView(size: width, min: 100, max: 400, minSecond: 150, collapsed: collapsed,
+        onResize: size => { width = size; Array.Append(heard, size); },
+        first: UI.Text("files", key: "files"), second: UI.Text("notebook", key: "notebook"));
+});
 var s = UI.Surface(800, 300, root, null);
 s.Frame(0);
 var split = s.tree.children[0].children[0];
@@ -35,6 +39,18 @@ var drag = function(from, to) {
     return during;
 };
 print("drag", drag(240, 300), width, pane(0)["width"], pane(2)["x"]);
+
+# Moves during a drag lay the panes out again without rebuilding the app's tree, and onResize waits for the release.
+s.Feed({"type": "move", "x": 300, "y": 100});
+s.Feed({"type": "press", "x": 300, "y": 100, "button": 0});
+s.Frame(s.time + 16);
+var before = builds;
+for (var x = 310; x <= 350; x += 10) { s.Feed({"type": "drag", "x": x, "y": 100}); s.Frame(s.time + 16); }
+print("live", builds - before, pane(0)["width"], pane(2)["x"], width, s.Cursor());
+s.Feed({"type": "release", "x": 350, "y": 100, "button": 0});
+s.Frame(s.time + 16);
+print("released", width, pane(0)["width"]);
+drag(350, 300);
 drag(300, 790);
 print("max", width, pane(0)["width"]);
 drag(400, 0);

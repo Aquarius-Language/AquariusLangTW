@@ -2,11 +2,13 @@ panes 240 1 241 559
 hover resizeHorizontal 真
 away arrow 假
 drag resizeHorizontal 300 300 301
+live 0 350 351 300 resizeHorizontal
+released 350 350
 max 400 400
 min 100 100
 shrunk 349 150 346
 collapsed 0 500 Text
 restored 真 349
-heard [300, 400, 100]
+heard [300, 350, 300, 400, 100]
 column resizeVertical 180 181
 cursors [notAllowed, resizeVertical, arrow, arrow]
