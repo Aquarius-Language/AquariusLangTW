@@ -88,7 +88,7 @@ struct Element { widget; type; node; children; parent; surface; state; data; key
 struct SaturnSurface {
     width; height; root; theme; sheets; tree; rootNode; overlayNode; dirty; hover; pressed; captured; focus;
     time; cursor; pressX; pressY; pressTime; lastTap; lastTapTime; tooltip; tooltipAt; pathAt; fontOf; textColor; pointer;
-    popup; autoscroll; swallow; conventions; options; errors; painted;
+    popup; autoscroll; swallow; relayout; conventions; options; errors; painted;
     Frame; Paint; Feed; Wants; Resize; SetRoot; SetTheme; Rebuild; Cursor; NeedsFrame; ImeRect; HasPopup; Errors; Dispose
 }
 struct DropdownMenu { owner; options; value; key }
@@ -734,7 +734,8 @@ kinds["Divider"] = {"update": function(e, w) {
 # SplitView: first and second side by side (direction "row") or one above the other ("column"), the first `size` long,
 # with a line `thickness` thick between them in a strip `grip` wide that shows the resize cursor and that the pointer
 # drags. The first pane stays between min and max and leaves the second at least minSecond, also when the view shrinks.
-# The view keeps a dragged size itself and reports it to onResize(size); a different `size` from the app replaces it.
+# A drag moves only the panes and the bar (the app's tree is not rebuilt while it lasts); the view keeps the dragged
+# size itself and reports it to onResize(size) when the drag ends; a different `size` from the app replaces it.
 # collapsed shows only the second pane (the first keeps its state for when it comes back).
 var splitLimit = function(e, size) {
     var w = e.widget;
@@ -749,6 +750,18 @@ var splitLimit = function(e, size) {
 };
 var splitSize = e => splitLimit(e, Hash.Get(e.data, "size", e.widget.size));
 var splitAxis = function(w) { if (w.direction == "column") { return "height"; } return "width"; };
+# Moves the bar to `size` by restyling the first pane and the grip only, so a drag never rebuilds the app's tree.
+var placeSplit = function(e, size) {
+    var w = e.widget;
+    var first = {};
+    first[splitAxis(w)] = size;
+    e.children[0].node.SetStyle(first);
+    var grip = e.children[3];
+    grip.widget.at = size + w.thickness / 2.0d;
+    var at = {};
+    at[if (grip.widget.row) { "left"; } else { "top"; }] = grip.widget.at - grip.widget.grip / 2.0d;
+    grip.node.SetStyle(at);
+};
 kinds["SplitView"] = {"update": function(e, w) {
     var row = w.direction != "column";
     if (Hash.Get(e.data, "given", null) != w.size) { e.data["given"] = w.size; e.data["size"] = w.size; }
@@ -777,13 +790,7 @@ kinds["SplitView"] = {"update": function(e, w) {
     var total = if (w.direction == "column") { e.node.GetComputedHeight(); } else { e.node.GetComputedWidth(); };
     if (total == Hash.Get(e.data, "total", null)) { return null; }
     e.data["total"] = total;
-    var size = splitSize(e);
-    var first = {};
-    first[splitAxis(w)] = size;
-    e.children[0].node.SetStyle(first);
-    var grip = e.children[3];
-    grip.widget.at = size + w.thickness / 2.0d;
-    update(grip, grip.widget);
+    placeSplit(e, splitSize(e));
 }};
 kinds["SplitHandle"] = {"update": function(e, w) {
     var half = w.grip / 2.0d;
@@ -793,14 +800,18 @@ kinds["SplitHandle"] = {"update": function(e, w) {
     base["display"] = if (w.hidden) { "none"; } else { "flex"; };
     restyle(e, base, ["SplitHandle"], null);
 }, "drag": function(e, event, local) {
-    # The press remembers where the drag starts; each move sets the size that far from it.
+    # The press remembers where the drag starts; each move puts the bar that far from it and only needs a new layout.
     var split = e.parent;
     var at = if (e.widget.row) { event["x"]; } else { event["y"]; };
     if (event["type"] == "press") { e.data["drag"] = "split"; e.data["from"] = splitSize(split); e.data["start"] = at; return null; }
     var size = splitLimit(split, e.data["from"] + at - e.data["start"]);
-    if (size == splitSize(split)) { return null; }
-    split.data["size"] = size;
-    if (split.widget.onResize != null) { split.widget.onResize(size); }
+    if (size != splitSize(split)) { split.data["size"] = size; placeSplit(split, size); }
+    return "layout";
+}, "dragEnd": function(e) {
+    # The app hears the new size once, when the drag ends.
+    var split = e.parent;
+    var size = splitSize(split);
+    if (size != Hash.Get(e.data, "from", size) && split.widget.onResize != null) { split.widget.onResize(size); }
 }};
 kinds["Text"] = {"update": function(e, w) {
     var base = {"maxLines": w.maxLines, "textAlign": w.align};
@@ -1640,7 +1651,7 @@ var CreateSurface = function(width, height, root, options) {
     if (options != null && options["transparent"] == true) { clear = {"background": "transparent"}; }
     var s = SaturnSurface(width: width, height: height, root: root, theme: theme, sheets: [ThemeSheet(theme), theme.sheet, sheet],
         dirty: true, hover: [], pressed: null, captured: null, focus: null, time: 0, cursor: "arrow", lastTapTime: -1000,
-        tooltip: null, tooltipAt: 0, popup: null, autoscroll: null, swallow: false, conventions: null, options: options, errors: [], painted: null);
+        tooltip: null, tooltipAt: 0, popup: null, autoscroll: null, swallow: false, relayout: false, conventions: null, options: options, errors: [], painted: null);
     s.rootNode = Saturn.Node();
     s.overlayNode = Saturn.Node();
     s.overlayNode.SetStyle({"position": "absolute", "left": 0, "top": 0, "right": 0, "bottom": 0, "pointerEvents": "none"});
@@ -1665,7 +1676,7 @@ var CreateSurface = function(width, height, root, options) {
     };
     s.Resize = function(w, h) { if (w != s.width || h != s.height) { s.width = w; s.height = h; s.dirty = true; } };
     s.Cursor = function() { if (s.autoscroll != null) { return "move"; } return s.cursor; };
-    s.NeedsFrame = function() { return s.dirty || Saturn.Animating() || s.focus != null || s.tooltip != null || s.autoscroll != null; };
+    s.NeedsFrame = function() { return s.dirty || s.relayout || Saturn.Animating() || s.focus != null || s.tooltip != null || s.autoscroll != null; };
     # Whether a dropdown or menu is open: it takes the keyboard and the pointer until it closes.
     s.HasPopup = function() { return s.popup != null; };
 
@@ -1730,6 +1741,7 @@ var CreateSurface = function(width, height, root, options) {
             if (speed != 0) { scrollTo(e, Hash.Get(e.data, scrollKey(e), 0) + speed * Processing_min(elapsed, 100) / 1000.0d); }
         }
         if (s.dirty) { build(); }
+        s.relayout = false;
         s.rootNode.CalculateLayout(s.width, s.height);
         syncScroll(host);
         s.rootNode.CalculateLayout(s.width, s.height);
@@ -1809,6 +1821,7 @@ var CreateSurface = function(width, height, root, options) {
         var c = s.captured;
         s.captured = null;
         if (c != null) { if (Hash.Get(c.data, "drag", null) != null) { c.data["drag"] = null; s.dirty = true; } }
+        if (c != null && kinds[c.type] != null && kinds[c.type]["dragEnd"] != null) { kinds[c.type]["dragEnd"](c); }
         return c;
     };
     var released = function(ev) { return ev["action"] == 0 || ev["action"] == "release"; };
@@ -1898,7 +1911,8 @@ var CreateSurface = function(width, height, root, options) {
             if (s.captured != null) {
                 var c = s.captured;
                 var kind = kinds[c.type];
-                if (kind != null && kind["drag"] != null) { kind["drag"](c, ev, local(c, x, y)); s.dirty = true; }
+                # A drag that only moved nodes ("layout") needs a new layout, not a rebuild of the whole tree.
+                if (kind != null && kind["drag"] != null) { if (kind["drag"](c, ev, local(c, x, y)) == "layout") { s.relayout = true; } else { s.dirty = true; } }
                 elif (c.type == "Gesture" && c.widget.onDrag != null) { c.widget.onDrag(ev); s.dirty = true; }
                 elif (Hash.Get(c.data, "drag", null) == "thumb") {
                     var bar = barOf(c);
