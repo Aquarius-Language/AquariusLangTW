@@ -21,7 +21,7 @@ install_archive() { # url sha256 destination: an archive with one top-level fold
     local url=$1 expected=$2 destination=$3 archive staging
     [ -d "$destination" ] && return 0
     archive="$toolchains/$(basename "$url")"
-    [ -f "$archive" ] || curl -fL --retry 4 -o "$archive" "$url"
+    [ -f "$archive" ] || { echo "Downloading $url" >&2; curl -fsSL --retry 4 -o "$archive" "$url"; }
     if [ "$(sha "$archive")" != "$expected" ]; then rm -f "$archive"; echo "Checksum mismatch for $url" >&2; exit 1; fi
     staging=$(mktemp -d "$toolchains/.unpack-XXXXXX")
     # .zip archives (Ninja's): unzip, or the pinned CMake, which is installed first, where unzip is missing.

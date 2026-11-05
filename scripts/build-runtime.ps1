@@ -6,9 +6,10 @@
 #   scripts/build-runtime.ps1 -Targets windows-x64 -OnnxCuda                          # .native-build/install/windows-x64-cuda
 # It first runs scripts/install-toolchain.ps1 for the targets, which downloads (SHA-256 checked) any pinned toolchain
 # piece or SDK missing from .native-build, so a partial .native-build never breaks a build. Android needs ANDROID_HOME
-# with the pinned NDK, platform and build-tools; linux-x64 builds in WSL on Windows (Ubuntu-22.04 with the Linux LLVM
-# release in $HOME/aquarius-toolchains, see install-toolchain.sh). CMake and Ninja are the pinned ones unless
-# -CMake/-Ninja name others.
+# with the pinned NDK, platform and build-tools. Every desktop target builds on its own host (pwsh on Linux and macOS);
+# on Windows, linux-x64 builds in WSL (-Distribution) with the Linux toolchain that install-toolchain.sh installs into
+# the distribution's own $HOME/.aquarius/native-build (AQUARIUS_NATIVE_BUILD there moves it), and the pack lands in
+# this checkout. CMake and Ninja are the pinned ones unless -CMake/-Ninja name others.
 # Library downloads verify TLS: -CaBundle (default: Git for Windows' ca-bundle.crt when present) gives CMake builds
 # without a CA store one. Prebuilt third-party DLLs some libraries install (ONNX Runtime) need the Visual C++ 2015-2022
 # runtime: windows-x64 packs that contain DLLs get its redistributable DLLs from -VCRuntimeDirectory or the installed
@@ -37,7 +38,10 @@ function Invoke-Checked([string]$Program, [string[]]$Arguments) {
     & $Program @Arguments
     if ($LASTEXITCODE -ne 0) { throw "Command failed (exit $LASTEXITCODE): $Program $($Arguments -join ' ')" }
 }
-& (Join-Path $PSScriptRoot 'install-toolchain.ps1') -Targets $Targets | Out-Null
+# Windows builds linux-x64 in WSL, which installs its own toolchain there (below).
+$wslTargets = @($Targets | Where-Object { $_ -eq 'linux-x64' -and $aquaWindows })
+$hostTargets = @($Targets | Where-Object { $wslTargets -notcontains $_ })
+if ($hostTargets.Count) { & (Join-Path $PSScriptRoot 'install-toolchain.ps1') -Targets $hostTargets | Out-Null }
 $cmakePath = if ($CMake) { $CMake } else { $AquaToolchain.CMake }
 $ninjaPath = if ($Ninja) { $Ninja } else { $AquaToolchain.Ninja }
 $repository = $AquaToolchain.Repository
@@ -73,21 +77,26 @@ function Find-VCRuntime {
 foreach ($target in $Targets) {
     $pack = Join-Path $AquaToolchain.Native "install/$target$flavour"
     Write-Host "== $target$flavour -> $pack"
-    if ($target -eq 'linux-x64' -and $aquaWindows) {
-        # Linux builds run in WSL with the Linux release of the pinned LLVM; the pack is installed back into this checkout.
+    if ($wslTargets -contains $target) {
+        # The pinned Linux toolchain (install-toolchain.sh) in the distribution's own file system, which builds far
+        # faster than the Windows drive; the pack is installed back into this checkout.
         $wslRepository = '/mnt/' + $repository.Substring(0, 1).ToLowerInvariant() + $repository.Substring(2).Replace('\', '/')
         $wslPack = '/mnt/' + $pack.Substring(0, 1).ToLowerInvariant() + $pack.Substring(2).Replace('\', '/')
         $options = "-DCMAKE_BUILD_TYPE=$Configuration"
         if ($libraryList) { $options += " -DAQUA_LIBRARIES='$libraryList'" }
         if ($OnnxCuda) { $options += ' -DAQUA_ONNX_CUDA=ON' }
+        $cmakeTool = "`$toolchains/$($AquaPins.cmake.directory.Replace('{platform}', $target))/$($AquaPins.cmake.$target.bin)/cmake"
+        $ninjaTool = "`$toolchains/$($AquaPins.ninja.directory.Replace('{platform}', $target))/ninja"
         $script = @"
 set -e
-export AQUARIUS_LLVM=`${AQUARIUS_LLVM:-`$HOME/aquarius-toolchains/llvm-$($AquaPins.llvm.version)-linux-x64}
-build=`$HOME/aquarius-build/runtime/linux-x64$flavour
-cmake -S '$wslRepository/runtime' -B "`$build" -G 'Unix Makefiles' -DCMAKE_TOOLCHAIN_FILE='$wslRepository/runtime/sdk/cmake/toolchains/linux-x64.cmake' $options
-cmake --build "`$build" -j`$(nproc)
+export AQUARIUS_NATIVE_BUILD=`${AQUARIUS_NATIVE_BUILD:-`$HOME/.aquarius/native-build}
+toolchains=`$AQUARIUS_NATIVE_BUILD/toolchains
+bash '$wslRepository/scripts/install-toolchain.sh' $target > /dev/null
+build=`$AQUARIUS_NATIVE_BUILD/build/$target$flavour
+"$cmakeTool" -S '$wslRepository/runtime' -B "`$build" -G Ninja -DCMAKE_MAKE_PROGRAM="$ninjaTool" -DCMAKE_TOOLCHAIN_FILE='$wslRepository/runtime/sdk/cmake/toolchains/$target.cmake' $options
+"$cmakeTool" --build "`$build"
 rm -rf '$wslPack'
-cmake --install "`$build" --prefix '$wslPack'
+"$cmakeTool" --install "`$build" --prefix '$wslPack'
 "@
         $file = Join-Path $AquaToolchain.Native "build/linux-x64$flavour.sh"
         New-Item -ItemType Directory -Path (Split-Path $file) -Force | Out-Null

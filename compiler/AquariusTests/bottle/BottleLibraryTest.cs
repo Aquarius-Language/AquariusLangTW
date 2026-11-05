@@ -369,9 +369,9 @@ public class BottleLibraryTest
         var unknown = AquaCli.Run(t, tools, "library", "build", "tiny", "--targets", "windows-arm64");
         Assert.Equal(2, unknown.Code); Assert.Contains("Unknown target windows-arm64", unknown.Error);
         // Native binaries are built on their own operating system.
-        string foreign = OperatingSystem.IsWindows() ? "linux-x64" : "windows-x64";
+        string foreign = AquariusInstallation.HostTarget == "windows-x64" ? "linux-x64" : "windows-x64";
         var cross = AquaCli.Run(t, tools, "library", "build", "tiny", "--targets", foreign);
-        Assert.Equal(2, cross.Code); Assert.Contains($"Build {foreign} binaries on", cross.Error);
+        Assert.Equal(2, cross.Code); Assert.Contains($"for {foreign} build on a {foreign} host", cross.Error);
         foreach (var (folder, error) in new[] {
                      ("greeting", "has no native part to build"), ("nosource", "has no native part to build"), ("app", "is not a library manifest"),
                      ("nocmake", "has no CMakeLists.txt") }) {
@@ -383,7 +383,7 @@ public class BottleLibraryTest
         Assert.False(Directory.Exists(t.FilePath("tiny/native/windows-x64")));
     }
 
-    [NativeToolchainFact]
+    [NativeToolchainFact("windows-x64")]
     public void NativeLibrariesBuildWithWindowsPathsInToolchainEnvironment()
     {
         using var t = new BottleDirectory();
@@ -408,11 +408,11 @@ public class BottleLibraryTest
         string cmake = Path.Combine(folder, "native", "CMakeLists.txt");
         File.WriteAllText(cmake, File.ReadAllText(cmake).Replace("project(aqua_tiny C)", "project(aqua_tiny C CXX)").Replace("src/tiny.c", "src/tiny.cpp"));
         File.Move(Path.Combine(folder, "native", "src", "tiny.c"), Path.Combine(folder, "native", "src", "tiny.cpp"));
-        AquaCli.Run(t, NativeToolchain.BuildEnvironment, "library", "build", folder, "--targets", "windows-x64").Succeeded();
+        AquaCli.Run(t, NativeToolchain.BuildEnvironment, "library", "build", folder, "--targets", NativeToolchain.Target).Succeeded();
         Assert.Equal("42\ntiny native\n", AquaCli.Run(t, "run", Path.Combine(folder, "tests", "case.aqua")).Succeeded().Output);
     }
 
-    [LinuxNativeToolchainFact]
+    [NativeToolchainFact("linux-x64")]
     public void LinuxCppLibrariesCarryTheirExceptionAndRttiRuntime()
     {
         using var t = new BottleDirectory();
@@ -425,31 +425,25 @@ public class BottleLibraryTest
         File.WriteAllText(source, "#include <vector>\n#include <stdexcept>\n" + File.ReadAllText(source).Replace(
             "aqua_return_double(call, aqua_arg_number(call, 0) * 2);",
             "std::vector<int> values{1, 2}; try { throw std::out_of_range(\"expected\"); } catch (const std::exception&) { aqua_return_double(call, aqua_arg_number(call, 0) * values.back()); }"));
-        string build = Path.Combine(folder, "build", "linux-x64");
-        string toolchain = Path.Combine(AquariusInstallation.Require().Sdk, "cmake", "toolchains", "linux-x64.cmake");
-        Assert.Equal(0, Processes.Run(NativeToolchain.CMake!, folder, ["-S", Path.Combine(folder, "native"), "-B", build,
-            "-G", "Unix Makefiles", "-DCMAKE_TOOLCHAIN_FILE=" + toolchain, "-DCMAKE_BUILD_TYPE=Release"]).ExitCode);
-        Assert.Equal(0, Processes.Run(NativeToolchain.CMake!, folder, ["--build", build, "--parallel", "2"]).ExitCode);
-        string binary = Path.Combine(folder, "native", "linux-x64", "libaqua_tiny.so");
-        Directory.CreateDirectory(Path.GetDirectoryName(binary)!);
-        File.Copy(Path.Combine(build, "libaqua_tiny.so"), binary);
+        // -Wl,--no-undefined: the link fails unless libc++ and libc++abi (exceptions, RTTI) are inside the library.
+        AquaCli.Run(t, NativeToolchain.BuildEnvironment, "library", "build", folder, "--targets", "linux-x64").Succeeded();
         Assert.Equal("42\ntiny native\n", AquaCli.Run(t, "run", Path.Combine(folder, "tests", "case.aqua")).Succeeded().Output);
     }
 
     [NativeToolchainFact]
     public void ExternalLibrariesBuildTheirNativePartAndRunWithIt()
     {
-        // aqua library build tiny --targets windows-x64, with CMake and Ninja from AQUARIUS_CMAKE / AQUARIUS_NINJA.
-        string tiny = NativeToolchain.BuiltTinyLibrary;
-        string dll = Path.Combine(tiny, "native", "windows-x64", "aqua_tiny.dll");
+        // aqua library build tiny --targets <host>, with CMake and Ninja from AQUARIUS_CMAKE / AQUARIUS_NINJA.
+        string tiny = NativeToolchain.BuiltTinyLibrary, target = NativeToolchain.Target;
+        string dll = NativeToolchain.Binary(tiny), file = Path.GetFileName(dll);
         Assert.True(File.Exists(dll));
-        Assert.True(Directory.Exists(Path.Combine(tiny, "build", "windows-x64")));
+        Assert.True(Directory.Exists(Path.Combine(tiny, "build", target)));
         using var t = new BottleDirectory();
         // A test program inside the library loads the library's binary for the host.
         Assert.Equal("42\ntiny native\n", AquaCli.Run(t, "run", Path.Combine(tiny, "tests", "case.aqua")).Succeeded().Output);
         // The same through the native runtime: the library set names the binary to pass as --library.
         var libraries = ProjectBuilder.Inspect(ProjectManifest.Load(tiny));
-        Assert.Equal(dll, libraries.Find("tiny")!.NativeBinary("windows-x64"));
+        Assert.Equal(dll, libraries.Find("tiny")!.NativeBinary(target));
         string wasm = t.FilePath("case.wasm");
         WasmApplication.Compile([Path.Combine(tiny, "tests", "case.aqua")], wasm, Path.Combine(tiny, "tests"), libraries: libraries);
         var application = WasmApplication.Load(wasm);
@@ -458,16 +452,16 @@ public class BottleLibraryTest
         Assert.Equal(new[] { dll }, files);
         Assert.Equal("42\ntiny native\n", WasmTestHost.RunWasm(wasm, libraries: files).Succeeded().Output);
         var without = WasmTestHost.RunWasm(wasm);
-        Assert.NotEqual(0, without.ExitCode); Assert.Contains("aqua_tiny.dll", without.Output + without.Error);
+        Assert.NotEqual(0, without.ExitCode); Assert.Contains(file, without.Output + without.Error);
         // The runtime describes the external library's module for editors.
         string catalog = NativeRuntime.Catalog(files);
         Assert.Contains("\"TinyNative\"", catalog); Assert.Contains("兩倍", catalog);
 
         // An application installs it from Bottle; aqua run loads the cached binary.
-        Application(t, "app", "app", "變數 小 = 匯入(\"小原生\");\n印出(小.兩倍(4));\n", platforms: "[\"windows\"]");
+        Application(t, "app", "app", "變數 小 = 匯入(\"小原生\");\n印出(小.兩倍(4));\n", platforms: $"[\"{target.Split('-')[0]}\"]");
         AquaCli.Run(t, "bottle", "install", tiny, "--project", "app").Succeeded();
         var snapshot = new BottleCache(t.FilePath("cache"));
-        Assert.Equal(new[] { "aqua.toml", "native/windows-x64/aqua_tiny.dll" }, Files(snapshot.ContentRoot(snapshot.List("tiny").Single())));
+        Assert.Equal(new[] { "aqua.toml", $"native/{target}/{file}" }, Files(snapshot.ContentRoot(snapshot.List("tiny").Single())));
         Assert.Equal("8\n", AquaCli.Run(t, "run", "app").Succeeded().Output);
         AquaCli.Run(t, "build", "app", "-o", "app/dist/app.wasm").Succeeded();
         Assert.Equal("8\n", AquaCli.Run(t, "run", "app/dist/app.wasm").Succeeded().Output);

@@ -149,7 +149,7 @@ internal sealed record AndroidTools(string Aapt2, string Zipalign, string Apksig
             using var json = JsonDocument.Parse(File.ReadAllText(Path.Combine(repository.Root, "scripts", "toolchain.json")));
             var android = json.RootElement.GetProperty("androidSdk");
             string? jdk = json.RootElement.TryGetProperty("jdk", out var pin) ? pin.GetProperty("directory").GetString() : null;
-            string host = OperatingSystem.IsWindows() ? "windows-x64" : "linux-x64";
+            string host = AquariusInstallation.HostPlatform;
             return (android.GetProperty("buildTools").GetString(), android.GetProperty("platform").ToString(),
                 jdk == null ? null : Path.Combine(repository.Root, ".native-build", "toolchains", jdk.Replace("{platform}", host)));
         } catch (Exception e) when (e is IOException or JsonException or KeyNotFoundException or InvalidOperationException) { return (null, null, null); }

@@ -93,44 +93,67 @@ internal static class SyntheticPacks
 }
 
 /// <summary>
-/// The tools <c>aqua library build</c> needs for a windows-x64 binary: CMake and Ninja (AQUARIUS_CMAKE / AQUARIUS_NINJA,
-/// PATH, or C:/Strawberry/c/bin) and the pinned LLVM toolchain of the installation (scripts/install-toolchain.ps1).
+/// The tools <c>aqua library build</c> needs for a binary of this host's target: CMake and Ninja (AQUARIUS_CMAKE /
+/// AQUARIUS_NINJA, PATH, the pinned ones in .native-build/toolchains, or C:/Strawberry/c/bin) and the pinned LLVM
+/// toolchain of the installation (scripts/install-toolchain.ps1; on Windows with the llvm-mingw sysroot).
 /// </summary>
 internal static class NativeToolchain
 {
+    /// <summary>The target the native parts are built for: this host's.</summary>
+    public static string Target => AquariusInstallation.HostTarget;
     public static string? CMake => Find("AQUARIUS_CMAKE", "cmake");
     public static string? Ninja => Find("AQUARIUS_NINJA", "ninja");
+
+    private static string Exe(string name) => OperatingSystem.IsWindows() ? name + ".exe" : name;
+
+    private static string? NativeBuild
+    {
+        get {
+            var installation = AquariusInstallation.Current;
+            if (installation == null) return null;
+            return Environment.GetEnvironmentVariable("AQUARIUS_NATIVE_BUILD") is { Length: > 0 } configured ? configured
+                : installation.IsRepository ? Path.Combine(installation.Root, ".native-build")
+                : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".aquarius", "native-build");
+        }
+    }
 
     private static string? Find(string variable, string name)
     {
         if (Environment.GetEnvironmentVariable(variable) is { Length: > 0 } configured && File.Exists(configured)) return configured;
-        string exe = OperatingSystem.IsWindows() ? name + ".exe" : name;
+        string exe = Exe(name);
         foreach (string directory in (Environment.GetEnvironmentVariable("PATH") ?? "").Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries))
             if (File.Exists(Path.Combine(directory, exe))) return Path.Combine(directory, exe);
+        // The pinned CMake (<cmake-*>/bin/cmake) and Ninja (<ninja-*>/ninja) that build-runtime.ps1 uses.
+        string toolchains = Path.Combine(NativeBuild ?? "", "toolchains");
+        if (NativeBuild != null && Directory.Exists(toolchains))
+            foreach (string directory in Directory.EnumerateDirectories(toolchains, name + "-*"))
+                foreach (string candidate in new[] { Path.Combine(directory, exe), Path.Combine(directory, "bin", exe) })
+                    if (File.Exists(candidate)) return candidate;
         string strawberry = Path.Combine("C:/Strawberry/c/bin", exe);
         return OperatingSystem.IsWindows() && File.Exists(strawberry) ? strawberry : null;
     }
 
-    /// <summary>Why the windows-x64 native build cannot run here, or null when it can.</summary>
+    /// <summary>Why the native build cannot run here, or null when it can.</summary>
     public static string? Missing
     {
         get {
-            if (!OperatingSystem.IsWindows()) return "Builds the windows-x64 native part, which needs a Windows host.";
+            if (Array.IndexOf(AquariusInstallation.Targets, AquariusInstallation.HostPlatform) < 0) return $"No runtime target for this host ({AquariusInstallation.HostPlatform}).";
             if (!WasmTestHost.Available) return WasmTestHost.MissingRuntime;
-            if (CMake == null || Ninja == null) return "Needs CMake and Ninja (PATH, AQUARIUS_CMAKE / AQUARIUS_NINJA, or C:/Strawberry/c/bin).";
-            var installation = AquariusInstallation.Current;
-            if (installation == null) return "Needs an AquariusLang installation (AQUARIUS_HOME).";
-            string nativeBuild = Environment.GetEnvironmentVariable("AQUARIUS_NATIVE_BUILD") is { Length: > 0 } configured ? configured
-                : installation.IsRepository ? Path.Combine(installation.Root, ".native-build")
-                : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".aquarius", "native-build");
+            if (CMake == null || Ninja == null) return "Needs CMake and Ninja (PATH, AQUARIUS_CMAKE / AQUARIUS_NINJA, the pinned ones, or C:/Strawberry/c/bin).";
+            if (NativeBuild is not { } nativeBuild) return "Needs an AquariusLang installation (AQUARIUS_HOME).";
             string toolchains = Path.Combine(nativeBuild, "toolchains");
-            bool llvm = Directory.Exists(toolchains) && Directory.EnumerateDirectories(toolchains, "llvm-*").Any(d => File.Exists(Path.Combine(d, "bin", "clang.exe")));
-            bool mingw = Directory.Exists(toolchains) && Directory.EnumerateDirectories(toolchains, "llvm-mingw-*").Any();
-            return llvm && mingw ? null : "Needs the pinned LLVM and llvm-mingw toolchain (scripts/install-toolchain.ps1 -Targets windows-x64).";
+            string? llvm = Environment.GetEnvironmentVariable("AQUARIUS_LLVM");
+            bool clang = llvm is { Length: > 0 } ? File.Exists(Path.Combine(llvm, "bin", Exe("clang")))
+                : Directory.Exists(toolchains) && Directory.EnumerateDirectories(toolchains, "llvm-*").Any(d => File.Exists(Path.Combine(d, "bin", Exe("clang"))));
+            bool mingw = !OperatingSystem.IsWindows() || Directory.Exists(toolchains) && Directory.EnumerateDirectories(toolchains, "llvm-mingw-*").Any();
+            return clang && mingw ? null : $"Needs the pinned LLVM toolchain (scripts/install-toolchain.ps1 -Targets {Target}).";
         }
     }
 
     public static Dictionary<string, string> BuildEnvironment => new() { ["AQUARIUS_CMAKE"] = CMake!, ["AQUARIUS_NINJA"] = Ninja! };
+
+    /// <summary>The tiny library's binary for this host in <paramref name="folder"/>.</summary>
+    public static string Binary(string folder) => Path.Combine(folder, "native", Target, AquariusLang.Libraries.Library.NativeFile("tiny", Target));
 
     /// <summary>Writes a tiny external library with a C native part (module TinyNative|小原生: twice|兩倍, hello|問候) and a
     /// test program that imports it by both names.</summary>
@@ -142,7 +165,8 @@ internal static class NativeToolchain
             Directory.CreateDirectory(Path.GetDirectoryName(file)!);
             File.WriteAllText(file, text);
         }
-        Write("aqua.toml", "manifest_version = 2\n\n[library]\nname = \"tiny\"\nversion = \"1.0.0\"\nplatforms = [\"windows\", \"linux\"]\n\n" +
+        Write("aqua.toml", "manifest_version = 2\n\n[library]\nname = \"tiny\"\nversion = \"1.0.0\"\nplatforms = [" +
+            string.Join(", ", AquariusInstallation.Targets.Where(AquariusInstallation.IsDesktop).Select(t => $"\"{t.Split('-')[0]}\"")) + "]\n\n" +
             "[native]\nname = \"tiny\"\nmodules = [\"TinyNative|小原生\"]\nsource = \"native\"\n");
         Write("native/CMakeLists.txt", "cmake_minimum_required(VERSION 3.20)\nproject(aqua_tiny C)\ninclude(AquariusLibrary)\naqua_add_library(tiny SOURCES src/tiny.c)\n");
         Write("native/src/tiny.c", "#include <aqua/aqua.h>\n" +
@@ -164,7 +188,7 @@ internal static class NativeToolchain
             UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true, RedirectStandardError = true,
         };
         start.ArgumentList.Add(typeof(CompilerCommandLine).Assembly.Location);
-        foreach (string arg in new[] { "library", "build", folder, "--targets", "windows-x64" }) start.ArgumentList.Add(arg);
+        foreach (string arg in new[] { "library", "build", folder, "--targets", Target }) start.ArgumentList.Add(arg);
         foreach (var (name, value) in BuildEnvironment) start.Environment[name] = value;
         using var process = Process.Start(start)!;
         var output = process.StandardOutput.ReadToEndAsync(); var error = process.StandardError.ReadToEndAsync();
@@ -172,25 +196,17 @@ internal static class NativeToolchain
         Assert.True(process.ExitCode == 0, $"aqua library build failed ({process.ExitCode}):\n{output.Result}\n{error.Result}");
         return folder;
     });
-    /// <summary>The tiny library with its windows-x64 binary built (once per test run).</summary>
+    /// <summary>The tiny library with its binary for this host built (once per test run).</summary>
     public static string BuiltTinyLibrary => built.Value;
 }
 
-/// <summary>A fact that builds a native library part for windows-x64: skipped without CMake, Ninja, the pinned toolchain
-/// or the host runtime pack.</summary>
+/// <summary>A fact that builds a native library part for this host's target (or only on the host target it names):
+/// skipped without CMake, Ninja, the pinned toolchain or the host runtime pack.</summary>
 public sealed class NativeToolchainFactAttribute : FactAttribute
 {
-    public NativeToolchainFactAttribute() { if (NativeToolchain.Missing is { } reason) Skip = reason; }
-}
-
-public sealed class LinuxNativeToolchainFactAttribute : FactAttribute
-{
-    public LinuxNativeToolchainFactAttribute()
+    public NativeToolchainFactAttribute(string? host = null)
     {
-        if (!OperatingSystem.IsLinux()) Skip = "Builds and loads a Linux C++ SDK library on a Linux host.";
-        else if (!WasmTestHost.Available) Skip = WasmTestHost.MissingRuntime;
-        else if (NativeToolchain.CMake == null) Skip = "Needs CMake.";
-        else if (Environment.GetEnvironmentVariable("AQUARIUS_LLVM") is not { Length: > 0 } llvm || !File.Exists(Path.Combine(llvm, "bin", "clang++")))
-            Skip = "Needs the pinned Linux LLVM toolchain in AQUARIUS_LLVM.";
+        if (host != null && host != AquariusInstallation.HostPlatform) Skip = $"Builds a {host} library on a {host} host.";
+        else if (NativeToolchain.Missing is { } reason) Skip = reason;
     }
 }

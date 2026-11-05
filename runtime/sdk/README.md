@@ -130,7 +130,8 @@ Linux C++ libraries link both libc++ and libc++abi statically, including excepti
 depend on a machine's installed C++ standard library.
 
 The same with `web.cmake` builds `aquarius.wasm` and every library's side module; `cmake --install <build> --prefix
-<dir>` gathers a target's runtime files. Linux builds run under WSL with the Linux LLVM release (`AQUARIUS_LLVM`).
+<dir>` gathers a target's runtime files. Desktop targets build on their own host (`linux-x64.cmake` on Linux, or in WSL from
+Windows: see `docs/linux.md`).
 
 `aqua_add_library(<name> SOURCES ... [INCLUDE_DIRECTORIES ...] [LINK_LIBRARIES ...] [DEFINITIONS ...]
 [NATIVE_SOURCES ...] [WEB_SOURCES ...])` builds the library for the configured target. Vendored C/C++ dependencies are

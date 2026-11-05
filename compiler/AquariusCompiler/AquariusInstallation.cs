@@ -85,7 +85,24 @@ public sealed class AquariusInstallation
         return pack;
     }
 
-    /// <summary>The runtime target of the machine the compiler runs on, for <c>aqua run</c>.</summary>
-    public static string HostTarget => OperatingSystem.IsWindows() ? "windows-x64" : OperatingSystem.IsLinux() ? "linux-x64"
-        : throw new PlatformNotSupportedException("aqua run supports Windows x64 and Linux x64 hosts.");
+    /// <summary>The platform of the machine the compiler runs on, as scripts/toolchain.json names its toolchain downloads
+    /// (windows-x64, linux-x64, macos-arm64, ...).</summary>
+    public static string HostPlatform { get; } = (OperatingSystem.IsWindows() ? "windows" : OperatingSystem.IsMacOS() ? "macos" : OperatingSystem.IsLinux() ? "linux" : "unknown")
+        + "-" + System.Runtime.InteropServices.RuntimeInformation.OSArchitecture.ToString().ToLowerInvariant();
+
+    /// <summary>The runtime target of the machine the compiler runs on, for <c>aqua run</c>: its platform, when a runtime
+    /// pack exists for it.</summary>
+    public static string HostTarget => Array.IndexOf(Targets, HostPlatform) >= 0 ? HostPlatform
+        : throw new PlatformNotSupportedException($"AquariusLang has no runtime for this host ({HostPlatform}) yet; it runs on {string.Join(", ", Array.FindAll(Targets, IsDesktop))}.");
+
+    /// <summary>Whether a target is a desktop operating system: its native binaries build and run only on that host.</summary>
+    public static bool IsDesktop(string target) => !target.StartsWith("android-", StringComparison.Ordinal) && target != "web";
+
+    /// <summary>Throws unless this host can build native binaries for <paramref name="target"/>: Android and web build
+    /// anywhere, a desktop target only on itself.</summary>
+    public static void RequireBuildableHere(string target, string what)
+    {
+        if (IsDesktop(target) && target != HostPlatform)
+            throw new ArgumentException($"{what} for {target} build on a {target} host (this one is {HostPlatform}; on Windows, build Linux ones in WSL).");
+    }
 }

@@ -106,7 +106,8 @@ scripts/android-run.ps1 app.wasm -Runtime <android pack> -Run          # Android
 ```
 
 Every library's `tests/` must pass on every target it supports before a change is done. Windows builds use Clang +
-MinGW only; Linux builds run in WSL (`AQUARIUS_LLVM`, see `runtime/sdk/README.md`).
+MinGW only. Linux (and later macOS) runs the same scripts with PowerShell 7 (`pwsh`); from Windows, linux-x64 builds
+and runs in WSL (see `docs/linux.md`).
 
 ## Before you finish a change, check
 

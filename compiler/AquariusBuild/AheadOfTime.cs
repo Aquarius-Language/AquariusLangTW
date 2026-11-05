@@ -19,8 +19,7 @@ public static partial class AheadOfTime
     public static string BuildLibrary(string wasm, string executable, string runtimeTarget, string pack)
     {
         bool windows = runtimeTarget.StartsWith("windows-", StringComparison.Ordinal);
-        if (windows != OperatingSystem.IsWindows() || runtimeTarget.StartsWith("linux-", StringComparison.Ordinal) && !OperatingSystem.IsLinux())
-            throw new ArgumentException($"--optimize builds {runtimeTarget} executables on a {runtimeTarget.Split('-')[0]} host (on Windows, build Linux ones in WSL).");
+        AquariusInstallation.RequireBuildableHere(runtimeTarget, "--optimize executables");
         var installation = AquariusInstallation.Require();
         var environment = new Dictionary<string, string>();
         string native = Environment.GetEnvironmentVariable("AQUARIUS_NATIVE_BUILD") is { Length: > 0 } configured ? configured
@@ -29,7 +28,7 @@ public static partial class AheadOfTime
         if (!installation.IsRepository) { environment["AQUARIUS_SDK_ROOT"] = installation.Root; environment["AQUARIUS_NATIVE_BUILD"] = native; }
 
         using var pins = JsonDocument.Parse(File.ReadAllText(Path.Combine(installation.Root, "scripts", "toolchain.json")));
-        string host = AquariusInstallation.HostTarget, exe = windows ? ".exe" : "";
+        string host = AquariusInstallation.HostPlatform, exe = windows ? ".exe" : "";
         string Directory(string tool) => Path.Combine(native, "toolchains", pins.RootElement.GetProperty(tool).GetProperty("directory").GetString()!.Replace("{platform}", host));
         string wabt = Directory("wabt"), ninja = Path.Combine(Directory("ninja"), "ninja" + exe);
         string cmake = Path.Combine(Directory("cmake"), pins.RootElement.GetProperty("cmake").GetProperty(host).GetProperty("bin").GetString()!, "cmake" + exe);
