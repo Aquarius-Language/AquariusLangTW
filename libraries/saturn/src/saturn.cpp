@@ -11,6 +11,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <unordered_set>
 
 namespace saturn {
 
@@ -383,11 +384,20 @@ static void node_set_children(aqua_call *call) {
     aqua_runtime *rt = aqua_call_runtime(call);
     aqua_value list = aqua_arg(call, 0);
     uint32_t count = aqua_array_length(rt, list);
-    std::vector<Node *> children;
+    std::vector<Node *> given(count);
+    bool same = count == YGNodeGetChildCount(n->yg);
     for (uint32_t i = 0; i < count; i++) {
-        auto *child = static_cast<Node *>(aqua_object_data(rt, aqua_array_get(rt, list, i), node_class));
+        given[i] = static_cast<Node *>(aqua_object_data(rt, aqua_array_get(rt, list, i), node_class));
+        same = same && given[i] && given[i]->yg == YGNodeGetChild(n->yg, i);
+    }
+    /* The children it already has, in the same order (a UI rebuilt without changes): nothing moves, layout stays clean. */
+    if (same) return;
+    std::vector<Node *> children;
+    std::unordered_set<Node *> seen;
+    for (uint32_t i = 0; i < count; i++) {
+        Node *child = given[i];
         if (!child || !child->yg) { aqua_fail(call, "Saturn.Node.SetChildren: element %u is not a live Saturn.Node / 第 %u 個元素不是節點。", i, i); return; }
-        for (Node *seen : children) if (seen == child) { aqua_fail(call, "Saturn.Node.SetChildren: a node appears twice / 節點重複。"); return; }
+        if (!seen.insert(child).second) { aqua_fail(call, "Saturn.Node.SetChildren: a node appears twice / 節點重複。"); return; }
         if (YGNodeGetOwner(child->yg) != n->yg && !check_insert(call, n, child, "SetChildren")) return;
         if (YGNodeGetOwner(child->yg) == n->yg) continue;
         children.push_back(child);
@@ -395,9 +405,8 @@ static void node_set_children(aqua_call *call) {
     if (count && YGNodeHasMeasureFunc(n->yg)) { check_insert(call, n, node_of(YGNodeGetChild(n->yg, 0)), "SetChildren"); return; }
     remove_all(n);
     for (uint32_t i = 0; i < count; i++) {
-        auto *child = static_cast<Node *>(aqua_object_data(rt, aqua_array_get(rt, list, i), node_class));
-        YGNodeInsertChild(n->yg, child->yg, i);
-        attach(child);
+        YGNodeInsertChild(n->yg, given[i]->yg, i);
+        attach(given[i]);
     }
 }
 static void node_get_child(aqua_call *call) {
