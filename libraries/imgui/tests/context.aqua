@@ -71,3 +71,38 @@ gui.Feed({"type": "key", "key": 268, "action": "release"});
 gui.NewFrame(400, 300, 1.0d / 60);
 print("key released", held, ImGui.IsKeyDown(ImGui.Key_Home));
 var finished = gui.Render();
+
+# A splitter between two panes: hovering it shows the resize cursor, dragging it moves space from one pane to the
+# other, and neither pane goes below its minimum.
+var panes = [120, 160];
+var bar = [0, 0];
+var splitFrame = function() {
+    gui.NewFrame(400, 300, 1.0d / 60);
+    ImGui.SetNextWindowPos(0, 0);
+    ImGui.SetNextWindowSize(400, 300);
+    ImGui.Begin("Split", null, ImGui.WindowFlags_NoMove);
+    var at = ImGui.GetCursorScreenPos();
+    bar = [at[0] + panes[0] + 3, at[1] + 40];
+    panes = ImGui.Splitter("bar", panes[0], panes[1], true, 6, 60, 80, 200);
+    ImGui.BeginChild("left", panes[0], 200);
+    ImGui.EndChild();
+    ImGui.SameLine(0, 6);
+    ImGui.BeginChild("right", panes[1], 200);
+    ImGui.EndChild();
+    ImGui.End();
+    return gui.Render();
+};
+splitFrame();
+gui.Feed({"type": "move", "x": bar[0], "y": bar[1]});
+for (var i = 0; i < 4; i++) { splitFrame(); }
+print("splitter hover", gui.MouseCursor);
+gui.Feed({"type": "press", "x": bar[0], "y": bar[1], "button": 0});
+splitFrame();
+gui.Feed({"type": "move", "x": bar[0] + 30, "y": bar[1]});
+splitFrame();
+print("splitter drag", panes);
+gui.Feed({"type": "move", "x": bar[0] + 300, "y": bar[1]});
+splitFrame();
+gui.Feed({"type": "release", "x": bar[0] + 300, "y": bar[1], "button": 0});
+splitFrame();
+print("splitter limit", panes);
