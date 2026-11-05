@@ -178,7 +178,29 @@ repeatedly or from another list (null children are skipped and nested arrays fla
 a function with defaults, called the same way: `var Badge = function(label, tone = "accent") { ... }; Badge("New")`.
 Handlers are short functions: `onPress: () => state.count += 1`, `onChanged: v => state.name = v`. A surface keeps an element per widget,
 matched by type and `key` across rebuilds, with its state and one Saturn node. Every event handler that runs rebuilds
-the surface afterwards, so there is no `setState`; `context.rebuild()` covers timers and asynchronous results.
+the surface afterwards, so there is no `setState`; `context.rebuild()` rebuilds just its own `Builder` or `Stateful`
+(timers, asynchronous results, state only that component shows), and `surface.Rebuild()` rebuilds everything.
+
+**Updates touch only what changed**, as in React and Vue, so their cost follows the size of the change, not of the
+screen, and every widget (built-in or your own) gets this from the surface itself:
+
+- State the surface tracks (hover, pressed, focus) restyles just the elements whose state changed. Pointer moves, drags,
+  wheel turns and scrolling rebuild nothing, and moves and drags over an `Immediate` widget only repaint it.
+- `context.rebuild()`, a virtual `ListView` that scrolled, a text field that gained focus or was typed in, a tooltip
+  that shows and an opening menu each rebuild only their own element, once per frame however many events asked.
+- After an app handler the tree is reconciled from the root, once per frame: a child whose widget is the same value it
+  was last time and holds no component (`Builder`, `Stateful`, `Memo`) is skipped with its whole subtree, so widgets
+  made once and reused cost nothing, and `UI.Memo(deps: [...], build: () => widget)` builds its subtree again only when
+  one of `deps` changed (compared with `==`), like `React.memo`. Put the expensive, rarely changing parts of a screen
+  (a document's cells, a long list's rows) in a `Memo` keyed by what they show.
+- Reconciling n children is linear (keyed ones through a hash), and Saturn leaves a node's children untouched when they
+  did not change, so an unchanged subtree keeps its layout.
+- A widget kind of your own: its `"drag"` may return `"layout"` when it only moved nodes (with `patchStyle`), and its
+  `"state"(e)` hears hover and press changes; everything else follows from `restyle`, `reconcile` and `invalidate`.
+
+`tests/consistency` checks that this never shows anything a full rebuild would not: after every event of a long session
+(hover, press, typing, focus, tooltips, a dropdown, a split drag, a virtual list, Memo, components, a themed subtree, a
+theme and breakpoint change) the draw list equals the one drawn after rebuilding and restyling everything.
 
 | Group | Widgets |
 | --- | --- |
@@ -188,7 +210,7 @@ the surface afterwards, so there is no `setState`; `context.rebuild()` covers ti
 | menus | `MenuBar` (`menus`) of `Menu` (`label`, `items`, `disabled`) holding `MenuItem` (`label`, `shortcut` text, `onSelect`, `disabled`, `checked`) and `MenuSeparator` |
 | overlays | `Dialog` (`open`, `title`, `content`, `actions`, `onDismiss`), `Tooltip` (`message`); dropdown menus |
 | behavior | `Gesture` (`onTap`, `onDoubleTap`, `onLongPress`, `onHover`, `onPress`, `onRelease`, `onDragStart`, `onDrag`, `onDragEnd`, `cursor`), the same handlers on `Box`, `onTap` on `Card` |
-| structure | `Stateful` (`init`, `build(state, context)`, `dispose`), `Builder` (`build(context)`), `Themed` (a subtree with its own theme), `Immediate` (`paint(x, y, w, h)` returns another library's draw list; `feed(event)` gets its events in its own coordinates (a hash with every Interaction field, from `event.Fields()`; `Interaction.Event(hash)` makes it an event object again; keys, text, input-method composition and commands such as copy and undo reach the focused one) and returns whether it used them, so an unused wheel turn scrolls the view around it; `ime()` gives the caret's box in its own coordinates while it takes text, for `ImeRect`; `focus(focused)` hears it gain and lose the keyboard) |
+| structure | `Stateful` (`init`, `build(state, context)`, `dispose`), `Builder` (`build(context)`), `Memo` (`deps`, `build()`: built again only when a dep changed), `Themed` (a subtree with its own theme), `Immediate` (`paint(x, y, w, h)` returns another library's draw list; `feed(event)` gets its events in its own coordinates (a hash with every Interaction field, from `event.Fields()`; `Interaction.Event(hash)` makes it an event object again; keys, text, input-method composition and commands such as copy and undo reach the focused one) and returns whether it used them, so an unused wheel turn scrolls the view around it; `ime()` gives the caret's box in its own coordinates while it takes text, for `ImeRect`; `focus(focused)` hears it gain and lose the keyboard) |
 
 Your own widgets are functions that return widgets.
 
@@ -205,8 +227,8 @@ and follows `value` when the application changes it, never undoing an edit the a
 Enter calls `onSubmit` in a single-line field and breaks the line in a multi-line one. `autofocus: true` takes the
 keyboard when the field appears (a dialog's field) with its text selected. While a text field or an `Immediate` widget
 has the keyboard, the "back" and "forward" that Alt+Left/Right also are stay with it (they move through the text), and
-on the web the browser does not act on the editing combinations either. Keys and text do not rebuild the tree per
-event: the next frame does.
+on the web the browser does not act on the editing combinations either. Keys and text update the field at once and rebuild
+the tree at most once per frame (only when the field has handlers).
 
 **Failures stay contained.** Code a surface calls while building and painting runs guarded by `Saturn.Contain(callback)`
 (it runs the callback to completion in place and returns `{Success, Value, Message}`; unlike an asynchronous try it never
@@ -279,4 +301,4 @@ only while a field is focused and places the input method there, so phones show 
 
 `tests/node_api` (the Yoga API and its errors), `style_paint` (styles, text, painting, hit testing, painters),
 `inherit_transition`, `widgets` (SaturnUI reconciliation and every control's input), `layers` (mixing with ImGui and
-Clay). They need no window and use the built-in text measurer, so they give the same output on every target.
+Clay), `consistency` (partial updates draw what a full rebuild draws; what each input rebuilds), `split_view`, `unmount`. They need no window and use the built-in text measurer, so they give the same output on every target.

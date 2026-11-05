@@ -1,0 +1,8 @@
+steps 28 differences []
+memo skipped an unrelated rebuild 真 count 真 name abcd
+hover sweep rebuilds 0
+wheel rebuilds 0
+bar drag rebuilds while dragging 0
+bar release rebuilds 1
+component rebuild rebuilds the root 0
+three characters typed in one frame rebuild once 1 abcdefg
