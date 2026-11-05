@@ -963,6 +963,16 @@ kinds["ScrollView"] = {"update": function(e, w) {
     e.data["scrollable"] = true;
     e.data["axis"] = if (w.horizontal == true) { "x"; } else { "y"; };
 }};
+# The virtual rows to build: those in view plus one screen above and below, never more than the surface shows even
+# while the list's own height still follows its content.
+var listRange = function(e) {
+    var w = e.widget;
+    var count = w.itemCount;
+    var step = w.itemExtent + pick(w.gap, 0);
+    var top = Hash.Get(e.data, "scrollY", 0);
+    var viewport = Processing_min(Hash.Get(e.data, "viewport", e.surface.height), e.surface.height);
+    return [clamp(int((top - viewport) / step), 0, count), clamp(int((top + 2 * viewport) / step) + 1, 0, count)];
+};
 kinds["ListView"] = {"update": function(e, w) {
     # A list fills the space its parent gives it (a style height or flexGrow 0 overrides that): its rows never size it or
     # its ancestors, so 10,000 rows of spacers cannot push a card or a window off the screen.
@@ -976,12 +986,11 @@ kinds["ListView"] = {"update": function(e, w) {
         reconcile(e, [Column(children: items, gap: gap, crossAxis: "stretch", key: "content"), Box(class: "ScrollThumb", key: "thumb")]);
     } else {
         # Virtualized: only the rows in view (plus one screen) are built, between spacers of the skipped rows.
-        var top = Hash.Get(e.data, "scrollY", 0);
-        # The rows in view: never more than the surface shows, even while the list's own height still follows its content.
-        var viewport = Processing_min(Hash.Get(e.data, "viewport", e.surface.height), e.surface.height);
+        var range = listRange(e);
+        var first = range[0];
+        var last = range[1];
         var step = extent + gap;
-        var first = clamp(int((top - viewport) / step), 0, count);
-        var last = clamp(int((top + 2 * viewport) / step) + 1, 0, count);
+        e.data["range"] = range;
         Array.Append(items, SizedBox(height: first * step, key: "before"));
         for (var i = first; i < last; i++) { Array.Append(items, SizedBox(height: extent, child: w.itemBuilder(i), key: i)); }
         Array.Append(items, SizedBox(height: (count - last) * step, key: "after"));
@@ -989,6 +998,9 @@ kinds["ListView"] = {"update": function(e, w) {
         e.data["virtual"] = true;
     }
     e.data["scrollable"] = true;
+}, "layout": function(e) {
+    # The rows in view follow the layout (the list's real height, a clamped scroll): build them again when they change.
+    if (Hash.Get(e.data, "virtual", false) == true && !sameDeps(listRange(e), Hash.Get(e.data, "range", null))) { invalidate(e); }
 }};
 # A build that fails keeps what the widget showed before (the failure is in the surface's Errors()).
 kinds["Builder"] = {"update": function(e, w) {
@@ -1871,6 +1883,8 @@ var CreateSurface = function(width, height, root, options) {
         s.relayout = false;
         s.rootNode.CalculateLayout(s.width, s.height);
         syncScroll(host);
+        # Widgets whose content follows the layout (virtual lists) asked for an update: make it in this frame.
+        if (len(s.stale) > 0) { refresh(); s.rootNode.CalculateLayout(s.width, s.height); syncScroll(host); }
         s.rootNode.CalculateLayout(s.width, s.height);
     };
     # A frame whose building fails keeps the tree it had; painting falls back to the last list that painted.

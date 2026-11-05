@@ -1,0 +1,137 @@
+# Partial updates draw exactly what a full rebuild draws: after every event of a long session (hover, press, typing,
+# focus, tooltips, a dropdown, a SplitView drag, a virtual list's scrolling, Memo, Stateful and component rebuilds, a
+# themed subtree, a theme change), the surface's draw list equals the one it draws after rebuilding and restyling
+# everything from scratch. Any stale style, leftover node or missed update shows up as a difference.
+var UI = import("SaturnUI");
+
+struct Model { count; name; choice; tab; width; items; dark }
+var m = Model(count: 0, name: "ab", choice: "B", tab: 0, width: 220, items: ["x", "y", "z"], dark: false);
+var memoBuilds = 0;
+var row = i => UI.Box(class: "row", key: i, child: UI.Text("row " + String.From(i)), onTap: () => { m.count += 1; });
+var counter = UI.Stateful(key: "counter", init: () => ({"n": 0}), build: (state, context) => UI.Button(
+    label: "local " + String.From(state["n"]), onPress: () => { state["n"] += 1; context.rebuild(); }));
+var view = () => UI.SplitView(size: m.width, min: 150, minSecond: 200,
+    onResize: size => { m.width = size; },
+    first: UI.Column(gap: 6, crossAxis: "stretch", style: {"padding": 8}, children: [
+        UI.Button(label: "Count " + String.From(m.count), key: "count", onPress: () => { m.count += 1; }),
+        UI.Tooltip(message: "Adds one", key: "tip", child: UI.IconButton(icon: "plus", key: "plus", onPress: () => { m.count += 1; })),
+        UI.TextField(value: m.name, key: "name", onChanged: v => { m.name = v; }),
+        UI.Dropdown(value: m.choice, options: ["A", "B", "C"], key: "choice", onChanged: v => { m.choice = v; }),
+        UI.Checkbox(value: m.count % 2 == 1, label: "odd", key: "odd"),
+        counter,
+        UI.Memo(key: "memo", deps: [len(m.items)], build: () => {
+            memoBuilds += 1;
+            return UI.Column(children: [for (var i = 0; i < len(m.items); i++) UI.Text(m.items[i], key: m.items[i])]);
+        }),
+    ]),
+    second: UI.Column(crossAxis: "stretch", style: {"minHeight": 0}, children: [
+        UI.Tabs(labels: ["One", "Two"], index: m.tab, key: "tabs", onChanged: i => { m.tab = i; }),
+        UI.Themed(theme: UI.Theme(mode: "dark"), key: "themed", child: UI.Box(class: "panel", children: [
+            UI.Button(label: "Dark button", key: "dark", onPress: () => { m.count += 10; }),
+        ])),
+        UI.ListView(itemCount: 400, itemExtent: 24, itemBuilder: row, key: "list"),
+    ]));
+var rootBuilds = 0;
+var app = UI.Builder(build: function(context) { rootBuilds += 1; return view(); });
+var sheet = {"row": {"paddingHorizontal": 6, "height": 24, "justifyContent": "center"},
+    "row:hover": {"background": "#dde4ff"}, "row:pressed": {"background": "#aab8ff"},
+    "panel": {"padding": 8, "height": 60}, "panel:hover": {"background": "#304050"}};
+var s = UI.Surface(900, 600, app, {"sheet": sheet});
+s.Frame(0);
+
+var sameList = function(a, b) {
+    if (len(a) != len(b)) { return false; }
+    for (var i = 0; i < len(a); i++) { if (a[i] != b[i]) { return false; } }
+    return true;
+};
+var sameDraw = function(a, b) {
+    var parts = ["commands", "strings", "vertices", "indices"];
+    for (var i = 0; i < len(parts); i++) { if (!sameList(a[parts[i]], b[parts[i]])) { return parts[i]; } }
+    return null;
+};
+var steps = 0;
+var differences = [];
+# Settles transitions, draws, then draws again after a full forced rebuild of the same state.
+var check = function(what) {
+    s.Frame(s.time + 600);
+    s.Frame(s.time + 600);
+    var partial = s.Paint();
+    s.force = true;
+    s.Rebuild();
+    s.Frame(s.time);
+    var full = s.Paint();
+    var diff = sameDraw(partial, full);
+    if (diff != null) { Array.Append(differences, what + " (" + diff + ")"); }
+    steps += 1;
+};
+var find = function(e, key) {
+    if (e.key == key && e.widget != null) { return e; }
+    for (var i = 0; i < len(e.children); i++) { var f = find(e.children[i], key); if (f != null) { return f; } }
+    return null;
+};
+var center = function(key) {
+    var b = find(s.tree, key).node.GetAbsoluteLayout();
+    return [b["x"] + b["width"] / 2, b["y"] + b["height"] / 2];
+};
+var move = function(p) { s.Feed({"type": "move", "x": p[0], "y": p[1]}); };
+var tap = function(p) {
+    move(p);
+    s.Feed({"type": "press", "x": p[0], "y": p[1], "button": 0});
+    s.Feed({"type": "release", "x": p[0], "y": p[1], "button": 0});
+};
+
+check("start");
+move(center("count")); check("hover a button");
+s.Feed({"type": "press", "x": center("count")[0], "y": center("count")[1], "button": 0}); check("press held");
+s.Feed({"type": "release", "x": center("count")[0], "y": center("count")[1], "button": 0}); check("tap counted");
+move(center("plus")); s.Frame(s.time + 100); check("tooltip shown");
+move([600, 580]); check("hover a list row, tooltip gone");
+for (var y = 300; y < 560; y += 37) { move([600, y]); }
+check("hover sweep over rows");
+tap([600, 400]); check("tap a row");
+s.Feed({"type": "scroll", "x": 600, "y": 400, "dx": 0, "dy": 700}); check("scroll the virtual list");
+move(center("dark")); check("hover in the themed subtree");
+tap(center("dark")); check("tap in the themed subtree");
+move(center("themed")); check("hover the themed panel");
+tap(center("name")); check("focus the text field");
+s.Feed({"type": "text", "text": "cd"}); check("type");
+s.Feed({"type": "key", "key": 263, "action": 1}); check("move the caret");
+tap(center("counter")); check("component rebuild");
+tap(center("choice")); check("dropdown open");
+s.Feed({"type": "key", "key": 264, "action": 1}); check("dropdown arrow key");
+s.Feed({"type": "key", "key": 257, "action": 1}); check("dropdown chosen");
+tap(center("odd")); check("checkbox");
+var bar = [m.width + 0.5d, 300];
+move(bar); check("hover the split bar");
+s.Feed({"type": "press", "x": bar[0], "y": bar[1], "button": 0});
+for (var x = bar[0]; x < bar[0] + 120; x += 15) { s.Feed({"type": "drag", "x": x, "y": 300}); }
+check("drag the split bar");
+s.Feed({"type": "release", "x": bar[0] + 120, "y": 300, "button": 0}); check("split drag ended");
+var before = memoBuilds;
+s.Rebuild(); s.Frame(s.time + 16);
+var skipped = memoBuilds == before;
+Array.Append(m.items, "w"); s.Rebuild(); check("memo deps changed");
+tap(center("tabs")); check("tabs");
+s.Resize(560, 600); check("narrower window (breakpoint)");
+s.SetTheme(UI.Theme(mode: "dark")); check("theme change");
+s.Feed({"type": "press", "x": 5, "y": 5, "button": 0}); s.Feed({"type": "release", "x": 5, "y": 5, "button": 0}); check("blur");
+print("steps", steps, "differences", differences);
+print("memo skipped an unrelated rebuild", skipped, "count", m.count > 0, "name", m.name);
+
+# What each kind of input rebuilds: hovering, the wheel and a bar drag rebuild nothing; a component's own rebuild
+# rebuilds only it; app handlers rebuild the tree once per frame, however many events came before it.
+s.Resize(900, 600);
+s.Frame(s.time + 600);
+var builds = function(action) { var before = rootBuilds; action(); s.Frame(s.time + 16); return rootBuilds - before; };
+print("hover sweep rebuilds", builds(() => { for (var y = 300; y < 560; y += 11) { move([600, y]); } }));
+print("wheel rebuilds", builds(() => { s.Feed({"type": "scroll", "x": 600, "y": 400, "dx": 0, "dy": -300}); }));
+var at = [m.width + 0.5d, 300];
+print("bar drag rebuilds while dragging", builds(() => {
+    move(at);
+    s.Feed({"type": "press", "x": at[0], "y": at[1], "button": 0});
+    for (var x = at[0]; x > at[0] - 60; x -= 10) { s.Feed({"type": "drag", "x": x, "y": 300}); s.Frame(s.time + 16); }
+}));
+print("bar release rebuilds", builds(() => { s.Feed({"type": "release", "x": at[0] - 60, "y": 300, "button": 0}); }));
+print("component rebuild rebuilds the root", builds(() => tap(center("counter"))));
+tap(center("name"));
+print("three characters typed in one frame rebuild once", builds(() => { s.Feed({"type": "text", "text": "e"}); s.Feed({"type": "text", "text": "f"}); s.Feed({"type": "text", "text": "g"}); }), m.name);
