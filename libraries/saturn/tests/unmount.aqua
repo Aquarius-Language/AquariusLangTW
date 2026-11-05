@@ -1,0 +1,15 @@
+# Removed widgets free their nodes (a node's context is its element, so otherwise each would keep the other alive
+# forever), and a disposed surface frees its whole tree.
+var UI = import("SaturnUI");
+var count = 3;
+var root = UI.Builder(build: context => UI.Column(children: [for (var i = 0; i < count; i++) UI.Text("row " + String.From(i), key: "r" + String.From(i))]));
+var s = UI.Surface(400, 300, root, null);
+s.Frame(0);
+var column = s.tree.children[0].children[0];
+var rows = [for (var i = 0; i < 3; i++) column.children[i].node];
+count = 1;
+s.Rebuild();
+s.Frame(16);
+print("removed", rows[0].IsFreed(), rows[1].IsFreed(), rows[2].IsFreed(), len(column.children));
+s.Dispose();
+print("disposed", rows[0].IsFreed(), column.node.IsFreed(), s.rootNode.IsFreed(), s.overlayNode.IsFreed());
