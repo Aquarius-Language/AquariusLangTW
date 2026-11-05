@@ -102,4 +102,6 @@ The old behavior these differences replace came from .NET (HttpClient, Kestrel) 
 - Connections to names with several addresses start the next address after 250 ms (Happy Eyeballs), so `localhost`
   no longer waits seconds for a refused `::1` on Windows. Windows UDP sockets ignore ICMP "port unreachable".
 - `Request.Session()` called twice in one request returns the same new session (it used to create two).
+- A received WebSocket message carries the form it was sent in: `Text` for a text message, `Data` for a binary one (the
+  other is empty). Both were made for every message, and the byte array cost a script value per byte.
 - `SSL_CERT_FILE`, when set, adds that file's certificates to the trusted roots (OpenSSL's convention).

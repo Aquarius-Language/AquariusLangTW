@@ -523,11 +523,11 @@ var dispose = function(e) {
     if (s.captured == e) { s.captured = null; }
     if (s.focus == e) { s.focus = null; }
     if (s.popup == e) { s.popup = null; }
+    if (s.tooltip == e) { s.tooltip = null; }
     if (s.autoscroll != null) { if (s.autoscroll["element"] == e) { s.autoscroll = null; } }
-    if (e.overlay) {
-        var parent = e.node.GetParent();
-        if (parent != null) { parent.RemoveChild(e.node); }
-    }
+    # 節點的內容就是這個元素，兩者互相留住，所以明確釋放節點（也把它移出父節點）。 / The node's context is this element,
+    # so each keeps the other alive: free the node explicitly (which also takes it out of its parent).
+    e.node.Free();
 };
 
 # The element's style list for ReplaceStyle: base layout from widget fields, theme and app sheets (type, variant and
@@ -2115,7 +2115,7 @@ var CreateSurface = function(width, height, root, options) {
         return {"x": box["x"] + caret["x"] - Hash.Get(s.focus.data, "scrollX", 0), "y": box["y"] + caret["y"], "width": 1, "height": caret["height"]};
     };
     s.ImeRect = function() { return guarded(s, "ime", imeRect); };
-    s.Dispose = function() { dispose(host); };
+    s.Dispose = function() { dispose(host); s.overlayNode.Free(); };
     # An open popup or autoscroll takes the whole window, so layers below see no press until it ends.
     s.Wants = function(x, y) {
         if (s.dirty) { s.Frame(s.time); }
