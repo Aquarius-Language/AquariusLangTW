@@ -6,6 +6,7 @@ import { UnrealBloomPass } from "three/addons/postprocessing/UnrealBloomPass.js"
 import { OutputPass } from "three/addons/postprocessing/OutputPass.js";
 
 export function createObservatory(canvas) {
+  const english = document.documentElement.lang === "en";
   const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
   let paused = reducedMotion.matches;
   let renderer;
@@ -15,7 +16,9 @@ export function createObservatory(canvas) {
     motionButton.setAttribute("aria-pressed", String(paused));
     motionButton.setAttribute(
       "aria-label",
-      paused ? "繼續星空動畫" : "暫停星空動畫",
+      paused
+        ? motionButton.dataset.labelResume || "繼續星空動畫"
+        : motionButton.dataset.labelPause || "暫停星空動畫",
     );
     motionButton.innerHTML = paused
       ? '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="m9 6 9 6-9 6V6Z" stroke="currentColor" stroke-width="1.5"/></svg>'
@@ -34,7 +37,7 @@ export function createObservatory(canvas) {
     const fallback = document.createElement("div");
     fallback.className = "scene-fallback";
     fallback.innerHTML =
-      '<svg viewBox="0 0 500 600" fill="none" aria-label="水瓶星座插畫"><defs><linearGradient id="vase-glow" x1="180" y1="120" x2="330" y2="490" gradientUnits="userSpaceOnUse"><stop stop-color="#aee7d8"/><stop offset=".5" stop-color="#355c61"/><stop offset="1" stop-color="#ac94c5"/></linearGradient></defs><g stroke="url(#vase-glow)"><ellipse cx="250" cy="480" rx="150" ry="35" opacity=".5"/><path d="M220 140h60v45c0 35 65 50 65 150s-35 120-95 120-95-20-95-120 65-115 65-150v-45Z" stroke-width="2"/><path d="M280 185c120-40 115 130 55 120" stroke-width="2"/><ellipse cx="250" cy="140" rx="30" ry="9"/>' +
+      '<svg viewBox="0 0 500 600" fill="none" aria-label="' + (english ? "Aquarius constellation illustration" : "水瓶星座插畫") + '"><defs><linearGradient id="vase-glow" x1="180" y1="120" x2="330" y2="490" gradientUnits="userSpaceOnUse"><stop stop-color="#aee7d8"/><stop offset=".5" stop-color="#355c61"/><stop offset="1" stop-color="#ac94c5"/></linearGradient></defs><g stroke="url(#vase-glow)"><ellipse cx="250" cy="480" rx="150" ry="35" opacity=".5"/><path d="M220 140h60v45c0 35 65 50 65 150s-35 120-95 120-95-20-95-120 65-115 65-150v-45Z" stroke-width="2"/><path d="M280 185c120-40 115 130 55 120" stroke-width="2"/><ellipse cx="250" cy="140" rx="30" ry="9"/>' +
       Array.from(
         { length: 12 },
         (_, i) =>
@@ -49,7 +52,9 @@ export function createObservatory(canvas) {
       "</g></svg>";
     canvas.after(fallback);
     canvas.parentElement.classList.add("webgl-unavailable");
-    document.querySelector(".drag-hint").textContent = "水瓶座 · 星泉的起點";
+    document.querySelector(".drag-hint").textContent = english
+      ? "Aquarius · where AquariusLang began"
+      : "水瓶座 · 星泉的起點";
     motionButton.hidden = true;
     resetButton.hidden = true;
     return;
@@ -479,7 +484,8 @@ export function createObservatory(canvas) {
     event.preventDefault();
     paused = true;
     updateMotionButton();
-    document.querySelector(".drag-hint").textContent =
-      "3D 場景暫停，重新整理可恢復";
+    document.querySelector(".drag-hint").textContent = english
+      ? "3D scene paused; reload to restore it"
+      : "3D 場景暫停，重新整理可恢復";
   });
 }

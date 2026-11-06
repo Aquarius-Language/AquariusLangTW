@@ -1,6 +1,6 @@
 # 星泉 AquariusLang 介紹網站
 
-純前端、以繁體中文介紹 AquariusLang 繁體中文／英文雙語程式語言的網站。語法可在同一檔案混用。以 Three.js 製作可拖曳旋轉的玻璃水瓶、星泉粒子與軌道，搭配語法示例、現有能力、可點選的生態系星圖與未來展望。
+純前端、以繁體中文與英文介紹 AquariusLang 繁體中文／英文雙語程式語言的網站，並附十五堂課的互動教學（`tutorial.html`）。語法可在同一檔案混用。以 Three.js 製作可拖曳旋轉的玻璃水瓶、星泉粒子與軌道，搭配語法示例、現有能力、可點選的生態系星圖與未來展望。
 
 ## 本機開發
 
@@ -24,6 +24,12 @@ npm run preview
 
 ## 內容與互動
 
+- 首次進入網站（網址沒有 `?lang=`）會先顯示語言選擇畫面：繁體中文或 English，並標示上次的選擇。選擇後寫入 `?lang=zh|en` 與 localStorage，頁首可隨時切換。
+- 頁首「互動教學」按鈕、首頁主視覺按鈕、首頁教學橫幅與語法範例都連到 `tutorial.html`。
+- 互動教學分四章十五課（入門、初階、中階、高階）。左側章節地圖可隨時跳到任何一課，課程之間有方向感的轉場動畫，跨章節時顯示章節標題卡；← → 鍵切換課程。
+- 每課的範例可切換中文／英文關鍵字、直接編輯並執行。練習區使用 `src/tutorial/aqua.js` 這個簡化的瀏覽器直譯器，只涵蓋教學用到的核心語法；`npm run check:tutorial` 會執行所有範例並比對課文中的預期輸出。
+- 教學只提到語言儲存庫內的預設函式庫，以及 Aquarius-Language 組織上的公開儲存庫（`src/tutorial/lessons.js` 的 `publicLibraries`，2026-11-06 查核）。新增函式庫前請先確認其儲存庫為公開。
+
 - 語言內容依據 [AquariusLangTW 官方 README](https://github.com/Aquarius-Language/AquariusLangTW)，查閱日期：2026-10-07。
 - 包含命名寓意、中文關鍵字、Unicode 識別字、函式與閉包、陣列與模組，以及現有 OpenGL、Processing、VS Code／LSP 與桌面 VM 能力。
 - 未來方向依照本網站需求列出，皆標示為「未來計畫」，未承諾完成時間。
@@ -35,7 +41,11 @@ npm run preview
 
 ## 檔案
 
-- `src/main.js`：頁面內容、語法分頁、複製、生態系與導覽。
+- `src/main.js`：首頁中英文內容、語言選擇畫面、語法分頁、複製、生態系與導覽。
+- `src/i18n.js`：首頁與教學共用的語言偏好。
+- `src/home-extra.css`：語言選擇畫面、語言切換與教學入口的樣式。
+- `tutorial.html`、`src/tutorial/`：互動教學（課程內容 `lessons.js`、練習直譯器 `aqua.js`、星空轉場 `starfield.js`）。
+- `scripts/check-tutorial.mjs`：驗證教學範例輸出。
 - `src/scene.js`：Three.js 水瓶建模、粒子、光影與互動。
 - `src/style.css`：版型、視覺、響應式排版與減少動畫偏好。
 - `vite.config.js`：相對資源路徑與 3D 程式碼分包。
