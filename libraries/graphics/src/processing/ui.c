@@ -332,8 +332,10 @@ static bool text_op(ui_painter *u, const ui_list *l, const float *a) {
     return ok;
 }
 
-/* uiTextMetrics(text, family, size | weight, italic) -> [width, ascent, descent, advance]: the box drawUI draws text in,
-   and the advance to the text's end. */
+/* uiTextMetrics(text, family, size | weight, italic) -> [width, ascent, descent, advance]: the box drawUI draws text in
+   and the advance to the text's end, both as drawUI draws the text: rasterized at the screen's pixel density (the
+   advance without the box's overhang padding), so layout, carets and selections built from them sit on the drawn
+   characters at any display scaling. */
 static void p_uiTextMetrics(aqua_call *call, processing *p) {
     aqua_runtime *rt = aqua_call_runtime(call);
     aqua_value text = aqua_arg(call, 0), family = aqua_arg(call, 1);
@@ -347,27 +349,22 @@ static void p_uiTextMetrics(aqua_call *call, processing *p) {
     aqua_free(name);
     size_t length;
     char *utf8 = aqua_text_dup(rt, text, &length);
-    int w = 0, h = 0;
-    if (length) gfx_text_measure_line(font, (float)size, utf8, length, &w, &h);
-    else gfx_text_measure_line(font, (float)size, " ", 1, &w, &h), w = 0;
-    /* The advance: where the next character starts, as drawUI really draws the text (rasterized at the screen's pixel
-       density, without the box's overhang padding), so carets and selections built from it sit between the drawn
-       characters at any display scaling. */
     double density = 1;
     if (p && p->screen && p->screen->width > 0 && p->screen->pixel_width > 0) {
         density = rint((double)p->screen->pixel_width / p->screen->width * 1000) / 1000;
         if (density < 1) density = 1;
         if (density > 8) density = 8;
     }
+    float scaled = (float)(size * density);
+    int w = 0, h = 0;
+    if (length) gfx_text_measure_line(font, scaled, utf8, length, &w, &h);
+    else gfx_text_measure_line(font, scaled, " ", 1, &w, &h), w = 0;
     double advance = 0;
-    if (length) {
-        int dw = 0, dh = 0;
-        if (gfx_platform_text_advance(font, (float)(size * density), utf8, length, &advance)) advance /= density;
-        else { gfx_text_measure_line(font, (float)(size * density), utf8, length, &dw, &dh); advance = dw / density; }
-        if (advance < 0) advance = 0;
-    }
+    if (length && !gfx_platform_text_advance(font, scaled, utf8, length, &advance)) advance = w;
+    advance = advance > 0 ? advance / density : 0;
     aqua_free(utf8);
-    double metrics[4] = {w, h * 0.8, h * 0.2, advance};
+    double width = w / density, height = h / density;
+    double metrics[4] = {width, height * 0.8, height * 0.2, advance};
     aqua_return(call, aqua_array_from_f64(rt, metrics, 4, AQUA_DOUBLE));
 }
 

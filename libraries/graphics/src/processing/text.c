@@ -430,18 +430,22 @@ void gfx_text_register(aqua_class *module, aqua_class *canvas, aqua_class *font)
     aqua_define_property(font, "size", font_size);
 }
 
-/* One line with its box's top-left at (x, y), as text() draws it, in `color` (drawUI, ui.c). */
+/* One line with its box's top-left at (x, y), in `color` (drawUI, ui.c). Unlike text(), the line keeps the size it is
+   rasterized at (its box at the screen's scale), which is the box and advance uiTextMetrics reports: a UI painting a
+   line in pieces (an editor's highlighted tokens, placed by the advance of what precedes them) has every piece end
+   where the next begins. Fitting each piece to its box measured at size 1 stretched it wherever the font's advances
+   are whole device pixels (細明體, Chrome's monospace for Traditional Chinese), so pieces overlapped. */
 bool gfx_text_draw_line(aqua_call *call, processing *p, canvas *c, const char *font, float size, const char *text, size_t length,
                         float x, float y, vec4 color) {
-    int w, h;
-    if (!measure(call, font, size, text, length, &w, &h)) return false;
+    if (utf16_length(text, length) > 4096) { gfx_fail(call, "Text is limited to 4096 characters per call."); return false; }
     float density = raster_scale(c, x, y);
     const cached *raster = cached_raster(call, p, text, length, font, size * density);
     if (!raster) return false;
+    float box_w = (float)(raster->image->width - 2 * raster->margin) / density, box_h = (float)(raster->image->height - 2 * raster->margin) / density;
     style saved = c->style;
     c->style.tint = color;
     c->style.image_mode = 0;
-    bool ok = draw_raster(call, c, raster, x, y, (float)w, (float)h, density);
+    bool ok = draw_raster(call, c, raster, x, y, box_w, box_h, density);
     c->style = saved;
     return ok;
 }

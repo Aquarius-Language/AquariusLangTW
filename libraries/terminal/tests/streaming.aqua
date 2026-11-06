@@ -30,6 +30,14 @@ var sleeper = if (windows) { Terminal.Start("powershell.exe", ["-NoProfile", "-C
 await Promise.Delay(200);
 print("kill", sleeper.Kill(), sleeper.Wait().ExitCode != 0, currentTime() - started < 10000, sleeper.Kill());
 
+# 程式結束後留下的子程序仍佔著輸出：結果在一秒後照常回來，帶著程式的結束代碼。 / A child the program left running
+# still holds its output: the result still arrives, a second after the exit, with the program's exit code.
+started = currentTime();
+var leaver = if (windows) { Terminal.Start("cmd.exe", ["/d", "/c", "start /b ping -n 6 127.0.0.1 >nul & echo left& exit 3"]); }
+    else { Terminal.Start("/bin/sh", ["-c", "sleep 5 & echo left; exit 3"]); };
+var left = await leaver.WaitAsync();
+print("left behind", left.ExitCode, String.Trim(clean(left.StandardOutput)), currentTime() - started < 4000);
+
 # 選項的檢查。 / Option checks.
 var Network = import("Network");
 print(Network.Try(() => Terminal.Start("cmd", [], {"OnOutput": 3})).Error.Message);

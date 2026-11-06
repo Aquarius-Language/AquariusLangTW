@@ -102,6 +102,14 @@ Runtime:
   painting callbacks). A native function called that way that settles at once now returns its result.
 
 Libraries:
+- Graphics: `drawUI` draws text at the size it is rasterized at the screen's pixel density, and `uiTextMetrics`
+  measures its box there too. Text painted in pieces placed by the advance of what precedes them (WellPlay's
+  highlighted code cells) no longer overlaps or leaves gaps at 125% or 250% scaling in fonts with whole-pixel advances
+  (細明體, Chrome's monospace for Traditional Chinese), where each piece was stretched to its box measured at 100%.
+- Terminal: when a program has exited but a process it left running keeps its output open (a background child, or
+  `WerFault.exe` after a crash), `Run`, `Wait` and `WaitAsync` return the exit code and the output so far after
+  `max(1000, TimeoutMs)` ms instead of failing with `Child output streams did not close.`; WellPlay's kernel also shows
+  any failed wait as an error in the cell instead of ending the server.
 - Graphics: a Processing sketch whose window has no pixels yet when `size()` finishes (a web page still laying out its
   canvas) draws into a 1x1 target until the window has a size, instead of an invalid zero-size texture that made the
   first passes fail with "Invalid TextureView ... BeginRenderPass".

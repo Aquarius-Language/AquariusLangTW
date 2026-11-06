@@ -3,5 +3,6 @@ streamed 真 three
 result 0 真 假 0 0
 ordered 真 真
 kill 真 真 真 假
+left behind 3 left 真
 Terminal / 終端機.Start: OnOutput and OnError must be functions.
 Terminal / 終端機.Run: Unknown terminal option.

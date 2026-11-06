@@ -39,8 +39,10 @@ before anything starts, with the old messages (`Terminal / 終端機.Run: Unknow
 containing a separator and working directories that name a packaged asset resolve to the asset's file. A timeout ends
 the whole process tree and returns exit code -1 with `TimedOut` true. Nonzero exit codes are ordinary results; launch
 failures are errors. Standard input is an empty, closed pipe. Each stream keeps the first 1,048,576 UTF-16 code units
-and keeps draining after that. If descendants keep the output pipes open longer than `max(1000, TimeoutMs)` ms after
-the program exits, the call fails with `Child output streams did not close.`
+and keeps draining after that. If processes the program left running keep its output pipes open longer than
+`max(1000, TimeoutMs)` ms after it exits (a background child, or Windows Error Reporting's `WerFault.exe` after a
+crash), collection stops there: the result has the program's exit code and the output that arrived until then, and
+those processes keep running.
 
 ## How it works
 
@@ -74,6 +76,7 @@ None: Win32 and winpthreads (linked statically) on Windows, POSIX and pthreads e
 ## Tests
 
 `tests/processes.aqua` (echo, exit codes, closed standard input, argument boundaries, working directory, timeout),
-`tests/streaming.aqua` (`Start`: streamed output in order, waiting callbacks, `Wait` / `WaitAsync`, `Kill`),
+`tests/streaming.aqua` (`Start`: streamed output in order, waiting callbacks, `Wait` / `WaitAsync`, `Kill`, a child
+left running with the output),
 `tests/environment.aqua` (variables set and left out for one child only),
 `tests/validation.aqua` (desktop and Android) and `tests/unsupported.aqua` (web).

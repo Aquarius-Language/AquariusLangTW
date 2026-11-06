@@ -127,7 +127,8 @@ static void *supervise(void *data) {
                 exit_time = now_ms();
                 continue;
             }
-            job->error = strdup("Child output streams did not close.");
+            /* The program has ended, but a process it left running still holds its output: the result is what
+               arrived until now. */
             break;
         }
         struct pollfd fds[3];

@@ -153,7 +153,7 @@ static void *supervise(void *data) {
         read_next(&readers[i]);
     }
     ULONGLONG start = GetTickCount64(), exit_time = 0;
-    DWORD bound = job->timeout_ms > 1000 ? (DWORD)job->timeout_ms : 1000; /* output must close this long after exit */
+    DWORD bound = job->timeout_ms > 1000 ? (DWORD)job->timeout_ms : 1000; /* output is collected this long after exit */
     bool exited = false;
     for (;;) {
         if (exited && !readers[0].open && !readers[1].open) break;
@@ -176,7 +176,8 @@ static void *supervise(void *data) {
                 exit_time = GetTickCount64();
                 continue;
             }
-            job->error = strdup("Child output streams did not close.");
+            /* The program has ended, but something it left running still holds its output (a background child, or
+               Windows Error Reporting's WerFault.exe after a crash): the result is what arrived until now. */
             break;
         }
         if (outcome >= WAIT_OBJECT_0 + count) { job->error = system_message(GetLastError()); break; }
