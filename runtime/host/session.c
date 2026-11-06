@@ -252,6 +252,13 @@ int32_t host_service(aqua_runtime *rt, int32_t operation, int32_t context, int32
     }
     case 4: return thread_service(rt, subject, arguments, count, output);
     case 5: return -1; /* a runtime JIT request (runtime/guest/runtime.c rt_jitRequest): engines with a JIT answer it themselves */
+    case 6: /* the guest heap cannot grow; a trap follows (runtime/guest/runtime.c out_of_memory) */
+        rt->out_of_memory = true; /* run_slice reports the trap as this */
+#if defined(AQUA_OS_WEB)
+        /* On the web the trap unwinds past the host into the page, which shows standard error. */
+        platform_write(2, OUT_OF_MEMORY_MESSAGE "\n", sizeof OUT_OF_MEMORY_MESSAGE);
+#endif
+        return 0;
     }
     return 1;
 }

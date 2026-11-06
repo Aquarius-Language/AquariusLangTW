@@ -50,6 +50,15 @@ print(data.Json([ints, reals, flags]));
 print(data.ParseBinary(data.Binary({"i": ints, "r": reals, "b": flags}, 1)).value);
 print(data.TryParseBinary(header).error);
 
+# Texts crossing to native code and back: an unpaired surrogate becomes U+FFFD; a large text with surrogate pairs and
+# Chinese converts exactly (each way sized to its own length).
+var units = import("String");
+print(data.ParseJson(q + "a" + units.FromCode(55296) + "b" + q) == "a" + units.FromCode(65533) + "b");
+var large = "繁😀ab";
+for (; len(large) < 1000000;) { large = large + large; }
+var back = data.ParseJson(q + large + q);
+print(len(back), back == large);
+
 # Depth limit: 64 containers parse and serialize, 65 fail.
 var deep = "";
 for (var i = 0; i < 64; i++) { deep = deep + "["; }

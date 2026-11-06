@@ -144,25 +144,31 @@ static void own_memory(void) {
     Block*b=pointer(heap_end);b->size=size-heap_end-sizeof(Block);b->reserved=0;b->kind=FOREIGN;b->marked=0;
     heap_end=heap_limit=size;
 }
+/* The heap cannot grow (its 2 GiB ceiling, or the engine refused): the host says so on standard error before the trap,
+   so the failure reads "out of memory" instead of a bare WebAssembly trap. Thread workers have no such host call. */
+static int worker;
+static __attribute__((noreturn,noinline,cold)) void out_of_memory(void) { if(!worker)host_import(6,0,0,0,0,0,0);__builtin_trap(); }
 static __attribute__((noinline)) void *allocate_slow(u32 n,u32 bucket,u32 kind) {
-    // Carve the largest free run before growing the heap: sequential allocation with no list operations.
-    if(!carving||carving->size<n){u32 larger=free_mask&~((2u<<bucket)-1u);if(larger){if(carving)push_free(carving);carving=pop_free(31u-(u32)__builtin_clz(larger));}}
+    // Carve a free run before growing the heap: sequential allocation with no list operations. The smallest class
+    // that fits, not the largest run: small survivors carved into a large run would split it, and the heap would then
+    // grow for every large request (multi-megabyte texts) although most of it is free.
+    if(!carving||carving->size<n){u32 larger=free_mask&~((2u<<bucket)-1u);if(larger){if(carving)push_free(carving);carving=pop_free((u32)__builtin_ctz(larger));}}
     if(carving&&carving->size>=n){
         Block*b=carving;u32 rest=b->size-n;carving=0;
         if(rest>=sizeof(Block)+16){Block*r=(Block*)((char*)(b+1)+n);r->size=rest-sizeof(Block);r->reserved=0;r->kind=FREE;r->marked=0;carving=r;b->size=n;}
         b->reserved=0;b->kind=kind;b->marked=0;initialize_allocation(b+1,b->size,kind);return b+1;
     }
     own_memory();
-    if(n>HEAP_LIMIT-heap_end-sizeof(Block))__builtin_trap();
+    if(n>HEAP_LIMIT-heap_end-sizeof(Block))out_of_memory();
     u32 end=heap_end+sizeof(Block)+n;
-    if(end+sizeof(Block)>heap_limit){if(__builtin_wasm_memory_grow(0,(end+sizeof(Block)-heap_limit+65535)/65536)==(size_t)-1)__builtin_trap();heap_limit=(u32)__builtin_wasm_memory_size(0)*65536;}
+    if(end+sizeof(Block)>heap_limit){if(__builtin_wasm_memory_grow(0,(end+sizeof(Block)-heap_limit+65535)/65536)==(size_t)-1)out_of_memory();heap_limit=(u32)__builtin_wasm_memory_size(0)*65536;}
     if(end>heap_high){heap_growth+=end-(heap_high>heap_end?heap_high:heap_end);heap_high=end;arm_collection();}
     Block *b=pointer(heap_end);b->size=n;b->reserved=0;b->kind=kind;b->marked=0;heap_end=end;initialize_allocation(b+1,n,kind);return b+1;
 }
 /* The block size allocate gives a request of n bytes. */
 static inline u32 block_size(u32 n) { return n<=16?16:1u<<(32u-(u32)__builtin_clz(n-1)); }
 static inline __attribute__((always_inline)) void *allocate(u32 n,u32 kind) {
-    if(n>HEAP_LIMIT)__builtin_trap();
+    if(n>HEAP_LIMIT)out_of_memory();
     n=block_size(n);u32 bucket=allocation_class(n);
     bytes_since_collection+=n;
     // Compiled checkpoints poll Execution.poll instead of calling into the runtime every block.
@@ -1005,7 +1011,7 @@ u32 aqua_collect(void){memset(member_cache,0,sizeof member_cache);
         case PINS:mark_value(((Pin*)p)->value);break;
         case STRUCTS:{Struct*x=p;mark_ref(x->shape);for(u32 i=0;i<x->count;i++)mark_value(x->fields[i]);break;}
         case SHAPES:{Shape*x=p;mark_ref(x->name);mark_ref(x->defaults);for(u32 i=0;i<x->count;i++){mark_ref(x->fields[i].name);mark_ref(x->fields[i].type);}break;}
-    }}u32 reclaimed=0,live=0;
+    }}u32 reclaimed=0,live=0,foreign=0;
     // One pass sweeps, clears survivor marks and rebuilds the segregated free lists, so tiny scopes
     // cannot consume reusable frames.
     // Adjacent free blocks coalesce, and a free run at the top of the heap returns to the bump allocator.
@@ -1013,15 +1019,16 @@ u32 aqua_collect(void){memset(member_cache,0,sizeof member_cache);
     for(u32 a=heap_start;a<heap_end;){Block*b=pointer(a);a+=sizeof(Block)+b->size;
         if(b->kind!=FREE){
             if(b->kind==FOREIGN||b->marked||keep_released(b)){b->marked=0;if(b->kind==ARRAYS&&b->reserved)((Block*)((Array*)(b+1)+1))->marked=0;
-                live+=b->size;if(run){push_free(run);run=0;}continue;}
+                if(b->kind==FOREIGN)foreign+=b->size;else live+=b->size;if(run){push_free(run);run=0;}continue;}
             reclaimed+=b->size;b->kind=FREE;
         }
         if(run)run->size+=sizeof(Block)+b->size;else run=b;
     }
     if(run)heap_end=address(run);
     // Allow garbage up to the live size, but no more than a quarter of the remaining headroom under the heap limit,
-    // so large live sets collect more often instead of running out of memory between collections.
-    {u32 limit=HEAP_LIMIT,headroom=live<limit?(limit-live)/4:0;u32 t=live<headroom?live:headroom;gc_threshold=t>8u*1024*1024?t:8u*1024*1024;}
+    // so large live sets collect more often instead of running out of memory between collections. FOREIGN memory
+    // (the host's reservations, libc's pages on the web) is no live script data: it only takes headroom.
+    {u32 limit=HEAP_LIMIT,used=live+foreign,headroom=used<limit?(limit-used)/4:0;u32 t=live<headroom?live:headroom;gc_threshold=t>8u*1024*1024?t:8u*1024*1024;}
     if(!++collection_generation)collection_generation=1;return reclaimed;
 }
 u32 aqua_native_live(u32 id){return id<65536?native_live[id]:0;}

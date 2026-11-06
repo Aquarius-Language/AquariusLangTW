@@ -86,6 +86,9 @@ aquarius_v2.service(operation, context, subject, name, arguments, count, output)
 | 1 | invoke a native capability |
 | 2 | resolve a member of a native service module |
 | 3 | project a native module scope for computed member lookup |
+| 4 | a Thread operation |
+| 5 | a runtime JIT request (engines with a JIT answer it) |
+| 6 | the guest heap cannot grow: the host reports "Out of memory" for the trap that follows |
 
 Arguments and output use the value layout above. A pending browser capability
 returns one; the host retains its arguments until completion and resumes the

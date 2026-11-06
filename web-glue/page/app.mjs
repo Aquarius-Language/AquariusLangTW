@@ -38,7 +38,8 @@ async function run() {
         state.status = 'finished';
     } catch (failure) {
         state.status = 'failed';
-        error.textContent += String(failure?.stack ?? failure) + '\n';
+        // A headline first: the stack (WebAssembly frames) follows for whoever debugs it.
+        error.textContent += `The application stopped: ${failure?.message ?? failure}\n${failure?.stack ?? ''}\n`;
         throw failure;
     }
 }

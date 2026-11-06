@@ -24,6 +24,20 @@ public class WasmtimeMemoryTest
     }
 
     [RuntimeFact]
+    public void ExhaustedMemoryIsReportedAsOutOfMemory()
+    {
+        // The heap's 2 GiB ceiling ends the program with an error saying so, not a bare WebAssembly trap.
+        var run = WasmTestHost.Run("""
+            var keep = []; var s = "x";
+            for (; len(s) < 8000000;) { s = s + s; }
+            for (var i = 0; i < 1000; i++) { Array.Append(keep, s + String.From(i)); }
+            print(len(keep));
+            """);
+        Assert.Equal(1, run.ExitCode);
+        Assert.Equal(["ERROR: Out of memory: the program's WebAssembly memory cannot grow any further (it holds at most 2 GiB)."], run.Lines);
+    }
+
+    [RuntimeFact]
     public void MemoryGrownByReenteredGuestCodeAndErrorsAfterGrowth()
     {
         // The imported module runs (and grows memory) while the importing host call is in progress; the error after the

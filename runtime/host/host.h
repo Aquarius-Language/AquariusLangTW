@@ -175,7 +175,9 @@ struct aqua_runtime {
     uint32_t *refs_free; uint32_t refs_free_count;
     double start_ms;
     int exit_code; bool finished, exiting;
-    uint32_t entry_module;            /* the module runtime_start ran */
+    bool out_of_memory;               /* the guest heap could not grow: the trap that follows is reported as that */
+#define OUT_OF_MEMORY_MESSAGE "Out of memory: the program's WebAssembly memory cannot grow any further (it holds at most 2 GiB)."
+    uint32_t entry_module;           /* the module runtime_start ran */
     uint32_t importing[64], import_depth; /* modules whose import is running, innermost last */
     char *materialized;              /* directory holding assets as files (desktop, Android) */
     bool materialized_created;       /* that directory was created: the runtime removes it when it ends */
@@ -194,6 +196,8 @@ void guest_write_value(aqua_runtime *rt, uint32_t address, aqua_value value);
 uint32_t guest_cell(aqua_runtime *rt, aqua_value value);           /* a fresh guest value cell holding `value` */
 uint32_t guest_text_ascii(aqua_runtime *rt, const char *ascii);    /* guest Text address */
 char *guest_text_utf8(aqua_runtime *rt, uint32_t text, size_t *length); /* malloc'd UTF-8 of guest Text */
+size_t guest_text_utf8_length(aqua_runtime *rt, uint32_t text);           /* its UTF-8 byte count */
+size_t guest_text_utf8_into(aqua_runtime *rt, uint32_t text, char *out);  /* into length + 1 bytes; the byte count */
 int32_t guest_member_index(aqua_runtime *rt, const aqua_class *c, uint32_t text); /* the member a guest Text names */
 
 /* ---- Host core internals shared between files. ------------------------------------------------------------------ */

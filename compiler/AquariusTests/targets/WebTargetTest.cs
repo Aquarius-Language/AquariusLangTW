@@ -179,10 +179,21 @@ public class WebTargetTest
         try {
             const page = await browser.newPage();
             page.on('pageerror', (error) => console.error('[page]', error.message));
+            // The application's memory, reported on standard error as "[memory] <MiB>" when the page is done.
+            await page.addInitScript(() => {
+                const instantiate = WebAssembly.instantiate;
+                WebAssembly.instantiate = async function (...args) {
+                    const result = await instantiate.apply(this, args);
+                    const instance = result instanceof WebAssembly.Instance ? result : result.instance;
+                    if (instance.exports.aqua_heap_bytes) window.__applicationMemory = instance.exports.memory;
+                    return result;
+                };
+            });
             await page.goto(`http://127.0.0.1:${server.address().port}/`);
             await page.waitForFunction(() => ['finished', 'failed'].includes(window.aquarius?.state?.status), null, { timeout: 60000 });
             const state = await page.evaluate(() => window.aquarius.state);
             for (const line of state.lines) console.log(line);
+            console.error('[memory]', await page.evaluate(() => Math.round((window.__applicationMemory?.buffer.byteLength ?? 0) / 1048576)));
             code = state.status === 'finished' ? state.exitCode : 3;
         } catch (error) { console.error(error.message); }
         finally { await browser.close(); server.close(); }
@@ -302,5 +313,36 @@ public class WebTargetTest
         Assert.True(result.ExitCode == 0, result.Output + result.Error);
         Assert.Equal("2 500000 124750000 524284\n", result.Output);
         Assert.Equal(result.Output, WasmTestHost.Output(source));
+    }
+
+    [WebFact]
+    public void RepeatedLargeTextsKeepTheMemoryBounded()
+    {
+        // A notebook frontend's pattern: multi-megabyte texts (Base64 images in JSON) pass through native code again and
+        // again while small values stay alive. The heap carved those survivors into its largest free runs and libc's
+        // conversion copies grew the shared memory between them, so every round grew the memory until the 2 GiB ceiling
+        // trapped ("RuntimeError: unreachable") after about 300 rounds; now it settles.
+        if (Node() is not { } node || Playwright() is not { } playwright || !WebFactAttribute.HasSideModule("application")) return;
+        using var t = new TestFolder();
+        const string source = """
+            var Serialization = import("Serialization");
+            var big = "QUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVphYmNkZWZnaGlqa2xtbm9wcXJzdHV2d3h5ejAxMjM0NTY3ODkrLw==";
+            for (; len(big) < 4000000;) { big = big + big; }
+            var keep = [];
+            for (var round = 0; round < 400; round++) {
+                var parsed = Serialization.ParseJson("{\"data\": \"" + String.Slice(big, round, len(big)) + "\", \"n\": " + String.From(round) + "}");
+                Array.Append(keep, {"n": parsed["n"], "size": len(parsed["data"])});
+                for (var i = 0; i < 300; i++) { Array.Append(keep, [round, i, "item " + String.From(i)]); }
+            }
+            print(len(keep), keep[0]["size"], keep[len(keep) - 301]["n"]);
+            """;
+        string site = t.FilePath("site");
+        new WebTarget().Build(new WasmBuildRequest(Compile(t, new Dictionary<string, string> { ["main.aqua"] = source }), site));
+        var result = Processes.Run(node, t.Path, [t.Write("run-site.mjs", RunSite), site, playwright], timeoutMs: 300_000);
+        if (result.ExitCode == 4) return; // No Chromium for Playwright on this machine.
+        Assert.True(result.ExitCode == 0, result.Output + result.Error);
+        Assert.Equal("120400 5767168 399\n", result.Output);
+        int memory = int.Parse(result.Error.Split('\n').Single(line => line.StartsWith("[memory] ")).Split(' ')[1]);
+        Assert.True(memory < 512, $"The memory grew to {memory} MiB.");
     }
 }

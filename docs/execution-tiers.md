@@ -302,9 +302,12 @@ storage does nothing, and marking it keeps the array's block alive while another
 The sweep is a single pass by address that clears marks,
 coalesces adjacent free blocks into runs, files each run in its size class (a bitmask finds
 non-empty classes) and returns a trailing run to the bump pointer. An allocation that misses
-its exact class carves the largest free run sequentially before growing the heap. A collection
-is due when net allocation (explicit releases subtract) or heap growth (they do not) reaches the
-threshold `max(8 MB, min(live bytes, (2 GiB - live bytes) / 4))`. Hosts that opt into weak
+its exact class carves the smallest larger class's run sequentially before growing the heap (the
+largest run would be split by small survivors, and large requests would then grow the heap). A
+collection is due when net allocation (explicit releases subtract) or heap growth (they do not)
+reaches the threshold `max(8 MB, min(live bytes, (2 GiB - live bytes - foreign bytes) / 4))`, where
+foreign bytes are the host's reservations and, on the web, libc's pages. When the heap cannot grow,
+the guest tells the host (service operation 6) before it traps, so the error reads "Out of memory". Hosts that opt into weak
 mirrors receive dropped exposed arrays and hashes on a released list instead of pinning them. Variable-size `memset` is avoided on hot paths
 because engines lower `memory.fill` to an out-of-line call.
 

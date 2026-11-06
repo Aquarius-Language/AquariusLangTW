@@ -70,6 +70,11 @@ Tools:
   the frontends over `/windows` without decoding frames, and the frontend paints it with a `RemoteWindow.Viewer` in a
   SaturnUI `Immediate` widget. Replayed cells' windows close at once, so replays never wait for them.
   `Display.Sketch(..., frames: 0)` and `Display.UI(..., frames: 0)` run until the window is closed.
+- `aqua_wellplay`: Run all starts the kernel over (no replay of earlier cells), so execution counts restart at [1] on
+  every Run all, as after Jupyter's restart and run all (`kernel/execute` takes `fresh`).
+- `aqua_wellplay`: the page's memory no longer depends on how many notebooks are open or how large one output is:
+  only the notebook on screen keeps decoded images, and a rich output over 32 MB of JSON is replaced by one line in
+  the cell. With ten image-heavy notebooks open and run four times each, the page stays near 600 MB.
 
 Compiler and CLI:
 - `aqua build --optimize` needs no OpenSSL: WABT's prebuilt `wasm2c` needed `libcrypto-3-x64.dll` on Windows (which
@@ -100,6 +105,17 @@ Runtime:
   result arriving later is now dropped instead of resuming the finished callback: it used to trap with "function
   signature mismatch" (seen as `aqua_resolve <- network.wasm socket_task_run` when WellPlay sent window input from
   painting callbacks). A native function called that way that settles at once now returns its result.
+- Memory no longer creeps up when multi-megabyte texts pass through native code again and again (WellPlay's frontend
+  receiving Base64 images: about 150 MB more per run of a notebook with large images, until "RuntimeError:
+  unreachable" at the 2 GiB ceiling). The heap carves small allocations from the smallest free run that fits instead
+  of the largest, so survivors no longer split the runs large texts need; texts reach native code as one UTF-8 copy of
+  their exact size (they were copied three times, once at three bytes per character) and come back decoded straight
+  into the new text; and libc's pages on the web no longer count as live data when the collector sets its threshold. A
+  web test that parses a 5.7 MB JSON text 400 times stays at 259 MB (it trapped at 2 GiB before).
+- A program that does run out of memory ends with "Out of memory: the program's WebAssembly memory cannot grow any
+  further (it holds at most 2 GiB)." instead of a bare WebAssembly trap; on the web the page shows it on standard error.
+- Web pages show standard error and a stopped application in a panel at the bottom of the page instead of text over
+  the application's canvas.
 
 Libraries:
 - Graphics: `drawUI` draws text at the size it is rasterized at the screen's pixel density, and `uiTextMetrics`

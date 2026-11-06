@@ -51,7 +51,7 @@ uint32_t run_slice(aqua_runtime *rt, task *t) {
     rt->current = previous;
     char *trap = engine_take_trap(rt->engine);
     if (trap) {
-        task_finish(rt, t, false, host_error(rt, "WebAssembly trap: %s", trap));
+        task_finish(rt, t, false, rt->out_of_memory ? host_error(rt, "%s", OUT_OF_MEMORY_MESSAGE) : host_error(rt, "WebAssembly trap: %s", trap));
         free(trap);
         return G_STATUS_Failed;
     }

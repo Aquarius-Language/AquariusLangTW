@@ -126,12 +126,10 @@ void *aqua_scratch(aqua_call *call, size_t bytes) {
 aqua_str aqua_str_of(aqua_call *call, aqua_value text) {
     aqua_str s = {"", 0};
     if (text.type != AQUA_STRING && text.type != AQUA_ERROR) return s;
-    size_t length;
-    char *utf8 = guest_text_utf8(call->rt, text.ref, &length);
-    char *copy = aqua_scratch(call, length + 1);
-    memcpy(copy, utf8, length + 1);
-    free(utf8);
-    s.data = copy; s.length = length;
+    /* Straight into the call's scratch memory: no intermediate copy of a large text. */
+    char *utf8 = aqua_scratch(call, guest_text_utf8_length(call->rt, text.ref) + 1);
+    s.length = guest_text_utf8_into(call->rt, text.ref, utf8);
+    s.data = utf8;
     return s;
 }
 aqua_str aqua_arg_str(aqua_call *call, uint32_t index) { return aqua_str_of(call, aqua_arg(call, index)); }

@@ -33,12 +33,12 @@ aqua_value aqua_text16(aqua_runtime *rt, const uint16_t *units, size_t count) {
     aqua_value v = {AQUA_STRING, text, 0};
     return v;
 }
+/* Decoded straight into the new guest Text (counted first), so a large text needs no temporary UTF-16 copy. */
 aqua_value aqua_text(aqua_runtime *rt, const char *utf8, size_t length) {
-    uint16_t small[256];
-    uint16_t *units = length <= 256 ? small : malloc(length * 2);
-    size_t count = utf8_to_utf16(utf8, length, units);
-    aqua_value v = aqua_text16(rt, units, count);
-    if (units != small) free(units);
+    size_t count = utf8_to_utf16(utf8, length, NULL);
+    uint32_t text = guest(rt, GUEST_text, (uint32_t)count, 0, 0, 0);
+    utf8_to_utf16(utf8, length, (uint16_t *)(guest_base(rt) + text + G_Text_Data));
+    aqua_value v = {AQUA_STRING, text, 0};
     return v;
 }
 aqua_value aqua_cstring(aqua_runtime *rt, const char *utf8) { return aqua_text(rt, utf8, strlen(utf8)); }
