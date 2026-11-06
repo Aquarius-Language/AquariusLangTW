@@ -18,6 +18,15 @@ static void unlink_task(aqua_runtime *rt, task *t) {
     for (task **p = &rt->tasks; *p; p = &(*p)->next) if (*p == t) { *p = t->next; return; }
 }
 
+/* The loop runs tasks in list order, so a task joins at the end: tasks start, and resume after their awaits settle,
+   in the order that happened (as JavaScript runs continuations), even when one late turn settles several. */
+static void append_task(aqua_runtime *rt, task *t) {
+    task **p = &rt->tasks;
+    while (*p) p = &(*p)->next;
+    t->next = NULL;
+    *p = t;
+}
+
 void task_finish(aqua_runtime *rt, task *t, bool ok, aqua_value result) {
     t->finished = true; t->failed = !ok; t->result = result;
     aqua_ref keep = aqua_retain(rt, result);
@@ -157,7 +166,7 @@ void aqua_invoke_async(aqua_runtime *rt, aqua_value function, const aqua_value *
         uint32_t status = run_slice(rt, t);
         if (t->finished) { free(t); return; }
         (void)status;
-        t->next = rt->tasks; rt->tasks = t;
+        append_task(rt, t);
         return;
     }
     if (function.type != AQUA_NATIVE) { if (done) done(rt, false, host_error(rt, "Not a function: %s", aqua_type_name(function)), data); return; }
@@ -169,7 +178,7 @@ void aqua_invoke_async(aqua_runtime *rt, aqua_value function, const aqua_value *
     task *t = calloc(1, sizeof *t);
     t->pending = pending; t->done = done; t->data = data; t->follow = true;
     pending->task = t;
-    t->next = rt->tasks; rt->tasks = t;
+    append_task(rt, t);
 }
 
 /* ---- Deferred library calls ---- */
@@ -191,6 +200,7 @@ void aqua_resolve(aqua_pending *pending, aqua_value result) {
     t->pending = NULL;
     if (t->execution) {
         guest(rt, GUEST_resume, t->execution, guest_cell(rt, result), 0, 0);
+        if (t->loop) { unlink_task(rt, t); append_task(rt, t); }
     } else {
         /* A native function called through aqua_invoke_async. */
         unlink_task(rt, t);
@@ -290,7 +300,7 @@ bool runtime_start(aqua_runtime *rt, const char *entry) {
     task *t = calloc(1, sizeof *t);
     t->execution = guest(rt, GUEST_execute, rt->app.program_address, rt->app.modules[module].function, scope, context);
     t->done = main_done; t->loop = true;
-    t->next = rt->tasks; rt->tasks = t;
+    append_task(rt, t);
     return true;
 }
 

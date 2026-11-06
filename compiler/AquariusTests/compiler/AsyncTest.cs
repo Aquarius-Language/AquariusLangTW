@@ -135,6 +135,25 @@ public class AsyncTest
     }
 
     [RuntimeFact]
+    public void TasksResumeInTheOrderTheirAwaitsSettle()
+    {
+        // Both awaits settle in one go (as two timers do after a late wake); the tasks continue in settling order.
+        Assert.Equal("[a, b]\n", WasmTestHost.Output("""
+            var Array = import("Array");
+            var log = [];
+            var settleA = 0; var settleB = 0;
+            var pa = Promise.New(function(resolve, reject) { settleA = resolve; });
+            var pb = Promise.New(function(resolve, reject) { settleB = resolve; });
+            var worker = async function(name, p) { await p; Array.Append(log, name); };
+            var a = worker("a", pa);
+            var b = worker("b", pb);
+            settleA(1); settleB(2);
+            await Promise.All([a, b]);
+            print(log);
+            """));
+    }
+
+    [RuntimeFact]
     public void CombinatorsFollowJavaScript()
     {
         Assert.Equal(string.Join("\n",
