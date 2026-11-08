@@ -58,7 +58,7 @@ if [ ! -d "$wabt/bin" ]; then
 fi
 for target in ${targets//,/ }; do
     case "$target" in
-        web) continue ;;
+        web|ios-*) continue ;;   # the web and iOS (ahead-of-time compiled with wasm2c) link no prebuilt SDK
         android-*) install_archive "$(pin jdk.base)$(pin "jdk.$platform.file")" "$(pin "jdk.$platform.sha256")" "$toolchains/$(pin jdk.directory)" ;;
     esac
     file=$(pin "sdks.wasmtime.$target.file")

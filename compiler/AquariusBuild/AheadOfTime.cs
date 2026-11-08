@@ -21,6 +21,14 @@ public static partial class AheadOfTime
     {
         var target = RuntimeTarget.Get(runtimeTarget);
         AquariusInstallation.RequireBuildableHere(runtimeTarget, "--optimize executables");
+        string output = Path.ChangeExtension(Path.GetFullPath(executable), null) + ".aot" + target.SharedLibrarySuffix;
+        return Compile(wasm, output, runtimeTarget, Path.Combine(pack, "aot"));
+    }
+
+    /// <summary>Translates the module at <paramref name="wasm"/> with wasm2c and builds it with the pack's CMake
+    /// <paramref name="project"/> (aot/: a desktop library; app/: an iOS executable) into <paramref name="output"/>.</summary>
+    public static string Compile(string wasm, string output, string runtimeTarget, string project)
+    {
         var installation = AquariusInstallation.Require();
         var environment = new Dictionary<string, string>();
         string native = Environment.GetEnvironmentVariable("AQUARIUS_NATIVE_BUILD") is { Length: > 0 } configured ? configured
@@ -29,8 +37,8 @@ public static partial class AheadOfTime
         if (!installation.IsRepository) { environment["AQUARIUS_SDK_ROOT"] = installation.Root; environment["AQUARIUS_NATIVE_BUILD"] = native; }
 
         using var pins = JsonDocument.Parse(File.ReadAllText(Path.Combine(installation.Root, "scripts", "toolchain.json")));
-        // The tools run on this host, which is the target (RequireBuildableHere above).
-        string host = AquariusInstallation.HostPlatform, exe = target.ExecutableSuffix;
+        // The tools run on this host.
+        string host = AquariusInstallation.HostPlatform, exe = OperatingSystem.IsWindows() ? ".exe" : "";
         string Directory(string tool) => Path.Combine(native, "toolchains", pins.RootElement.GetProperty(tool).GetProperty("directory").GetString()!.Replace("{platform}", host));
         string wabt = Directory("wabt"), ninja = Path.Combine(Directory("ninja"), "ninja" + exe);
         string cmake = Path.Combine(Directory("cmake"), pins.RootElement.GetProperty("cmake").GetProperty(host).GetProperty("bin").GetString()!, "cmake" + exe);
@@ -44,10 +52,9 @@ public static partial class AheadOfTime
             Run(wasm2c, [wasm, "-n", "app", "-o", source + ".c"], environment);
             File.WriteAllText(source + ".c", Repair(File.ReadAllText(source + ".c")));
             string digest = Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(wasm))).ToLowerInvariant();
-            string output = Path.ChangeExtension(Path.GetFullPath(executable), null) + ".aot" + target.SharedLibrarySuffix;
             string toolchain = Path.Combine(installation.Sdk, "cmake", "toolchains", runtimeTarget + ".cmake");
             string build = Path.Combine(work, "build");
-            Run(cmake, ["-S", Path.Combine(pack, "aot"), "-B", build, "-G", "Ninja", "-DCMAKE_MAKE_PROGRAM=" + ninja,
+            Run(cmake, ["-S", project, "-B", build, "-G", "Ninja", "-DCMAKE_MAKE_PROGRAM=" + ninja,
                 "-DCMAKE_TOOLCHAIN_FILE=" + toolchain, "-DCMAKE_BUILD_TYPE=Release", "-DAQUA_AOT_SOURCE=" + Forward(source),
                 "-DAQUA_AOT_DIGEST=" + digest, "-DAQUA_WASM2C=" + Forward(Path.Combine(wabt, "share", "wabt", "wasm2c")),
                 "-DAQUA_WASM2C_INCLUDE=" + Forward(Path.Combine(wabt, "include")), "-DAQUA_AOT_OUTPUT=" + Forward(output)], environment);

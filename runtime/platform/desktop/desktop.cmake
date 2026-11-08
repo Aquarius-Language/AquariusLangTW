@@ -25,9 +25,9 @@ aqua_sdk_directory(wasmtime ${AQUA_TARGET} wasmtime_sdk)
 # it). The aot/ folder holds what aqua build compiles into that library (see aot/CMakeLists.txt). Compiled code recurses
 # on the native stack without a per-call depth count (aot_app.c), so the platform layer reserves a large stack for
 # aquarius-aot.
-set(launcher_sources ${host_sources} host/sha256.c host/threads.c ${platform_sources} platform/desktop/main.c platform/desktop/jit.c)
+set(launcher_sources ${host_sources} host/overlay.c host/sha256.c host/threads.c ${platform_sources} platform/desktop/main.c platform/desktop/jit.c)
 add_executable(aquarius ${launcher_sources} host/engine_wasmtime.c)
-add_executable(aquarius-aot ${launcher_sources} platform/desktop/engine_aot.c)
+add_executable(aquarius-aot ${launcher_sources} host/engine_aot.c)
 target_include_directories(aquarius PRIVATE "${wasmtime_sdk}/include")
 target_compile_definitions(aquarius PRIVATE WASM_API_EXTERN= WASI_API_EXTERN=)
 target_link_libraries(aquarius PRIVATE "${wasmtime_sdk}/lib/libwasmtime.a")
@@ -40,4 +40,4 @@ foreach(launcher IN ITEMS aquarius aquarius-aot)
     endforeach()
 endforeach()
 install(TARGETS aquarius aquarius-aot RUNTIME DESTINATION .)
-install(FILES aot/CMakeLists.txt platform/desktop/aot_app.c platform/desktop/aot_app.h host/guest_exports.h DESTINATION aot)
+install(FILES aot/CMakeLists.txt aot/aot_app.c aot/aot_app.h host/guest_exports.h DESTINATION aot)

@@ -78,7 +78,8 @@ if ($Targets -match '^android-') {
 }
 foreach ($target in $Targets) {
     if ($target -eq 'web') { continue }
-    Get-AquaTarget $target | Out-Null
+    # iOS runs applications ahead-of-time compiled (wasm2c) and links no prebuilt SDK.
+    if ((Get-AquaTarget $target).platform -eq 'ios') { continue }
     foreach ($name in $AquaPins.sdks.PSObject.Properties.Name) {   # every prebuilt SDK the runtime links
         $pin = $AquaPins.sdks.$name.$target
         if (-not $pin) { throw "No pinned $name SDK for $target." }

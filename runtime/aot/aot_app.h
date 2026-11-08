@@ -1,6 +1,6 @@
 /* An ahead-of-time application library (aqua build --optimize, CLAUDE.md rule 11): the application's Wasm translated to
    C by the pinned wasm2c and compiled with the pinned Clang into <app>.aot.dll / <app>.aot.so beside the executable,
-   with aot_app.c. The desktop runtime's aquarius-aot launcher (engine_wasm2c.c) loads it and drives it through this
+   with aot_app.c. The ahead-of-time engine (host/engine_aot.c) loads it (or, on iOS, links it) and drives it through this
    table; everything else in the runtime is the same prebuilt code as aquarius's. */
 #ifndef AQUA_AOT_APP_H
 #define AQUA_AOT_APP_H

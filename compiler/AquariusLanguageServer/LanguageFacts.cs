@@ -74,6 +74,7 @@ internal static class LanguageFacts
             ("是Windows", "isOSWindows", "是Windows() — Whether the runtime is Windows."),
             ("是Linux", "isOSLinux", "是Linux() — Whether the runtime is Linux."),
             ("是MacOS", "isOSMacOS", "是MacOS() — Whether the runtime is macOS."),
+            ("是iOS", "isOSiOS", "是iOS() — Whether the runtime is iOS or iPadOS."),
             ("是Android", "isOSAndroid", "是Android() — Whether the runtime is Android."),
             ("是網頁", "isWeb", "是網頁() — Whether the runtime is a web browser."),
             ("執行檔案", "execFile", "執行檔案(路徑, 引數陣列) — Execute a program synchronously (desktop)."),

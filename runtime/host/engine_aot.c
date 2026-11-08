@@ -1,13 +1,17 @@
-/* The ahead-of-time desktop engine (aquarius-aot, CLAUDE.md rule 11): runs the application from its ahead-of-time
-   library (aot_app.h), compiled from the same .wasm by aqua build --optimize: <executable>.aot.dll / .aot.so beside the
-   executable, or AQUARIUS_AOT for `aquarius-aot app.wasm`. The library must be built from this very module (its
+/* The ahead-of-time engine (CLAUDE.md rule 11): runs the application from its ahead-of-time code (aot_app.h), compiled
+   from the same .wasm by wasm2c and Clang. On the desktop (the aquarius-aot launcher of aqua build --optimize) that is a
+   library beside the executable, <executable>.aot.dll / .aot.dylib / .aot.so, or AQUARIUS_AOT for
+   `aquarius-aot app.wasm`; on iOS, which forbids run-time code generation, it is linked into the application itself. The library must be built from this very module (its
    SHA-256). The module bytes still serve the host's metadata and the JIT's stencils; the runtime JIT installs no
    modules in this engine (engine_install declines), so untyped loops without a native region run generically. */
-#include "../../host/host.h"
-#include "../../host/engine.h"
-#include "../../host/sha256.h"
-#include "aot_app.h"
-#include "desktop.h"
+#include "host.h"
+#include "engine.h"
+#include "sha256.h"
+#include "../aot/aot_app.h"
+#if defined(AQUA_DESKTOP)
+#include "../platform/desktop/desktop.h"
+int32_t platform_jit(engine *e, int32_t loop);
+#endif
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -24,9 +28,14 @@ struct engine {
 static int32_t service(void *context, const int32_t arguments[7]) {
     engine *e = context;
     /* Operation 5 is a hot loop asking the runtime JIT. */
+#if defined(AQUA_DESKTOP)
     return arguments[0] == 5 ? platform_jit(e, arguments[2]) : e->service(e->service_data, arguments);
+#else
+    return arguments[0] == 5 ? -1 : e->service(e->service_data, arguments);   /* no runtime JIT: the loop runs as compiled */
+#endif
 }
 
+#if defined(AQUA_DESKTOP)
 /* The library beside the executable (its name without .exe, then .aot.dll / .aot.dylib / .aot.so, the suffixes of
    RuntimeTarget.SharedLibrarySuffix in the compiler), or AQUARIUS_AOT. */
 static char *library_path(void) {
@@ -49,15 +58,24 @@ static char *library_path(void) {
     return path;
 }
 
+#endif
+
 static const aot_app *load(const uint8_t *module, size_t length, char **error) {
     static const aot_app *app;
     if (app) return app;
+#if defined(AQUA_DESKTOP)
     char *path = library_path();
     if (!path) { *error = strdup("Cannot find this executable."); return NULL; }
     char *failure = NULL;
     void *library = platform_library_open(path, &failure);
     aot_entry entry = library ? (aot_entry)platform_library_symbol(library, "aqua_aot_app") : NULL;
     const aot_app *candidate = entry ? entry() : NULL;
+#else
+    /* Linked into the application (platform/ios/app). */
+    const aot_app *aqua_aot_app(void);
+    char *path = strdup("The application's ahead-of-time code"), *failure = NULL;
+    const aot_app *candidate = aqua_aot_app();
+#endif
     uint8_t digest[32];
     sha256(module, length, digest);
     if (!candidate || candidate->version != AQUA_AOT_VERSION || memcmp(candidate->digest, digest, 32) != 0) {

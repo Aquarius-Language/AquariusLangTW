@@ -67,6 +67,7 @@ static void current_date(aqua_call *call) {
 static void is_windows(aqua_call *call) { aqua_return_bool(call, strcmp(AQUA_PLATFORM_NAME, "windows") == 0); }
 static void is_linux(aqua_call *call) { aqua_return_bool(call, strcmp(AQUA_PLATFORM_NAME, "linux") == 0); }
 static void is_macos(aqua_call *call) { aqua_return_bool(call, strcmp(AQUA_PLATFORM_NAME, "macos") == 0); }
+static void is_ios(aqua_call *call) { aqua_return_bool(call, strcmp(AQUA_PLATFORM_NAME, "ios") == 0); }
 static void is_android(aqua_call *call) { aqua_return_bool(call, strcmp(AQUA_PLATFORM_NAME, "android") == 0); }
 static void is_web(aqua_call *call) { aqua_return_bool(call, strcmp(AQUA_PLATFORM_NAME, "web") == 0); }
 
@@ -133,6 +134,7 @@ void core_library(aqua_library *library) {
     aqua_define_function(globals, "isOSWindows|是Windows", is_windows, "");
     aqua_define_function(globals, "isOSLinux|是Linux", is_linux, "");
     aqua_define_function(globals, "isOSMacOS|是MacOS", is_macos, "");
+    aqua_define_function(globals, "isOSiOS|是iOS", is_ios, "");
     aqua_define_function(globals, "isOSAndroid|是Android", is_android, "");
     aqua_define_function(globals, "isWeb|是網頁", is_web, "");
     aqua_define_function(globals, "execFile|執行檔案", execute_file, "sa");
