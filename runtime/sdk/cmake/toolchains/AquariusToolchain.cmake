@@ -1,7 +1,16 @@
-# Shared by every target toolchain file: reads the pins in scripts/toolchain.json and locates the installed toolchain
+# Shared by every target toolchain file, which sets AQUA_TARGET before including it: reads the pins in
+# scripts/toolchain.json, describes the target from its row of targets.list and locates the installed toolchain
 # (scripts/install-toolchain.ps1|.sh). Set AQUARIUS_NATIVE_BUILD to move .native-build, AQUARIUS_LLVM to use another
 # installation of the pinned LLVM release, and AQUARIUS_SDK_ROOT when this SDK is used outside the repository.
+#   AQUA_TARGET   the target (windows-x64, linux-x64, android-arm64-v8a, web, ...)
+#   AQUA_OS       its platform (windows, linux, android, web, ...): runtime/platform/<AQUA_OS>, src/platform/<AQUA_OS>.c,
+#                 the platforms of aqua.toml and aqua_add_library(PLATFORMS) and the AQUA_OS_* macros of <aqua/aqua.h>
+#   AQUA_KIND     desktop, mobile or web
+#   AQUA_HOST     the platform of the machine building it (windows-x64, linux-x64, macos-arm64)
 cmake_minimum_required(VERSION 3.20)
+if(NOT AQUA_TARGET)
+    message(FATAL_ERROR "Set AQUA_TARGET before including AquariusToolchain.cmake.")
+endif()
 get_filename_component(AQUA_SDK "${CMAKE_CURRENT_LIST_DIR}/../.." ABSOLUTE)
 if(DEFINED ENV{AQUARIUS_SDK_ROOT})
     file(TO_CMAKE_PATH "$ENV{AQUARIUS_SDK_ROOT}" AQUA_REPOSITORY)
@@ -29,6 +38,25 @@ else()
     set(AQUA_EXE "")
     set(AQUA_SCRIPT "")
 endif()
+# The target's row of the targets table.
+string(JSON aqua_target_count LENGTH "${AQUA_PINS}" targets list)
+math(EXPR aqua_target_last "${aqua_target_count} - 1")
+unset(AQUA_OS)
+foreach(aqua_target_index RANGE ${aqua_target_last})
+    string(JSON aqua_target_name GET "${AQUA_PINS}" targets list ${aqua_target_index} name)
+    if(aqua_target_name STREQUAL AQUA_TARGET)
+        string(JSON aqua_target_planned ERROR_VARIABLE aqua_target_unplanned GET "${AQUA_PINS}" targets list ${aqua_target_index} planned)
+        if(NOT aqua_target_unplanned AND aqua_target_planned)
+            message(FATAL_ERROR "The ${AQUA_TARGET} target is planned but not built yet (docs/adding-a-target.md).")
+        endif()
+        string(JSON AQUA_OS GET "${AQUA_PINS}" targets list ${aqua_target_index} platform)
+        string(JSON AQUA_KIND GET "${AQUA_PINS}" targets list ${aqua_target_index} kind)
+    endif()
+endforeach()
+if(NOT DEFINED AQUA_OS)
+    message(FATAL_ERROR "${AQUA_TARGET} is not a target of scripts/toolchain.json (targets.list).")
+endif()
+
 string(JSON AQUA_LLVM_VERSION GET "${AQUA_PINS}" llvm version)
 string(JSON AQUA_LLVM_DIRECTORY GET "${AQUA_PINS}" llvm directory)
 string(REPLACE "{platform}" "${AQUA_HOST}" AQUA_LLVM_DIRECTORY "${AQUA_LLVM_DIRECTORY}")

@@ -185,7 +185,7 @@ public static class CompilerCommandLine {
             else if (input.Project != null) {
                 if (entry != null) throw new ArgumentException("TOML projects define their entry in the manifest.");
                 wasm = temporary = Path.Combine(Path.GetDirectoryName(input.Project)!, $".aquarius-run-{Guid.NewGuid():N}.wasm");
-                libraries = ProjectBuilder.Compile(input.Project, wasm, AquariusInstallation.HostTarget.Split('-')[0]).Libraries;
+                libraries = ProjectBuilder.Compile(input.Project, wasm, RuntimeTarget.Get(AquariusInstallation.HostTarget).Platform).Libraries;
             } else {
                 string root = Path.GetDirectoryName(Path.GetFullPath(file))!;
                 wasm = temporary = Path.Combine(root, $".aquarius-run-{Guid.NewGuid():N}.wasm");

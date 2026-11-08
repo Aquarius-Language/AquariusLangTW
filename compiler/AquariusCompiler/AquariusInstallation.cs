@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Linq;
 
 namespace AquariusLang.Compiler;
 
@@ -18,9 +19,8 @@ namespace AquariusLang.Compiler;
 /// </summary>
 public sealed class AquariusInstallation
 {
-    /// <summary>Every target a runtime pack exists for. Adding a platform adds a toolchain file in runtime/sdk/cmake/toolchains,
-    /// a runtime/platform layer and a build target in AquariusBuild.</summary>
-    public static readonly string[] Targets = ["windows-x64", "linux-x64", "android-arm64-v8a", "android-x86_64", "web"];
+    /// <summary>Every target a runtime pack exists for (<see cref="RuntimeTarget.Built"/>; docs/adding-a-target.md adds one).</summary>
+    public static readonly string[] Targets = RuntimeTarget.Built.Select(t => t.Name).ToArray();
 
     public string Root { get; }
     public bool IsRepository { get; }
@@ -92,17 +92,19 @@ public sealed class AquariusInstallation
 
     /// <summary>The runtime target of the machine the compiler runs on, for <c>aqua run</c>: its platform, when a runtime
     /// pack exists for it.</summary>
-    public static string HostTarget => Array.IndexOf(Targets, HostPlatform) >= 0 ? HostPlatform
-        : throw new PlatformNotSupportedException($"AquariusLang has no runtime for this host ({HostPlatform}) yet; it runs on {string.Join(", ", Array.FindAll(Targets, IsDesktop))}.");
+    public static string HostTarget => RuntimeTarget.Find(HostPlatform) is { Planned: false, IsDesktop: true } target ? target.Name
+        : throw new PlatformNotSupportedException($"AquariusLang has no runtime for this host ({HostPlatform}) yet; it runs on {string.Join(", ", RuntimeTarget.Built.Where(t => t.IsDesktop).Select(t => t.Name))}.");
 
     /// <summary>Whether a target is a desktop operating system: its native binaries build and run only on that host.</summary>
-    public static bool IsDesktop(string target) => !target.StartsWith("android-", StringComparison.Ordinal) && target != "web";
+    public static bool IsDesktop(string target) => RuntimeTarget.Get(target).IsDesktop;
 
-    /// <summary>Throws unless this host can build native binaries for <paramref name="target"/>: Android and web build
-    /// anywhere, a desktop target only on itself.</summary>
+    /// <summary>Throws unless this host can build native binaries for <paramref name="target"/> (<see cref="RuntimeTarget.BuildsOn"/>:
+    /// a desktop target on itself, a mobile or web one on the hosts it lists, every host when it lists none).</summary>
     public static void RequireBuildableHere(string target, string what)
     {
-        if (IsDesktop(target) && target != HostPlatform)
-            throw new ArgumentException($"{what} for {target} build on a {target} host (this one is {HostPlatform}; on Windows, build Linux ones in WSL).");
+        var runtime = RuntimeTarget.Get(target);
+        if (!runtime.BuildsOn(HostPlatform))
+            throw new ArgumentException($"{what} for {target} build on {(runtime.Hosts is { } hosts ? string.Join(" or ", hosts) : "a " + target)} host" +
+                $" (this one is {HostPlatform}{(target == "linux-x64" ? "; on Windows, build Linux ones in WSL" : "")}).");
     }
 }

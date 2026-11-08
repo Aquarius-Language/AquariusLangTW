@@ -249,9 +249,56 @@ public class ArchitectureRulesTest
         const string jit = "runtime/platform/desktop/jit.c";
         var builders = FilesWith(".c", ".h", ".cpp", ".rs").Where(f => !f.Contains("/third_party/", StringComparison.Ordinal) && Read(f).Contains("\"\\0asm", StringComparison.Ordinal)).ToList();
         Assert.True(builders.SequenceEqual([jit]), "Rule 'One Wasm encoder': at run time only " + jit + " builds Wasm modules. Found: " + string.Join(", ", builders));
-        string cmake = Read("runtime/CMakeLists.txt");
-        Assert.True(Regex.Matches(cmake, Regex.Escape(Path.GetFileName(Path.GetDirectoryName(jit))!) + "/jit\\.c").Count == 1,
-            "Rule 'Target-specific speed is optional and layered': runtime/CMakeLists.txt compiles the runtime JIT into the desktop runtime only.");
+        var compiling = RepositoryFiles().Where(f => f == "runtime/CMakeLists.txt" || Regex.IsMatch(f, @"^runtime/platform/[^/]+/[^/]+\.cmake$"))
+            .Where(f => Read(f).Contains("desktop/jit.c", StringComparison.Ordinal)).ToList();
+        Assert.True(compiling.SequenceEqual(["runtime/platform/desktop/desktop.cmake"]) && Regex.Matches(Read(compiling[0]), "desktop/jit\\.c").Count == 1,
+            "Rule 'Target-specific speed is optional and layered': runtime/platform/desktop/desktop.cmake compiles the runtime JIT into the desktop runtime only. Found in: " + string.Join(", ", compiling));
+    }
+
+    // ---- 10. More targets will come ---------------------------------------------------------------------------------
+
+    [Fact]
+    public void OneTargetTableDescribesEveryTarget()
+    {
+        // scripts/toolchain.json's targets.list (read by the scripts and CMake) and RuntimeTarget.All (the compiler's copy)
+        // are the same table.
+        using var pins = System.Text.Json.JsonDocument.Parse(Read("scripts/toolchain.json"));
+        string? Text(System.Text.Json.JsonElement row, string key) => row.TryGetProperty(key, out var value) ? value.GetString() : null;
+        var scripts = pins.RootElement.GetProperty("targets").GetProperty("list").EnumerateArray().Select(row => string.Join(" ",
+            Text(row, "name"), Text(row, "platform"), Text(row, "kind"), Text(row, "dotnet") ?? "-",
+            row.TryGetProperty("hosts", out var hosts) ? string.Join(",", hosts.EnumerateArray().Select(h => h.GetString())) : "-",
+            row.TryGetProperty("planned", out var planned) && planned.GetBoolean() ? "planned" : "built")).ToList();
+        var compiler = RuntimeTarget.All.Select(t => string.Join(" ", t.Name, t.Platform, t.Kind.ToString().ToLowerInvariant(), t.DotnetRuntime ?? "-",
+            t.Hosts is { } list ? string.Join(",", list) : "-", t.Planned ? "planned" : "built")).ToList();
+        Assert.True(scripts.SequenceEqual(compiler), "Rule 'More targets will come': compiler/AquariusCompiler/RuntimeTarget.cs lists the targets of " +
+            "scripts/toolchain.json (targets.list) in the same order with the same fields.\ntoolchain.json:\n  " + string.Join("\n  ", scripts) +
+            "\nRuntimeTarget.All:\n  " + string.Join("\n  ", compiler));
+
+        // A built target has its toolchain file and platform layer, and libraries and applications can name its platform.
+        var problems = new List<string>();
+        foreach (var target in RuntimeTarget.Built) {
+            string toolchain = $"runtime/sdk/cmake/toolchains/{target.Name}.cmake";
+            if (!File.Exists(Path.Combine(Root, toolchain))) problems.Add($"{target.Name} has no {toolchain}");
+            if (!File.Exists(Path.Combine(Root, $"runtime/platform/{target.Platform}/platform.cmake"))) problems.Add($"{target.Name} has no runtime/platform/{target.Platform}/platform.cmake");
+        }
+        foreach (var target in RuntimeTarget.All)
+            if (!Library.KnownPlatforms.Contains(target.Platform)) problems.Add($"{target.Name}'s platform {target.Platform} is not in Library.KnownPlatforms");
+        Assert.True(problems.Count == 0, "Rule 'More targets will come': a target is a toolchain file, a runtime/platform/<platform> layer with its " +
+            "platform.cmake, pins and a build target (docs/adding-a-target.md): " + string.Join("; ", problems));
+    }
+
+    [Fact]
+    public void TargetListsAreNotRepeated()
+    {
+        // Outside the table, code derives lists of targets from it instead of spelling them out again.
+        string names = string.Join("|", RuntimeTarget.All.Select(t => Regex.Escape(t.Name)));
+        var list = new Regex($@"[""'](?:{names})[""']\s*,\s*[""'](?:{names})[""']\s*,\s*[""'](?:{names})[""']");
+        var offenders = RepositoryFiles().Where(f => Regex.IsMatch(f, @"\.(cs|ps1|sh|cmake|mjs)$|(^|/)CMakeLists\.txt$")
+                && !f.StartsWith("compiler/AquariusTests/", StringComparison.Ordinal) && !f.Contains("/third_party/", StringComparison.Ordinal)
+                && f != "compiler/AquariusCompiler/RuntimeTarget.cs")
+            .Where(f => list.IsMatch(Read(f))).ToList();
+        Assert.True(offenders.Count == 0, "Rule 'More targets will come': lists of targets come from scripts/toolchain.json (targets.list, " +
+            "$AquaTargets in scripts/toolchain.ps1) or RuntimeTarget (AquariusInstallation.Targets) instead of being repeated. Offenders: " + string.Join(", ", offenders));
     }
 
     // ---- 11. Target-specific speed is optional and layered ----------------------------------------------------------

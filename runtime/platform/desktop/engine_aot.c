@@ -27,7 +27,8 @@ static int32_t service(void *context, const int32_t arguments[7]) {
     return arguments[0] == 5 ? platform_jit(e, arguments[2]) : e->service(e->service_data, arguments);
 }
 
-/* The library beside the executable (its name without .exe, then .aot.dll / .aot.so), or AQUARIUS_AOT. */
+/* The library beside the executable (its name without .exe, then .aot.dll / .aot.dylib / .aot.so, the suffixes of
+   RuntimeTarget.SharedLibrarySuffix in the compiler), or AQUARIUS_AOT. */
 static char *library_path(void) {
     const char *setting = platform_environment("AQUARIUS_AOT");
     if (setting && *setting) return strdup(setting);
@@ -37,6 +38,8 @@ static char *library_path(void) {
 #if defined(_WIN32)
     if (n > 4 && (strcmp(self + n - 4, ".exe") == 0 || strcmp(self + n - 4, ".EXE") == 0)) n -= 4;
     const char *suffix = ".aot.dll";
+#elif defined(__APPLE__)
+    const char *suffix = ".aot.dylib";
 #else
     const char *suffix = ".aot.so";
 #endif

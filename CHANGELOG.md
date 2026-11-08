@@ -84,6 +84,11 @@ Compiler and CLI:
 - Compile errors carry their line and column: `main.aqua:2:14: message` (`CompilationException.Diagnostics`).
 - `aqua run` takes a script inside a project folder that the project does not declare, running it with the project's
   libraries (it used to fail with `Source is not declared in project.sources.`; builds still require it).
+- Targets come from one table, `targets.list` in `scripts/toolchain.json`. The scripts and CMake toolchain files read it
+  (CMake gets `AQUA_OS` and `AQUA_KIND`), and the compiler's copy `RuntimeTarget` is checked equal to it by the
+  architecture tests. Each `runtime/platform/<os>/platform.cmake` builds that OS's runtime. `macos-arm64` and
+  `ios-arm64` are reserved: tools report them as planned instead of unknown. Builds of the existing targets are
+  unchanged. See [adding a target](docs/adding-a-target.md).
 
 Runtime:
 - Native objects never fill the runtime's resource table. They are freed by a garbage collection, which used to start

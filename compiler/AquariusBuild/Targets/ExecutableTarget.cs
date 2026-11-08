@@ -24,8 +24,8 @@ public sealed class ExecutableTarget(string name, string runtimeTarget) : IWasmB
     public string Name => name;
     public string RuntimeTarget => runtimeTarget;
     public string ArtifactDescription => "Executable";
-    private bool Windows => runtimeTarget.StartsWith("windows-", StringComparison.Ordinal);
-    private string Exe => Windows ? ".exe" : "";
+    private bool Windows => AquariusLang.Compiler.RuntimeTarget.Get(runtimeTarget).Platform == "windows";
+    private string Exe => AquariusLang.Compiler.RuntimeTarget.Get(runtimeTarget).ExecutableSuffix;
     public IReadOnlyCollection<string> OptionNames => Windows ? [HideTerminalOption, OnnxCudaOption, OptimizeOption] : [OnnxCudaOption, OptimizeOption];
 
     public void Build(WasmBuildRequest request)

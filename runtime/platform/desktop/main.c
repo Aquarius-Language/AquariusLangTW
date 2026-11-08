@@ -202,8 +202,11 @@ static char *directory_of(const char *path) {
 
 /* External libraries live in a libraries/ folder beside the application, or beside the runtime executable. */
 bool platform_load_library(aqua_runtime *rt, const char *name, char **error) {
+    /* The names RuntimeTarget.NativeFile gives them in the compiler. */
 #if defined(_WIN32)
     const char *prefix = "aqua_", *suffix = ".dll";
+#elif defined(__APPLE__)
+    const char *prefix = "libaqua_", *suffix = ".dylib";
 #else
     const char *prefix = "libaqua_", *suffix = ".so";
 #endif

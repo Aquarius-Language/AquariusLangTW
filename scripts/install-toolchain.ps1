@@ -78,7 +78,7 @@ if ($Targets -match '^android-') {
 }
 foreach ($target in $Targets) {
     if ($target -eq 'web') { continue }
-    if ($target -notin $AquaTargets) { throw "Unknown target: $target (known: $($AquaTargets -join ', '))" }
+    Get-AquaTarget $target | Out-Null
     foreach ($name in $AquaPins.sdks.PSObject.Properties.Name) {   # every prebuilt SDK the runtime links
         $pin = $AquaPins.sdks.$name.$target
         if (-not $pin) { throw "No pinned $name SDK for $target." }

@@ -42,9 +42,11 @@ it works. (繁中摘要見文末。)
    instead of leaving it beside the new code. Adding the next library, glue domain or target must follow the existing
    pattern without touching unrelated code.
 10. **More targets will come.** Never hard-code the list of targets outside the places that define them
-    (`scripts/toolchain.json`, `runtime/sdk/cmake/toolchains/`, `runtime/platform/<os>/`, the compiler's build
-    targets). Isolate OS code so a new target (macOS, iOS, ...) is a new toolchain file, a new platform layer, a new
-    `src/platform/<os>.c` in the libraries that need one, and a new build target.
+    (`scripts/toolchain.json` `targets.list` and its compiler copy `RuntimeTarget.cs`, `runtime/sdk/cmake/toolchains/`,
+    `runtime/platform/<os>/`, the compiler's build targets). New code branches on a target's platform (`AQUA_OS` in
+    CMake, `AQUA_OS_*` in C, `RuntimeTarget.Platform` in C#) rather than its name, unless the difference is the CPU.
+    Isolate OS code so a new target (macOS, iOS, ...) is a new row in the table, a new toolchain file, a new platform
+    layer, a new `src/platform/<os>.c` in the libraries that need one, and a new build target.
 11. **Target-specific speed is optional and layered.** Every target runs the same portable artifact: the compiler
     and the guest runtime emit one `.wasm` with no target branches, and it must stay correct and complete on every
     target. A target may add optimizations on top of it (engine settings, host fast paths, SIMD or other CPU features
@@ -64,7 +66,7 @@ compiler/            C#: AquariusCompiler, AquariusBuild, AquariusBottle, Aquari
 runtime/
   guest/             runtime.c: the guest runtime linked into every application (values, GC, scheduler), layout.def
   host/              the shared C host: application metadata, imports, registry, scheduler, calls, core library
-  platform/<os>/     windows, linux, posix, desktop (Windows+Linux), android (+ java/ activity shim), web
+  platform/<os>/     windows, linux, posix, desktop (Windows+Linux), android (+ java/ activity shim), web; platform.cmake
   sdk/               the library SDK: include/aqua/*.h, api.def, cmake/ (AquariusLibrary.cmake, toolchains/), example/
 libraries/<name>/    default libraries (application, audio, camera, clay, graphics, imgui, input, interaction, network, onnx,
                      opengl, remotewindow, saturn, terminal, webframe)
@@ -91,8 +93,9 @@ scripts/             toolchain pins and installers, runtime/library builds, web-
   default libraries of the aqua building it (never copies of them); `aqua <command> ...` forwarding to it is one entry
   in `compiler/AquariusCli/Tools.cs`. It follows the rules above like any application (its own native code is a
   library; no JavaScript of its own).
-- **A target:** a toolchain file, a `runtime/platform/<os>` layer, pins, the compiler's build target, and the
-  libraries' platform branches. Nothing else should need to know.
+- **A target:** a row in `targets.list` (and `RuntimeTarget.All`), a toolchain file, a `runtime/platform/<os>` layer
+  with its `platform.cmake`, pins, the compiler's build target, and the libraries' platform branches. Nothing else
+  should need to know. `macos-arm64` and `ios-arm64` are reserved as planned; see `docs/adding-a-target.md`.
 
 ## Building and testing
 

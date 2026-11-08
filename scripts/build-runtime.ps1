@@ -31,9 +31,7 @@ $ErrorActionPreference = 'Stop'
 # Comma-separated values arrive as one string from cmd.exe and other shells.
 $Targets = @($Targets | ForEach-Object { $_ -split ',' } | Where-Object { $_ })
 $Libraries = @($Libraries | ForEach-Object { $_ -split ',' } | Where-Object { $_ })
-foreach ($target in $Targets) {
-    if ($AquaTargets -notcontains $target) { throw "Unknown target $target; use $($AquaTargets -join ', ')." }
-}
+foreach ($target in $Targets) { Get-AquaTarget $target | Out-Null }
 function Invoke-Checked([string]$Program, [string[]]$Arguments) {
     & $Program @Arguments
     if ($LASTEXITCODE -ne 0) { throw "Command failed (exit $LASTEXITCODE): $Program $($Arguments -join ' ')" }
