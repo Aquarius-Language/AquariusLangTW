@@ -330,7 +330,7 @@ public class ArchitectureRulesTest
         Assert.True(host.Contains("abi != 3 && abi != 4", StringComparison.Ordinal) && host.Contains("abi >= 4", StringComparison.Ordinal),
             "Rule 'One application ABI': runtime/host/application.c reads the metadata version the compiler writes (WasmAbi.Version).");
         Assert.Contains("\"AQUARIUS-APP-V2!\"u8", Read("compiler/AquariusBuild/ExecutableBundle.cs"));
-        Assert.Contains("'A', 'Q', 'U', 'A', 'R', 'I', 'U', 'S', '-', 'A', 'P', 'P', '-', 'V', '2', '!'", Read("runtime/platform/desktop/main.c"));
+        Assert.Contains("'A', 'Q', 'U', 'A', 'R', 'I', 'U', 'S', '-', 'A', 'P', 'P', '-', 'V', '2', '!'", Read("runtime/host/overlay.c"));
     }
 
     private const string Goldens = "compiler/AquariusTests/architecture/codegen-goldens.txt";

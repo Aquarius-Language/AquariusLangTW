@@ -324,7 +324,7 @@ public class ExecutableTargetTest
     public void TargetRegistryReportsSupportedTargetsAndOptions()
     {
         var targets = BuildTargets.Default;
-        Assert.Equal(["android", "linux", "macos", "web", "windows"], targets.Names.Order(StringComparer.Ordinal));
+        Assert.Equal(["android", "ios", "linux", "macos", "web", "windows"], targets.Names.Order(StringComparer.Ordinal));
         Assert.Equal("macos-arm64", Assert.IsType<ExecutableTarget>(targets.Resolve("macos")).RuntimeTarget);
         Assert.Equal("windows-x64", Assert.IsType<ExecutableTarget>(targets.Resolve("windows")).RuntimeTarget);
         Assert.Equal("linux-x64", Assert.IsType<ExecutableTarget>(targets.Resolve("linux")).RuntimeTarget);

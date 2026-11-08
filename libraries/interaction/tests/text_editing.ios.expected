@@ -1,0 +1,83 @@
+edit 263 null
+edit 262 null
+edit 268 documentStart
+edit 269 null
+edit 259 null
+edit 261 deleteForward
+edit 260 null
+edit 65 lineStart
+edit 65 null
+EditAction null yank down null null
+start [hello brave new_world, ok] 25 25
+word left [hello brave new_world, ok] 25 25
+word left [hello brave new_world, ok] 25 25
+word left [hello brave new_world, ok] 25 25
+extend word left [hello brave new_world, ok] 25 25
+right collapses [hello brave new_world, ok] 25 25
+shift home [hello brave new_world, ok] 25 0
+end [hello brave new_world, ok] 25 25
+ctrl backspace [hello brave new_world, ok] 25 25
+ctrl backspace [hello brave new_world, ok] 25 25
+ctrl delete [hello brave new_world, ok] 0 0
+type over all [Typed overhello brave new_world, ok] 10 10
+undo groups typing [Typed over!?hello brave new_world, ok] 12 12
+undo the replace [Typed over!?hello brave new_world, ok] 12 12
+redo [Typed over!?hello brave new_world, ok] 12 12
+can't copy a password 假
+cluster stops [1, 9, 11, 12, 12] 12
+backspace clusters [a👨‍👩‍👧] 9 9
+snap inside a pair 0
+cjk words [0, 0, 0, 0] [0, 4]
+max length [abcde] 5 5
+enter submits 真 abcde
+overwrite [Xabcd] 1 1
+composing [Xㄒㄧabcd, 2, 1, 3] 真 1
+committed [X星abcd] 2 2
+single line flattens [onetwo three] 12 12
+down keeps x [first line
+second
+third line here] 17 17
+down again [first line
+second
+third line here] 26 26
+down at the end [first line
+second
+third line here] 33 33
+home [first line
+second
+third line here] 0 0
+enter [
+first line
+second
+third line here] 1 1
+double click word [
+first line
+second
+third line here] 0 1
+drag by words [
+first line
+second
+third line here] 0 11
+triple click line [
+first line
+second
+third line here] 12 18
+shift click [
+first line
+second
+third line here] 0 6
+fields key null 真 event key null 263 真 5 press
+made press 3 2 真 mouse null
+part keys wordLeft wordRight deleteWordBackward deleteWordPartBackward paragraphStart moveLineUp null null null
+part stops [20, 27, 30, 31, 31, 31, 31, 31]
+part stops back [28, 23, 0, 0]
+delete word part [parseHTMLDocument_v2 = get(10)] 26 26
+alt backspace undoes [parseHTMLDocument_v2 = (10)] 23 23
+transpose [acbd] 3 3
+kill [one
+three] 3 3
+yank [one
+three two] 13 13
+open line [
+one
+three two] 0 0

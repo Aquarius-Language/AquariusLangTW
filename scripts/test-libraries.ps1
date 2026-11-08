@@ -6,7 +6,7 @@
 # Runs under Windows PowerShell 5.1 or PowerShell 7 (pwsh) on any host. Runtime packs come from
 # .native-build/install/<target> (scripts/build-runtime.ps1). Desktop targets run on their own host; on Windows,
 # linux-x64 runs in WSL. Android targets run on the connected device or emulator through scripts/android-run.ps1
-# (only with -Devices).
+# (only with -Devices); ios-simulator-arm64 runs on an iOS simulator of this Mac through scripts/ios-run.ps1.
 #
 # A case says on its first line what it needs and where it runs (a # comment):
 #   needs <a window | a ... device | a GPU | a camera | the clipboard | a driver | a peer server | models ...>
@@ -166,6 +166,8 @@ foreach ($folder in $folders) {
             }
             if ($facts.NeedsDevice -and -not $Devices) { $row.Result = 'skip'; $row.Detail = 'needs a device or window (-Devices)'; continue }
             if ($target -like 'android-*' -and -not $Devices) { $row.Result = 'skip'; $row.Detail = 'Android runs need a device (-Devices)'; continue }
+            if ($target -eq 'ios-arm64') { $row.Result = 'skip'; $row.Detail = 'iOS devices need a signing identity; the simulator runs these cases'; continue }
+            if ($target -like 'ios-*' -and -not $IsMacOS) { $row.Result = 'skip'; $row.Detail = 'iOS runs on a Mac'; continue }
             if (-not (Test-Path -LiteralPath $expectedFile)) { $row.Result = 'FAIL'; $row.Detail = "missing $name.expected"; continue }
             $pack = Join-Path $AquaToolchain.Native "install/$target"
             if (-not (Test-Path -LiteralPath $pack)) { $row.Result = 'skip'; $row.Detail = "no $target runtime pack"; continue }
@@ -195,6 +197,11 @@ foreach ($folder in $folders) {
                         $run = Invoke-Captured 'wsl.exe' @('-d', $Distribution, '--cd', (ConvertTo-Wsl $tests), (ConvertTo-Wsl (Join-Path $pack 'aquarius')), (ConvertTo-Wsl $wasm)) `
                             (@{ AQUARIUS_STORAGE_ROOT = $storage; WSLENV = (@('AQUARIUS_STORAGE_ROOT/p') + @($facts.Environment.Keys)) -join ':' } + $facts.Environment)
                     }
+                }
+                # The iOS simulator on a Mac (scripts/ios-run.ps1); devices (ios-arm64) need signing and are not run here.
+                'ios-simulator-*' {
+                    $run = Invoke-Captured $AquaToolchain.PowerShell @('-NoProfile', '-File', (Join-Path $PSScriptRoot 'ios-run.ps1'), $wasm,
+                        '-Compiler', $Compiler, '-TimeoutSeconds', "$TimeoutSeconds")
                 }
                 'web' { $run = Invoke-Captured 'node' @((Join-Path $PSScriptRoot 'web-run.mjs'), $pack, $wasm, '--timeout', "$TimeoutSeconds", '--fake-camera') }
                 'android-*' {

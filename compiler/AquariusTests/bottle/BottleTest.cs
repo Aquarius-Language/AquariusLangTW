@@ -8,7 +8,9 @@ namespace AquariusTests.Bottle;
 /// <summary>Bottle with manifest_version 1 projects and libraries (sources imported by path from /bottles/NAME/), the
 /// manifest contract shared by both versions, locks, the cache and the command line.</summary>
 public class BottleTest {
-    private static string Manifest(string name, string type = "library", string version = "0.18.0", string dependencies = "", string assets = "", string platforms = "[\"windows\", \"linux\", \"macos\", \"web\", \"android\"]") => $$"""
+    /// <summary>Every platform a runtime pack exists for, as aqua new writes them.</summary>
+    private static string AllPlatforms => "[" + string.Join(", ", AquariusLang.Compiler.RuntimeTarget.Built.Select(t => $"\"{t.Platform}\"").Distinct()) + "]";
+    private static string Manifest(string name, string type = "library", string version = "0.18.0", string dependencies = "", string assets = "", string? platforms = null) => $$"""
         manifest_version = 1
         [project]
         name = "{{name}}"
@@ -16,7 +18,7 @@ public class BottleTest {
         version = "{{version}}"
         entry = "main.aqua"
         sources = ["main.aqua", "src"]
-        platforms = {{platforms}}
+        platforms = {{platforms ?? AllPlatforms}}
         [dependencies]
         {{dependencies}}
         {{assets}}
@@ -24,7 +26,7 @@ public class BottleTest {
     internal static string Project(BottleDirectory t, string directory, string name, string type = "library", string version = "0.18.0", string dependencies = "", string assets = "", string? platforms = null) {
         t.Write(directory + "/main.aqua", "變數 value = 42;");
         t.Write(directory + "/src/helper.aqua", "變數 helper = 1;");
-        return t.Write(directory + "/aqua.toml", Manifest(name, type, version, dependencies, assets, platforms ?? "[\"windows\", \"linux\", \"macos\", \"web\", \"android\"]"));
+        return t.Write(directory + "/aqua.toml", Manifest(name, type, version, dependencies, assets, platforms));
     }
 
     [Theory]
