@@ -31,14 +31,15 @@ flowchart TD
 ```text
 compiler/            C#, compile time only
   AquariusCompiler     front end, IR, Wasm emission, application packaging, library manifests, installation lookup
-  AquariusBuild        build targets (windows, linux, web, android) from runtime packs
+  AquariusBuild        build targets (windows, linux, macos, ios, web, android) from runtime packs
   AquariusBottle       TOML projects, dependencies, locks
   AquariusCli          the aqua command (build, run, REPL, export)
   AquariusLanguageServer, AquariusTests
 runtime/             C, the run time of every target
   guest/               runtime.c: values, GC, scheduler, linked into every application (layout.def is the shared table)
   host/                the host core: metadata, imports, registry, calls, scheduler, threads, the core library
-  platform/<os>/       windows, linux, posix, desktop (Windows + Linux), android (+ the Java activity shim), web;
+  platform/<os>/       windows, linux, macos, posix, desktop (Windows, Linux, macOS), android (+ the Java activity shim),
+                       ios (+ the UIKit shim), web;
                        each OS's platform.cmake builds its runtime
   sdk/                 aqua/*.h, api.def, AquariusLibrary.cmake, toolchain files, an example library
 libraries/<name>/    default libraries, one self-contained folder each
@@ -78,9 +79,11 @@ because library data (pixel arrays, images, tensors) lives in guest memory.
 
 ## Host core and platform layers
 
-`runtime/host` is one C code base for every target. `engine_wasmtime.c` and `engine_web.c` are the only engine-specific
-files: the first drives Wasmtime on Windows, Linux and Android, the second runs inside the browser as a position
-independent side module sharing the application's memory. The host reads the metadata (`application.c`), registers
+`runtime/host` is one C code base for every target. `engine_wasmtime.c`, `engine_aot.c` and `engine_web.c` are the only
+engine-specific files: the first drives Wasmtime on Windows, Linux, macOS and Android, the second runs the application
+compiled ahead of time by wasm2c (`aqua build --optimize` on the desktops, every iOS application, since iOS allows no
+run-time code generation), the third runs inside the browser as a position independent side module sharing the
+application's memory. The host reads the metadata (`application.c`), registers
 the default libraries compiled into this runtime build and the external ones named with `--library` or by the
 application (`registry.c`, `session.c`), runs the guest's scheduler and native ticks (`scheduler.c`), and runs Thread
 workers as separate instances (`threads.c`, `threads_web.c`).

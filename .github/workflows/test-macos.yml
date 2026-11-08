@@ -1,0 +1,35 @@
+name: macOS and iOS
+on: [push, pull_request]
+jobs:
+  macos:
+    runs-on: macos-15   # Apple Silicon, with Xcode and iOS simulator runtimes
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - uses: ./.github/actions/toolchain
+        with:
+          targets: macos-arm64,ios-simulator-arm64,ios-arm64
+      - name: Runtime packs (the pinned Clang against the Xcode SDKs)
+        shell: pwsh
+        run: ./scripts/build-runtime.ps1 -Targets macos-arm64,ios-simulator-arm64,ios-arm64
+      - name: Boot an iOS simulator
+        shell: pwsh
+        run: |
+          $device = ((xcrun simctl list devices available --json | ConvertFrom-Json).devices.PSObject.Properties.Value |
+              Where-Object name -like 'iPhone*' | Select-Object -First 1)
+          xcrun simctl boot $device.udid
+          xcrun simctl bootstatus $device.udid -b
+      - name: Compiler, packaging, CLI, architecture and library tests (macOS and the iOS simulator)
+        run: |
+          dotnet test compiler/AquariusTests -c Release -m:1 --logger 'trx;LogFileName=macos.trx'
+          pwsh ./scripts/test-libraries.ps1 -Targets macos-arm64,ios-simulator-arm64
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: macos-test-results
+          path: compiler/AquariusTests/TestResults/*.trx

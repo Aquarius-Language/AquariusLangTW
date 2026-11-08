@@ -4,7 +4,7 @@ description: >-
   targets, and fails unless the committed guest runtime (runtime/guest/runtime.wasm) rebuilds byte-identically.
 inputs:
   targets:
-    description: Comma-separated runtime targets (windows-x64, linux-x64, android-arm64-v8a, android-x86_64, web).
+    description: Comma-separated runtime targets (the names of scripts/toolchain.json targets.list).
     required: true
 runs:
   using: composite

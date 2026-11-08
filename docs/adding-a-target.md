@@ -1,9 +1,8 @@
 # Adding a target
 
-A target is one runtime pack: `windows-x64`, `linux-x64`, `android-arm64-v8a`, `android-x86_64` and `web` today.
-`macos-arm64` and `ios-arm64` are reserved as *planned*: every tool knows their names and reports them as "planned but
-not built yet" instead of "unknown", and nothing builds them. This page lists what adding one takes and, for macOS and
-iOS, what is already in place and what is still Linux- or Windows-only.
+A target is one runtime pack; `scripts/toolchain.json` `targets.list` names them.
+A target can be reserved as *planned*: every tool knows its name and reports it as "planned but not built yet" instead
+of "unknown", and nothing builds it. This page lists what adding one takes.
 
 ## Where targets are defined
 
@@ -43,62 +42,15 @@ more target names outside the table.
 8. **Docs.** Add a `docs/<platform>.md` like [linux.md](linux.md), and update the target lists in
    [ARCHITECTURE.md](../ARCHITECTURE.md) and the libraries' READMEs.
 
-## macOS (`macos-arm64`)
+## macOS and iOS
 
-Already in place:
+`macos-arm64` ([macos.md](macos.md)), `ios-arm64` and `ios-simulator-arm64` ([ios.md](ios.md)) were added this way and
+are the latest worked examples: their rows, `runtime/sdk/cmake/toolchains/macos-arm64.cmake` and `ios*.cmake`,
+`runtime/platform/macos` and `runtime/platform/ios`, the libraries' `AQUA_OS` branches and `src/platform/apple.c`,
+`macos.c` and `ios.c` files, `ExecutableTarget("macos", ...)` (app bundles) and `IosTarget`, and
+`.github/workflows/test-macos.yml`. Two answers they settled for later Apple targets:
 
-- Host pins for Apple Silicon: LLVM, CMake and Ninja in `scripts/toolchain.json`. `toolchain.ps1`,
-  `install-toolchain.sh`, `AquariusToolchain.cmake` and `AquariusInstallation.HostPlatform` recognise a macOS arm64
-  host.
-- `<aqua/aqua.h>` defines `AQUA_OS_MACOS`, `AQUA_DESKTOP` and `AQUA_PLATFORM_NAME "macos"`. The `terminal` library
-  already treats macOS as POSIX.
-- Naming: `RuntimeTarget.NativeFile` gives `libaqua_<name>.dylib`, which is what `aqua_add_library` builds by default
-  on Apple platforms. The desktop launcher (`platform/desktop/main.c`) loads external libraries by that name, and
-  `aquarius-aot` looks for `<app>.aot.dylib`, the file `aqua build --optimize` writes.
-- `runtime/platform/desktop/metal_layer.m` makes a `CAMetalLayer` for a GLFW window's `NSWindow`. Nothing builds it
-  yet.
-
-Still to do:
-
-- `runtime/sdk/cmake/toolchains/macos-arm64.cmake` (`arm64-apple-macos`, the Xcode or Command Line Tools SDK through
-  `xcrun --show-sdk-path`, `ld64.lld` or the system linker). A Mac host needs this file even to install the toolchain,
-  because `install-toolchain.ps1` and `.sh` build `wasm2c` with the host's own toolchain file.
-- `runtime/platform/macos/platform.cmake` and `platform.c`. The Linux layer is the model, with Linux-only calls
-  replaced: `/proc/self/exe` becomes `_NSGetExecutablePath`, and `_GNU_SOURCE` extensions need checking. Link
-  `Cocoa`, `IOKit`, `QuartzCore` and `Metal` for GLFW and wgpu. The stack option becomes
-  `-Wl,-stack_size,0x4000000`.
-- Pins: `sdks.wasmtime.macos-arm64` (Wasmtime's `aarch64-macos` C API archive), and `jdk.macos-arm64` so a Mac can
-  build Android packs.
-- Libraries that pick Linux or have no macOS branch: `application` (its CMake `else()` compiles
-  `src/platform/linux.c`), `graphics` (no `wgpu_macos-arm64` pin, no `src/platform/macos.c`, Metal surface),
-  `onnx` (no macOS branch, so no `src/platform/*.c` and no ONNX Runtime download), `interaction` (needs
-  `src/platform/macos.c`), `camera` (`camera.h` has no macOS backend; AVFoundation, or the unsupported fallback until
-  then), `input`, `audio` (miniaudio supports Core Audio; check the link libraries), `opengl` and `imgui` (check their
-  GL loaders).
-- Build target: `new ExecutableTarget("macos", "macos-arm64")`. Every Apple Silicon binary must be code signed, at
-  least ad hoc. An executable with the application appended after it (`ExecutableBundle`) may fail `codesign`
-  verification and notarization. A `.app` bundle with the `.wasm` as a resource is the likely shape. Check this on a
-  Mac before relying on the overlay.
-- CI: a `macos-14` (arm64) workflow.
-
-## iOS and iPadOS (`ios-arm64`)
-
-Already in place: the reserved row (built only on `macos-arm64` hosts: `hosts` in the table, enforced by
-`AquariusInstallation.RequireBuildableHere`), `AQUA_OS_IOS`, `AQUA_MOBILE` and `"ios"` in the manifests' platforms.
-
-Still to do, beyond what macOS needs:
-
-- **No JIT.** iOS does not let App Store apps generate machine code at run time, so Wasmtime's Cranelift compiler
-  cannot run there. The two portable options are the ahead-of-time path that already exists (`aqua build --optimize`:
-  `wasm2c` and Clang through `runtime/aot`, with `platform/desktop/engine_aot.c`), linked statically into the app, or
-  Wasmtime's Pulley interpreter if the pinned Wasmtime publishes an iOS C API with it. The runtime JIT
-  (`platform/desktop/jit.c`) stays desktop-only, which rule 11 allows because the portable path is the fallback.
-- **No loose shared libraries.** External libraries have to be linked into the app or shipped as signed frameworks
-  inside the bundle, so `NativeFile`, `ExecutableTarget`-style packaging and the runtime's library search need an iOS
-  form.
-- **Toolchain:** `arm64-apple-ios<version>` against the iPhoneOS SDK. The simulator (`arm64-apple-ios<version>-simulator`,
-  iPhoneSimulator SDK) is a different target; add it as its own row (for example `ios-simulator-arm64`).
-- **Platform layer:** a `UIApplication` entry and a window from a `UIView` with a `CAMetalLayer`, in the role
-  Android's `AquariusActivity` and `ANativeWindow` play now; touch, keyboard and safe areas through `<aqua/window.h>`.
-- **Build target:** an `.app` (and `.ipa`) with `Info.plist`, entitlements and signing, as `AndroidTarget` builds an
-  APK.
+- **Code signing.** Bytes appended to a Mach-O break its signature, so Apple exports are app bundles whose launcher stays
+  unmodified and whose overlay is a file of its own (`ExecutableBundle.WritePayload`), signed ad hoc inside out.
+- **No JIT.** iOS runs every application through the ahead-of-time engine (`host/engine_aot.c`, wasm2c and the pinned
+  Clang) linked statically with the pack's `libaquarius.a`; Wasmtime publishes no iOS C API.

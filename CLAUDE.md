@@ -10,8 +10,8 @@ it works. (繁中摘要見文末。)
    runtime and no library contains C#, and nothing at run time loads .NET.
 2. **One native runtime, thin per-OS layers.** Applications are `.wasm` modules run by `runtime/`: Wasmtime's C API on
    desktop and mobile, the browser's WebAssembly on the web. The host core (`runtime/host`) is shared; everything that
-   differs per OS is a thin layer in `runtime/platform/<os>/` (Java on Android only in its activity shim, which only
-   forwards what Android delivers to Java alone).
+   differs per OS is a thin layer in `runtime/platform/<os>/` (Java on Android and Objective-C on Apple targets only in
+   their activity and UIKit/AppKit shims, which only forward what the OS delivers to that language alone).
 3. **Libraries are AquariusLang, C, C++ or Rust.** Write a library in AquariusLang when it needs no native code;
    otherwise in clean, safe, readable modern C (C17), C++ (C++20) or Rust (C ABI), without sacrificing performance. One
    source tree serves every target: preprocessor branches on `AQUA_OS_*` for the few differences, and a
@@ -66,7 +66,8 @@ compiler/            C#: AquariusCompiler, AquariusBuild, AquariusBottle, Aquari
 runtime/
   guest/             runtime.c: the guest runtime linked into every application (values, GC, scheduler), layout.def
   host/              the shared C host: application metadata, imports, registry, scheduler, calls, core library
-  platform/<os>/     windows, linux, posix, desktop (Windows+Linux), android (+ java/ activity shim), web; platform.cmake
+  platform/<os>/     windows, linux, macos, posix, desktop (Windows+Linux+macOS), android (+ java/ activity shim), ios (+ UIKit
+                     shim), web; platform.cmake
   sdk/               the library SDK: include/aqua/*.h, api.def, cmake/ (AquariusLibrary.cmake, toolchains/), example/
 libraries/<name>/    default libraries (application, audio, camera, clay, graphics, imgui, input, interaction, network, onnx,
                      opengl, remotewindow, saturn, terminal, webframe)
@@ -95,7 +96,7 @@ scripts/             toolchain pins and installers, runtime/library builds, web-
   library; no JavaScript of its own).
 - **A target:** a row in `targets.list` (and `RuntimeTarget.All`), a toolchain file, a `runtime/platform/<os>` layer
   with its `platform.cmake`, pins, the compiler's build target, and the libraries' platform branches. Nothing else
-  should need to know. `macos-arm64` and `ios-arm64` are reserved as planned; see `docs/adding-a-target.md`.
+  should need to know; see `docs/adding-a-target.md` (macOS and iOS are the latest examples).
 
 ## Building and testing
 
@@ -109,7 +110,7 @@ scripts/android-run.ps1 app.wasm -Runtime <android pack> -Run          # Android
 ```
 
 Every library's `tests/` must pass on every target it supports before a change is done. Windows builds use Clang +
-MinGW only. Linux (and later macOS) runs the same scripts with PowerShell 7 (`pwsh`); from Windows, linux-x64 builds
+MinGW only. Linux and macOS run the same scripts with PowerShell 7 (`pwsh`); from Windows, linux-x64 builds
 and runs in WSL (see `docs/linux.md`).
 
 ## Before you finish a change, check
