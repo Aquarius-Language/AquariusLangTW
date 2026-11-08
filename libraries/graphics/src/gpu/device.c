@@ -573,8 +573,14 @@ bool gpu_device_present(gpu_device *d, gpu_target *target, char *error, size_t e
         frame = (WGPUSurfaceTexture)WGPU_SURFACE_TEXTURE_INIT;
         wgpuSurfaceGetCurrentTexture(d->surface, &frame);
     }
+    /* No frame this time: a timeout, a surface still changing, or (wgpu-native) a window nothing of shows, as macOS
+       reports for a hidden or fully covered window. The next frame tries again. */
     if (frame.status == WGPUSurfaceGetCurrentTextureStatus_Timeout || frame.status == WGPUSurfaceGetCurrentTextureStatus_Outdated ||
-        frame.status == WGPUSurfaceGetCurrentTextureStatus_Lost) {
+        frame.status == WGPUSurfaceGetCurrentTextureStatus_Lost
+#if !defined(AQUA_OS_WEB)
+        || frame.status == (WGPUSurfaceGetCurrentTextureStatus)WGPUSurfaceGetCurrentTextureStatus_Occluded
+#endif
+        ) {
         if (frame.texture) wgpuTextureRelease(frame.texture);
         return true;
     }

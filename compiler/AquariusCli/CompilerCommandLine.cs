@@ -12,6 +12,8 @@ public static class CompilerCommandLine {
         "aqua build (main.aqua ... | app.wasm) --target web -o site-directory [--entry main.aqua]\n" +
         "aqua build (main.aqua ... | app.wasm) --target windows -o app.exe [--entry main.aqua] [--hide-terminal true|false] [--onnx-cuda true|false] [--optimize true|false]\n" +
         "aqua build (main.aqua ... | app.wasm) --target linux -o app [--entry main.aqua] [--onnx-cuda true|false] [--optimize true|false]\n" +
+        "aqua build (main.aqua ... | app.wasm) --target macos -o App.app [--entry main.aqua] [--optimize true|false]\n" +
+        "aqua build (main.aqua ... | app.wasm) --target ios -o App.app [--simulator true|false] [--bundle-id org.example.app] [--app-name Name] [--signing-identity ID --provisioning-profile file]\n" +
         "aqua build (main.aqua ... | app.wasm) --target android -o app.apk [--entry main.aqua] [--application-id org.example.app] [--app-name Name] [--keystore file --key-alias name]\n" +
         "aqua build [aqua.toml|project-directory] [--target PLATFORM] [--platform PLATFORM] [-o output] [--locked] [--offline]\n" +
         "aqua run (app.wasm | main.aqua | project-directory) [--entry main.aqua] [argument ...]\n" +
@@ -19,7 +21,8 @@ public static class CompilerCommandLine {
         "--hide-terminal true builds a Windows GUI executable without a console ([desktop] hide_terminal = true in aqua.toml).\n" +
         "--onnx-cuda true uses the runtime pack built with ONNX Runtime's CUDA providers ([onnx] cuda = true in aqua.toml).\n" +
         "--optimize true compiles the application ahead of time with the pinned wasm2c and Clang (installed on first use) into\n" +
-        "  app.aot.dll / app.aot.so beside the executable, which ships with it.\n" +
+        "  app.aot.dll / app.aot.dylib / app.aot.so beside the executable, which ships with it. iOS applications are always\n" +
+        "  compiled this way (iOS allows no code generation at run time), from the pack of the device or the simulator.\n" +
         "Android signing: --keystore/--key-alias with AQUARIUS_KEYSTORE_PASSWORD (and AQUARIUS_KEY_PASSWORD); a debug key otherwise.\n" +
         "Exit codes: 0 success, 1 compilation/runtime/IO failure, 2 invalid command or options; aqua run returns the application's.";
 
