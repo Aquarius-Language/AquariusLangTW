@@ -1,4 +1,4 @@
-/* webgpu.h surfaces for aqua/window.h windows: HWND, X11, Wayland and ANativeWindow natively, the window's canvas
+/* webgpu.h surfaces for aqua/window.h windows: HWND, X11, Wayland, CAMetalLayer and ANativeWindow natively, the window's canvas
    ("#aqua-window-<n>") on the web. */
 #include "gpu.h"
 #include <stdio.h>
@@ -36,6 +36,12 @@ WGPUSurface gpu_surface_create(WGPUInstance instance, aqua_window *window) {
     case AQUA_SURFACE_WAYLAND: {
         WGPUSurfaceSourceWaylandSurface source = WGPU_SURFACE_SOURCE_WAYLAND_SURFACE_INIT;
         source.display = s.display; source.surface = s.handle;
+        descriptor.nextInChain = &source.chain;
+        return wgpuInstanceCreateSurface(instance, &descriptor);
+    }
+    case AQUA_SURFACE_METAL: {
+        WGPUSurfaceSourceMetalLayer source = WGPU_SURFACE_SOURCE_METAL_LAYER_INIT;
+        source.layer = s.handle;
         descriptor.nextInChain = &source.chain;
         return wgpuInstanceCreateSurface(instance, &descriptor);
     }

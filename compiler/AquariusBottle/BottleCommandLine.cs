@@ -75,7 +75,8 @@ public static class BottleCommandLine {
         directory = Path.GetFullPath(directory); string manifest = Path.Combine(directory, ProjectManifest.FileName);
         if (File.Exists(manifest)) throw new IOException($"Manifest already exists: {manifest}");
         Directory.CreateDirectory(directory);
-        const string platforms = "platforms = [\"windows\", \"linux\", \"web\", \"android\"]";
+        // Every platform a runtime pack exists for, in the targets table's order.
+        string platforms = "platforms = [" + string.Join(", ", AquariusLang.Compiler.RuntimeTarget.Built.Select(t => $"\"{t.Platform}\"").Distinct()) + "]";
         // A library's main.aqua is its module, imported by the library's name (匯入("NAME")).
         string text = type == "library"
             ? $"manifest_version = 2\n\n[library]\nname = \"{name}\"\nversion = \"0.1.0\"\n{platforms}\n\n[[modules]]\nnames = \"{name}\"\nsource = \"main.aqua\"\n\n[dependencies]\n"

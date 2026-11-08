@@ -4,7 +4,7 @@ name = "graphics"
 version = "1.0.0"
 description = "Processing (繪圖) sketches, the WGPU module, GLM, TextInput, Window integration and Fonts on one WebGPU renderer (wgpu-native natively, the browser's WebGPU on the web), plus the Models, PBR and GPUMath modules"
 license = "MIT"
-platforms = ["windows", "linux", "android", "web"]
+platforms = ["windows", "linux", "macos", "android", "web"]
 
 [native]
 modules = ["Processing|繪圖", "WGPU|wgpu", "GLM", "TextInput", "Window", "Fonts"]

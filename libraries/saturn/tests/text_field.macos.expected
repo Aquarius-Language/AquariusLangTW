@@ -1,0 +1,19 @@
+caret uses the field's font 真 真
+click [hello brave world] 11 11
+focused 真 index at 11
+double click [hello brave world] 6 11
+ctrl shift left [hello brave world] 6 11
+shift end [hello brave world] 6 17
+home [hello brave world] 0 0
+ctrl right [hello brave world] 0 0
+typed [big hello brave world] 4 4
+ctrl backspace [big hello brave world] 4 4
+undo [big hello brave world] 4 4
+enter submits big hello brave world
+scrolled to the end 真 真
+back to the start 0
+ime at the caret 真 真
+context menu 真 [Undo, Redo, Cut, Copy, Paste, Delete, Select all] disabled [Redo, Cut, Copy, Delete]
+escape closes it 假
+placeholder Name password ••
+caret at the advance 30 3 4

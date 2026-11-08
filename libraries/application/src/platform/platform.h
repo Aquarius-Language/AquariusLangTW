@@ -35,6 +35,11 @@ void app_os_close(app_os_file *file);
 /* Storage roots for an application id: settings (roaming) and data (local) directories. */
 char *app_os_settings_directory(const char *application);
 char *app_os_data_directory(const char *application);
+#if defined(AQUA_DESKTOP) && !defined(AQUA_OS_WINDOWS)
+/* posix.c: runs a picker program (arguments[0] is its path, NULL-terminated) and returns the paths it printed, one per
+   line; none when it exits with `cancelled` (the user closed it). */
+bool app_posix_picker(char **arguments, int cancelled, char ***paths, size_t *count, app_error *e);
+#endif
 
 #if defined(AQUA_OS_ANDROID)
 /* content:// documents (pickers, the launching intent) through the ContentResolver (android.c). */

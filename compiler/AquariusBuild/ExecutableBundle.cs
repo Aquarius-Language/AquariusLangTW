@@ -8,7 +8,8 @@ namespace AquariusLang.Build;
 
 /// <summary>The executable overlay the desktop runtime reads (runtime/platform/desktop/main.c): [runtime executable][wasm]
 /// [JSON {"EntryPoint":...}][64-byte footer: i32 version 2, i32 metadata length, i64 wasm length, SHA-256 of wasm and
-/// metadata, "AQUARIUS-APP-V2!"].</summary>
+/// metadata, "AQUARIUS-APP-V2!"]. A macOS .app keeps the same overlay without the executable in its own file
+/// (<see cref="WritePayload"/>), so the launcher's code signature stays valid.</summary>
 public static class ExecutableBundle {
     public const int FormatVersion = 2;
     public const int FooterSize = 64;
@@ -27,15 +28,21 @@ public static class ExecutableBundle {
 
     /// <summary>Validate without executing, then append a wasm to an unmodified runtime template.</summary>
     public static void Write(Stream template, Stream wasm, Stream output, string? entryPoint = null) {
+        template.Position = 0;
+        template.CopyTo(output);
+        if (output.Position == 0) throw new InvalidDataException("The runtime template is empty.");
+        WritePayload(wasm, output, entryPoint);
+    }
+
+    /// <summary>Validate without executing, then write the overlay alone ([wasm][metadata][footer]): the file a macOS
+    /// .app carries in Contents/Resources beside its signed, unmodified launcher.</summary>
+    public static void WritePayload(Stream wasm, Stream output, string? entryPoint = null) {
         if (wasm.Length > MaxWasmBytes) throw new InvalidDataException("Executable wasm exceeds the size limit.");
         wasm.Position = 0;
         var package = WasmApplication.Load(wasm);
         string entry = package.ResolveScript(entryPoint ?? package.EntryPoint);
         byte[] metadata = JsonSerializer.SerializeToUtf8Bytes(new Metadata(entry));
         if (metadata.Length > MaxMetadataBytes) throw new InvalidDataException("Executable metadata exceeds the size limit.");
-        template.Position = 0;
-        template.CopyTo(output);
-        if (output.Position == 0) throw new InvalidDataException("The runtime template is empty.");
         wasm.Position = 0;
         using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
         CopyAndHash(wasm, output, hash);
@@ -60,7 +67,7 @@ public static class ExecutableBundle {
         int metadataLength = BinaryPrimitives.ReadInt32LittleEndian(footer[4..]);
         long wasmLength = BinaryPrimitives.ReadInt64LittleEndian(footer[8..]);
         if (metadataLength <= 0 || metadataLength > MaxMetadataBytes || wasmLength <= 0 || wasmLength > MaxWasmBytes ||
-            wasmLength + metadataLength + FooterSize >= executable.Length)
+            wasmLength + metadataLength + FooterSize > executable.Length)
             throw new InvalidDataException("Invalid Aquarius executable payload size.");
         long start = executable.Length - FooterSize - metadataLength - wasmLength;
         using var payload = new SliceStream(executable, start, wasmLength + metadataLength);

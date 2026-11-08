@@ -1,6 +1,7 @@
 /* The thin per-OS layer: one line of text in the platform's fonts (its box and an alpha raster of it) and the
- * installed font families. Windows uses GDI (src/platform/windows.c), Linux Pango and Cairo (linux.c), Android
- * android.graphics through JNI (android.c), the web Canvas 2D through web-glue/canvas (web.c). Layout, caching and
+ * installed font families. Windows uses GDI (src/platform/windows.c), Linux Pango and Cairo (linux.c), macOS and iOS
+ * Core Text (apple.c), Android android.graphics through JNI (android.c), the web Canvas 2D through web-glue/canvas
+ * (web.c). Layout, caching and
  * metrics policy stay in src/processing/text.c and src/modules/fonts.c. */
 #ifndef GRAPHICS_PLATFORM_H
 #define GRAPHICS_PLATFORM_H

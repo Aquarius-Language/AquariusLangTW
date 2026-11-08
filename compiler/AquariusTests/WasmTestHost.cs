@@ -38,9 +38,22 @@ internal static class WasmTestHost
         try { return NativeRuntime.Launcher(); } catch (Exception e) when (e is IOException or PlatformNotSupportedException) { return null; }
     });
     public static bool Available => launcher.Value != null;
-    public const string MissingRuntime = "Needs the host runtime pack (scripts/build-runtime.ps1 -Targets windows-x64 or linux-x64).";
+    public const string MissingRuntime = "Needs the host runtime pack (scripts/build-runtime.ps1 -Targets <this host's target>).";
 
-    private static readonly string scratch = Path.Combine(Path.GetTempPath(), "aquarius-tests-" + Environment.ProcessId);
+    /// <summary>The temporary folder with symbolic links resolved, as the runtime reports paths (realpath): macOS's
+    /// /var/folders/... is /private/var/folders/....</summary>
+    public static string Temporary { get; } = Resolved(Path.GetTempPath());
+    private static string Resolved(string path)
+    {
+        string current = Path.GetPathRoot(Path.GetFullPath(path))!;
+        foreach (string part in Path.GetFullPath(path).Substring(current.Length).Split(Path.DirectorySeparatorChar, StringSplitOptions.RemoveEmptyEntries)) {
+            current = Path.Combine(current, part);
+            if (new FileInfo(current).LinkTarget is { } target) current = Path.GetFullPath(target, Path.GetDirectoryName(current)!);
+        }
+        return current;
+    }
+
+    private static readonly string scratch = Path.Combine(Temporary, "aquarius-tests-" + Environment.ProcessId);
 
     /// <summary>A fresh folder for one test's files.</summary>
     public static string Directory()

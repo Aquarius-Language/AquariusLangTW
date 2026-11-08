@@ -5,7 +5,7 @@ name = "interaction"
 version = "1.0.0"
 description = "Interaction/互動: native-feeling input for any graphics library (clicks and double clicks, drags, long presses, pinches, context menus, back, shortcuts, platform conventions) and the ScrollView, Navigation, ContextMenu, Focus and HitTest modules built on it."
 license = "MIT"
-platforms = ["windows", "linux", "android", "web"]
+platforms = ["windows", "linux", "macos", "android", "web"]
 
 [native]
 modules = ["Interaction|互動"]

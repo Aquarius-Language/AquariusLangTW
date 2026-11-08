@@ -1,4 +1,4 @@
-/* aqua/window.h on Windows and Linux, over GLFW 3.4 (fetched and pinned by runtime/CMakeLists.txt). On Windows the
+/* aqua/window.h on Windows, Linux and macOS, over GLFW 3.4 (fetched and pinned by runtime/CMakeLists.txt). On Windows the
    window procedure is subclassed for input-method composition (IMM) and for libraries' message hooks (accessibility,
    pointer capture). With AQUARIUS_REMOTE_WINDOW set, windows are remote (window_remote.c): a viewer shows them, and the
    functions below hand each one's work there (an OpenGL one keeps a hidden GLFW window for its context). */
@@ -19,6 +19,11 @@
 #endif
 #ifdef AQUA_GLFW_WAYLAND
 #define GLFW_EXPOSE_NATIVE_WAYLAND
+#endif
+#if defined(__APPLE__)
+#define GLFW_EXPOSE_NATIVE_COCOA
+/* A CAMetalLayer for the window's content view (metal_layer.m), which WebGPU renders into. */
+void *aqua_metal_layer(void *ns_window);
 #endif
 #endif
 #include <GLFW/glfw3native.h>
@@ -42,6 +47,9 @@ struct aqua_window {
     remote_window *remote;  /* a window a viewer shows (then glfw is NULL, or a hidden window holding an OpenGL context) */
     uint8_t *readback;      /* a remote OpenGL window's last frame, read on swap */
     aqua_window *next;
+#if defined(__APPLE__)
+    void *metal_layer;      /* made on the first surface request */
+#endif
 #if defined(_WIN32)
     HWND hwnd;
     WNDPROC previous;
@@ -547,6 +555,10 @@ bool aqua_window_surface(aqua_window *w, aqua_surface *s) {
 #ifdef AQUA_GLFW_X11
     s->kind = AQUA_SURFACE_X11; s->display = glfwGetX11Display(); s->handle = (void *)(uintptr_t)glfwGetX11Window(w->glfw);
     return true;
+#elif defined(__APPLE__)
+    if (!w->metal_layer) w->metal_layer = aqua_metal_layer(glfwGetCocoaWindow(w->glfw));
+    s->kind = AQUA_SURFACE_METAL; s->handle = w->metal_layer;
+    return s->handle != NULL;
 #else
     return false;
 #endif
@@ -629,6 +641,8 @@ void *aqua_window_native(aqua_window *w) {
     return w->hwnd;
 #elif defined(AQUA_GLFW_X11)
     return (void *)(uintptr_t)glfwGetX11Window(w->glfw);
+#elif defined(__APPLE__)
+    return glfwGetCocoaWindow(w->glfw);
 #else
     (void)w;
     return NULL;

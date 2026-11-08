@@ -1,4 +1,4 @@
-/* POSIX services shared by the Linux and Android layers: time, synchronization, threads, files and shared
+/* POSIX services shared by the Linux, macOS, iOS and Android layers: time, synchronization, threads, files and shared
    libraries. */
 #define _GNU_SOURCE
 #include <dlfcn.h>
@@ -37,11 +37,15 @@ typedef struct platform_signal { pthread_mutex_t mutex; pthread_cond_t condition
 platform_signal *platform_signal_create(void) {
     platform_signal *s = calloc(1, sizeof *s);
     pthread_mutex_init(&s->mutex, NULL);
+#if defined(AQUA_OS_MACOS) || defined(AQUA_OS_IOS)
+    pthread_cond_init(&s->condition, NULL);
+#else
     pthread_condattr_t attributes;
     pthread_condattr_init(&attributes);
     pthread_condattr_setclock(&attributes, CLOCK_MONOTONIC);
     pthread_cond_init(&s->condition, &attributes);
     pthread_condattr_destroy(&attributes);
+#endif
     return s;
 }
 void platform_signal_set(platform_signal *s) {
@@ -50,17 +54,27 @@ void platform_signal_set(platform_signal *s) {
     pthread_cond_broadcast(&s->condition);
     pthread_mutex_unlock(&s->mutex);
 }
+/* Waits on s's condition until the monotonic deadline (platform_now_ms) passes; ETIMEDOUT once it has. Apple systems have
+   no pthread_condattr_setclock, so there the wait is relative to the time left. */
+static int wait_until(platform_signal *s, double deadline_ms) {
+#if defined(AQUA_OS_MACOS) || defined(AQUA_OS_IOS)
+    double left = deadline_ms - platform_now_ms();
+    if (left <= 0) return ETIMEDOUT;
+    long long ns = (long long)(left * 1e6);
+    struct timespec relative = {(time_t)(ns / 1000000000), (long)(ns % 1000000000)};
+    return pthread_cond_timedwait_relative_np(&s->condition, &s->mutex, &relative);
+#else
+    long long ns = (long long)(deadline_ms * 1e6);
+    struct timespec deadline = {(time_t)(ns / 1000000000), (long)(ns % 1000000000)};
+    return pthread_cond_timedwait(&s->condition, &s->mutex, &deadline);
+#endif
+}
 static bool signal_wait(platform_signal *s, double timeout_ms, bool reset) {
-    struct timespec deadline;
-    clock_gettime(CLOCK_MONOTONIC, &deadline);
-    if (timeout_ms >= 0) {
-        long long ns = (long long)(timeout_ms * 1e6) + deadline.tv_nsec;
-        deadline.tv_sec += (time_t)(ns / 1000000000); deadline.tv_nsec = (long)(ns % 1000000000);
-    }
+    double deadline_ms = platform_now_ms() + timeout_ms;
     pthread_mutex_lock(&s->mutex);
     while (!s->set) {
         if (timeout_ms < 0) pthread_cond_wait(&s->condition, &s->mutex);
-        else if (pthread_cond_timedwait(&s->condition, &s->mutex, &deadline) == ETIMEDOUT) break;
+        else if (wait_until(s, deadline_ms) == ETIMEDOUT) break;
     }
     bool was = s->set;
     if (reset) s->set = false;

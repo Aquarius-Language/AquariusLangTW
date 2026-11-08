@@ -141,7 +141,7 @@ void *aqua_gl_proc(const char *name);
 char *aqua_clipboard_text(aqua_runtime *rt);
 bool aqua_clipboard_set_text(aqua_runtime *rt, const char *utf8);
 
-/* The OS window object for OS-specific code (HWND, X11 Window, ANativeWindow*), or NULL. */
+/* The OS window object for OS-specific code (HWND, X11 Window, NSWindow*, ANativeWindow*), or NULL. */
 void *aqua_window_native(aqua_window *window);
 
 #if defined(AQUA_OS_WINDOWS)

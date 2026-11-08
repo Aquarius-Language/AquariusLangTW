@@ -8,7 +8,7 @@
       { "name": "android-arm64-v8a", "platform": "android", "kind": "mobile" },
       { "name": "android-x86_64", "platform": "android", "kind": "mobile" },
       { "name": "web", "platform": "web", "kind": "web" },
-      { "name": "macos-arm64", "platform": "macos", "kind": "desktop", "dotnet": "osx-arm64", "planned": true },
+      { "name": "macos-arm64", "platform": "macos", "kind": "desktop", "dotnet": "osx-arm64" },
       { "name": "ios-arm64", "platform": "ios", "kind": "mobile", "hosts": ["macos-arm64"], "planned": true }
     ]
   },
@@ -71,7 +71,8 @@
     "directory": "jdk-21.0.12.1+1-{platform}",
     "base": "https://github.com/adoptium/temurin21-binaries/releases/download/jdk-21.0.12.1%2B1/",
     "windows-x64": { "file": "OpenJDK21U-jdk_x64_windows_hotspot_21.0.12.1_1.zip", "sha256": "f9d6e191ab098c0d416e7d588a24420a8621cd2f4720dab2459b8b7b2d2d8b4e" },
-    "linux-x64": { "file": "OpenJDK21U-jdk_x64_linux_hotspot_21.0.12.1_1.tar.gz", "sha256": "ce79869e1307ed8ee1e2baa86a412b1eb5b75d10a01006d788a6f968bcfaee94" }
+    "linux-x64": { "file": "OpenJDK21U-jdk_x64_linux_hotspot_21.0.12.1_1.tar.gz", "sha256": "ce79869e1307ed8ee1e2baa86a412b1eb5b75d10a01006d788a6f968bcfaee94" },
+    "macos-arm64": { "file": "OpenJDK21U-jdk_aarch64_mac_hotspot_21.0.12.1_1.tar.gz", "sha256": "3623232f33a9c3baadf304480b2535f9a3cba8a58d42ecbb438ba267315d9998" }
   },
   "sdks": {
     "wasmtime": {
@@ -80,7 +81,8 @@
       "windows-x64": { "file": "wasmtime-v48.0.2-x86_64-mingw-c-api.zip", "sha256": "597cc4c2fd2dc7e58ac1e217fc9b3a56026831a3ed69e389f381a48846556714" },
       "linux-x64": { "file": "wasmtime-v48.0.2-x86_64-linux-c-api.tar.xz", "sha256": "d9a2b5dfaf688035f288a7ae81a4b96c3acdd3e849262c2ab577b61908c3f9f9" },
       "android-arm64-v8a": { "file": "wasmtime-v48.0.2-aarch64-android-c-api.tar.xz", "sha256": "812c8880c8fde10061c706f7d145d50fee16ad3e2913861289504285b69913aa" },
-      "android-x86_64": { "file": "wasmtime-v48.0.2-x86_64-android-c-api.tar.xz", "sha256": "bbc435dff8c783e62803bc6b4ebb2c6ce8ec23f00be66b4beb3407bb8ab966b1" }
+      "android-x86_64": { "file": "wasmtime-v48.0.2-x86_64-android-c-api.tar.xz", "sha256": "bbc435dff8c783e62803bc6b4ebb2c6ce8ec23f00be66b4beb3407bb8ab966b1" },
+      "macos-arm64": { "file": "wasmtime-v48.0.2-aarch64-macos-c-api.tar.xz", "sha256": "c4b95346d92168963607f8ac56ef70298aa83b9d2b23af3e801759df3443ed09" }
     }
   }
 }

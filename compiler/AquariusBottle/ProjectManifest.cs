@@ -245,8 +245,11 @@ internal static class SafeFiles {
         root = System.IO.Path.GetFullPath(root); path = System.IO.Path.GetFullPath(path);
         string relative = System.IO.Path.GetRelativePath(root, path).Replace('\\', '/');
         if (relative != ".") Relative(relative);
+        // Only the root and what lies under it are checked: the folders above it are the user's choice (macOS's /var
+        // and /tmp, which hold every temporary folder, are links to /private).
         for (string? current = path; current != null; current = System.IO.Path.GetDirectoryName(current)) {
             if ((File.Exists(current) || Directory.Exists(current)) && (File.GetAttributes(current) & FileAttributes.ReparsePoint) != 0) throw new InvalidDataException($"Bottle inputs must not follow symbolic links: {current}");
+            if (string.Equals(current.TrimEnd(System.IO.Path.DirectorySeparatorChar), root.TrimEnd(System.IO.Path.DirectorySeparatorChar), StringComparison.Ordinal)) break;
         }
     }
     public static IEnumerable<string> Enumerate(string path, bool skipProjects = false, bool skipTests = false) {

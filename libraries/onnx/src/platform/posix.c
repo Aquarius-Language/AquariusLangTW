@@ -1,9 +1,11 @@
-/* Linux and Android services of the onnx library. Linux loads libonnxruntime.so.1 from the folder of the runtime (or
- * this external library), then from the system's search path; Android loads libonnxruntime.so from the APK's native
- * library folder by name.
+/* Linux, macOS and Android services of the onnx library. Linux (libonnxruntime.so.1) and macOS
+ * (libonnxruntime.1.dylib) load ONNX Runtime from the folder of the runtime (or this external library), then from the
+ * system's search path; Android loads libonnxruntime.so from the APK's native library folder by name.
  *
- * Linux 與 Android 平台服務：以 dlopen 載入 ONNX Runtime、讀取模型檔。 */
+ * Linux、macOS 與 Android 平台服務：以 dlopen 載入 ONNX Runtime、讀取模型檔。 */
+#if defined(__linux__)
 #define _GNU_SOURCE
+#endif
 #include <aqua/aqua.h>
 #include "../platform.h"
 #include <dlfcn.h>
@@ -18,6 +20,12 @@
 #if defined(AQUA_OS_ANDROID)
 #include <sys/system_properties.h>
 #endif
+#if defined(AQUA_OS_MACOS)
+#include <mach-o/dyld.h>
+#define RUNTIME_FILE "libonnxruntime.1.dylib"
+#else
+#define RUNTIME_FILE "libonnxruntime.so.1"
+#endif
 
 static char *directory_of(const char *path) {
     char *resolved = path ? realpath(path, NULL) : NULL;
@@ -28,9 +36,14 @@ static char *directory_of(const char *path) {
 
 char *onnx_platform_executable_directory(void) {
     char path[PATH_MAX];
+#if defined(AQUA_OS_MACOS)
+    uint32_t n = sizeof path;
+    if (_NSGetExecutablePath(path, &n) != 0) return NULL;
+#else
     ssize_t n = readlink("/proc/self/exe", path, sizeof path - 1);
     if (n <= 0) return NULL;
     path[n] = 0;
+#endif
     return directory_of(path);
 }
 
@@ -60,7 +73,7 @@ const OrtApiBase *onnx_platform_runtime(char *failure, size_t size) {
         for (int i = 0; i < 2 && !runtime_library; i++) {
             if (!directories[i] || (i == 1 && directories[0] && strcmp(directories[0], directories[1]) == 0)) continue;
             char path[PATH_MAX + 32];
-            snprintf(path, sizeof path, "%s/libonnxruntime.so.1", directories[i]);
+            snprintf(path, sizeof path, "%s/" RUNTIME_FILE, directories[i]);
             if (!onnx_platform_file_exists(path)) continue;
             runtime_library = dlopen(path, RTLD_NOW | RTLD_LOCAL);
             if (!runtime_library) {
@@ -70,9 +83,9 @@ const OrtApiBase *onnx_platform_runtime(char *failure, size_t size) {
             }
         }
         free(directories[0]); free(directories[1]);
-        if (!runtime_library) runtime_library = dlopen("libonnxruntime.so.1", RTLD_NOW | RTLD_LOCAL);
+        if (!runtime_library) runtime_library = dlopen(RUNTIME_FILE, RTLD_NOW | RTLD_LOCAL);
         if (!runtime_library) {
-            snprintf(failure, size, "找不到 ONNX Runtime（libonnxruntime.so.1）；請將它放在程式旁。");
+            snprintf(failure, size, "找不到 ONNX Runtime（" RUNTIME_FILE "）；請將它放在程式旁。");
             return NULL;
         }
 #endif
@@ -108,6 +121,14 @@ uint8_t *onnx_platform_read_file(const char *path, size_t limit, size_t *length,
 ORTCHAR_T *onnx_platform_path(const char *utf8) { return strdup(utf8); }
 
 char *onnx_platform_data_directory(void) {
+#if defined(AQUA_OS_MACOS)
+    const char *home_directory = getenv("HOME");
+    if (!home_directory || !home_directory[0]) return NULL;
+    size_t length = strlen(home_directory) + 32;
+    char *support = malloc(length);
+    if (support) snprintf(support, length, "%s/Library/Application Support", home_directory);
+    return support;
+#else
     const char *data = getenv("XDG_DATA_HOME");
     if (data && data[0] == '/') return strdup(data);
     const char *home = getenv("HOME");
@@ -116,6 +137,7 @@ char *onnx_platform_data_directory(void) {
     char *path = malloc(n);
     if (path) snprintf(path, n, "%s/.local/share", home);
     return path;
+#endif
 }
 
 bool onnx_platform_make_directories(const char *path) {

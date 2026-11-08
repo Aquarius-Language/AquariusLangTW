@@ -157,7 +157,7 @@ public sealed class ExecutableFactAttribute : FactAttribute
 {
     public ExecutableFactAttribute()
     {
-        if (!OperatingSystem.IsWindows() && !OperatingSystem.IsLinux()) Skip = "Executables are built on Windows or Linux x64.";
+        if (!OperatingSystem.IsWindows() && !OperatingSystem.IsLinux()) Skip = "Appended executables are built on Windows or Linux x64 (macOS builds .app bundles: MacAppTargetTest).";
         else if (!WasmTestHost.Available) Skip = WasmTestHost.MissingRuntime;
     }
 }
@@ -167,7 +167,7 @@ public sealed class ExecutableTheoryAttribute : TheoryAttribute
 {
     public ExecutableTheoryAttribute()
     {
-        if (!OperatingSystem.IsWindows() && !OperatingSystem.IsLinux()) Skip = "Executables are built on Windows or Linux x64.";
+        if (!OperatingSystem.IsWindows() && !OperatingSystem.IsLinux()) Skip = "Appended executables are built on Windows or Linux x64 (macOS builds .app bundles: MacAppTargetTest).";
         else if (!WasmTestHost.Available) Skip = WasmTestHost.MissingRuntime;
     }
 }
@@ -188,4 +188,14 @@ public sealed class WebFactAttribute : FactAttribute
     /// <summary>Whether the web runtime pack has a default library's side module (packs may hold only some libraries).</summary>
     public static bool HasSideModule(string library) =>
         AquariusInstallation.Current is { } installation && File.Exists(Path.Combine(installation.RuntimePack("web"), "libraries", library + ".wasm"));
+}
+
+/// <summary>A test that builds and runs macOS .app bundles: it needs a macOS host with the macos-arm64 runtime pack.</summary>
+public sealed class MacAppFactAttribute : FactAttribute
+{
+    public MacAppFactAttribute()
+    {
+        if (!OperatingSystem.IsMacOS()) Skip = "macOS app bundles are built on macOS.";
+        else if (!WasmTestHost.Available) Skip = WasmTestHost.MissingRuntime;
+    }
 }

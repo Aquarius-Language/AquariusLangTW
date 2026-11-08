@@ -1,4 +1,4 @@
-/* The clock and randomness of POSIX targets (Linux, Android). */
+/* The clock and randomness of POSIX targets (Linux, macOS, iOS, Android). */
 #include "../native/native.h"
 #include <fcntl.h>
 #include <sys/random.h>
@@ -14,7 +14,12 @@ int64_t net_clock_ms(void) {
 bool platform_random(void *buffer, size_t length) {
     uint8_t *p = buffer;
     while (length) {
+#if defined(AQUA_OS_MACOS) || defined(AQUA_OS_IOS)
+        ssize_t n = length > 256 ? 256 : (ssize_t)length;   /* getentropy's most per call */
+        if (getentropy(p, (size_t)n) != 0) n = 0;
+#else
         ssize_t n = getrandom(p, length, 0);
+#endif
         if (n <= 0) {
             int fd = open("/dev/urandom", O_RDONLY | O_CLOEXEC);
             if (fd < 0) return false;

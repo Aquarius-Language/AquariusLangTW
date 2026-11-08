@@ -5,7 +5,7 @@ name = "remotewindow"
 version = "1.0.0"
 description = "RemoteWindow/遠端視窗: shows the windows of an application started with AQUARIUS_REMOTE_WINDOW anywhere (a notebook output, a web page): frames as images or UI draw lists that update only what changed, input sent back, a relay for servers and a sender for scripts."
 license = "MIT"
-platforms = ["windows", "linux", "android", "web"]
+platforms = ["windows", "linux", "macos", "android", "web"]
 
 [native]
 modules = ["RemoteWindow|遠端視窗"]

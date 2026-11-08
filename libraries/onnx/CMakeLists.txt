@@ -100,6 +100,19 @@ if(AQUA_TARGET STREQUAL "windows-x64" OR AQUA_TARGET STREQUAL "linux-x64")
     file(GLOB plugin_files "${plugin_root}/runtimes/${plugin_rid}/native/*")
     list(APPEND runtime_files ${plugin_files})
     list(APPEND license_files "onnxruntime-webgpu|${plugin_root}/LICENSE" "onnxruntime-webgpu|${plugin_root}/ThirdPartyNotices.txt")
+elseif(AQUA_OS STREQUAL "macos")
+    # The official macOS arm64 release (the CPU and Core ML providers); the library loads libonnxruntime.1.dylib by
+    # that name from beside the runtime.
+    onnx_download(https://github.com/microsoft/onnxruntime/releases/download/v${onnx_version}/onnxruntime-osx-arm64-${onnx_version}.tgz
+        6ebb5062a934537c352937821f9fe9718e7de1a2db1122a93dd363ffd53a7012 onnxruntime-osx-arm64-${onnx_version}.tgz archive)
+    set(unpacked "${CMAKE_CURRENT_BINARY_DIR}/onnxruntime-osx-arm64-${onnx_version}")
+    onnx_extract("${archive}" "${unpacked}" "*/include/*" "*/lib/libonnxruntime.${onnx_version}.dylib" "*/LICENSE" "*/ThirdPartyNotices.txt")
+    file(GLOB root LIST_DIRECTORIES true "${unpacked}/onnxruntime-*")
+    list(APPEND include_directories "${root}/include")
+    file(COPY_FILE "${root}/lib/libonnxruntime.${onnx_version}.dylib" "${unpacked}/libonnxruntime.1.dylib" ONLY_IF_DIFFERENT)
+    list(APPEND runtime_files "${unpacked}/libonnxruntime.1.dylib")
+    list(APPEND license_files "onnxruntime|${root}/LICENSE" "onnxruntime|${root}/ThirdPartyNotices.txt")
+    list(APPEND sources src/platform/posix.c)
 elseif(AQUA_TARGET MATCHES "^android-")
     # The official Android package: an AAR with the C headers and one libonnxruntime.so per ABI.
     onnx_download(https://repo1.maven.org/maven2/com/microsoft/onnxruntime/onnxruntime-android/${onnx_version}/onnxruntime-android-${onnx_version}.aar

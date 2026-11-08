@@ -92,7 +92,7 @@ static uint8_t *embedded_application(const char *self, size_t *wasm_length, char
     memcpy(&version, footer, 4); memcpy(&metadata_length, footer + 4, 4); memcpy(&wasm_size, footer + 8, 8);
     free(footer);
     if (version != 2 || metadata_length <= 0 || metadata_length > 65536 || wasm_size <= 0 || wasm_size > 272ll * 1024 * 1024 ||
-        (uint64_t)wasm_size + (uint64_t)metadata_length + OVERLAY_FOOTER >= size) return NULL;
+        (uint64_t)wasm_size + (uint64_t)metadata_length + OVERLAY_FOOTER > size) return NULL;
     size_t overlay = (size_t)wasm_size + (size_t)metadata_length + OVERLAY_FOOTER;
     uint8_t *wasm = platform_read_tail(self, overlay, &length, &size);
     if (!wasm || length != overlay) { free(wasm); return NULL; }
@@ -269,12 +269,31 @@ static int run(uint8_t *module, size_t length, const char *directory, const char
     return code;
 }
 
+/* The file holding a standalone application's overlay: the executable itself, with the overlay appended (Windows,
+   Linux), or in a macOS .app Contents/Resources/application.aquarius, the overlay alone beside the signed, unmodified
+   launcher in Contents/MacOS (ExecutableTarget in the compiler), because bytes appended to a Mach-O break its code
+   signature. */
+static char *application_file(const char *self) {
+#if defined(AQUA_OS_MACOS)
+    char *directory = directory_of(self);
+    size_t n = strlen(directory) + 48;
+    char *payload = malloc(n);
+    snprintf(payload, n, "%s/../Resources/application.aquarius", directory);
+    free(directory);
+    if (platform_file_exists(payload)) return payload;
+    free(payload);
+#endif
+    return strdup(self);
+}
+
 int desktop_main(int count, char **arguments) {
     char *self = platform_executable_path();
     char *entry = NULL;
     size_t length = 0;
     bool damaged = false;
-    uint8_t *module = self ? embedded_application(self, &length, &entry, &damaged) : NULL;
+    char *application = self ? application_file(self) : NULL;
+    uint8_t *module = application ? embedded_application(application, &length, &entry, &damaged) : NULL;
+    free(application);
     if (damaged) {
         say(2, "This application is damaged: its embedded program does not match its checksum or format. Reinstall it.\n");
         free(self);

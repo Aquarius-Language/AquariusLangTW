@@ -220,7 +220,7 @@ foreach ($folder in $folders) {
                 }
             }
             Remove-Item -LiteralPath $storage -Recurse -Force -ErrorAction SilentlyContinue
-            # <case>.<platform>.expected (windows, linux, android, web) replaces <case>.expected where a target differs.
+            # <case>.<platform>.expected (windows, linux, macos, android, web) replaces <case>.expected where a target differs.
             $platformExpected = Join-Path $tests "$name.$(($target -split '-')[0]).expected"
             $expected = [IO.File]::ReadAllText($(if (Test-Path -LiteralPath $platformExpected) { $platformExpected } else { $expectedFile })).Replace("`r`n", "`n")
             if ($run.Output -eq $expected) { $row.Result = 'pass'; if ($retried) { $row.Detail = 'passed on a second run after adb restarted' } }

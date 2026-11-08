@@ -291,7 +291,7 @@ public class BottleLibraryTest
         AquaCli.Run(t, "new", "mathlib", "--type", "library", "-o", "mathlib").Succeeded();
         var manifest = ProjectManifest.Load(t.FilePath("mathlib"));
         Assert.Equal(2, manifest.ManifestVersion); Assert.True(manifest.IsModuleLibrary); Assert.Equal("library", manifest.Type);
-        Assert.Equal("0.1.0", manifest.Version); Assert.Equal(new[] { "windows", "linux", "web", "android" }, manifest.Platforms);
+        Assert.Equal("0.1.0", manifest.Version); Assert.Equal(AquariusLang.Compiler.RuntimeTarget.Built.Select(t => t.Platform).Distinct(), manifest.Platforms);
         var module = Assert.Single(manifest.Library!.Modules);
         Assert.Equal(new[] { "mathlib" }, module.Names); Assert.Equal("main.aqua", module.Source); Assert.Null(manifest.Library.NativeName);
         t.Write("mathlib/tests/case.aqua", "變數 m = 匯入(\"mathlib\");\n印出(m.add(20, 22));\n印出(m.加法(1, 2));\n");

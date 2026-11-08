@@ -9,7 +9,7 @@ namespace AquariusTests.Bottle;
 /// <summary>A scratch folder for one Bottle test, removed afterwards.</summary>
 internal sealed class BottleDirectory : IDisposable
 {
-    public string Path { get; } = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "aquarius-bottle-" + Guid.NewGuid().ToString("N"));
+    public string Path { get; } = System.IO.Path.Combine(WasmTestHost.Temporary, "aquarius-bottle-" + Guid.NewGuid().ToString("N"));
     public BottleDirectory() => Directory.CreateDirectory(Path);
     public string FilePath(string relative) => System.IO.Path.GetFullPath(System.IO.Path.Combine(Path, relative));
     public string Write(string relative, string text)
@@ -182,7 +182,7 @@ internal static class NativeToolchain
     }
 
     private static readonly Lazy<string> built = new(() => {
-        string folder = WriteTinyLibrary(Path.Combine(Path.GetTempPath(), "aquarius-tiny-library-" + Environment.ProcessId + "-" + Guid.NewGuid().ToString("N")));
+        string folder = WriteTinyLibrary(Path.Combine(WasmTestHost.Temporary, "aquarius-tiny-library-" + Environment.ProcessId + "-" + Guid.NewGuid().ToString("N")));
         AppDomain.CurrentDomain.ProcessExit += (_, _) => { try { Directory.Delete(folder, true); } catch (Exception e) when (e is IOException or UnauthorizedAccessException) { } };
         var start = new ProcessStartInfo(Environment.GetEnvironmentVariable("DOTNET_HOST_PATH") ?? "dotnet") {
             UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true, RedirectStandardError = true,

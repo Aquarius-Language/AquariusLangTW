@@ -36,7 +36,9 @@ public sealed class AquariusInstallation
         WebGlue = Path.Combine(root, "web-glue");
         Sdk = repository ? Path.Combine(root, "runtime", "sdk") : Path.Combine(root, "sdk");
         RuntimePacks = Environment.GetEnvironmentVariable("AQUARIUS_RUNTIME_PACKS") is { Length: > 0 } packs ? Path.GetFullPath(packs)
-            : repository ? Path.Combine(root, ".native-build", "install") : Path.Combine(root, "runtime");
+            : repository ? Path.Combine(Environment.GetEnvironmentVariable("AQUARIUS_NATIVE_BUILD") is { Length: > 0 } native
+                ? Path.GetFullPath(native) : Path.Combine(root, ".native-build"), "install")
+            : Path.Combine(root, "runtime");
     }
 
     private static readonly Lazy<AquariusInstallation?> current = new(Locate);

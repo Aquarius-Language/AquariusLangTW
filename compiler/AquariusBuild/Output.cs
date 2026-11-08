@@ -54,9 +54,10 @@ internal static class Output
         string backup = Path.Combine(parent, ".aquarius-backup-" + Guid.NewGuid().ToString("N"));
         bool committed = false;
         try {
-            Directory.CreateDirectory(stage);
-            build(stage);
+            // The marker comes first, so a build that seals its folder (a signed macOS .app) seals it too.
+            Directory.CreateDirectory(Path.GetDirectoryName(Path.Combine(stage, marker))!);
             File.WriteAllText(Path.Combine(stage, marker), "Written by the AquariusLang compiler; rebuilding replaces this folder.\n");
+            build(stage);
             if (Directory.Exists(output)) AquariusLang.FileSystem.TransientFileLocks.Retry(() => Directory.Move(output, backup), accessDenied: true);
             try { AquariusLang.FileSystem.TransientFileLocks.Retry(() => Directory.Move(stage, output), accessDenied: true); committed = true; }
             catch { if (Directory.Exists(backup)) Directory.Move(backup, output); throw; }

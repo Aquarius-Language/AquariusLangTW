@@ -11,6 +11,9 @@
 #include <bcrypt.h>
 #else
 #include <unistd.h>
+#if defined(AQUA_OS_MACOS) || defined(AQUA_OS_IOS)
+#include <sys/random.h> /* getentropy */
+#endif
 #endif
 
 /* ---- Failures ---- */

@@ -46,6 +46,7 @@ set(wgpu_windows-x64 wgpu-windows-x86_64-gnu-release.zip d471e3614733c1d4ddd61bf
 set(wgpu_linux-x64 wgpu-linux-x86_64-release.zip 95a4d90c071005a98d03eab348beaa6b07e16eb00d1dcdb9f8348f75eb97ec5a)
 set(wgpu_android-arm64-v8a wgpu-android-aarch64-release.zip 721741f1b05a20c1738166bedf7a5efb2ba4b382da689526d3fc33de22bdd573)
 set(wgpu_android-x86_64 wgpu-android-x86_64-release.zip ef16fc0644bf0e308a39ac4516742da8e22d8c201d3a542cc5baf533d272c491)
+set(wgpu_macos-arm64 wgpu-macos-aarch64-release.zip a5797a37b1adf720bcd5dcffb291edbbd5b7b14be0a3874c28e6393a655a7a3e)
 
 if(AQUA_TARGET STREQUAL "web")
     set(wgpu_release "${AQUA_HOST}")
@@ -64,6 +65,11 @@ else()
     elseif(AQUA_TARGET MATCHES "^android-")
         list(APPEND sources src/platform/android.c src/platform/android_vulkan.c)
         list(APPEND link_libraries android log dl m)
+    elseif(AQUA_OS STREQUAL "macos")
+        # wgpu-native's Metal backend, then the text layer (Core Text).
+        list(APPEND sources src/platform/apple.c)
+        list(APPEND link_libraries "-framework Metal" "-framework QuartzCore" "-framework CoreText" "-framework CoreGraphics"
+            "-framework CoreFoundation" "-framework Foundation" "-framework IOSurface" "-framework IOKit" "-framework Security" m)
     endif()
 endif()
 if(NOT DEFINED "wgpu_${wgpu_release}")
@@ -105,7 +111,12 @@ if(NOT AQUA_TARGET STREQUAL "web")
     if(NOT EXISTS "${wgpu_library}")
         get_filename_component(compiler_dir "${CMAKE_C_COMPILER}" DIRECTORY)
         find_program(AQUA_GRAPHICS_OBJCOPY NAMES llvm-objcopy HINTS "${compiler_dir}" REQUIRED)
-        execute_process(COMMAND "${AQUA_GRAPHICS_OBJCOPY}" --redefine-sym rust_eh_personality=aqua_graphics_rust_eh_personality
+        # Mach-O (Apple targets) spells C symbols with a leading underscore.
+        set(symbol_prefix "")
+        if(AQUA_OS STREQUAL "macos" OR AQUA_OS STREQUAL "ios")
+            set(symbol_prefix "_")
+        endif()
+        execute_process(COMMAND "${AQUA_GRAPHICS_OBJCOPY}" --redefine-sym ${symbol_prefix}rust_eh_personality=${symbol_prefix}aqua_graphics_rust_eh_personality
             "${wgpu_dir}/lib/libwgpu_native.a" "${wgpu_library}.part" RESULT_VARIABLE failed)
         if(failed)
             message(FATAL_ERROR "graphics: renaming wgpu-native's rust_eh_personality failed.")

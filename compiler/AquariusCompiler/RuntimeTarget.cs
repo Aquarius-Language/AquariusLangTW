@@ -32,7 +32,7 @@ public sealed record RuntimeTarget(string Name, string Platform, TargetKind Kind
         new("android-arm64-v8a", "android", TargetKind.Mobile),
         new("android-x86_64", "android", TargetKind.Mobile),
         new("web", "web", TargetKind.Web),
-        new("macos-arm64", "macos", TargetKind.Desktop, "osx-arm64", Planned: true),
+        new("macos-arm64", "macos", TargetKind.Desktop, "osx-arm64"),
         new("ios-arm64", "ios", TargetKind.Mobile, Hosts: ["macos-arm64"], Planned: true),
     ];
 

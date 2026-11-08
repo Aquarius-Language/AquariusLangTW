@@ -39,7 +39,14 @@ int net_last_error(void) { return errno; }
 bool net_would_block(int error) { return error == EAGAIN || error == EWOULDBLOCK || error == EINPROGRESS || error == EINTR; }
 bool net_fd_nonblocking(net_fd fd) { int flags = fcntl(fd, F_GETFL, 0); return flags >= 0 && fcntl(fd, F_SETFL, flags | O_NONBLOCK) == 0; }
 net_fd net_socket(int family, int type, int protocol) {
+#if defined(AQUA_OS_MACOS) || defined(AQUA_OS_IOS)
+    /* Apple's socket() takes no SOCK_NONBLOCK or SOCK_CLOEXEC: the flags are set right after. */
+    net_fd fd = socket(family, type, protocol);
+    if (fd >= 0 && (fcntl(fd, F_SETFD, FD_CLOEXEC) != 0 || !net_fd_nonblocking(fd))) { close(fd); return -1; }
+    return fd;
+#else
     return socket(family, type | SOCK_NONBLOCK | SOCK_CLOEXEC, protocol);
+#endif
 }
 #define SEND_FLAGS MSG_NOSIGNAL
 #endif

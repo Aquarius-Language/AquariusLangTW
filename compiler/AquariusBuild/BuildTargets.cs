@@ -41,7 +41,8 @@ public sealed class BuildTargets
     public BuildTargets(IEnumerable<IWasmBuildTarget> targets) => this.targets = targets.ToDictionary(t => t.Name, StringComparer.Ordinal);
 
     public static BuildTargets Default { get; } = new(new IWasmBuildTarget[] {
-        new WebTarget(), new ExecutableTarget("windows", "windows-x64"), new ExecutableTarget("linux", "linux-x64"), new AndroidTarget()
+        new WebTarget(), new ExecutableTarget("windows", "windows-x64"), new ExecutableTarget("linux", "linux-x64"), new ExecutableTarget("macos", "macos-arm64"),
+        new AndroidTarget()
     });
 
     public IWasmBuildTarget Resolve(string name)
