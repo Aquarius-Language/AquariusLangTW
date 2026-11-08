@@ -11,9 +11,6 @@
 #include <bcrypt.h>
 #else
 #include <unistd.h>
-#if defined(AQUA_OS_MACOS) || defined(AQUA_OS_IOS)
-#include <sys/random.h> /* getentropy */
-#endif
 #endif
 
 /* ---- Failures ---- */
@@ -146,6 +143,8 @@ void app_random_hex(char *out, size_t digits) {
     if (count > sizeof bytes) count = sizeof bytes;
 #if defined(AQUA_OS_WINDOWS)
     BCryptGenRandom(NULL, bytes, (ULONG)count, BCRYPT_USE_SYSTEM_PREFERRED_RNG);
+#elif defined(AQUA_OS_MACOS) || defined(AQUA_OS_IOS)
+    arc4random_buf(bytes, count);   /* the system's CSPRNG; Apple's SDKs keep getentropy out of iOS's headers */
 #else
     if (getentropy(bytes, count) != 0) {
         uint64_t seed = (uint64_t)(uintptr_t)out ^ (uint64_t)rand() << 21;

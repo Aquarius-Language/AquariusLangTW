@@ -5,7 +5,7 @@ name = "network"
 version = "1.0.0"
 description = "Network|網路: HTTP(S) clients and streams, WebSocket, TCP/TLS, UDP, DNS and an HTTP(S) server with routes, sessions, static files and SSE."
 license = "MIT"
-platforms = ["windows", "linux", "macos", "android", "web"]
+platforms = ["windows", "linux", "macos", "ios", "android", "web"]
 
 [native]
 modules = ["Network|網路"]

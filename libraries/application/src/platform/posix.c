@@ -1,10 +1,11 @@
-/* POSIX file system primitives (Linux, macOS and Android) and the desktop's program-run pickers. Paths are UTF-8 bytes; full paths are lexical, as .NET's
+/* POSIX file system primitives (Linux, macOS, iOS and Android), the desktop's program-run pickers, and the services
+ * every layer but Android's (which has its own) shares. Paths are UTF-8 bytes; full paths are lexical, as .NET's
  * Path.GetFullPath on Unix (no symbolic link resolution). */
 #if defined(__linux__) && !defined(_GNU_SOURCE)
 #define _GNU_SOURCE
 #endif
 #include "platform.h"
-#if defined(AQUA_DESKTOP)
+#if !defined(AQUA_OS_ANDROID)
 #include <aqua/window.h>
 #endif
 #include <dirent.h>
@@ -305,7 +306,11 @@ bool app_posix_picker(char **arguments, int cancelled, char ***paths, size_t *co
     return ok;
 }
 
-/* ---- Services through aqua/window.h (the window system's text clipboard) and the ones no POSIX desktop adapter has ---- */
+#endif
+
+/* ---- Services through aqua/window.h (the window system's text clipboard) and the ones no adapter here has ---- */
+
+#if !defined(AQUA_OS_ANDROID)
 
 void app_platform_close(app_state *state) { (void)state; }
 
@@ -347,7 +352,7 @@ void app_os_print(app_task *task, const app_picture *picture, app_done done) {
     done(task, &e);
 }
 
-/* The node list is validated by the caller; no POSIX desktop publishes it to assistive technology. */
+/* The node list is validated by the caller; no layer here publishes it to assistive technology. */
 bool app_os_accessibility(app_state *state, const app_node *nodes, size_t count, app_error *e) {
     (void)state; (void)nodes; (void)count; (void)e;
     return true;

@@ -133,7 +133,12 @@ elseif(AQUA_TARGET STREQUAL "web")
     list(APPEND license_files "onnxruntime|${source}/LICENSE" "onnxruntime|${source}/ThirdPartyNotices.txt")
 endif()
 
-aqua_add_library(onnx SOURCES ${sources} INCLUDE_DIRECTORIES ${include_directories} LINK_LIBRARIES ${link_libraries})
+# iOS has no ONNX Runtime pin yet (its release is an xcframework), so the library is not built there.
+aqua_add_library(onnx PLATFORMS windows linux macos android web SOURCES ${sources} INCLUDE_DIRECTORIES ${include_directories}
+    LINK_LIBRARIES ${link_libraries})
+if(NOT TARGET aqua_onnx)
+    return()
+endif()
 target_compile_definitions(aqua_onnx PRIVATE ONNX_RUNTIME_VERSION="${onnx_version}")
 if(AQUA_TARGET STREQUAL "web")
     # libc++ for ONNX Runtime; calls between ONNX Runtime's own symbols (ONNX and protobuf export some) bind inside the

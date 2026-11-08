@@ -5,7 +5,7 @@ name = "imgui"
 version = "1.0.0"
 description = "ImGui: Dear ImGui (docking branch) for any renderer. Contexts take Interaction events and render into the UI draw list the graphics library's drawUI and every UI library share; widgets keep Dear ImGui's names."
 license = "MIT"
-platforms = ["windows", "linux", "macos", "android", "web"]
+platforms = ["windows", "linux", "macos", "ios", "android", "web"]
 
 [native]
 modules = ["ImGui"]

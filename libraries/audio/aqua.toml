@@ -4,7 +4,7 @@ name = "audio"
 version = "1.0.0"
 description = "Tones, WAV/FLAC/MP3 sounds and a 64-voice stereo mixer (miniaudio) with realtime and offline devices"
 license = "MIT"
-platforms = ["windows", "linux", "macos", "android", "web"]
+platforms = ["windows", "linux", "macos", "ios", "android", "web"]
 
 [native]
 modules = ["Audio|音訊"]

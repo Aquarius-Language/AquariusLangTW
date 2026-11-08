@@ -5,7 +5,7 @@ name = "saturn"
 version = "1.0.0"
 description = "Saturn/土星: Yoga flexbox and grid layout trees with styles, text, painting into the UI draw list and hit testing (Saturn), and the Flutter-style SaturnUI widgets on top; render-agnostic, for any graphics library or offscreen."
 license = "MIT"
-platforms = ["windows", "linux", "macos", "android", "web"]
+platforms = ["windows", "linux", "macos", "ios", "android", "web"]
 
 [native]
 modules = ["Saturn|土星"]

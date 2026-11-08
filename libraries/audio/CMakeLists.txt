@@ -26,3 +26,10 @@ endif()
 aqua_add_library(audio SOURCES src/audio.c src/engine.c WEB_SOURCES src/output_web.c LINK_LIBRARIES ${audio_libraries})
 # Identical PCM on every target: no fused multiply-add contraction (miniaudio's SIMD paths are off in engine.c).
 set_source_files_properties(src/engine.c PROPERTIES COMPILE_OPTIONS "-ffp-contract=off")
+if(AQUA_OS STREQUAL "ios")
+    # miniaudio's Core Audio backend uses AVAudioSession on iOS, so its implementation compiles as Objective-C there
+    # (as miniaudio documents); the code is the same C.
+    enable_language(OBJC)
+    set_source_files_properties(src/engine.c PROPERTIES LANGUAGE OBJC COMPILE_OPTIONS "-ffp-contract=off;-fobjc-arc")
+    target_link_libraries(aqua_audio PRIVATE "-framework AVFoundation" "-framework AudioToolbox" "-framework CoreAudio")
+endif()

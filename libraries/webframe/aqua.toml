@@ -5,7 +5,7 @@ name = "webframe"
 version = "1.0.0"
 description = "WebFrame/網頁框架: embeds another web page (an iframe) in a web application's page and places it over the application's drawing, e.g. a live preview beside an editor."
 license = "MIT"
-platforms = ["windows", "linux", "macos", "android", "web"]
+platforms = ["windows", "linux", "macos", "ios", "android", "web"]
 
 [native]
 modules = ["WebFrame|網頁框架"]

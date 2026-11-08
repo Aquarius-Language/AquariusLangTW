@@ -5,7 +5,7 @@ name = "terminal"
 version = "1.0.0"
 description = "Terminal/終端機: child processes with argument boundaries kept, captured or streamed output, timeouts, killing and closed standard input (unavailable on the web)."
 license = "MIT"
-platforms = ["windows", "linux", "macos", "android", "web"]
+platforms = ["windows", "linux", "macos", "ios", "android", "web"]
 
 [native]
 modules = ["Terminal|終端機"]

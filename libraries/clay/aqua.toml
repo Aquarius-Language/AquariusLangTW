@@ -5,7 +5,7 @@ name = "clay"
 version = "1.0.0"
 description = "Clay: Nic Barker's Clay layout library (immediate-mode flexbox-like UI) for any renderer; layouts render into the UI draw list the graphics library's drawUI and every UI library share."
 license = "MIT"
-platforms = ["windows", "linux", "macos", "android", "web"]
+platforms = ["windows", "linux", "macos", "ios", "android", "web"]
 
 [native]
 modules = ["Clay"]
