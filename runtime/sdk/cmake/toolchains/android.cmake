@@ -1,5 +1,6 @@
 # Android: the pinned NDK's Clang (toolchain.json androidNdk) through the NDK's own toolchain file, for the ABI the
 # including file sets (android-arm64-v8a.cmake, android-x86_64.cmake). 16 KiB page alignment is required by Android 15+.
+set(AQUA_TARGET android-${ANDROID_ABI})
 include("${CMAKE_CURRENT_LIST_DIR}/AquariusToolchain.cmake")
 string(JSON AQUA_NDK_VERSION GET "${AQUA_PINS}" androidNdk version)
 string(JSON AQUA_ANDROID_API GET "${AQUA_PINS}" androidNdk api)
@@ -14,5 +15,4 @@ set(ANDROID_PLATFORM android-${AQUA_ANDROID_API})
 set(ANDROID_STL c++_static)
 set(ANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES ON)
 include("${AQUA_NDK}/build/cmake/android.toolchain.cmake")
-set(AQUA_TARGET android-${ANDROID_ABI})
 string(APPEND CMAKE_SHARED_LINKER_FLAGS_INIT " -Wl,-z,max-page-size=16384")

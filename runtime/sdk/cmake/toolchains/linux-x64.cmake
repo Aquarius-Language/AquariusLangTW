@@ -2,8 +2,8 @@
 # links statically so the runtime needs only glibc, libm, libdl, libpthread and the window system's libraries.
 set(CMAKE_SYSTEM_NAME Linux)
 set(CMAKE_SYSTEM_PROCESSOR x86_64)
-include("${CMAKE_CURRENT_LIST_DIR}/AquariusToolchain.cmake")
 set(AQUA_TARGET linux-x64)
+include("${CMAKE_CURRENT_LIST_DIR}/AquariusToolchain.cmake")
 set(CMAKE_C_COMPILER "${AQUA_LLVM}/bin/clang")
 set(CMAKE_CXX_COMPILER "${AQUA_LLVM}/bin/clang++")
 set(CMAKE_AR "${AQUA_LLVM}/bin/llvm-ar" CACHE FILEPATH "")

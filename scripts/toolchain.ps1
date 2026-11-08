@@ -50,11 +50,21 @@ $AquaToolchain = [pscustomobject]@{
 # Wasm feature baseline of every built binary: lime1 (bulk-memory-opt, call-indirect-overlong, extended-const, multivalue,
 # mutable-globals, nontrapping-fptoint, sign-ext). Freestanding builds that relied on -mbulk-memory still pass it.
 $AquaWasmCpu = @('-mcpu=lime1')
-# Every target the runtime and libraries build for. Adding a platform adds a row here, a CMake toolchain file in
-# runtime/sdk/cmake/toolchains/, a runtime/platform/<os> layer and a build target in compiler/AquariusBuild/Targets.
-$AquaTargets = @('windows-x64', 'linux-x64', 'android-arm64-v8a', 'android-x86_64', 'web')
+# The targets of scripts/toolchain.json (targets.list): name, platform (windows, linux, android, web, ...), kind (desktop,
+# mobile, web), the hosts that can build it and planned (reserved, not built yet). docs/adding-a-target.md adds one.
+$AquaTargetTable = @($AquaPins.targets.list | Where-Object { -not $_.planned })
+# Every target the runtime and libraries build for, and the ones only reserved so far.
+$AquaTargets = @($AquaTargetTable | ForEach-Object name)
+$AquaPlannedTargets = @($AquaPins.targets.list | Where-Object { $_.planned } | ForEach-Object name)
 # The desktop targets: their native binaries build and run only on a host of the same platform.
-$AquaDesktopTargets = @($AquaTargets | Where-Object { $_ -notlike 'android-*' -and $_ -ne 'web' })
+$AquaDesktopTargets = @($AquaTargetTable | Where-Object kind -eq 'desktop' | ForEach-Object name)
+# A target's row of the table; planned and unknown names are errors that say which targets exist.
+function Get-AquaTarget([string]$Name) {
+    $row = $AquaTargetTable | Where-Object name -eq $Name
+    if ($row) { return $row }
+    if ($AquaPlannedTargets -contains $Name) { throw "The $Name target is planned but not built yet (docs/adding-a-target.md)." }
+    throw "Unknown target $Name; use $($AquaTargets -join ', ')."
+}
 function Assert-AquaToolchain {
     if (-not (Test-Path -LiteralPath $AquaToolchain.Clang)) { throw "Pinned clang not found at $($AquaToolchain.Clang). Run scripts/install-toolchain.ps1." }
     $version = (& $AquaToolchain.Clang --version | Select-Object -First 1)

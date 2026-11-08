@@ -16,6 +16,11 @@ directory is empty: a leading slash then denotes the application package root.
 | `android-arm64-v8a`, `android-x86_64` | NDK Clang | default: linked into `libaquarius.so`; external: `libaqua_<name>.so` |
 | `web` | Clang `wasm32-wasip1`, position independent | a side module `<name>.wasm` sharing the application's memory |
 
+The toolchain files set `AQUA_TARGET` (the target), `AQUA_OS` (its platform: `windows`, `linux`, `android`, `web`, and
+later `macos`, `ios`) and `AQUA_KIND` (`desktop`, `mobile`, `web`) from `scripts/toolchain.json`. Branch on `AQUA_OS` in
+a library's `CMakeLists.txt` and on `AQUA_OS_*` in C. On Apple platforms external libraries will be
+`libaqua_<name>.dylib`.
+
 C, C++ (C++20, no exceptions on the web) and Rust (through a C ABI) are the only implementation languages. JavaScript
 exists only in `web-glue/`, and only to expose Web APIs; a library never ships JavaScript.
 

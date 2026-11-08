@@ -2,8 +2,8 @@
 # libunwind, compiler-rt), linked by lld with the C++ runtime static. No MSVC tools or runtime are involved.
 set(CMAKE_SYSTEM_NAME Windows)
 set(CMAKE_SYSTEM_PROCESSOR x86_64)
-include("${CMAKE_CURRENT_LIST_DIR}/AquariusToolchain.cmake")
 set(AQUA_TARGET windows-x64)
+include("${CMAKE_CURRENT_LIST_DIR}/AquariusToolchain.cmake")
 string(JSON AQUA_MINGW_DIRECTORY GET "${AQUA_PINS}" mingw directory)
 set(AQUA_MINGW "${AQUA_TOOLCHAINS}/${AQUA_MINGW_DIRECTORY}")
 if(NOT EXISTS "${AQUA_MINGW}/x86_64-w64-mingw32")

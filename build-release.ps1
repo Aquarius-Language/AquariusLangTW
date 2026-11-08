@@ -29,11 +29,14 @@ $repository = $AquaToolchain.Repository
 $hostTarget = $AquaToolchain.Platform
 if ($AquaTargets -notcontains $hostTarget) { throw "AquariusLang has no runtime target for this host ($hostTarget) yet." }
 $Targets = @($Targets | ForEach-Object { $_ -split ',' } | Where-Object { $_ })
-if (-not $Targets.Count) { $Targets = @($hostTarget, 'web', 'android-arm64-v8a', 'android-x86_64') }
+# By default this host's target and every mobile and web target it can build (web, android-arm64-v8a, android-x86_64).
+if (-not $Targets.Count) {
+    $Targets = @($hostTarget) + @($AquaTargetTable | Where-Object { $_.kind -ne 'desktop' -and (-not $_.hosts -or @($_.hosts) -contains $hostTarget) } | ForEach-Object name)
+}
 # The .NET runtime identifier and executable suffix of this host, and the aqua build target of a standalone executable.
-$dotnetRuntime = $hostTarget.Replace('windows-', 'win-').Replace('macos-', 'osx-')
-$exe = if ($IsWindows) { '.exe' } else { '' }
-$standaloneTarget = $hostTarget.Split('-')[0]
+$dotnetRuntime = (Get-AquaTarget $hostTarget).dotnet
+$exe = $AquaToolchain.Exe
+$standaloneTarget = (Get-AquaTarget $hostTarget).platform
 
 function Invoke-Checked([string]$Program, [string[]]$Arguments) {
     & $Program @Arguments

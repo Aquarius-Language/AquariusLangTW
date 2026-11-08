@@ -3,8 +3,8 @@
 # web-glue/core/loader.mjs links them in the browser. C++ uses the sysroot's no-exceptions libc++.
 set(CMAKE_SYSTEM_NAME Generic)
 set(CMAKE_SYSTEM_PROCESSOR wasm32)
-include("${CMAKE_CURRENT_LIST_DIR}/AquariusToolchain.cmake")
 set(AQUA_TARGET web)
+include("${CMAKE_CURRENT_LIST_DIR}/AquariusToolchain.cmake")
 string(JSON AQUA_WASI_DIRECTORY GET "${AQUA_PINS}" sysroot directory)
 set(AQUA_WASI_SYSROOT "${AQUA_TOOLCHAINS}/${AQUA_WASI_DIRECTORY}")
 

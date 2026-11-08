@@ -31,7 +31,7 @@ public sealed class Library
     public string Root { get; }
     public string ManifestPath { get; }
     public IReadOnlyList<string> Platforms { get; }
-    /// <summary>The native library's file name stem (aqua_&lt;name&gt;.dll, libaqua_&lt;name&gt;.so, &lt;name&gt;.wasm) and the
+    /// <summary>The native library's file name stem (aqua_&lt;name&gt;.dll, libaqua_&lt;name&gt;.so or .dylib, &lt;name&gt;.wasm) and the
     /// name applications list in their metadata; null when the library has no native part.</summary>
     public string? NativeName { get; }
     /// <summary>The modules the native part registers, each as its alias list ("Audio|音訊").</summary>
@@ -59,9 +59,10 @@ public sealed class Library
     public string BundlePath(string source) => ".aquarius/" + Name + "/" + source.Replace('\\', '/');
     public string SourcePath(string source) => Path.GetFullPath(Path.Combine(Root, source.Replace('/', Path.DirectorySeparatorChar)));
 
-    /// <summary>The native library file for a runtime target, as it is named in runtime packs and next to applications.</summary>
+    /// <summary>The native library file for a runtime target, as it is named in runtime packs and next to applications
+    /// (<see cref="AquariusLang.Compiler.RuntimeTarget.NativeFile"/>).</summary>
     public static string NativeFile(string nativeName, string target) =>
-        target.StartsWith("windows-", StringComparison.Ordinal) ? $"aqua_{nativeName}.dll" : target == "web" ? $"{nativeName}.wasm" : $"libaqua_{nativeName}.so";
+        (AquariusLang.Compiler.RuntimeTarget.Find(target) ?? throw new ArgumentException($"Unknown target {target}.")).NativeFile(nativeName);
 
     /// <summary>An external library's prebuilt native binary for a target (native/&lt;target&gt;/&lt;file&gt;), or null.</summary>
     public string? NativeBinary(string target)

@@ -9,7 +9,8 @@ namespace AquariusLang.Build;
 /// <summary>
 /// <c>aqua build --target windows|linux --optimize</c> (CLAUDE.md rule 11): the application's .wasm, translated to C by
 /// the pinned wasm2c (WABT) and compiled by the pinned Clang through the runtime pack's aot/ project into
-/// &lt;executable&gt;.aot.dll / .aot.so, which the pack's aquarius-aot launcher runs (runtime/platform/desktop/engine_aot.c).
+/// &lt;executable&gt;.aot.dll / .aot.so (the target's shared library suffix), which the pack's aquarius-aot launcher runs
+/// (runtime/platform/desktop/engine_aot.c).
 /// The executable still embeds the same .wasm (its metadata and the library's SHA-256 check). The toolchain comes from
 /// scripts/toolchain.json and is installed on first use by scripts/install-toolchain, each archive SHA-256 checked.
 /// </summary>
@@ -18,7 +19,7 @@ public static partial class AheadOfTime
     /// <summary>Writes the library for the module at <paramref name="wasm"/> beside the executable <paramref name="executable"/>.</summary>
     public static string BuildLibrary(string wasm, string executable, string runtimeTarget, string pack)
     {
-        bool windows = runtimeTarget.StartsWith("windows-", StringComparison.Ordinal);
+        var target = RuntimeTarget.Get(runtimeTarget);
         AquariusInstallation.RequireBuildableHere(runtimeTarget, "--optimize executables");
         var installation = AquariusInstallation.Require();
         var environment = new Dictionary<string, string>();
@@ -28,7 +29,8 @@ public static partial class AheadOfTime
         if (!installation.IsRepository) { environment["AQUARIUS_SDK_ROOT"] = installation.Root; environment["AQUARIUS_NATIVE_BUILD"] = native; }
 
         using var pins = JsonDocument.Parse(File.ReadAllText(Path.Combine(installation.Root, "scripts", "toolchain.json")));
-        string host = AquariusInstallation.HostPlatform, exe = windows ? ".exe" : "";
+        // The tools run on this host, which is the target (RequireBuildableHere above).
+        string host = AquariusInstallation.HostPlatform, exe = target.ExecutableSuffix;
         string Directory(string tool) => Path.Combine(native, "toolchains", pins.RootElement.GetProperty(tool).GetProperty("directory").GetString()!.Replace("{platform}", host));
         string wabt = Directory("wabt"), ninja = Path.Combine(Directory("ninja"), "ninja" + exe);
         string cmake = Path.Combine(Directory("cmake"), pins.RootElement.GetProperty("cmake").GetProperty(host).GetProperty("bin").GetString()!, "cmake" + exe);
@@ -42,7 +44,7 @@ public static partial class AheadOfTime
             Run(wasm2c, [wasm, "-n", "app", "-o", source + ".c"], environment);
             File.WriteAllText(source + ".c", Repair(File.ReadAllText(source + ".c")));
             string digest = Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(wasm))).ToLowerInvariant();
-            string output = Path.ChangeExtension(Path.GetFullPath(executable), null) + (windows ? ".aot.dll" : ".aot.so");
+            string output = Path.ChangeExtension(Path.GetFullPath(executable), null) + ".aot" + target.SharedLibrarySuffix;
             string toolchain = Path.Combine(installation.Sdk, "cmake", "toolchains", runtimeTarget + ".cmake");
             string build = Path.Combine(work, "build");
             Run(cmake, ["-S", Path.Combine(pack, "aot"), "-B", build, "-G", "Ninja", "-DCMAKE_MAKE_PROGRAM=" + ninja,

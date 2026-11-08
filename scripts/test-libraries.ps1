@@ -36,7 +36,7 @@ $Libraries = @($Libraries | ForEach-Object { $_ -split ',' } | Where-Object { $_
 $Targets = @($Targets | ForEach-Object { $_ -split ',' } | Where-Object { $_ })
 if (-not $Targets.Count) { $Targets = @($AquaToolchain.Platform, 'web') }
 $Cases = @($Cases | ForEach-Object { $_ -split ',' } | Where-Object { $_ })
-foreach ($target in $Targets) { if ($AquaTargets -notcontains $target) { throw "Unknown target $target; use $($AquaTargets -join ', ')." } }
+foreach ($target in $Targets) { Get-AquaTarget $target | Out-Null }
 
 if (-not $Compiler) {
     # Linux builds write to bin/linux/ (compiler/Directory.Build.props), so WSL and Windows can share a checkout.
@@ -161,7 +161,7 @@ foreach ($folder in $folders) {
         foreach ($target in $Targets) {
             $row = [pscustomobject]@{ Library = $folder.Name; Case = $name; Target = $target; Result = ''; Detail = '' }
             $results.Add($row)
-            if ($facts.Targets -notcontains $target -or ($platforms.Count -and $platforms -notcontains ($target -split '-')[0])) {
+            if ($facts.Targets -notcontains $target -or ($platforms.Count -and $platforms -notcontains (Get-AquaTarget $target).platform)) {
                 $row.Result = 'skip'; $row.Detail = 'not for this target'; continue
             }
             if ($facts.NeedsDevice -and -not $Devices) { $row.Result = 'skip'; $row.Detail = 'needs a device or window (-Devices)'; continue }

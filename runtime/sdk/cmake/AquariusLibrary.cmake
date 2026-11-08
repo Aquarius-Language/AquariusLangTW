@@ -9,8 +9,8 @@
 #     aqua_<name>.wasm (a side module sharing the application's memory) on the web.
 # NATIVE_SOURCES and WEB_SOURCES are added only for those targets; prefer preprocessor branches on AQUA_OS_* inside
 # shared files when the code differs only in a few calls.
-# PLATFORMS limits a library to those platforms (the part of AQUA_TARGET before the first "-"); on any other target it
-# builds nothing, so configuring with every library skips it.
+# PLATFORMS limits a library to those platforms (AQUA_OS, the target's platform in scripts/toolchain.json); on any other
+# target it builds nothing, so configuring with every library skips it.
 include_guard(GLOBAL)
 if(AQUA_TARGET STREQUAL "web")
     # CMake's Generic platform resets these after the toolchain file: side modules are shared libraries named <name>.wasm.
@@ -23,8 +23,7 @@ endif()
 
 function(aqua_add_library name)
     cmake_parse_arguments(ARG "" "" "SOURCES;INCLUDE_DIRECTORIES;LINK_LIBRARIES;DEFINITIONS;NATIVE_SOURCES;WEB_SOURCES;PLATFORMS" ${ARGN})
-    string(REGEX REPLACE "-.*" "" platform "${AQUA_TARGET}")
-    if(ARG_PLATFORMS AND NOT platform IN_LIST ARG_PLATFORMS)
+    if(ARG_PLATFORMS AND NOT AQUA_OS IN_LIST ARG_PLATFORMS)
         message(STATUS "Library ${name} skipped: it supports ${ARG_PLATFORMS}, not ${AQUA_TARGET}.")
         return()
     endif()

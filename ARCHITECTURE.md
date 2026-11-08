@@ -38,7 +38,8 @@ compiler/            C#, compile time only
 runtime/             C, the run time of every target
   guest/               runtime.c: values, GC, scheduler, linked into every application (layout.def is the shared table)
   host/                the host core: metadata, imports, registry, calls, scheduler, threads, the core library
-  platform/<os>/       windows, linux, posix, desktop (Windows + Linux), android (+ the Java activity shim), web
+  platform/<os>/       windows, linux, posix, desktop (Windows + Linux), android (+ the Java activity shim), web;
+                       each OS's platform.cmake builds its runtime
   sdk/                 aqua/*.h, api.def, AquariusLibrary.cmake, toolchain files, an example library
 libraries/<name>/    default libraries, one self-contained folder each
 web-glue/            the only JavaScript: core/ (loader, WASI, start), page/, one folder per Web API domain
@@ -87,7 +88,19 @@ workers as separate instances (`threads.c`, `threads_web.c`).
 Everything that differs per OS is a thin layer in `runtime/platform/<os>/`: process entry, files, clocks, dynamic
 loading and the window/input implementation of `<aqua/window.h>` (GLFW on desktop, `ANativeWindow` on Android, a
 `<canvas>` on the web). Android's Java is only `AquariusActivity`, a `NativeActivity` subclass forwarding what Android
-delivers to Java alone. A new target is a toolchain file, a platform layer, pins and a build target.
+delivers to Java alone. Each layer's `platform.cmake` says what the runtime builds for that OS (the desktop ones share
+`platform/desktop/desktop.cmake`), so `runtime/CMakeLists.txt` names no targets.
+
+## Targets
+
+`scripts/toolchain.json` (`targets.list`) is the one table of targets: name, platform (the OS that `aqua.toml`,
+application metadata, `AQUA_OS` and `runtime/platform/<os>` use), kind (desktop, mobile, web), which hosts can build
+it, and whether it is only planned. The scripts (`toolchain.ps1`) and the CMake toolchain files
+(`AquariusToolchain.cmake`, which sets `AQUA_OS` and `AQUA_KIND`) read it. The compiler's copy is
+`compiler/AquariusCompiler/RuntimeTarget.cs`, which also holds file naming, and the architecture tests keep the two
+equal. `macos-arm64` and `ios-arm64` are reserved as planned. A new target is a row in the table, a toolchain file, a
+platform layer, pins, the libraries' platform branches and a build target; see
+[adding a target](docs/adding-a-target.md).
 
 ## Libraries
 
@@ -141,6 +154,7 @@ runtime packs into `.native-build/install/<target>`, where the compiler of a che
 
 | Rule | Test |
 | --- | --- |
+| One table of targets, read everywhere instead of repeated | `OneTargetTableDescribesEveryTarget`, `TargetListsAreNotRepeated` |
 | C# only in `compiler/`; compiler projects carry no runtime packages; the solution holds exactly the compiler projects | `CSharpIsOnlyTheCompiler`, `CompilerProjectsCarryNoRuntimePackages`, `TheSolutionHoldsTheCompilerProjects` |
 | JavaScript only in `web-glue/`; each glue domain self-contained | `JavaScriptLivesOnlyInWebGlue`, `WebGlueDomainsAreSelfContained` |
 | Each library a valid, self-contained folder whose manifest matches what it registers | `EveryLibraryHasAValidManifest`, `LibrariesReachNothingOutsideTheirFolder`, `NativeModulesInManifestsAreTheOnesTheRuntimeRegisters` |

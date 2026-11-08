@@ -1,4 +1,5 @@
 using AquariusLang.Build.Targets;
+using AquariusLang.Compiler;
 using AquariusLang.Libraries;
 
 namespace AquariusLang.Build;
@@ -43,8 +44,14 @@ public sealed class BuildTargets
         new WebTarget(), new ExecutableTarget("windows", "windows-x64"), new ExecutableTarget("linux", "linux-x64"), new AndroidTarget()
     });
 
-    public IWasmBuildTarget Resolve(string name) => targets.TryGetValue(name, out var target) ? target :
-        throw new ArgumentException($"Unknown target: {name}. Available targets: wasm, {string.Join(", ", targets.Keys)}.");
+    public IWasmBuildTarget Resolve(string name)
+    {
+        if (targets.TryGetValue(name, out var target)) return target;
+        string available = $"Available targets: wasm, {string.Join(", ", targets.Keys)}.";
+        if (RuntimeTarget.All.Any(t => t.Planned && t.Platform == name))
+            throw new ArgumentException($"The {name} target is planned but not built yet (docs/adding-a-target.md). {available}");
+        throw new ArgumentException($"Unknown target: {name}. {available}");
+    }
     public IEnumerable<string> Names => targets.Keys;
     public IEnumerable<string> OptionNames => targets.Values.SelectMany(t => t.OptionNames).Distinct(StringComparer.Ordinal);
 }

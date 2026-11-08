@@ -8,10 +8,11 @@ namespace AquariusLang.Bottle;
 /// <c>aqua library build [folder] [--targets windows-x64,web,...]</c>: builds an external library's native part
 /// ([native] source, a CMake folder using aqua_add_library) with the pinned toolchain of the SDK
 /// (sdk/cmake/toolchains/&lt;target&gt;.cmake) and places the binaries where installs and builds take them from:
-/// native/&lt;target&gt;/aqua_&lt;name&gt;.dll, libaqua_&lt;name&gt;.so or &lt;name&gt;.wasm. Build trees go to build/&lt;target&gt;/.
+/// native/&lt;target&gt;/aqua_&lt;name&gt;.dll, libaqua_&lt;name&gt;.so (.dylib on Apple platforms) or &lt;name&gt;.wasm. Build
+/// trees go to build/&lt;target&gt;/.
 /// </summary>
 public static class LibraryBuilder {
-    public const string Usage = "aqua library build [folder] [--targets windows-x64,linux-x64,android-arm64-v8a,android-x86_64,web]";
+    public static string Usage { get; } = $"aqua library build [folder] [--targets {string.Join(",", AquariusInstallation.Targets)}]";
 
     public static IReadOnlyList<string> Build(string folder, IReadOnlyList<string>? targets = null, Action<string>? log = null) {
         var manifest = ProjectManifest.Load(folder);
@@ -21,8 +22,7 @@ public static class LibraryBuilder {
         string source = library.SourcePath(library.NativeSource);
         if (!File.Exists(Path.Combine(source, "CMakeLists.txt"))) throw new IOException($"[native] source has no CMakeLists.txt: {source}");
         targets ??= [AquariusInstallation.HostTarget];
-        foreach (string target in targets)
-            if (!AquariusInstallation.Targets.Contains(target)) throw new ArgumentException($"Unknown target {target}; use {string.Join(", ", AquariusInstallation.Targets)}.");
+        foreach (string target in targets) RuntimeTarget.Get(target);
         var installation = AquariusInstallation.Require();
         string cmake = Tool("AQUARIUS_CMAKE", "cmake"), ninja = Tool("AQUARIUS_NINJA", "ninja");
         var environment = new Dictionary<string, string>();
