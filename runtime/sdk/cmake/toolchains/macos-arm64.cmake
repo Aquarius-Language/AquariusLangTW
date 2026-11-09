@@ -16,6 +16,11 @@ if(NOT CMAKE_OSX_SYSROOT)
     endif()
     set(CMAKE_OSX_SYSROOT "${aqua_macos_sdk}" CACHE PATH "")
 endif()
+# C++ compiles against the headers of the libc++ it links, the SDK's (the system's), not the pinned LLVM's newer ones,
+# whose inline code calls functions the libc++ of older systems and SDKs lacks.
+foreach(language IN ITEMS CXX OBJCXX)
+    string(APPEND CMAKE_${language}_FLAGS_INIT " -nostdinc++ -isystem ${CMAKE_OSX_SYSROOT}/usr/include/c++/v1")
+endforeach()
 set(CMAKE_C_COMPILER "${AQUA_LLVM}/bin/clang")
 set(CMAKE_CXX_COMPILER "${AQUA_LLVM}/bin/clang++")
 set(CMAKE_OBJC_COMPILER "${AQUA_LLVM}/bin/clang")
