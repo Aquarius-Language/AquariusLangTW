@@ -24,10 +24,16 @@ jobs:
               Where-Object name -like 'iPhone*' | Select-Object -First 1)
           xcrun simctl boot $device.udid
           xcrun simctl bootstatus $device.udid -b
-      - name: Compiler, packaging, CLI, architecture and library tests (macOS and the iOS simulator)
+      - name: Compiler, packaging, CLI and architecture tests
+        run: dotnet test compiler/AquariusTests -c Release -m:1 --logger 'trx;LogFileName=macos.trx'
+      - name: Library tests (macOS and the iOS simulator)
+        if: success() || failure()
+        run: pwsh ./scripts/test-libraries.ps1 -Targets macos-arm64,ios-simulator-arm64
+      - name: Simulator log and crash reports
+        if: failure()
         run: |
-          dotnet test compiler/AquariusTests -c Release -m:1 --logger 'trx;LogFileName=macos.trx'
-          pwsh ./scripts/test-libraries.ps1 -Targets macos-arm64,ios-simulator-arm64
+          xcrun simctl spawn booted log show --last 30m --style compact --predicate 'process BEGINSWITH "Run" OR process BEGINSWITH "AquariusTest" OR eventMessage CONTAINS "org.aquariuslang"' | tail -n 300 || true
+          ls -t ~/Library/Logs/DiagnosticReports | head -n 5 | while read -r report; do echo "== $report"; head -n 80 ~/Library/Logs/DiagnosticReports/"$report"; done
       - uses: actions/upload-artifact@v4
         if: always()
         with:
