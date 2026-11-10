@@ -3,6 +3,123 @@
 One version covers the language, the compiler, the CLI, the language server and the VS Code extension; see
 [versioning](docs/versioning.md).
 
+## 0.1.8
+
+Targets:
+
+- Targets come from one table, `targets.list` in `scripts/toolchain.json`. The scripts and CMake toolchain files read it
+  (CMake gets `AQUA_OS` and `AQUA_KIND`), and the compiler's copy `RuntimeTarget` is checked equal to it by the
+  architecture tests. Each `runtime/platform/<os>/platform.cmake` builds that OS's runtime. `macos-arm64` and
+  `ios-arm64` are reserved: tools report them as planned instead of unknown. Builds of the existing targets are
+  unchanged. See [adding a target](docs/adding-a-target.md).
+
+Tools:
+
+- `aqua_wellplay`: live windows. Every window a cell opens (`p.run`, SaturnUI, ImGui, Clay, WGPU, OpenGL,
+  `Display.Sketch`) shows live in the cell's output instead of on the server's screen and takes the mouse, wheel,
+  touch, keyboard, input method and clipboard there, through remote windows: the server relays each program's stream to
+  the frontends over `/windows` without decoding frames, and the frontend paints it with a `RemoteWindow.Viewer` in a
+  SaturnUI `Immediate` widget. Replayed cells' windows close at once, so replays never wait for them.
+  `Display.Sketch(..., frames: 0)` and `Display.UI(..., frames: 0)` run until the window is closed.
+- `aqua_wellplay`: Run all starts the kernel over (no replay of earlier cells), so execution counts restart at [1] on
+  every Run all, as after Jupyter's restart and run all (`kernel/execute` takes `fresh`).
+- `aqua_wellplay`: the page's memory no longer depends on how many notebooks are open or how large one output is:
+  only the notebook on screen keeps decoded images, and a rich output over 32 MB of JSON is replaced by one line in
+  the cell. With ten image-heavy notebooks open and run four times each, the page stays near 600 MB.
+
+Runtime:
+
+- Native objects never fill the runtime's resource table. They are freed by a garbage collection, which used to start
+  for memory alone and to free them only between run slices, so programs that make many small native objects (a UI
+  that paints with `Saturn.Painter` each frame: WellPlay at 250 % scale, after a few seconds) failed with "Native
+  resource table capacity exceeded" and then "Not a function: native value". The host now asks for a collection after
+  16,384 new native objects and reuses the freed slots at once; a full table reports its own error for methods too.
+- Remote windows (SDK API 4, `aqua/remote_window.h`): with `AQUARIUS_REMOTE_WINDOW=host:port` (and
+  `AQUARIUS_REMOTE_WINDOW_TOKEN`) the desktop runtime shows every window it opens on a viewer elsewhere instead of the
+  screen, without a display: Processing, WGPU, OpenGL, ImGui, Clay and SaturnUI programs run unchanged. Frames go out
+  as the 64-pixel tiles that changed, losslessly compressed (QOI), with at most two frames waiting for the viewer;
+  input, the viewer's size and pixel density, the cursor, text input and the clipboard travel with them. The header is
+  the single definition of the wire format, with the encoders and decoders both ends use. Renderers see the surface
+  kind `AQUA_SURFACE_FRAMES` and present with `aqua_window_present`; OpenGL windows are read back on swap. Standard
+  output printed before a window opens is written before the window is announced, so a reader of both sees them in
+  order.
+- Safe areas on every target (SDK API 5, `aqua_window_safe_area` in `aqua/window.h`): the edges system bars, notches
+  and the home indicator cover, in logical units, and whether the soft keyboard shows. iOS reports the view's safe area
+  (it reported zeros, so full-screen apps drew under the status bar), Android its window insets, the web the page's
+  `env(safe-area-inset-*)` (the page now uses `viewport-fit=cover`), desktop windows zeros; mobile windows send a
+  resize when it changes. It replaces Android's `aqua_android_insets`. Interaction's `SafeArea()` and the Input
+  library use it, and Processing adds `safeArea()`.
+- On the web, a deferred library call made inside a callback that runs synchronously (a Clay children function, an
+  Interaction handler) fails with "cannot wait for an asynchronous operation on the web" as before, but the library's
+  result arriving later is now dropped instead of resuming the finished callback: it used to trap with "function
+  signature mismatch" (seen as `aqua_resolve <- network.wasm socket_task_run` when WellPlay sent window input from
+  painting callbacks). A native function called that way that settles at once now returns its result.
+- Memory no longer creeps up when multi-megabyte texts pass through native code again and again (WellPlay's frontend
+  receiving Base64 images: about 150 MB more per run of a notebook with large images, until "RuntimeError:
+  unreachable" at the 2 GiB ceiling). The heap carves small allocations from the smallest free run that fits instead
+  of the largest, so survivors no longer split the runs large texts need; texts reach native code as one UTF-8 copy of
+  their exact size (they were copied three times, once at three bytes per character) and come back decoded straight
+  into the new text; and libc's pages on the web no longer count as live data when the collector sets its threshold. A
+  web test that parses a 5.7 MB JSON text 400 times stays at 259 MB (it trapped at 2 GiB before).
+- A program that does run out of memory ends with "Out of memory: the program's WebAssembly memory cannot grow any
+  further (it holds at most 2 GiB)." instead of a bare WebAssembly trap; on the web the page shows it on standard error.
+- Web pages show standard error and a stopped application in a panel at the bottom of the page instead of text over
+  the application's canvas.
+
+Libraries:
+
+- Graphics: 32-bit float textures (`r32float`, `rgba32float`) are unfilterable on every target, as on iOS, many
+  Android phones and some browsers: a shader that reads one only with `textureLoad` works everywhere (on the iOS
+  simulator it failed validation), while sampling, `GenerateMipmaps` or presenting one fails with an error pointing to
+  `rgba16float`. The device no longer turns on `float32-filterable` where the GPU offers it, so programs behave the
+  same on every GPU.
+- Graphics: `drawUI` draws text at the size it is rasterized at the screen's pixel density, and `uiTextMetrics`
+  measures its box there too. Text painted in pieces placed by the advance of what precedes them (WellPlay's
+  highlighted code cells) no longer overlaps or leaves gaps at 125% or 250% scaling in fonts with whole-pixel advances
+  (細明體, Chrome's monospace for Traditional Chinese), where each piece was stretched to its box measured at 100%.
+- Terminal: when a program has exited but a process it left running keeps its output open (a background child, or
+  `WerFault.exe` after a crash), `Run`, `Wait` and `WaitAsync` return the exit code and the output so far after
+  `max(1000, TimeoutMs)` ms instead of failing with `Child output streams did not close.`; WellPlay's kernel also shows
+  any failed wait as an error in the cell instead of ending the server.
+- Graphics: a Processing sketch whose window has no pixels yet when `size()` finishes (a web page still laying out its
+  canvas) draws into a 1x1 target until the window has a size, instead of an invalid zero-size texture that made the
+  first passes fail with "Invalid TextureView ... BeginRenderPass".
+- `remotewindow` (new): `RemoteWindow` / `遠端視窗`, the remote window protocol on every target. `Viewer` decodes an
+  application's windows into images or UI draw lists that update only the regions that changed (for SaturnUI's
+  `Immediate`, `drawUI` and any renderer of the draw list) and sends input back, raw or as Interaction's events;
+  `Relay` forwards whole messages between an application and viewers that come and go (a notebook server) and can
+  close a window nobody should see; `Sender` lets any program show images on a viewer.
+- `terminal`: the `Environment` option sets (or, with `null`, leaves out) environment variables for the child.
+- `graphics`: windows whose surface is `AQUA_SURFACE_FRAMES` render offscreen and present each frame through the
+  runtime, so they can be shown remotely.
+- `graphics`: text keeps ink drawn outside its font's box. Each line is rasterized with a margin around its box, so an
+  underscore below the descent (細明體/MingLiU, Chrome's monospace for Traditional Chinese, at some sizes and scales)
+  shows instead of being cut off; boxes, layout and `textWidth` are unchanged.
+- SaturnUI text fields: carets, selections and clicks use the measurer's new advance (`uiTextMetrics` returns
+  `[width, ascent, descent, advance]`: the advance as `drawUI` really draws the text, at the screen's pixel density and
+  without the box's 2-pixel overhang), so the caret sits between the drawn characters at any display scaling and in any
+  font. Every platform's text layer reports the advance itself (`gfx_platform_text_advance`: Canvas, GDI, Pango and
+  Android's `Paint`, replacing the per-platform padding), and Linux text now starts at the pen's origin like the others
+  (Pango's ink to the left of it moved the drawn text right of its measured position). A click on a menu item counts
+  even if a rebuild between its press and release moved the hit test. Immediate widgets get every Interaction field
+  (`event.Fields()`, no copied list of fields), and the focused one now also gets input-method composition and commands
+  (copy, paste, undo, ...).
+- `interaction`: `event.Fields()` and `Interaction.Event(fields)` (events passed on as hashes become event objects
+  again, so no UI code lists the fields: WellPlay's code cells failed with "Unknown field of EditorEvent: edit" on every
+  arrow key because it did). The editing table adds word parts (Alt+Left/Right, Ctrl+Option on Apple targets;
+  Ctrl+Alt+Backspace/Delete), the Windows Alt+Backspace undo, Apple's Ctrl+T, Ctrl+O and Ctrl+Y (with a kill buffer),
+  and a code-editor layer carried as `codeEdit` (VS Code's defaults: move, copy and delete lines, open lines, comments,
+  indent and outdent, select line, bracket jumps, scroll by a line). On the web the browser no longer acts on editing
+  combinations while text is edited (Alt+Left used to go back). Pasting no longer arrives twice on the web (the
+  browser's own insertion into the hidden text input is cancelled; the paste command reads the clipboard), and
+  Windows' CR LF line ends become LF when pasted.
+- `saturn`: failures stay contained. A painter, an `Immediate` widget or a builder that throws loses only its own part
+  (recorded once in `surface.Errors()`; guarded by the new synchronous `Saturn.Contain`, never by an asynchronous try,
+  which left pending tasks behind on every paint), so one failing widget never blanks the window (WellPlay's code
+  cells turned the window white after Ctrl+A, Ctrl+C, Ctrl+V, Ctrl+Z, when the editor drew language-server markers on
+  lines the undo had removed); layer stacks do the same per layer. WellPlay's outputs and frame use it too (they used
+  `Network.Try`, which filled the native resource table after a cell ran).
+
 ## 0.1.7
 
 Language:
@@ -64,17 +181,6 @@ Tools:
   Kernel, Help) and File › Examples: a gallery of 26 ready-to-run notebooks (language, numbers, async and network,
   Processing graphics, SaturnUI, ImGui and Clay). `aqua well ...` runs it. See
   [tools/aqua_wellplay](tools/aqua_wellplay/README.md).
-- `aqua_wellplay`: live windows. Every window a cell opens (`p.run`, SaturnUI, ImGui, Clay, WGPU, OpenGL,
-  `Display.Sketch`) shows live in the cell's output instead of on the server's screen and takes the mouse, wheel,
-  touch, keyboard, input method and clipboard there, through remote windows: the server relays each program's stream to
-  the frontends over `/windows` without decoding frames, and the frontend paints it with a `RemoteWindow.Viewer` in a
-  SaturnUI `Immediate` widget. Replayed cells' windows close at once, so replays never wait for them.
-  `Display.Sketch(..., frames: 0)` and `Display.UI(..., frames: 0)` run until the window is closed.
-- `aqua_wellplay`: Run all starts the kernel over (no replay of earlier cells), so execution counts restart at [1] on
-  every Run all, as after Jupyter's restart and run all (`kernel/execute` takes `fresh`).
-- `aqua_wellplay`: the page's memory no longer depends on how many notebooks are open or how large one output is:
-  only the notebook on screen keeps decoded images, and a rich output over 32 MB of JSON is replaced by one line in
-  the cell. With ten image-heavy notebooks open and run four times each, the page stays near 600 MB.
 
 Compiler and CLI:
 - `aqua build --optimize` needs no OpenSSL: WABT's prebuilt `wasm2c` needed `libcrypto-3-x64.dll` on Windows (which
@@ -84,78 +190,8 @@ Compiler and CLI:
 - Compile errors carry their line and column: `main.aqua:2:14: message` (`CompilationException.Diagnostics`).
 - `aqua run` takes a script inside a project folder that the project does not declare, running it with the project's
   libraries (it used to fail with `Source is not declared in project.sources.`; builds still require it).
-- Targets come from one table, `targets.list` in `scripts/toolchain.json`. The scripts and CMake toolchain files read it
-  (CMake gets `AQUA_OS` and `AQUA_KIND`), and the compiler's copy `RuntimeTarget` is checked equal to it by the
-  architecture tests. Each `runtime/platform/<os>/platform.cmake` builds that OS's runtime. `macos-arm64` and
-  `ios-arm64` are reserved: tools report them as planned instead of unknown. Builds of the existing targets are
-  unchanged. See [adding a target](docs/adding-a-target.md).
-
-Runtime:
-- Native objects never fill the runtime's resource table. They are freed by a garbage collection, which used to start
-  for memory alone and to free them only between run slices, so programs that make many small native objects (a UI
-  that paints with `Saturn.Painter` each frame: WellPlay at 250 % scale, after a few seconds) failed with "Native
-  resource table capacity exceeded" and then "Not a function: native value". The host now asks for a collection after
-  16,384 new native objects and reuses the freed slots at once; a full table reports its own error for methods too.
-- Remote windows (SDK API 4, `aqua/remote_window.h`): with `AQUARIUS_REMOTE_WINDOW=host:port` (and
-  `AQUARIUS_REMOTE_WINDOW_TOKEN`) the desktop runtime shows every window it opens on a viewer elsewhere instead of the
-  screen, without a display: Processing, WGPU, OpenGL, ImGui, Clay and SaturnUI programs run unchanged. Frames go out
-  as the 64-pixel tiles that changed, losslessly compressed (QOI), with at most two frames waiting for the viewer;
-  input, the viewer's size and pixel density, the cursor, text input and the clipboard travel with them. The header is
-  the single definition of the wire format, with the encoders and decoders both ends use. Renderers see the surface
-  kind `AQUA_SURFACE_FRAMES` and present with `aqua_window_present`; OpenGL windows are read back on swap. Standard
-  output printed before a window opens is written before the window is announced, so a reader of both sees them in
-  order.
-- Safe areas on every target (SDK API 5, `aqua_window_safe_area` in `aqua/window.h`): the edges system bars, notches
-  and the home indicator cover, in logical units, and whether the soft keyboard shows. iOS reports the view's safe area
-  (it reported zeros, so full-screen apps drew under the status bar), Android its window insets, the web the page's
-  `env(safe-area-inset-*)` (the page now uses `viewport-fit=cover`), desktop windows zeros; mobile windows send a
-  resize when it changes. It replaces Android's `aqua_android_insets`. Interaction's `SafeArea()` and the Input
-  library use it, and Processing adds `safeArea()`.
-- On the web, a deferred library call made inside a callback that runs synchronously (a Clay children function, an
-  Interaction handler) fails with "cannot wait for an asynchronous operation on the web" as before, but the library's
-  result arriving later is now dropped instead of resuming the finished callback: it used to trap with "function
-  signature mismatch" (seen as `aqua_resolve <- network.wasm socket_task_run` when WellPlay sent window input from
-  painting callbacks). A native function called that way that settles at once now returns its result.
-- Memory no longer creeps up when multi-megabyte texts pass through native code again and again (WellPlay's frontend
-  receiving Base64 images: about 150 MB more per run of a notebook with large images, until "RuntimeError:
-  unreachable" at the 2 GiB ceiling). The heap carves small allocations from the smallest free run that fits instead
-  of the largest, so survivors no longer split the runs large texts need; texts reach native code as one UTF-8 copy of
-  their exact size (they were copied three times, once at three bytes per character) and come back decoded straight
-  into the new text; and libc's pages on the web no longer count as live data when the collector sets its threshold. A
-  web test that parses a 5.7 MB JSON text 400 times stays at 259 MB (it trapped at 2 GiB before).
-- A program that does run out of memory ends with "Out of memory: the program's WebAssembly memory cannot grow any
-  further (it holds at most 2 GiB)." instead of a bare WebAssembly trap; on the web the page shows it on standard error.
-- Web pages show standard error and a stopped application in a panel at the bottom of the page instead of text over
-  the application's canvas.
 
 Libraries:
-- Graphics: 32-bit float textures (`r32float`, `rgba32float`) are unfilterable on every target, as on iOS, many
-  Android phones and some browsers: a shader that reads one only with `textureLoad` works everywhere (on the iOS
-  simulator it failed validation), while sampling, `GenerateMipmaps` or presenting one fails with an error pointing to
-  `rgba16float`. The device no longer turns on `float32-filterable` where the GPU offers it, so programs behave the
-  same on every GPU.
-- Graphics: `drawUI` draws text at the size it is rasterized at the screen's pixel density, and `uiTextMetrics`
-  measures its box there too. Text painted in pieces placed by the advance of what precedes them (WellPlay's
-  highlighted code cells) no longer overlaps or leaves gaps at 125% or 250% scaling in fonts with whole-pixel advances
-  (細明體, Chrome's monospace for Traditional Chinese), where each piece was stretched to its box measured at 100%.
-- Terminal: when a program has exited but a process it left running keeps its output open (a background child, or
-  `WerFault.exe` after a crash), `Run`, `Wait` and `WaitAsync` return the exit code and the output so far after
-  `max(1000, TimeoutMs)` ms instead of failing with `Child output streams did not close.`; WellPlay's kernel also shows
-  any failed wait as an error in the cell instead of ending the server.
-- Graphics: a Processing sketch whose window has no pixels yet when `size()` finishes (a web page still laying out its
-  canvas) draws into a 1x1 target until the window has a size, instead of an invalid zero-size texture that made the
-  first passes fail with "Invalid TextureView ... BeginRenderPass".
-- `remotewindow` (new): `RemoteWindow` / `遠端視窗`, the remote window protocol on every target. `Viewer` decodes an
-  application's windows into images or UI draw lists that update only the regions that changed (for SaturnUI's
-  `Immediate`, `drawUI` and any renderer of the draw list) and sends input back, raw or as Interaction's events;
-  `Relay` forwards whole messages between an application and viewers that come and go (a notebook server) and can
-  close a window nobody should see; `Sender` lets any program show images on a viewer.
-- `terminal`: the `Environment` option sets (or, with `null`, leaves out) environment variables for the child.
-- `graphics`: windows whose surface is `AQUA_SURFACE_FRAMES` render offscreen and present each frame through the
-  runtime, so they can be shown remotely.
-- `graphics`: text keeps ink drawn outside its font's box. Each line is rasterized with a margin around its box, so an
-  underscore below the descent (細明體/MingLiU, Chrome's monospace for Traditional Chinese, at some sizes and scales)
-  shows instead of being cut off; boxes, layout and `textWidth` are unchanged.
 - `terminal`: `Terminal.Start(executable, arguments, options)` returns a `Terminal.Process` whose output reaches
   `OnOutput` / `OnError` callbacks as it arrives (in order; a callback may be async and wait), with `Wait`,
   `WaitAsync`, `Kill` (the whole tree), `Running` and `Result`.
@@ -187,33 +223,11 @@ Libraries:
   the system clipboard, overwrite), double and triple presses, drag selection, a context menu, sideways scrolling,
   input-method composition and the caret at the platform's blink rate; new `multiline`, `maxLength`, `readOnly` and
   `autofocus`. Fast typing no longer loses characters (an older `value` never undoes an edit the application has not
-  rebuilt with), and keys no longer rebuild the whole tree per event. Carets, selections and clicks use the measurer's
-  new advance (`uiTextMetrics` returns `[width, ascent, descent, advance]`: the advance as `drawUI` really draws the
-  text, at the screen's pixel density and without the box's 2-pixel overhang), so the caret sits between the drawn
-  characters at any display scaling and in any font. Every platform's text layer reports the advance itself
-  (`gfx_platform_text_advance`: Canvas, GDI, Pango and Android's `Paint`, replacing the per-platform padding), and Linux
-  text now starts at the pen's origin like the others (Pango's ink to the left of it moved the drawn text right of its
-  measured position). A click on a menu item counts even if a rebuild between its press
-  and release moved the hit test. Immediate widgets get every Interaction field (`event.Fields()`, no copied list of
-  fields), and the focused one now also gets input-method composition and commands (copy, paste, undo, ...).
+  rebuilt with), and keys no longer rebuild the whole tree per event.
 - `interaction`: `src/editing.def` says once what each key means in editable text on each platform; key events carry it
   as `edit` and `Interaction.EditAction(key, modifiers)` gives it for any key. The new `TextEditing` module implements a
   native text field's editing for any UI library (cluster-safe positions, words, lines, undo, clipboard, composition,
-  pointer selection). Also `ClipboardText()` / `SetClipboardText(text)`, every event's `conventions`, `event.Fields()`
-  and `Interaction.Event(fields)` (events passed on as hashes become event objects again, so no UI code lists the
-  fields: WellPlay's code cells failed with "Unknown field of EditorEvent: edit" on every arrow key because it did).
-  The editing table adds word parts (Alt+Left/Right, Ctrl+Option on Apple targets; Ctrl+Alt+Backspace/Delete), the
-  Windows Alt+Backspace undo, Apple's Ctrl+T, Ctrl+O and Ctrl+Y (with a kill buffer), and a code-editor layer carried as
-  `codeEdit` (VS Code's defaults: move, copy and delete lines, open lines, comments, indent and outdent, select line,
-  bracket jumps, scroll by a line). On the web the browser no longer acts on editing combinations while text is edited
-  (Alt+Left used to go back). Pasting no longer arrives twice on the web (the browser's own insertion into the hidden
-  text input is cancelled; the paste command reads the clipboard), and Windows' CR LF line ends become LF when pasted.
-- `saturn`: failures stay contained. A painter, an `Immediate` widget or a builder that throws loses only its own part
-  (recorded once in `surface.Errors()`; guarded by the new synchronous `Saturn.Contain`, never by an asynchronous try,
-  which left pending tasks behind on every paint), so one failing widget never blanks the window (WellPlay's code
-  cells turned the window white after Ctrl+A, Ctrl+C, Ctrl+V, Ctrl+Z, when the editor drew language-server markers on
-  lines the undo had removed); layer stacks do the same per layer. WellPlay's outputs and frame use it too (they used
-  `Network.Try`, which filled the native resource table after a cell ran).
+  pointer selection). Also `ClipboardText()` / `SetClipboardText(text)`, and every event's `conventions`.
 - `imgui`: key releases from Interaction (`action: "release"`) were taken as presses, so keys stayed held; copy and
   paste use the system clipboard unless `SetClipboardHandlers` is given; `UseConventions` (applied by itself from the
   first Interaction event) sets double-click time, drag threshold, caret blinking and Mac-style editing.
