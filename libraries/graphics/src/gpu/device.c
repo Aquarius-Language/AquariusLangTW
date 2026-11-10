@@ -336,10 +336,6 @@ static void on_adapter(WGPURequestAdapterStatus status, WGPUAdapter adapter, WGP
     descriptor.deviceLostCallbackInfo.mode = GPU_CALLBACK_MODE;
     descriptor.deviceLostCallbackInfo.callback = on_lost;
     descriptor.deviceLostCallbackInfo.userdata1 = d;
-    /* Filterable 32-bit float textures (r32float/rgba32float targets sampled through the linear samplers) where the
-       adapter offers them. */
-    static const WGPUFeatureName float32_filterable = WGPUFeatureName_Float32Filterable;
-    if (wgpuAdapterHasFeature(adapter, float32_filterable)) { descriptor.requiredFeatureCount = 1; descriptor.requiredFeatures = &float32_filterable; }
     WGPURequestDeviceCallbackInfo callback = WGPU_REQUEST_DEVICE_CALLBACK_INFO_INIT;
     callback.mode = GPU_CALLBACK_MODE;
     callback.callback = on_device;
@@ -528,6 +524,10 @@ static void deliver_frame(void *data, const uint8_t *rgba, int width, int height
 
 bool gpu_device_present(gpu_device *d, gpu_target *target, char *error, size_t error_size) {
     if (!d->window) { snprintf(error, error_size, "This wgpu device has no window surface; create it with WGPU.CreateDevice(window)."); return false; }
+    if (!gpu_format_filterable(gpu_target_format(target))) {
+        snprintf(error, error_size, "Presenting filters, and 32-bit float targets cannot be filtered on every GPU: draw into rgba16float or rgba8unorm first.");
+        return false;
+    }
     gpu_target_flush(target);
     /* A remote window (aqua/remote_window.h): the finished frame is read back and handed to the window, which sends it
        to its viewer. Native readbacks complete before gpu_target_read returns. */

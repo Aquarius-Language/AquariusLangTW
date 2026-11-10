@@ -146,9 +146,14 @@ gpu_texture *gpu_texture_attachment(gpu_device *device, int width, int height, W
     return t;
 }
 
+bool gpu_format_filterable(WGPUTextureFormat format) {
+    return format != WGPUTextureFormat_R32Float && format != WGPUTextureFormat_RGBA32Float;
+}
+
 /* Each mip is the previous one drawn at half size through the device's linear sampler: a 2x2 box filter. */
-void gpu_texture_generate_mipmaps(gpu_texture *t) {
-    if (!t->handle || t->mip_levels < 2) return;
+bool gpu_texture_generate_mipmaps(gpu_texture *t) {
+    if (!gpu_format_filterable(t->format)) return false;
+    if (!t->handle || t->mip_levels < 2) return true;
     gpu_device *device = t->link.device;
     if (t->source) gpu_target_flush(t->source);
     WGPUTextureView previous = t->attachment_view;
@@ -163,6 +168,7 @@ void gpu_texture_generate_mipmaps(gpu_texture *t) {
         previous = view;
     }
     if (previous != t->attachment_view) wgpuTextureViewRelease(previous);
+    return true;
 }
 
 void gpu_texture_upload(gpu_texture *t, const uint8_t *rgba, bool unused) {
@@ -197,6 +203,7 @@ bool gpu_texture_released(const gpu_texture *t) { return !t || !t->handle; }
 int gpu_texture_width(const gpu_texture *t) { return t->width; }
 int gpu_texture_height(const gpu_texture *t) { return t->height; }
 bool gpu_texture_cube(const gpu_texture *t) { return t->cube; }
+WGPUTextureFormat gpu_texture_format(const gpu_texture *t) { return t->format; }
 WGPUTextureView gpu_texture_view(const gpu_texture *t) { return t->view; }
 WGPUTextureView gpu_texture_attachment_view(const gpu_texture *t) { return t->attachment_view ? t->attachment_view : t->view; }
 int gpu_texture_mip_levels(const gpu_texture *t) { return t->mip_levels; }

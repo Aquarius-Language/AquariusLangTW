@@ -6,3 +6,5 @@ CreateRenderTarget: Render target format must be rgba8unorm, rgba16float, r16flo
 CreateRenderTarget: Render targets have 1..4 attachments and 1..2 mip levels.
 GetTexture: Color attachment index must be 0..1.
 Set: Uniform m needs 9 values.
+SetTexture: Texture image is sampled, and 32-bit float textures cannot be filtered on every GPU: read it with textureLoad or use rgba16float.
+GenerateMipmaps: GenerateMipmaps filters, and 32-bit float textures cannot be filtered on every GPU: use rgba16float.

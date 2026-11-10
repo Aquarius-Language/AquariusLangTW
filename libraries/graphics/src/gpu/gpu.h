@@ -106,8 +106,10 @@ gpu_texture *gpu_texture_rgba(gpu_device *device, int width, int height);
 gpu_texture *gpu_texture_attachment(gpu_device *device, int width, int height, WGPUTextureFormat format, uint32_t samples, int mip_levels);
 /* The color formats render targets support, by name ("rgba8unorm", "rgba16float", "r16float", "r32float", "rgba32float"). */
 bool gpu_target_format_parse(const char *name, WGPUTextureFormat *format);
-/* Fills mips 1.. of a color attachment from mip 0 (2x2 box filter). */
-void gpu_texture_generate_mipmaps(gpu_texture *texture);
+/* Whether every GPU can filter (sample linearly) the format: all but r32float and rgba32float. */
+bool gpu_format_filterable(WGPUTextureFormat format);
+/* Fills mips 1.. of a color attachment from mip 0 (2x2 box filter); false for formats gpu_format_filterable rejects. */
+bool gpu_texture_generate_mipmaps(gpu_texture *texture);
 int gpu_texture_mip_levels(const gpu_texture *texture);
 /* Replaces the pixels of an RGBA8 texture. Draws recorded earlier keep sampling the old pixels unless `unused`. */
 void gpu_texture_upload(gpu_texture *texture, const uint8_t *rgba, bool unused);
@@ -116,6 +118,7 @@ bool gpu_texture_released(const gpu_texture *texture);
 int gpu_texture_width(const gpu_texture *texture);
 int gpu_texture_height(const gpu_texture *texture);
 bool gpu_texture_cube(const gpu_texture *texture);
+WGPUTextureFormat gpu_texture_format(const gpu_texture *texture);
 WGPUTextureView gpu_texture_view(const gpu_texture *texture);            /* every mip, for sampling */
 WGPUTextureView gpu_texture_attachment_view(const gpu_texture *texture); /* mip 0, for drawing */
 WGPUTexture gpu_texture_handle(const gpu_texture *texture);

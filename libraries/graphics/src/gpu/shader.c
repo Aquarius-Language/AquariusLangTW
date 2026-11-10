@@ -2,7 +2,12 @@
    through an error scope, and the render pipelines each shader needs (cached by state).
 
    Group 2: textures at bindings 0..7 and 18..31, the linear clamp-to-edge sampler at 8, the linear repeating sampler
-   (mipmapped, 8x anisotropic) at 16 when the shader declares it, read-only storage buffers at 9..15. */
+   (mipmapped, 8x anisotropic) at 16 when the shader declares it, read-only storage buffers at 9..15.
+
+   A texture the shader only reads texel by texel (textureLoad, textureDimensions, textureNumLevels, textureNumLayers)
+   is declared unfilterable, so every format binds to it, 32-bit float ones included. Any other use (sampling) needs a
+   filterable format; r32float and rgba32float are not filterable on every GPU, so binding one there fails with an
+   error, and every target behaves the same. */
 #include "gpu.h"
 #include <ctype.h>
 #include <stdio.h>
@@ -12,7 +17,7 @@
 enum { FIELD_F32, FIELD_I32, FIELD_U32, FIELD_VECTOR, FIELD_MATRIX, FIELD_MATRIX3, FIELD_ARRAY };
 #define TEXTURE_SLOTS 22
 typedef struct uniform_field { char name[64]; int offset, count, type; } uniform_field;
-typedef struct texture_field { char name[64]; int binding; bool cube; gpu_texture *texture; } texture_field;
+typedef struct texture_field { char name[64]; int binding; bool cube, filtered; gpu_texture *texture; } texture_field;
 typedef struct buffer_field { char name[64]; int binding; gpu_buffer *buffer; } buffer_field;
 typedef struct pipeline_entry {
     int mode, blend, depth, stencil, cull, colors; uint32_t samples; WGPUTextureFormat format; bool vertex_buffer;
@@ -174,6 +179,31 @@ static const char *attribute(const char *p, bool *is_group, int *number) {
     return p + 1;
 }
 
+/* Whether `name` is used other than as the first argument of a texel read (textureLoad and the size queries). */
+static bool sampled(const char *source, const char *name) {
+    static const char *const reads[] = {"textureLoad", "textureDimensions", "textureNumLevels", "textureNumLayers"};
+    size_t length = strlen(name);
+    for (const char *p = strstr(source, name); p; p = strstr(p + 1, name)) {
+        if ((p != source && (word_char(p[-1]) || p[-1] == '.')) || word_char(p[length])) continue;
+        const char *before = p;
+        while (before > source && isspace((unsigned char)before[-1])) before--;
+        if (before - source >= 3 && strncmp(before - 3, "var", 3) == 0 && (before - 3 == source || !word_char(before[-4]))) continue;
+        const char *after = skip_space(p + length);
+        bool read = false;
+        if (before > source && before[-1] == '(' && (*after == ',' || *after == ')')) {
+            const char *end = before - 1;
+            while (end > source && isspace((unsigned char)end[-1])) end--;
+            const char *start = end;
+            while (start > source && word_char(start[-1])) start--;
+            for (size_t i = 0; i < sizeof reads / sizeof *reads; i++)
+                if ((size_t)(end - start) == strlen(reads[i]) && strncmp(start, reads[i], strlen(reads[i])) == 0) read = true;
+        }
+        if (!read) return true;
+    }
+    return false;
+}
+
+
 static bool parse_bindings(gpu_shader *s, const char *source, char *error, size_t error_size) {
     bool used[64] = {0};
     for (const char *p = strchr(source, '@'); p; p = strchr(p + 1, '@')) {
@@ -236,7 +266,7 @@ static bool parse_bindings(gpu_shader *s, const char *source, char *error, size_
                 if (strcmp(s->textures[i].name, name) == 0) { snprintf(error, error_size, "Duplicate texture name."); return false; }
             texture_field *t = &s->textures[s->texture_count++];
             snprintf(t->name, sizeof t->name, "%s", name);
-            t->binding = binding; t->cube = cube;
+            t->binding = binding; t->cube = cube; t->filtered = sampled(source, name);
         }
     }
     return true;
@@ -251,7 +281,7 @@ static void create_layouts(gpu_shader *s, gpu_device *device) {
         WGPUBindGroupLayoutEntry e = WGPU_BIND_GROUP_LAYOUT_ENTRY_INIT;
         e.binding = (uint32_t)s->textures[i].binding;
         e.visibility = WGPUShaderStage_Vertex | WGPUShaderStage_Fragment;
-        e.texture.sampleType = WGPUTextureSampleType_Float;
+        e.texture.sampleType = s->textures[i].filtered ? WGPUTextureSampleType_Float : WGPUTextureSampleType_UnfilterableFloat;
         e.texture.viewDimension = s->textures[i].cube ? WGPUTextureViewDimension_Cube : WGPUTextureViewDimension_2D;
         entries[n++] = e;
     }
@@ -445,6 +475,10 @@ bool gpu_shader_set_texture(gpu_shader *s, const char *name, gpu_texture *textur
         texture_field *t = &s->textures[i];
         if (strcmp(t->name, name) != 0) continue;
         if (gpu_texture_device(texture) != s->link.device || t->cube != gpu_texture_cube(texture)) break;
+        if (t->filtered && !gpu_format_filterable(gpu_texture_format(texture))) {
+            snprintf(error, error_size, "Texture %s is sampled, and 32-bit float textures cannot be filtered on every GPU: read it with textureLoad or use rgba16float.", name);
+            return false;
+        }
         t->texture = texture;
         forget_texture_group(s);
         return true;

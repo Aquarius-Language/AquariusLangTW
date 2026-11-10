@@ -1,6 +1,6 @@
 # (needs a GPU device) WGPU render targets for multi-pass GPU work: 32-bit float formats, several outputs, mipmaps and
 # GenerateMipmaps, the repeating sampler, textures at bindings 18..31, uniform arrays and mat3x3, scissored draws with
-# Flush, and Prepare.
+# Flush, and Prepare. 32-bit float textures are unfilterable on every target: read with textureLoad, never sampled.
 var gpu = import("WGPU");
 var device = gpu.CreateDevice();
 var vs = "@vertex fn vs_main(@builtin(vertex_index) i: u32) -> VertexOutput {
@@ -85,4 +85,8 @@ print(import("Network").Try(function() { return device.CreateRenderTarget(2, 2, 
 print(import("Network").Try(function() { return device.CreateRenderTarget(2, 2, "rgba8unorm", {"mipLevels": 5}); }).Error.Message);
 print(import("Network").Try(function() { return pair.GetTexture(2); }).Error.Message);
 print(import("Network").Try(function() { return write.Set("m", [1, 2, 3]); }).Error.Message);
+# 32-bit float textures are read with textureLoad (above) on every GPU; sampling or mipmapping them fails the same way
+# everywhere, pointing to rgba16float.
+print(import("Network").Try(function() { return sample.SetTexture("image", pair.GetTexture()); }).Error.Message);
+print(import("Network").Try(function() { return device.CreateRenderTarget(4, 4, "rgba32float", {"mipLevels": 2}).GenerateMipmaps(); }).Error.Message);
 device.Dispose();

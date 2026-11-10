@@ -369,7 +369,11 @@ static void target_GetTexture(aqua_call *call) {
 static void target_GenerateMipmaps(aqua_call *call) {
     target_object *t = aqua_self(call);
     if (!target_live(call, t)) return;
-    for (int i = 0; i < gpu_target_colors(t->target); i++) gpu_texture_generate_mipmaps(gpu_target_color_at(t->target, i));
+    for (int i = 0; i < gpu_target_colors(t->target); i++)
+        if (!gpu_texture_generate_mipmaps(gpu_target_color_at(t->target, i))) {
+            gfx_fail(call, "GenerateMipmaps filters, and 32-bit float textures cannot be filtered on every GPU: use rgba16float.");
+            return;
+        }
     const char *failure = gpu_device_take_error(t->owner->device);
     if (failure) gfx_fail(call, "%s", failure);
 }
