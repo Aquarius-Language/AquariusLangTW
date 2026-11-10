@@ -287,6 +287,14 @@ static void window_Capabilities(aqua_call *call) {
     values[4] = capability(rt, false, "Touches stay with their view.");
     values[5] = capability(rt, true, NULL);
     values[6] = capability(rt, true, "Optional properties are provided by MotionEvent");
+#elif defined(AQUA_OS_IOS)
+    values[0] = capability(rt, true, NULL);
+    values[1] = capability(rt, false, "iOS delivers files through the document picker and share sheet.");
+    values[2] = capability(rt, false, "iOS closes applications itself.");
+    values[3] = capability(rt, false, "iOS has no pointer cursor.");
+    values[4] = capability(rt, false, "Touches stay with their view.");
+    values[5] = capability(rt, true, NULL);
+    values[6] = capability(rt, true, "Optional properties are provided by UITouch");
 #else
     values[0] = capability(rt, true, NULL);
     values[1] = capability(rt, true, NULL);
