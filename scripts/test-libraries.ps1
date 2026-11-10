@@ -39,9 +39,10 @@ $Cases = @($Cases | ForEach-Object { $_ -split ',' } | Where-Object { $_ })
 foreach ($target in $Targets) { Get-AquaTarget $target | Out-Null }
 
 if (-not $Compiler) {
-    # Linux builds write to bin/linux/ (compiler/Directory.Build.props), so WSL and Windows can share a checkout.
+    # The most recently built compiler, so a stale Release build never hides the Debug one just built. Linux builds write
+    # to bin/linux/ (compiler/Directory.Build.props), so WSL and Windows can share a checkout.
     $Compiler = @('Release', 'Debug') | ForEach-Object { $c = $_; @('', 'linux/') | ForEach-Object { Join-Path $repository "compiler/AquariusCli/bin/$_$c/net8.0/aqua.dll" } } |
-        Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
+        Where-Object { Test-Path -LiteralPath $_ } | Sort-Object { (Get-Item -LiteralPath $_).LastWriteTimeUtc } -Descending | Select-Object -First 1
     if (-not $Compiler) { throw 'Build the compiler first (dotnet build compiler/AquariusCli -c Release) or pass -Compiler aqua.dll.' }
 }
 
