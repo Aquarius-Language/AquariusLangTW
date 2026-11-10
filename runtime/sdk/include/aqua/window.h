@@ -111,6 +111,11 @@ bool aqua_window_text_input_enabled(aqua_window *window);
 void aqua_window_text_rect(aqua_window *window, int32_t x, int32_t y, int32_t width, int32_t height);
 bool aqua_window_composition_supported(aqua_window *window);
 
+/* API 5: the window's safe area, in logical units: how far system bars, notches, rounded corners and home indicators
+   cover its left, top, right and bottom edges, and whether the soft keyboard is showing. Content and controls stay
+   inside it. Zeros on desktop windows, which nothing covers. Mobile windows report a RESIZE event when it changes. */
+void aqua_window_safe_area(aqua_window *window, float *left, float *top, float *right, float *bottom, bool *keyboard_visible);
+
 /* What a WebGPU or OpenGL implementation needs to render into the window. */
 typedef enum aqua_surface_kind {
     AQUA_SURFACE_NONE = 0, AQUA_SURFACE_WIN32 = 1, AQUA_SURFACE_X11 = 2, AQUA_SURFACE_WAYLAND = 3, AQUA_SURFACE_METAL = 4,

@@ -19,7 +19,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#define AQUA_API_VERSION 4
+#define AQUA_API_VERSION 5
 
 /* ---- Target detection: one macro per operating system family, for library preprocessor branches. ------------------ */
 #if defined(__wasm__)

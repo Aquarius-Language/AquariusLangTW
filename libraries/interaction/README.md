@@ -29,7 +29,8 @@ AI coding assistants, are in [docs/native-like-apps.md](../../docs/native-like-a
 
 Session members: `On(type, handler)` / `註冊` returns an id (type `"*"` takes every event), `Off(id)` / `取消註冊`,
 `Feed(raw)` / `輸入事件`, `Dispatch()` / `派送`, `SafeArea()` / `安全區域` (`left`, `top`, `right`, `bottom`,
-`keyboardVisible`), `SetCursor(name)` / `設定游標` (`arrow`, `text`, `crosshair`, `hand`, `resizeHorizontal`,
+`keyboardVisible`: what system bars, notches and the home indicator cover, in logical units, from the window's
+`aqua_window_safe_area`; zeros on desktop windows and for fed sessions; a `resize` event follows a change), `SetCursor(name)` / `設定游標` (`arrow`, `text`, `crosshair`, `hand`, `resizeHorizontal`,
 `resizeVertical`, `resizeDiagonal`, `resizeAntiDiagonal`, `move`, `notAllowed`; false where there is no cursor),
 `CursorArea(name, x, y, width, height, cursor)` / `游標區域` (while the pointer hovers the rectangle the cursor is that
 shape, the arrow outside every area; setting a name again moves its area, later areas lie on top, and a handler's

@@ -36,6 +36,8 @@ registerGlue('window', (context) => {
     document.addEventListener?.('paste', (e) => { clipboard = e.clipboardData?.getData('text') ?? clipboard; });
     const windowOf = (handle) => context.object(handle);
     const container = () => document.getElementById('surfaces') ?? document.body;
+    // An invisible element padded by the page's env(safe-area-inset-*), whose computed padding is the safe area.
+    let safeArea = null;
 
     class PageWindow {
         constructor(pointer, width, height, title, flags) {
@@ -196,6 +198,18 @@ registerGlue('window', (context) => {
             v.setInt32(out + 8, w.canvas.width, true); v.setInt32(out + 12, w.canvas.height, true);
         },
         window_scale: () => globalThis.devicePixelRatio || 1,
+        window_safe_area(handle, out) {
+            if (!safeArea) {
+                safeArea = document.createElement('div');
+                safeArea.style.cssText = 'position: fixed; visibility: hidden; pointer-events: none; padding: env(safe-area-inset-top) ' +
+                    'env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left)';
+                document.body.append(safeArea);
+            }
+            const style = getComputedStyle(safeArea), v = context.view;
+            v.setFloat32(out, parseFloat(style.paddingLeft) || 0, true); v.setFloat32(out + 4, parseFloat(style.paddingTop) || 0, true);
+            v.setFloat32(out + 8, parseFloat(style.paddingRight) || 0, true); v.setFloat32(out + 12, parseFloat(style.paddingBottom) || 0, true);
+            return (navigator.virtualKeyboard?.boundingRect.height ?? 0) > 0 ? 1 : 0;
+        },
         window_set_size(handle, width, height) { const w = windowOf(handle); w.width = width; w.height = height; w.resized(); },
         window_set_title(handle, title) { document.title = context.text(title); windowOf(handle).canvas.setAttribute('aria-label', document.title); },
         window_set_fullscreen(handle, fullscreen) { const w = windowOf(handle); w.fullscreen = fullscreen !== 0; w.resized(); return 1; },

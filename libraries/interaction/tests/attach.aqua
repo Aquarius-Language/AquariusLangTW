@@ -8,6 +8,7 @@ p.run(function() { p.size(320, 200, p.P2D, "interaction test"); }, function() {
     session.SetCursor("arrow");
     var area = session.SafeArea();
     print(area.left >= 0, area.top >= 0, typeOf(area.keyboardVisible));
+    print(area.top > 0 || area.bottom > 0);   # phones: the status bar or home indicator covers an edge; desktop: nothing
     var id = session.On("back", function(e) { return true; });
     print(session.Off(id), session.Off(id));
     session.Detach();

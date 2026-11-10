@@ -121,6 +121,10 @@ aqua_define_function(module, "Query|查詢", query, "s");
 aqua_define_async(module, "QueryAsync|非同步查詢", query, "s");
 ```
 
+SDK API 5 adds `aqua_window_safe_area(window, &left, &top, &right, &bottom, &keyboard_visible)` (`aqua/window.h`):
+the edges system bars, notches and the home indicator cover, in logical units, and whether the soft keyboard shows, on
+every target (zeros on desktop windows; a RESIZE event follows a change). It replaces Android's `aqua_android_insets`.
+
 SDK API 4 adds remote windows (`aqua/remote_window.h`): a desktop runtime started with
 `AQUARIUS_REMOTE_WINDOW=host:port` shows every window on a viewer elsewhere (a WellPlay notebook output, a web page)
 instead of the screen. Input still arrives through `aqua_window_listen`, so libraries that only read events need

@@ -31,8 +31,3 @@ void platform_back_guard(bool enabled, void (*back)(void *data), void *data) {
     if (enabled) web_history_guard(back, data);
     else web_history_release();
 }
-
-void platform_safe_area(float *left, float *top, float *right, float *bottom, bool *keyboard) {
-    *left = *top = *right = *bottom = 0;
-    *keyboard = false;
-}

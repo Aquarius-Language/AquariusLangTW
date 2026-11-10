@@ -29,6 +29,10 @@ static CAMetalLayer *metal_layer;      /* the view's layer, set on the main thre
 static UIView *main_view;
 static double point_scale = 1;         /* points to pixels */
 static int32_t view_width, view_height; /* in points */
+/* The view's safe area insets (points) and whether the soft keyboard shows, written on the main thread. */
+static float safe_insets[4];
+static bool keyboard_shown;
+static pthread_mutex_t safe_lock = PTHREAD_MUTEX_INITIALIZER;
 
 static double seconds(void) { struct timespec t; clock_gettime(CLOCK_MONOTONIC, &t); return (double)t.tv_sec + t.tv_nsec / 1e9; }
 
@@ -125,8 +129,14 @@ static int32_t glfw_mods(UIKeyModifierFlags flags) {
     aqua_window_event release = press; release.action = 0;
     post(press, NULL); post(release, NULL);
 }
+/* A new safe area (rotation, the status bar) lays the view out again, which reports a resize. */
+- (void)safeAreaInsetsDidChange { [super safeAreaInsetsDidChange]; [self setNeedsLayout]; }
 - (void)layoutSubviews {
     [super layoutSubviews];
+    UIEdgeInsets insets = self.safeAreaInsets;
+    pthread_mutex_lock(&safe_lock);
+    safe_insets[0] = (float)insets.left; safe_insets[1] = (float)insets.top; safe_insets[2] = (float)insets.right; safe_insets[3] = (float)insets.bottom;
+    pthread_mutex_unlock(&safe_lock);
     point_scale = self.window.screen.nativeScale > 0 ? self.window.screen.nativeScale : UIScreen.mainScreen.nativeScale;
     CAMetalLayer *layer = (CAMetalLayer *)self.layer;
     layer.contentsScale = point_scale;
@@ -182,7 +192,23 @@ static uint32_t touch_id(UITouch *touch, bool begin) {
 @interface AquaViewController : UIViewController
 @end
 @implementation AquaViewController
-- (void)loadView { self.view = [[AquaView alloc] initWithFrame:UIScreen.mainScreen.bounds]; self.view.multipleTouchEnabled = YES; }
+- (void)loadView {
+    self.view = [[AquaView alloc] initWithFrame:UIScreen.mainScreen.bounds];
+    self.view.multipleTouchEnabled = YES;
+    NSNotificationCenter *center = NSNotificationCenter.defaultCenter;
+    [center addObserver:self selector:@selector(keyboardShown:) name:UIKeyboardWillShowNotification object:nil];
+    [center addObserver:self selector:@selector(keyboardHidden:) name:UIKeyboardWillHideNotification object:nil];
+}
+- (void)keyboard:(bool)shown {
+    pthread_mutex_lock(&safe_lock);
+    keyboard_shown = shown;
+    pthread_mutex_unlock(&safe_lock);
+    aqua_window_event e = {AQUA_EVENT_RESIZE};
+    e.x = view_width; e.y = view_height;
+    post(e, NULL);
+}
+- (void)keyboardShown:(NSNotification *)notification { [self keyboard:true]; }
+- (void)keyboardHidden:(NSNotification *)notification { [self keyboard:false]; }
 - (BOOL)prefersHomeIndicatorAutoHidden { return YES; }
 @end
 
@@ -280,6 +306,13 @@ void aqua_window_framebuffer_size(aqua_window *w, int32_t *width, int32_t *heigh
     *width = (int32_t)(view_width * point_scale + 0.5); *height = (int32_t)(view_height * point_scale + 0.5);
 }
 float aqua_window_content_scale(aqua_window *w) { (void)w; return (float)point_scale; }
+void aqua_window_safe_area(aqua_window *w, float *left, float *top, float *right, float *bottom, bool *keyboard_visible) {
+    (void)w;
+    pthread_mutex_lock(&safe_lock);
+    *left = safe_insets[0]; *top = safe_insets[1]; *right = safe_insets[2]; *bottom = safe_insets[3];
+    *keyboard_visible = keyboard_shown;
+    pthread_mutex_unlock(&safe_lock);
+}
 void aqua_window_set_size(aqua_window *w, int32_t width, int32_t height) { (void)w; (void)width; (void)height; }
 void aqua_window_set_position(aqua_window *w, int32_t x, int32_t y) { (void)w; (void)x; (void)y; }
 void aqua_window_set_title(aqua_window *w, const char *title) { (void)w; (void)title; }

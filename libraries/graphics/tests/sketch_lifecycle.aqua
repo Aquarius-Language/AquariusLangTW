@@ -4,6 +4,8 @@ var log = [];
 var setup = function() {
     p.size(320, 160, p.P2D, "lifecycle test");
     print("setup", p.width, p.height, p.frameCount);
+    var area = p.safeArea();   # phones: the status bar or home indicator covers an edge; desktop: nothing
+    print("safe area", area.top > 0 || area.bottom > 0, area.left >= 0 && area.right >= 0, typeOf(area.keyboardVisible));
     p.on("windowResized", function() { print("resized", p.width, p.height); if (p.width == 360) { p.strokeWeight(-1); } });
     p.on("error", function() { print("error event", p.errorEvent, p.errorMessage); });
 };

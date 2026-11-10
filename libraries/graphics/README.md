@@ -111,7 +111,7 @@ Beyond the earlier implementation, the module has: blend modes `SUBTRACT`, `LIGH
 `random2D()`, `random3D()` (module functions), `setHeading()` and `setX/setY/setZ()` (the runtime has no property
 setters), `year()`..`second()`, `nf`, `nfs`, `nfp`, `nfc`, `hex`, `unhex`, `binary`, `unbinary`, `str`, `trim`,
 `split`, `splitTokens`, `join`, `cursor(ARROW | CROSS | HAND | MOVE | TEXT | WAIT)` and `cursor(image[, x, y])`,
-`windowTitle()`, `pixelDensity()`, `focused`, `requestImage()`, `loadImage(bytes)` (an encoded PNG, JPEG, GIF or BMP
+`windowTitle()`, `pixelDensity()`, `safeArea()` (`left`, `top`, `right`, `bottom`, `keyboardVisible`: the edges system bars and notches cover on phones, zeros on desktop; `windowResized` follows a change), `focused`, `requestImage()`, `loadImage(bytes)` (an encoded PNG, JPEG, GIF or BMP
 held in memory, such as one received over the network on the web), `loadImage("data:image/png;base64,...")` (a data
 URI, as p5.js takes; decoded natively, without an array of its bytes), `saveFrame()` without a name, and the key constants
 `UP`, `DOWN`, `LEFT_ARROW`, `RIGHT_ARROW`, `SHIFT`, `CONTROL`, `ALT`, `ENTER`, `RETURN`, `BACKSPACE`, `TAB`, `DELETE`,

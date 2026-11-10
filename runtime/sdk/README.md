@@ -97,6 +97,10 @@ AQUA_LIBRARY(sample) {
 libraries create surfaces from `aqua_window_surface` (HWND, X11/Wayland, ANativeWindow, or a canvas handle on the web)
 and receive input through `aqua_window_listen`. Libraries never call GLFW, Win32 windowing or DOM APIs directly.
 
+Safe areas (API 5): `aqua_window_safe_area` gives the edges of a window that system bars, notches and the home
+indicator cover, in logical units, and whether the soft keyboard shows, on every target (zeros on desktop windows);
+mobile windows send `AQUA_EVENT_RESIZE` when it changes.
+
 Remote windows (API 4, `<aqua/remote_window.h>`): a desktop runtime started with `AQUARIUS_REMOTE_WINDOW=host:port`
 (and `AQUARIUS_REMOTE_WINDOW_TOKEN`) connects to a viewer there and shows every window it opens on it instead of the
 screen; the `remotewindow` library is the viewer side on every target. The surface kind is then

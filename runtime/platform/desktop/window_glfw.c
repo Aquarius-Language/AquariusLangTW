@@ -405,6 +405,12 @@ float aqua_window_content_scale(aqua_window *w) {
     glfwGetWindowContentScale(w->glfw, &x, &y);
     return x;
 }
+/* Nothing covers a desktop window (or a remote one, whose viewer shows it inside a window of its own). */
+void aqua_window_safe_area(aqua_window *w, float *left, float *top, float *right, float *bottom, bool *keyboard_visible) {
+    (void)w;
+    *left = *top = *right = *bottom = 0;
+    *keyboard_visible = false;
+}
 void aqua_window_set_size(aqua_window *w, int32_t width, int32_t height) {
     if (w->remote) remote_set_size(w->remote, width, height); else glfwSetWindowSize(w->glfw, width, height);
 }

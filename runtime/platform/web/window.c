@@ -10,6 +10,7 @@ WEB_IMPORT(window_destroy) void web_window_destroy(int32_t handle);
 WEB_IMPORT(window_poll) void web_window_poll(int32_t handle);
 WEB_IMPORT(window_size) void web_window_size(int32_t handle, int32_t *size); /* logical w, h, pixel w, h */
 WEB_IMPORT(window_scale) double web_window_scale(int32_t handle);
+WEB_IMPORT(window_safe_area) int32_t web_window_safe_area(int32_t handle, float *insets); /* left, top, right, bottom; keyboard */
 WEB_IMPORT(window_set_size) void web_window_set_size(int32_t handle, int32_t width, int32_t height);
 WEB_IMPORT(window_set_title) void web_window_set_title(int32_t handle, const char *title);
 WEB_IMPORT(window_set_fullscreen) int32_t web_window_set_fullscreen(int32_t handle, int32_t fullscreen);
@@ -78,6 +79,12 @@ void aqua_window_set_should_close(aqua_window *w, bool close) { w->should_close 
 void aqua_window_size(aqua_window *w, int32_t *width, int32_t *height) { int32_t s[4]; web_window_size(w->handle, s); *width = s[0]; *height = s[1]; }
 void aqua_window_framebuffer_size(aqua_window *w, int32_t *width, int32_t *height) { int32_t s[4]; web_window_size(w->handle, s); *width = s[2]; *height = s[3]; }
 float aqua_window_content_scale(aqua_window *w) { return (float)web_window_scale(w->handle); }
+/* The page's safe area (env(safe-area-inset-*), nonzero on phones with viewport-fit=cover). */
+void aqua_window_safe_area(aqua_window *w, float *left, float *top, float *right, float *bottom, bool *keyboard_visible) {
+    float insets[4] = {0};
+    *keyboard_visible = web_window_safe_area(w->handle, insets) != 0;
+    *left = insets[0]; *top = insets[1]; *right = insets[2]; *bottom = insets[3];
+}
 void aqua_window_set_size(aqua_window *w, int32_t width, int32_t height) { web_window_set_size(w->handle, width, height); }
 void aqua_window_set_position(aqua_window *w, int32_t x, int32_t y) { (void)w; (void)x; (void)y; }
 void aqua_window_set_title(aqua_window *w, const char *title) { web_window_set_title(w->handle, title); }

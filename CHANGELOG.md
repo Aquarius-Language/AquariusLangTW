@@ -105,6 +105,12 @@ Runtime:
   kind `AQUA_SURFACE_FRAMES` and present with `aqua_window_present`; OpenGL windows are read back on swap. Standard
   output printed before a window opens is written before the window is announced, so a reader of both sees them in
   order.
+- Safe areas on every target (SDK API 5, `aqua_window_safe_area` in `aqua/window.h`): the edges system bars, notches
+  and the home indicator cover, in logical units, and whether the soft keyboard shows. iOS reports the view's safe area
+  (it reported zeros, so full-screen apps drew under the status bar), Android its window insets, the web the page's
+  `env(safe-area-inset-*)` (the page now uses `viewport-fit=cover`), desktop windows zeros; mobile windows send a
+  resize when it changes. It replaces Android's `aqua_android_insets`. Interaction's `SafeArea()` and the Input
+  library use it, and Processing adds `safeArea()`.
 - On the web, a deferred library call made inside a callback that runs synchronously (a Clay children function, an
   Interaction handler) fails with "cannot wait for an asynchronous operation on the web" as before, but the library's
   result arriving later is now dropped instead of resuming the finished callback: it used to trap with "function
@@ -123,6 +129,11 @@ Runtime:
   the application's canvas.
 
 Libraries:
+- Graphics: 32-bit float textures (`r32float`, `rgba32float`) are unfilterable on every target, as on iOS, many
+  Android phones and some browsers: a shader that reads one only with `textureLoad` works everywhere (on the iOS
+  simulator it failed validation), while sampling, `GenerateMipmaps` or presenting one fails with an error pointing to
+  `rgba16float`. The device no longer turns on `float32-filterable` where the GPU offers it, so programs behave the
+  same on every GPU.
 - Graphics: `drawUI` draws text at the size it is rasterized at the screen's pixel density, and `uiTextMetrics`
   measures its box there too. Text painted in pieces placed by the advance of what precedes them (WellPlay's
   highlighted code cells) no longer overlaps or leaves gaps at 125% or 250% scaling in fonts with whole-pixel advances

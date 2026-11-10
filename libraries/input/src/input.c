@@ -220,9 +220,10 @@ static void poll_input(aqua_call *call) {
 #if defined(AQUA_OS_ANDROID)
     aqua_runtime *rt = aqua_call_runtime(call);
     input_state *s = attach(call);
-    float left, top, right, bottom;
-    bool keyboard;
-    aqua_android_insets(&left, &top, &right, &bottom, &keyboard);
+    float left = 0, top = 0, right = 0, bottom = 0;
+    bool keyboard = false;
+    aqua_window *window = aqua_android_window();
+    if (window) aqua_window_safe_area(window, &left, &top, &right, &bottom, &keyboard);
     int32_t width = 0, height = 0;
     bool known = aqua_display_size(rt, &width, &height);
     aqua_value touches = aqua_array_new(rt, s->count);

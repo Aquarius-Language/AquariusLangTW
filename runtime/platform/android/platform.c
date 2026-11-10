@@ -259,6 +259,13 @@ JNIEXPORT void JNICALL Java_org_aquariuslang_runtime_AquariusActivity_nativeKey(
     post(ime, e);
 }
 
+/* New insets: the window reports a resize, so layouts read aqua_window_safe_area again. */
+static void insets_changed(aqua_runtime *rt, void *data) { (void)rt; (void)data; android_insets_changed(); }
+JNIEXPORT void JNICALL Java_org_aquariuslang_runtime_AquariusActivity_nativeInsets(JNIEnv *env, jclass c) {
+    (void)env; (void)c;
+    post(insets_changed, NULL);
+}
+
 static request *add_request(void) {
     request *r = calloc(1, sizeof *r);
     r->id = next_request++;
@@ -289,7 +296,9 @@ void aqua_android_request_permission(const char *permission, void (*done)(bool g
     (*env)->DeleteLocalRef(env, name);
 }
 
-void aqua_android_insets(float *left, float *top, float *right, float *bottom, bool *keyboard_visible) {
+/* aqua_window_safe_area: the activity's system bar and display cutout insets, and the soft keyboard. */
+void aqua_window_safe_area(aqua_window *w, float *left, float *top, float *right, float *bottom, bool *keyboard_visible) {
+    (void)w;
     *left = *top = *right = *bottom = 0;
     *keyboard_visible = false;
     jmethodID insets = android_activity_method("insets", "()[F");

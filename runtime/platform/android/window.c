@@ -160,6 +160,12 @@ void android_ime_composition(const char *utf8, int32_t cursor) {
     emit(&e);
 }
 void android_ime_key(int32_t code, bool down) { key_event(code, down ? 1 : 0, 0); }
+void android_insets_changed(void) {
+    if (!app || !app->window) return;
+    aqua_window_event e = {AQUA_EVENT_RESIZE};
+    e.x = ANativeWindow_getWidth(app->window) / density(); e.y = ANativeWindow_getHeight(app->window) / density();
+    emit(&e);
+}
 
 static void on_command(struct android_app *a, int32_t command) {
     (void)a;

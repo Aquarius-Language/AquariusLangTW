@@ -584,9 +584,10 @@ static void session_dispatch(aqua_call *call) {
 
 static void session_safe_area(aqua_call *call) {
     aqua_runtime *rt = aqua_call_runtime(call);
+    session *s = aqua_self(call);
     float left = 0, top = 0, right = 0, bottom = 0;
     bool keyboard = false;
-    platform_safe_area(&left, &top, &right, &bottom, &keyboard);
+    if (s->window) aqua_window_safe_area(s->window, &left, &top, &right, &bottom, &keyboard);
     aqua_value values[5] = {aqua_double(left), aqua_double(top), aqua_double(right), aqua_double(bottom), aqua_bool(keyboard)};
     aqua_return(call, new_record(rt, safe_area_class, values, 5));
 }

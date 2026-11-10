@@ -23,7 +23,3 @@ void platform_conventions(conventions *c) {
 
 void platform_back_unhandled(aqua_window *window) { (void)window; }
 void platform_back_guard(bool enabled, void (*back)(void *data), void *data) { (void)enabled; (void)back; (void)data; }
-void platform_safe_area(float *left, float *top, float *right, float *bottom, bool *keyboard) {
-    *left = *top = *right = *bottom = 0;
-    *keyboard = false;
-}

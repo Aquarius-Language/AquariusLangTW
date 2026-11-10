@@ -104,7 +104,3 @@ void platform_back_unhandled(aqua_window *window) {
 }
 
 void platform_back_guard(bool enabled, void (*back)(void *data), void *data) { (void)enabled; (void)back; (void)data; }
-
-void platform_safe_area(float *left, float *top, float *right, float *bottom, bool *keyboard) {
-    aqua_android_insets(left, top, right, bottom, keyboard);
-}

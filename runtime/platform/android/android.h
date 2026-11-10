@@ -20,4 +20,6 @@ jmethodID android_activity_method(const char *name, const char *signature);
 void android_ime_text(const char *utf8);
 void android_ime_composition(const char *utf8, int32_t cursor);
 void android_ime_key(int32_t code, bool down);
+/* The activity's window insets changed (aqua_window_safe_area): a RESIZE event, on the runtime thread. */
+void android_insets_changed(void);
 #endif

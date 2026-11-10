@@ -123,8 +123,9 @@ apply those that fit the application. The libraries named do the platform-specif
       when the application starts again: the screen, scroll positions, drafts. Stop animations and audio while hidden.
 - [ ] **Unsaved work** is never lost silently: intercept closing (`Window.Attach(...)` and `ResolveClose` in the
       graphics library) to ask, and keep drafts in `Storage`.
-- [ ] **Safe areas:** keep content and controls out of `session.SafeArea()` (status and navigation bars, notches,
-      rounded corners) and above the soft keyboard (`keyboardVisible`).
+- [ ] **Safe areas:** keep content and controls inside `session.SafeArea()` (status and navigation bars, notches,
+      rounded corners, the home indicator; Processing sketches can use `safeArea()`) and above the soft keyboard
+      (`keyboardVisible`). Lay out again on `resize`: rotating the device or showing the keyboard changes it.
 - [ ] **Follow the user's settings** from `Conventions()`: `darkMode` (a dark theme), `reducedMotion` (no parallax,
       zooming transitions or long animations; ScrollView already stops flinging), `highContrast` (solid borders,
       no information in color alone), and the platform's `doubleClickTime` and thresholds (the recognizer uses them).

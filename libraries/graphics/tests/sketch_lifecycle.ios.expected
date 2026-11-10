@@ -1,4 +1,5 @@
 setup 320 160 0
+safe area 真 真 boolean
 resized 402 874
 layer 4 4 4
 layer pixels 4294901760 4278190335 4278190335

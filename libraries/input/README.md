@@ -21,7 +21,8 @@ Each touch has `id`, `phase` (`down`, `move`, `up`, `cancel`), `x`, `y` (density
 `src/input.c` listens (`aqua_window_listen`) to the activity's window, which `aqua_android_window()` returns once a
 graphics library (Processing, WGPU, ...) created it: pointer events become touches (the button event that follows a
 pointer event marks it `down` or `up`), `AQUA_EVENT_BACK` sets `backRequested`, and pausing (`AQUA_EVENT_LIFECYCLE`)
-reports the touches in progress as `cancel`. Insets and keyboard visibility come from `aqua_android_insets`; the soft
+reports the touches in progress as `cancel`. Insets and keyboard visibility come from the window's
+`aqua_window_safe_area`; the soft
 keyboard goes through the window's text input (or `AquariusActivity.showKeyboard` without a window); vibration and
 `Accept` (`Activity.finish()`) use JNI. `android.permission.VIBRATE` is declared in `aqua.toml`.
 

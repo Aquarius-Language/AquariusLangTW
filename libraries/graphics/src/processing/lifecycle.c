@@ -4,6 +4,7 @@
    AQUARIUS_GRAPHICS_FRAMES=N ends run() after N drawn frames and AQUARIUS_GRAPHICS_CAPTURE=file saves the last one. */
 #include "processing.h"
 #include "../graphics.h"
+#include "../common/records.h"
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -165,6 +166,16 @@ static void p_windowMove(aqua_call *call, processing *p) {
 }
 
 static void p_displayDensity(aqua_call *call, processing *p) { aqua_return_double(call, gfx_processing_content_scale(p)); }
+/* safeArea(): how far system bars, notches and the home indicator cover each edge of the sketch's window (logical units,
+   zeros on desktop windows and before size()), and whether the soft keyboard shows. windowResized follows a change. */
+static void p_safeArea(aqua_call *call, processing *p) {
+    float left = 0, top = 0, right = 0, bottom = 0;
+    bool keyboard = false;
+    if (p->window) aqua_window_safe_area(p->window, &left, &top, &right, &bottom, &keyboard);
+    static const char *const names[] = {"left", "top", "right", "bottom", "keyboardVisible"};
+    aqua_value values[5] = {aqua_double(left), aqua_double(top), aqua_double(right), aqua_double(bottom), aqua_bool(keyboard)};
+    aqua_return(call, gfx_record_of(p->rt, 5, names, values));
+}
 /* pixelDensity(n): the main canvas renders n device pixels per unit (presented scaled to the window); 0 follows the
    display again. Takes effect at the next frame. */
 static void p_pixelDensity(aqua_call *call, processing *p) {
@@ -649,7 +660,7 @@ static void p_canvas_resize(aqua_call *call, processing *p, canvas *c) {
 #define LIFECYCLE_MODULE(X) \
     X(size, "size|尺寸", 2, 4) X(fullScreen, "fullScreen|全螢幕", 0, 2) X(resize, "resize|調整尺寸", 2, 2) X(windowMove, "windowMove|移動視窗", 2, 2) \
     X(displayDensity, "displayDensity|顯示密度", 0, 0) X(displayScale, "displayScale|顯示縮放", 0, 0) X(pixelDensity, "pixelDensity|像素密度", 1, 1) \
-    X(windowTitle, "windowTitle|視窗標題", 1, 1) X(beginFrame, "beginFrame|開始影格", 0, 0) \
+    X(safeArea, "safeArea|安全區域", 0, 0) X(windowTitle, "windowTitle|視窗標題", 1, 1) X(beginFrame, "beginFrame|開始影格", 0, 0) \
     X(endFrame, "endFrame|結束影格", 0, 0) X(run, "run|執行", 2, 2) X(on, "on|註冊事件", 2, 2) X(noLoop, "noLoop|停止持續繪圖", 0, 0) \
     X(loop, "loop|持續繪圖", 0, 0) X(redraw, "redraw|重繪", 0, 0) X(redrawAfter, "redrawAfter|延遲重繪", 1, 1) X(exit, "exit|結束", 0, 0) \
     X(close, "close|關閉", 0, 0) X(frameRate, "frameRate|影格率", 1, 1) X(millis, "millis|毫秒", 0, 0) \

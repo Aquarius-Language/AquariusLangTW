@@ -83,6 +83,4 @@ void platform_back_unhandled(aqua_window *window);
 /* Web: keeps a history entry so the browser's back button reaches the application while `enabled`; `back` runs on
    the runtime's thread when it is used. Other targets: nothing. */
 void platform_back_guard(bool enabled, void (*back)(void *data), void *data);
-/* System bar and cutout insets in logical units and whether a soft keyboard covers the window. */
-void platform_safe_area(float *left, float *top, float *right, float *bottom, bool *keyboard);
 #endif

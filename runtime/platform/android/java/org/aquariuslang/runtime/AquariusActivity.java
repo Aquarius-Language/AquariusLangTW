@@ -36,6 +36,7 @@ public final class AquariusActivity extends NativeActivity {
     private static native void nativeText(String text);
     private static native void nativeComposition(String text, int cursor);
     private static native void nativeKey(int keyCode, boolean down);
+    private static native void nativeInsets();
 
     @Override
     protected void onCreate(Bundle state) {
@@ -46,6 +47,7 @@ public final class AquariusActivity extends NativeActivity {
             android.graphics.Insets bars = insets.getInsets(WindowInsets.Type.systemBars() | WindowInsets.Type.displayCutout());
             insetLeft = bars.left; insetTop = bars.top; insetRight = bars.right; insetBottom = bars.bottom;
             keyboardVisible = insets.isVisible(WindowInsets.Type.ime());
+            nativeInsets();
             return view.onApplyWindowInsets(insets);
         });
     }
