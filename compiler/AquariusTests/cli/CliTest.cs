@@ -352,6 +352,24 @@ public class CliProcessTest
 
 
     [Fact]
+    public void ExportHeaderWritesTheCHeaderAndExplainsProgramsWithoutExports()
+    {
+        using var t = new TestFolder();
+        t.Write("shapes.aqua", "# Twice a number.\nexport var twice = function(n: int): int { n * 2; };\n");
+        var header = AquaCommand.Run(t.Path, "export", "header", "shapes.aqua", "-o", "shapes.h");
+        Assert.True(header.Code == 0, header.Error);
+        string text = File.ReadAllText(t.FilePath("shapes.h"));
+        Assert.Contains("/* Twice a number. */\nSHAPES_API int32_t shapes_twice(int32_t n);", text);
+        Assert.Contains("SHAPES_API bool shapes_initialize(void);", text);
+        t.Write("plain.aqua", "var twice = function(n: int): int { n * 2; };\n");
+        var none = AquaCommand.Run(t.Path, "export", "header", "plain.aqua");
+        Assert.Equal(1, none.Code);
+        Assert.Contains("exports nothing", none.Error);
+        Assert.Equal(2, AquaCommand.Run(t.Path, "export", "footer", "plain.aqua").Code);
+        Assert.Contains("not built yet", AquaCommand.Run(t.Path, "build", "shapes.aqua", "--target", "macos", "--kind", "shared", "-o", "dist").Error);
+    }
+
+    [Fact]
     public void CompileErrorsNameTheirLineAndColumn()
     {
         using var t = new TestFolder(); t.Write("main.aqua", "print(1);\nvar broken = ;\n");
