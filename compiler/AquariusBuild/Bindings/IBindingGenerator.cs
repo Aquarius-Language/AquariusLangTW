@@ -23,6 +23,6 @@ public interface IBindingGenerator
 
 public static class BindingGenerators
 {
-    public static IReadOnlyList<IBindingGenerator> All { get; } = [new CBinding(), new CppBinding(), new RustBinding(), new JavaBinding(), new TypeScriptBinding()];
+    public static IReadOnlyList<IBindingGenerator> All { get; } = [new CBinding(), new CppBinding(), new RustBinding(), new SwiftBinding(), new JavaBinding(), new TypeScriptBinding()];
     public static IBindingGenerator? Find(string language) => All.FirstOrDefault(g => g.Language == language);
 }
