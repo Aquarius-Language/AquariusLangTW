@@ -127,6 +127,25 @@ public class LanguageServerTest
     }
 
     [Fact]
+    public void ExportsAreHoveredCompletedAndDiagnosedInSourcesAndManifests()
+    {
+        using var s = Launch();
+        NoDiagnostics(s.Open("# Area.\n匯出 變數 面積, area = 函式(寬: 雙精度, 高: 雙精度): 雙精度 { 寬 * 高; };\n匯出 結構 點, Point { x: 雙精度 }\n點(1.0);"));
+        Assert.Matches(@"匯出 export area \(C: <prefix>area\)", HoverText(s.Feature("hover", 1, 6)));
+        Assert.Matches(@"匯出 export Point \(C: <prefix>point\)", HoverText(s.Feature("hover", 2, 6)));
+        Assert.Matches("C ABI", HoverText(s.Feature("hover", 1, 0)));
+        var keywords = Labels(s.Feature("completion", 3, 0));
+        Assert.Contains("匯出", keywords); Assert.Contains("export", keywords); Assert.Contains("Point", keywords);
+        s.Change(Uri, 2, new { text = "export var f = function(x) { x; };" });
+        Assert.Contains(Messages(s.Diagnostics(2)), m => m.Contains("needs a type annotation"));
+        using var t = new BottleDirectory();
+        string manifest = "manifest_version = 2\n[project]\nname = \"geo\"\n[export]\nprefx = \"geo_\"\n";
+        var errors = s.Open(manifest, FileUri(t.Write("aqua.toml", manifest)));
+        Assert.Contains(errors.EnumerateArray(), d => d.GetProperty("message").GetString()!.Contains("Unknown [export] key 'prefx'") && Start(d).Line == 4);
+        Assert.Contains("import_libraries", Labels(s.Feature("completion", 4, 0, FileUri(t.FilePath("aqua.toml")))));
+    }
+
+    [Fact]
     public void TypedProgramsShowAnnotationsCompleteTypeNamesAndReportTypeErrors()
     {
         using var s = Launch();

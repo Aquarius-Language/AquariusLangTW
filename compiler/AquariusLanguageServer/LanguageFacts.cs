@@ -36,6 +36,8 @@ internal static class LanguageFacts
         ["null"] = "The null value: a missing field, entry or element. Alias: 空值.",
         ["struct"] = "struct Name { field: type; field } — Declare a struct type; construct values with Name(field: value) or Name(value, ...). Fields left out are null. Alias: 結構.",
         ["const"] = "const name = expression; — Declare a constant: assigned once, where it is declared, and never again. A constant initialized with a literal is compiled into typed functions. Alias: 常數.",
+        ["匯出"] = "匯出 變數 名稱, name = 函式(...) { ... }; — 匯出函式或結構（匯出 結構、匯出 常數、匯出(\"名稱\") 宣告），供原生函式庫（.dll、.so 等）以 C ABI 呼叫：只能用在入口模組最上層，參數與結果需標註可匯出的型別（docs/native-libraries.md）。",
+        ["export"] = "export var name = function(...) { ... }; — Export a function or struct (export struct, export const, export(\"name\") declaration) for native library outputs (.dll, .so, ...) called through a C ABI: top level of the entry module only, parameters and results annotated with exportable types (docs/native-libraries.md). Alias: 匯出.",
         ["true"] = "Boolean true. Alias: 真.",
         ["false"] = "Boolean false. Alias: 假."
     };

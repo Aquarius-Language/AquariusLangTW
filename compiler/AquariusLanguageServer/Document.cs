@@ -159,6 +159,7 @@ internal sealed class Document
                 string names = let.Alias == null ? let.Name?.Value ?? "" : $"{let.Name?.Value} / {let.Alias.Value}";
                 string detail = let.Constant && function == null ? $"常數 const {names}{Annotation(let.Name?.Type)} = {let.Value?.String()}"
                     : function == null ? $"變數 {names}{Annotation(let.Name?.Type)}" : $"{names}{Signature(function)}";
+                if (let.Export != null) detail = ExportDetail(let.Export, let.Name, let.Alias) + detail;
                 Declare(let.Name, scope, function == null ? let.Constant ? ConstantKind : 13 : 12, detail, function == null ? null : End(function.Body), let.Value);
                 Declare(let.Alias, scope, 12, detail, function == null ? null : End(function.Body), let.Value);
                 Walk(let.Value, scope);
@@ -177,7 +178,9 @@ internal sealed class Document
                 Walk(loop.Body, loopScope);
                 break;
             case StructStatement shape:
-                Declare(shape.Name, scope, StructKind, shape.String(), End(shape), shape: shape);
+                string structure = (shape.Export == null ? "" : ExportDetail(shape.Export, shape.Name, shape.Alias)) + shape.String();
+                Declare(shape.Name, scope, StructKind, structure, End(shape), shape: shape);
+                Declare(shape.Alias, scope, StructKind, structure, End(shape), shape: shape);
                 foreach (var field in shape.Fields) Walk(field.Default, scope);
                 break;
             case SpreadElement spread: Walk(spread.Value, scope); break;
@@ -365,6 +368,9 @@ internal sealed class Document
     }
 
     private static string FieldDetail(StructStatement shape, Identifier field) => $"欄位 field {shape.Name.Value}.{field.Value}{Annotation(field.Type)}";
+    /// <summary>The hover prefix of an exported declaration: its public name and the C function or type it becomes.</summary>
+    private static string ExportDetail(ExportMark mark, Identifier name, Identifier? alias) =>
+        ExportTable.PublicName(mark, name, alias) is { } exported ? $"匯出 export {exported} (C: <prefix>{ExportTable.SnakeCase(exported)})\n" : "匯出 export\n";
 
     private IEnumerable<Declaration> Exports() => declarations.Where(d => d.Scope.Parent == null)
         .GroupBy(d => d.Token.Literal).Select(g => g.Last());
@@ -393,7 +399,8 @@ internal sealed class Document
     public object Completion(Position position)
     {
         if (IsManifest) return new[] { "manifest_version", "project", "library", "name", "type", "version", "description", "license", "entry", "sources", "platforms", "libraries",
-                "native", "modules", "names", "android", "permissions", "dependencies", "path", "git", "rev", "subdirectory", "assets", "source", "target", "onnx", "cuda", "desktop", "hide_terminal" }
+                "native", "modules", "names", "android", "permissions", "dependencies", "path", "git", "rev", "subdirectory", "assets", "source", "target", "onnx", "cuda", "desktop", "hide_terminal",
+                "export", "prefix", "kinds", "module", "bindings", "package", "targets", "import_libraries", "java_package", "java_class" }
             .Select(label => new { label, kind = 10, detail = "Aquarius project manifest" }).ToArray();
         int offset = Source.Offset(position);
         if (!Source.IsCode(offset)) return Array.Empty<object>();
