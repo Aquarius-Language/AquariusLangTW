@@ -190,6 +190,7 @@ static void put(aqua_value value) {
     arguments[argument_count++] = value;
 }
 static void conversion_error(const char *message) { if (!conversion_failed) fail(message); conversion_failed = true; put(aqua_null()); }
+void aqua_embed_fail_argument(const char *message) { conversion_error(message); }
 
 void aqua_embed_put_int(int32_t value) { put(aqua_int(value)); }
 void aqua_embed_put_long(int64_t value) { put(aqua_long(value)); }

@@ -21,7 +21,7 @@ public sealed class AndroidLibraryPlatform : INativeLibraryPlatform
     public IReadOnlyList<string> DefaultBindings => ["c", "java"];
     public IReadOnlyList<string> Packages => ["aar", "folder"];
     public IReadOnlyList<string> ManifestKeys => ["java_package", "java_class"];
-    public bool Builds => false;
+    public bool Builds => true;
 }
 
 /// <summary>The web: the application's .wasm, loaded by the glue's loadLibrary(), with its .d.ts.</summary>

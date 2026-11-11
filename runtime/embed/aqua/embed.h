@@ -47,6 +47,8 @@ void aqua_embed_put_string(const char *utf8);
 void aqua_embed_put_array(const void *data, size_t count, aqua_embed_element element);
 /* Replaces the last field_count arguments with the struct `structure` made from them. */
 void aqua_embed_put_struct(uint32_t structure);
+/* Fails the call being built with this reason, as a conversion that went wrong does (a binding's null struct). */
+void aqua_embed_fail_argument(const char *message);
 bool aqua_embed_invoke(void);
 /* The result (field < 0) or field `field` of a struct result. Strings and array data are malloc'd copies the caller
    frees with <prefix>free. */

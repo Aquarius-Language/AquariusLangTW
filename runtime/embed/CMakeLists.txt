@@ -8,6 +8,7 @@
 #   AQUA_EMBED_PREFIX      the C symbol prefix;     AQUA_EMBED_MODULE  the application .wasm, embedded in the library
 #   AQUA_EMBED_LIBRARIES   the default native libraries to link (each a libraries/<name>/link.cmake of this pack)
 #   AQUA_EMBED_SHARED_OUTPUT, AQUA_EMBED_STATIC_OUTPUT, AQUA_EMBED_OBJECT_OUTPUT   the files of the kinds to build
+#   AQUA_EMBED_JAVA_CLASS, AQUA_EMBED_JDK   the Java binding's class (adds jni.c) and, on the desktops, the JDK
 # and what the platform's link rules (platform.cmake, from runtime/platform/<os>/embed.cmake) read: AQUA_EMBED_SONAME,
 # AQUA_EMBED_IMPORT_<KIND> (an import library to write). The rules make the targets of the kinds; this file writes
 # AQUA_EMBED_TABLE/link.txt: the system libraries a program linking a static or object output needs.
@@ -68,6 +69,18 @@ string(REPLACE ";" "\n" lines "${embed_runtime}")
 file(WRITE "${AQUA_EMBED_TABLE}/runtime.txt" "${lines}\n")
 string(REPLACE ";" "\n" lines "${embed_licenses}")
 file(WRITE "${AQUA_EMBED_TABLE}/licenses.txt" "${lines}\n")
+# The Java binding's native half when the java binding is built (AQUA_EMBED_JAVA_CLASS, the binding's class as JNI names
+# it). Android's compiler has the JNI headers; the desktops take them from the JDK (AQUA_EMBED_JDK, with the OS folder
+# that holds jni_md.h).
+if(AQUA_EMBED_JAVA_CLASS)
+    target_sources(parts PRIVATE jni.c)
+    target_compile_definitions(parts PRIVATE "AQUA_EMBED_JAVA_CLASS=\"${AQUA_EMBED_JAVA_CLASS}\"")
+    if(AQUA_EMBED_JDK)
+        file(GLOB embed_jni_platform "${AQUA_EMBED_JDK}/include/*/jni_md.h")
+        list(TRANSFORM embed_jni_platform REPLACE "/jni_md.h$" "")
+        target_include_directories(parts PRIVATE "${AQUA_EMBED_JDK}/include" ${embed_jni_platform})
+    endif()
+endif()
 file(STRINGS "${AQUA_EMBED_TABLE}/symbols.txt" embed_symbols)
 include("${CMAKE_CURRENT_SOURCE_DIR}/platform.cmake")
 list(REMOVE_DUPLICATES embed_system)

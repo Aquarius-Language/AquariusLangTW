@@ -6,10 +6,11 @@ namespace AquariusLang.Build.Libraries;
 
 /// <summary>
 /// The native library outputs of an application (docs/native-libraries.md): the step a build target takes instead of
-/// its usual artifact when <c>--kind</c> is given or the project has an <c>[export]</c> table. It reads the application's
-/// export table, compiles the application ahead of time (wasm2c and the pinned Clang) with the runtime pack's embed/
-/// project into a library exporting exactly that table's functions, and writes the bindings beside it:
-/// <c>&lt;output&gt;/&lt;target&gt;/</c> with include/ (bindings), bin/ or lib/ (the library and import libraries) and licenses/.
+/// its usual artifact when <c>--kind</c> names library kinds or the project has an <c>[export]</c> table. It reads the
+/// application's export table, compiles the application ahead of time (wasm2c and the pinned Clang) with the runtime
+/// pack's embed/ project into libraries exporting exactly that table's functions, and writes the bindings beside them:
+/// <c>&lt;output&gt;/&lt;target&gt;/</c> on the desktops (include/, bin/ or lib/, licenses/), <c>&lt;output&gt;/android/</c> (one
+/// library per ABI, the Java class compiled, an .aar) and <c>&lt;output&gt;/web/</c> (the application for loadLibrary()).
 /// </summary>
 public static class NativeLibraryOutput
 {
@@ -24,35 +25,80 @@ public static class NativeLibraryOutput
     public static bool Requested(WasmBuildRequest request) => request.Option(KindOption) is { } kind
         ? kind.Trim() != ExecutableKind : request.Export != null;
 
-    public static void Build(WasmBuildRequest request, string runtimeTarget)
+    /// <summary>What a build of one platform's outputs works from.</summary>
+    private sealed record Plan(WasmApplication Application, BindingContext Context, INativeLibraryPlatform Platform,
+        IReadOnlyList<string> Kinds, IReadOnlyList<IBindingGenerator> Generators, IReadOnlyList<string> Libraries)
     {
-        var target = RuntimeTarget.Get(runtimeTarget);
-        var platform = NativeLibraryPlatforms.Find(target.Platform) ?? throw new ArgumentException($"{target.Platform} has no native library outputs.");
-        if (!platform.Builds) throw new ArgumentException($"Native library outputs for {target.Platform} are not built yet (docs/native-libraries.md lists the phases).");
-        var (application, entry) = Output.Read(request, target.Platform);
+        public bool Java => Generators.Any(g => g is JavaBinding);
+    }
+
+    private static Plan Prepare(WasmBuildRequest request, string platformName)
+    {
+        var platform = NativeLibraryPlatforms.Find(platformName) ?? throw new ArgumentException($"{platformName} has no native library outputs.");
+        if (!platform.Builds) throw new ArgumentException($"Native library outputs for {platformName} are not built yet (docs/native-libraries.md lists the phases).");
+        var (application, entry) = Output.Read(request, platformName);
         if (!entry.Equals(application.EntryPoint, StringComparison.OrdinalIgnoreCase))
             throw new ArgumentException("Native library outputs export the application's entry module; --entry does not apply to them.");
         var exports = ExportTable.Read(application.Program) ?? throw new InvalidDataException(
             $"{entry} exports nothing: mark the functions a native library exposes with 匯出 / export (docs/native-libraries.md).");
-        var linked = LinkedLibraries(application, request);
+        var libraries = LinkedLibraries(application, request);
         var settings = request.Export ?? NativeLibrarySettings.Default(Path.GetFileNameWithoutExtension(entry));
-        var kinds = Kinds(request, settings, platform);
-        var context = new BindingContext(exports, settings);
-        var generators = Generators(settings, platform);
-        if (target.Kind == TargetKind.Web) { BuildWeb(request, application, context, generators, linked); return; }
+        return new Plan(application, new BindingContext(exports, settings, platformName), platform, Kinds(request, settings, platform),
+            Generators(settings, platform), libraries);
+    }
 
+    /// <summary>The outputs of a desktop target (windows-x64, linux-x64) or of the web ("web").</summary>
+    public static void Build(WasmBuildRequest request, string runtimeTarget)
+    {
+        var target = RuntimeTarget.Get(runtimeTarget);
+        var plan = Prepare(request, target.Platform);
+        if (target.Kind == TargetKind.Web) { BuildWeb(request, plan); return; }
         AquariusInstallation.RequireBuildableHere(runtimeTarget, "native library outputs");
         var installation = AquariusInstallation.Require();
         string pack = installation.RequireRuntimePack(runtimeTarget, Path.Combine("embed", "CMakeLists.txt"));
-        string output = Path.Combine(Path.GetFullPath(request.Output), runtimeTarget);
-        Output.ReplaceDirectory(output, Marker, stage => {
-            foreach (var generator in generators)
-                foreach (var file in generator.Generate(context)) Write(Path.Combine(stage, file.Path), file.Text);
-            var files = BuildKinds(request.Input, stage, context, target, kinds, linked, Path.Combine(pack, "embed"));
-            Write(Path.Combine(stage, "lib", "cmake", settings.Name, settings.Name + "-config.cmake"), CMakePackage.Config(context, target, files));
+        string? jdk = plan.Java ? JavaClasses.Home() : null;
+        Output.ReplaceDirectory(Path.Combine(Path.GetFullPath(request.Output), runtimeTarget), Marker, stage => {
+            WriteBindings(plan, stage);
+            var files = BuildKinds(request.Input, stage, plan, target, Path.Combine(pack, "embed"), jdk);
+            Write(Path.Combine(stage, "lib", "cmake", plan.Context.Settings.Name, plan.Context.Settings.Name + "-config.cmake"), CMakePackage.Config(plan.Context, target, files));
+            if (jdk != null) JavaClasses.Compile(jdk, Path.Combine(stage, "java"), Path.Combine(stage, "lib", plan.Context.Settings.Name + ".jar"));
             WriteLicenses(stage, installation, target);
         });
     }
+
+    /// <summary>The Android outputs: the library of each ABI ([export.android] targets, else every Android target whose
+    /// runtime pack is built) in lib/&lt;abi&gt;/, the bindings, the Java class compiled into &lt;name&gt;.jar, and the .aar
+    /// (the default package) with jni/, classes.jar and Prefab headers.</summary>
+    public static void BuildAndroid(WasmBuildRequest request)
+    {
+        var plan = Prepare(request, "android");
+        var installation = AquariusInstallation.Require();
+        var all = RuntimeTarget.Built.Where(t => t.Platform == "android").ToArray();
+        var chosen = plan.Context.Settings.For("android").Targets is { } named ? all.Where(t => named.Contains(t.Name)).ToArray()
+            : all.Where(t => installation.RuntimePack(t.Name) is { } pack && File.Exists(Path.Combine(pack, "embed", "CMakeLists.txt"))).ToArray();
+        if (chosen.Length == 0) throw new IOException("No Android runtime pack has the embed runtime: run scripts/build-runtime.ps1 -Targets android-x86_64 (and android-arm64-v8a).");
+        string jdk = plan.Java ? JavaClasses.Home() : "";
+        string name = plan.Context.Settings.Name;
+        Output.ReplaceDirectory(Path.Combine(Path.GetFullPath(request.Output), "android"), Marker, stage => {
+            WriteBindings(plan, stage);
+            foreach (var target in chosen) {
+                string pack = installation.RequireRuntimePack(target.Name, Path.Combine("embed", "CMakeLists.txt"));
+                string abiStage = Path.Combine(stage, ".abi-" + target.Name);
+                BuildKinds(request.Input, abiStage, plan, target, Path.Combine(pack, "embed"), null);
+                Output.CopyDirectory(Path.Combine(abiStage, "lib"), Path.Combine(stage, "lib", AndroidAbi(target)));
+                if (Directory.Exists(Path.Combine(abiStage, "licenses"))) Output.CopyDirectory(Path.Combine(abiStage, "licenses"), Path.Combine(stage, "licenses"));
+                Directory.Delete(abiStage, true);
+            }
+            if (plan.Java) JavaClasses.Compile(jdk, Path.Combine(stage, "java"), Path.Combine(stage, "lib", name + ".jar"));
+            WriteLicenses(stage, installation, chosen[0]);
+            if ((plan.Context.Settings.For("android").Package ?? plan.Platform.Packages[0]) == "aar")
+                AndroidLibraryPackage.Write(Path.Combine(stage, name + ".aar"), plan.Context, chosen.Select(t => (AndroidAbi(t), Path.Combine(stage, "lib", AndroidAbi(t)))).ToArray(),
+                    plan.Java ? Path.Combine(stage, "lib", name + ".jar") : null, Path.Combine(stage, "include"));
+        });
+    }
+
+    /// <summary>The ABI of an Android target (android-x86_64 is x86_64).</summary>
+    public static string AndroidAbi(RuntimeTarget target) => target.Name["android-".Length..];
 
     /// <summary>The default native libraries the application needs, which link into its outputs. A library that needs a
     /// window system ([native] window = true) cannot be included yet, nor can an external library's native part.</summary>
@@ -70,18 +116,15 @@ public static class NativeLibraryOutput
     /// <summary>The web's library: no native code is built. <c>&lt;output&gt;/web/</c> holds the application as
     /// &lt;name&gt;.wasm, the web pack in runtime/ with the needed libraries' side modules in runtime/libraries/, the glue
     /// (whose loadLibrary() loads it) in glue/, the bindings and licenses/.</summary>
-    private static void BuildWeb(WasmBuildRequest request, WasmApplication application, BindingContext context,
-        IReadOnlyList<IBindingGenerator> generators, IReadOnlyList<string> libraries)
+    private static void BuildWeb(WasmBuildRequest request, Plan plan)
     {
         var installation = AquariusInstallation.Require();
         string pack = installation.RequireRuntimePack("web", "aquarius.wasm", "libc.so");
-        var sideModules = libraries.Select(name => Path.Combine(pack, "libraries", name + ".wasm")).ToArray();
+        var sideModules = plan.Libraries.Select(name => Path.Combine(pack, "libraries", name + ".wasm")).ToArray();
         if (sideModules.FirstOrDefault(m => !File.Exists(m)) is { } missing) throw new IOException($"The web runtime pack has no side module {missing}.");
-        string output = Path.Combine(Path.GetFullPath(request.Output), "web");
-        Output.ReplaceDirectory(output, Marker, stage => {
-            foreach (var generator in generators)
-                foreach (var file in generator.Generate(context)) Write(Path.Combine(stage, file.Path), file.Text);
-            File.WriteAllBytes(Path.Combine(stage, context.Settings.Name + ".wasm"), application.Program.Bytes.ToArray());
+        Output.ReplaceDirectory(Path.Combine(Path.GetFullPath(request.Output), "web"), Marker, stage => {
+            WriteBindings(plan, stage);
+            File.WriteAllBytes(Path.Combine(stage, plan.Context.Settings.Name + ".wasm"), plan.Application.Program.Bytes.ToArray());
             string runtime = Path.Combine(stage, "runtime");
             Directory.CreateDirectory(Path.Combine(runtime, "libraries"));
             foreach (string file in Directory.EnumerateFiles(pack)) File.Copy(file, Path.Combine(runtime, Path.GetFileName(file)));
@@ -93,6 +136,12 @@ public static class NativeLibraryOutput
             string own = Path.Combine(installation.Root, "LICENSE");
             if (File.Exists(own)) File.Copy(own, Path.Combine(licenses, "AquariusLang.txt"), true);
         });
+    }
+
+    private static void WriteBindings(Plan plan, string stage)
+    {
+        foreach (var generator in plan.Generators)
+            foreach (var file in generator.Generate(plan.Context)) Write(Path.Combine(stage, file.Path), file.Text);
     }
 
     /// <summary>The kinds to build: <c>--kind a,b</c>, else the manifest's for this platform; each allowed there.</summary>
@@ -126,11 +175,13 @@ public static class NativeLibraryOutput
         IReadOnlyList<string>? SystemLibraries = null);
 
     /// <summary>The kinds asked for, compiled with the pack's embed/ project from one translation: the shared library
-    /// (with its import libraries), the static library and the prelinked object.</summary>
-    private static LibraryFiles BuildKinds(string wasm, string stage, BindingContext context, RuntimeTarget target, IReadOnlyList<string> kinds,
-        IReadOnlyList<string> libraries, string project)
+    /// (with its import libraries), the static library and the prelinked object; with the Java binding, the JNI half
+    /// (runtime/embed/jni.c) too, whose headers come from <paramref name="jdk"/> on the desktops.</summary>
+    private static LibraryFiles BuildKinds(string wasm, string stage, Plan plan, RuntimeTarget target, string project, string? jdk)
     {
+        var context = plan.Context with { Platform = target.Platform };
         var settings = context.Settings;
+        var kinds = plan.Kinds;
         string? versioned = target.VersionedSharedLibraryName(settings.Name, settings.Major);
         var files = new LibraryFiles(
             Shared: kinds.Contains("shared") ? $"{target.SharedLibraryFolder}/{versioned ?? target.SharedLibraryName(settings.Name)}" : "",
@@ -141,15 +192,19 @@ public static class NativeLibraryOutput
         Directory.CreateDirectory(Path.Combine(stage, "lib"));
         if (files.Shared.Length > 0) Directory.CreateDirectory(Path.Combine(stage, target.SharedLibraryFolder));
         try {
-            File.WriteAllText(Path.Combine(table, "exports.def"), EmbedTable.Definitions(context));
+            File.WriteAllText(Path.Combine(table, "exports.def"), EmbedTable.Definitions(context, plan.Java));
             File.WriteAllText(Path.Combine(table, CBinding.HeaderName(context)), CBinding.Header(context));
-            File.WriteAllText(Path.Combine(table, "symbols.txt"), string.Join("\n", EmbedTable.Symbols(context)) + "\n");
+            File.WriteAllText(Path.Combine(table, "symbols.txt"), string.Join("\n", EmbedTable.Symbols(context, plan.Java)) + "\n");
             string Full(string relative) => Path.Combine(stage, relative);
             var definitions = new Dictionary<string, string> {
                 ["AQUA_EMBED_TABLE"] = table, ["AQUA_EMBED_HEADER"] = CBinding.HeaderName(context),
                 ["AQUA_EMBED_STATIC"] = CBinding.Macro(context) + "_STATIC", ["AQUA_EMBED_PREFIX"] = settings.SymbolPrefix,
-                ["AQUA_EMBED_MODULE"] = Path.GetFullPath(wasm), ["AQUA_EMBED_LIBRARIES"] = string.Join(";", libraries),
+                ["AQUA_EMBED_MODULE"] = Path.GetFullPath(wasm), ["AQUA_EMBED_LIBRARIES"] = string.Join(";", plan.Libraries),
             };
+            if (plan.Java) {
+                definitions["AQUA_EMBED_JAVA_CLASS"] = JavaBinding.JniClass(context);
+                if (jdk != null) definitions["AQUA_EMBED_JDK"] = jdk;
+            }
             if (files.Shared.Length > 0) {
                 definitions["AQUA_EMBED_SHARED_OUTPUT"] = Full(files.Shared);
                 if (versioned != null) definitions["AQUA_EMBED_SONAME"] = versioned;
@@ -197,7 +252,7 @@ public static class NativeLibraryOutput
         string licenses = Path.Combine(stage, "licenses");
         Directory.CreateDirectory(licenses);
         string own = Path.Combine(installation.Root, "LICENSE");
-        if (File.Exists(own)) File.Copy(own, Path.Combine(licenses, "AquariusLang.txt"));
+        if (File.Exists(own)) File.Copy(own, Path.Combine(licenses, "AquariusLang.txt"), true);
         var notices = new List<string> {
             "This library contains the AquariusLang runtime (AquariusLang.txt) and the wasm2c runtime of WABT",
             "(https://github.com/WebAssembly/wabt, Apache License 2.0)."
@@ -207,7 +262,7 @@ public static class NativeLibraryOutput
         File.WriteAllText(Path.Combine(licenses, "THIRD-PARTY.txt"), string.Join("\n", notices) + "\n");
     }
 
-    private static void Write(string path, string text)
+    internal static void Write(string path, string text)
     {
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
         File.WriteAllText(path, text.ReplaceLineEndings("\n"));

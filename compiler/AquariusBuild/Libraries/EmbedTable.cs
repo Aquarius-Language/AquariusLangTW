@@ -13,11 +13,13 @@ public static class EmbedTable
     /// <summary>The functions every native library defines, before its own.</summary>
     public static readonly IReadOnlyList<string> Lifecycle = ["initialize", "shutdown", "last_error", "free", "abi_version"];
 
-    public static IReadOnlyList<string> Symbols(BindingContext context) =>
+    /// <summary>The symbols the library exports; with the Java binding, JNI_OnLoad too.</summary>
+    public static IReadOnlyList<string> Symbols(BindingContext context, bool java = false) =>
         Lifecycle.Select(name => context.Settings.SymbolPrefix + name)
-            .Concat(context.Exports.Functions.Select(f => CNames.Function(context, f.Name))).ToArray();
+            .Concat(context.Exports.Functions.Select(f => CNames.Function(context, f.Name))).Concat(java ? ["JNI_OnLoad"] : []).ToArray();
 
-    public static string Definitions(BindingContext context)
+    /// <summary>The table; with <paramref name="java"/>, the Java binding's rows too (jni.c).</summary>
+    public static string Definitions(BindingContext context, bool java = false)
     {
         var exports = context.Exports;
         var text = new StringBuilder();
@@ -41,6 +43,16 @@ public static class EmbedTable
             for (int p = 0; p < function.Parameters.Count; p++)
                 text.Append($"AQUA_ARGUMENT({Type(context, function.Parameters[p].Type)}, {CNames.Parameter(function.Parameters[p].Name, p)})\n");
             text.Append($"AQUA_RETURN({result})\n");
+        }
+        if (java) {
+            for (int s = 0; s < exports.Structs.Count; s++) {
+                string javaClass = JavaBinding.JniClass(context) + "$" + JavaBinding.StructName(exports.Structs[s]);
+                text.Append($"AQUA_JAVA_STRUCT({s}, {Literal(javaClass)})\n");
+            }
+            foreach (var function in exports.Functions) {
+                string name = ExportTable.SnakeCase(function.Name), method = Literal(JavaBinding.MethodName(function));
+                text.Append($"AQUA_JAVA_FUNCTION({name}, {method}, {Literal(JavaBinding.Signature(context, function))})\n");
+            }
         }
         return text.ToString();
     }

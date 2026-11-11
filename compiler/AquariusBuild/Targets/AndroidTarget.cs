@@ -23,10 +23,12 @@ public sealed class AndroidTarget : IWasmBuildTarget
     public static readonly string[] Abis = ["arm64-v8a", "x86_64"];
     public string Name => "android";
     public string ArtifactDescription => "Android application";
-    public IReadOnlyCollection<string> OptionNames => [ApplicationIdOption, NameOption, KeystoreOption, KeyAliasOption];
+    public IReadOnlyCollection<string> OptionNames => [ApplicationIdOption, NameOption, KeystoreOption, KeyAliasOption, Libraries.NativeLibraryOutput.KindOption];
 
     public void Build(WasmBuildRequest request)
     {
+        // --kind or an [export] table: the native libraries of every ABI instead of an APK (docs/native-libraries.md).
+        if (Libraries.NativeLibraryOutput.Requested(request)) { Libraries.NativeLibraryOutput.BuildAndroid(request); return; }
         var (application, entry) = Output.Read(request, Name);
         string output = Path.GetFullPath(request.Output);
         if (!output.EndsWith(".apk", StringComparison.OrdinalIgnoreCase)) throw new ArgumentException("Android builds write an .apk file.");
@@ -155,7 +157,7 @@ internal sealed record AndroidTools(string Aapt2, string Zipalign, string Apksig
         } catch (Exception e) when (e is IOException or JsonException or KeyNotFoundException or InvalidOperationException) { return (null, null, null); }
     }
 
-    private static string? JavaHome()
+    internal static string? JavaHome()
     {
         string exe = OperatingSystem.IsWindows() ? ".exe" : "";
         bool Usable(string? home) => !string.IsNullOrEmpty(home) && File.Exists(Path.Combine(home, "bin", "java" + exe)) && File.Exists(Path.Combine(home, "bin", "keytool" + exe));

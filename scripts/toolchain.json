@@ -61,6 +61,13 @@
       "target": "x86_64-unknown-linux-gnu"
     }
   },
+  "kotlin": {
+    "comment": "Tests only (scripts/test-exports.ps1 compiles the Kotlin consumer of the Java binding for Android; install-toolchain.ps1 -Tools kotlin): JetBrains' standalone Kotlin compiler, which runs on the pinned JDK on every host.",
+    "version": "2.1.20",
+    "directory": "kotlinc-2.1.20",
+    "url": "https://github.com/JetBrains/kotlin/releases/download/v2.1.20/kotlin-compiler-2.1.20.zip",
+    "sha256": "a118197b0de55ffab2bc8d5cd03a5e39033cfb53383d6931bc761dec0784891a"
+  },
   "wabt": {
     "comment": "WABT's wasm2c: aqua build --optimize translates the application's Wasm to C and compiles it with the pinned Clang into an ahead-of-time library (runtime/aot/CMakeLists.txt). Its share/wabt/wasm2c runtime and include/ are compiled with it. Built from this source on every host by scripts/build-wabt.cmake with the pinned Clang (WABT's prebuilt binaries need OpenSSL's libcrypto, which the Windows one does not ship).",
     "version": "1.0.42",

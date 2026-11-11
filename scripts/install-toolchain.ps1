@@ -6,7 +6,8 @@
 # again only fetches what is missing. build-runtime.ps1 runs it for the targets it builds. install-toolchain.sh does
 # the same on Linux/macOS without PowerShell. Prints clang's path.
 #   -Targets windows-x64,android-arm64-v8a   SDK targets to install (default: the desktop target of this host).
-#   -Tools rust,kotlin                       test-only tools (scripts/test-exports.ps1): the pinned Rust and Kotlin compilers.
+#   -Tools rust,kotlin,jdk                   test-only tools (scripts/test-exports.ps1): the pinned Rust and Kotlin compilers, and
+#                                            the pinned JDK (which Android targets install anyway).
 param([string[]]$Targets = @(), [string[]]$Tools = @())
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'toolchain.ps1')
@@ -80,7 +81,7 @@ if (-not (Test-Path -LiteralPath (Join-Path $AquaToolchain.Wabt 'bin'))) {
     if ($LASTEXITCODE -ne 0) { throw 'Building wasm2c failed.' }
     Remove-Item -LiteralPath $wabtSource -Recurse -Force
 }
-if ($Targets -match '^android-') {
+if ($Targets -match '^android-' -or $Tools -contains 'jdk') {   # Android builds, and the Java binding's tests
     $jdk = $AquaPins.jdk.($AquaToolchain.Platform)
     Install-Archive ($AquaPins.jdk.base + $jdk.file) $jdk.sha256 $AquaToolchain.Jdk
 }
@@ -126,5 +127,6 @@ if ($Tools -contains 'rust' -and -not (Test-Path -LiteralPath (Join-Path $AquaTo
     Move-Item -LiteralPath $installation -Destination $AquaToolchain.Rust
     if (-not $aquaWindows) { & chmod +x (Join-Path $AquaToolchain.Rust 'bin/rustc') (Join-Path $AquaToolchain.Rust 'bin/cargo') }
 }
+if ($Tools -contains 'kotlin') { Install-Archive $AquaPins.kotlin.url $AquaPins.kotlin.sha256 $AquaToolchain.Kotlin }
 Assert-AquaToolchain
 Write-Output $AquaToolchain.Clang

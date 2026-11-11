@@ -42,6 +42,7 @@ $AquaToolchain = [pscustomobject]@{
     Wabt = Join-Path $aquaToolchains $AquaPins.wabt.directory.Replace('{platform}', $aquaPlatform)
     # Test-only tools (install-toolchain.ps1 -Tools).
     Rust = Join-Path $aquaToolchains $AquaPins.rust.directory.Replace('{platform}', $aquaPlatform)
+    Kotlin = Join-Path $aquaToolchains $AquaPins.kotlin.directory
     # Suffixes of this host's programs and of the Android build-tools' wrapper scripts (apksigner.bat on Windows).
     Exe = $aquaExe
     Script = if ($aquaWindows) { '.bat' } else { '' }

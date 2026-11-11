@@ -9,3 +9,15 @@ sources = ["main.aqua"]
 [export]
 name = "geometry"
 prefix = "geo_"
+
+# The Java binding everywhere it builds, so the JNI path also runs on a desktop JVM (scripts/test-exports.ps1).
+[export.windows]
+bindings = ["c", "cpp", "rust", "java"]
+java_package = "org.aquariuslang.tests.geometry"
+
+[export.linux]
+bindings = ["c", "cpp", "rust", "java"]
+java_package = "org.aquariuslang.tests.geometry"
+
+[export.android]
+java_package = "org.aquariuslang.tests.geometry"

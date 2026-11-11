@@ -14,6 +14,8 @@ foreach(name IN LISTS default_libraries)
     target_link_libraries(aquarius PRIVATE aqua_${name})
 endforeach()
 install(TARGETS aquarius LIBRARY DESTINATION .)
+# Native library outputs link this layer's library half (embed.c) instead of the activity (runtime/embed/runtime.cmake).
+set(embed_platform_sources platform/posix/posix.c platform/android/embed.c)
 
 # The activity (platform/android/java): compiled against the pinned SDK platform with the pinned JDK, dexed for APKs.
 string(JSON android_platform GET "${AQUA_PINS}" androidSdk platform)

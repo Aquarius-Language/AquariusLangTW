@@ -1,19 +1,26 @@
-# Tests the native library outputs (docs/native-libraries.md) on this host's desktop target: builds the test libraries
-# of tests/exports (geometry, counter) with the repository's compiler, builds the consumers of tests/exports with the
-# pinned Clang through the SDK toolchain file, and checks
-#   - the C and C++ consumers print geometry.expected exactly, and aqua run of geometry/parity.aqua prints its lines
-#     that are not marked "native" (parity with the Wasm engine);
-#   - a binary audit: the library exports exactly the functions of its header, needs only system libraries, has its
-#     SONAME (Linux) or import libraries listing every export (Windows);
-#   - two libraries in one process, 1000 starts and stops, 8 calling threads, and (POSIX) a reentrant call refused;
-#   - on Linux, the consumers again under AddressSanitizer, LeakSanitizer and UndefinedBehaviorSanitizer.
-#   scripts/test-exports.ps1                       # this host's target (windows-x64 here; linux-x64 in WSL or on Linux)
-# Runs under Windows PowerShell 5.1 or PowerShell 7 (pwsh). Needs the target's runtime pack (scripts/build-runtime.ps1)
-# and a built compiler (dotnet build compiler/AquariusCli). build-release.ps1 runs it.
+# Tests the native library outputs (docs/native-libraries.md) on this host's desktop target, the web and, with -Android,
+# Android: builds the test libraries of tests/exports (geometry, counter, services, the [library] shapes) with the
+# repository's compiler and checks
+#   - the consumers print geometry.expected: C and C++ (built with the pinned Clang through the SDK toolchain file, as
+#     shared, static and, on ELF, object libraries), Rust (the pinned Rust), Java on the desktop JVM (JNI) and
+#     JavaScript in Chromium (loadLibrary()); aqua run of geometry/parity.aqua prints its portable lines;
+#   - a binary audit: each library exports exactly its header's functions, needs only system libraries, has its SONAME
+#     (Linux) or import libraries (Windows); static and object outputs define only the exports globally;
+#   - two libraries in one process (shared, static, object), 1000 starts and stops, 8 calling threads, (POSIX) a
+#     reentrant call refused, default libraries inside a library, and --kind executable of an exported project;
+#   - on Linux, the C and C++ consumers again under AddressSanitizer, LeakSanitizer and UndefinedBehaviorSanitizer;
+#   - with -Android, on the connected device or emulator: the Java and Kotlin consumers (dexed, run with app_process),
+#     and an audit of the .so (exports, dependencies, 16 KB pages) and the .aar.
+#   scripts/test-exports.ps1 [-Android]           # this host's target (windows-x64 here; linux-x64 in WSL or on Linux)
+# Runs under Windows PowerShell 5.1 or PowerShell 7 (pwsh). Needs the runtime packs of this target, the web and (with
+# -Android) Android (scripts/build-runtime.ps1), a built compiler (dotnet build compiler/AquariusCli), Node with
+# Playwright (npm install in scripts/), and installs the test-only Rust, Kotlin and JDK pins when missing.
+# build-release.ps1 runs it.
 param(
     [string]$Compiler = '',
     [string]$Dotnet = 'dotnet',
-    [string]$Work = ''
+    [string]$Work = '',
+    [switch]$Android
 )
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'toolchain.ps1')
@@ -145,6 +152,17 @@ else {
     Compare-Output 'Rust consumer' (Invoke-Program $program @() $runEnvironment) $expected
 }
 
+# ---- The Java binding on the desktop JVM (JNI): Consumer.java against the geometry output's jar ----
+if (-not (Test-Path -LiteralPath (Join-Path $AquaToolchain.Jdk 'bin'))) {
+    & $AquaToolchain.PowerShell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'install-toolchain.ps1') -Tools jdk | Out-Null
+}
+$javaClasses = Join-Path $Work 'java-consumer'
+$geometryJar = Join-Path $libraries.geometry 'lib/geometry.jar'
+Invoke-Checked (Join-Path $AquaToolchain.Jdk "bin/javac$($AquaToolchain.Exe)") @('-encoding', 'UTF-8', '-cp', $geometryJar, '-d', $javaClasses, (Join-Path $tests 'Consumer.java')) | Out-Null
+$libraryFolder = Join-Path $libraries.geometry $(if ($platform -eq 'windows') { 'bin' } else { 'lib' })
+Compare-Output 'Java consumer (desktop JVM, JNI)' (Invoke-Program (Join-Path $AquaToolchain.Jdk "bin/java$($AquaToolchain.Exe)") @('-Dstdout.encoding=UTF-8',
+    "-Djava.library.path=$libraryFolder", '-cp', ($geometryJar + [IO.Path]::PathSeparator + $javaClasses), 'Consumer')) $managed
+
 # ---- The web: loadLibrary() of the web glue, a JavaScript consumer in Chromium ----
 $webOutput = Join-Path $Work 'geometry-web'
 Invoke-Checked $Dotnet @($Compiler, 'build', (Join-Path $tests 'geometry'), '--target', 'web', '-o', $webOutput) | Out-Null
@@ -160,6 +178,8 @@ foreach ($name in $libraries.Keys) {
     $folder = $libraries[$name]
     $header = Get-Content -LiteralPath (Join-Path $folder "include/$name.h") -Raw -Encoding UTF8
     $declared = @([regex]::Matches($header, '(?m)^\w+_API [^;(]*?\b(\w+)\(') | ForEach-Object { $_.Groups[1].Value } | Sort-Object -Unique)
+    # A library with the Java binding also exports JNI_OnLoad (runtime/embed/jni.c).
+    if (Test-Path -LiteralPath (Join-Path $folder "lib/$name.jar")) { $declared = @($declared + 'JNI_OnLoad' | Sort-Object -Unique) }
     if ($platform -eq 'windows') {
         $library = Join-Path $folder "bin/$name.dll"
         $exports = @(((Invoke-Checked (Tool 'llvm-readobj') @('--coff-exports', $library)).Output -split "`n") |
@@ -197,6 +217,79 @@ foreach ($name in $libraries.Keys) {
             Where-Object { $_ -and $_ -notmatch ':$' -and -not $_.StartsWith($prefix + 'aqua_') } | Sort-Object -Unique)
         if (-not (Compare-Object $globals $declared)) { Pass "$name $file defines only its exports globally" }
         else { Fail "$name $file globals" "global: $($globals -join ', ')" }
+    }
+}
+
+# ---- Android (-Android): the library of each ABI, audited, and the Java and Kotlin consumers on the device ----
+if ($Android) {
+    $androidOutput = Join-Path $Work 'geometry-android'
+    Invoke-Checked $Dotnet @($Compiler, 'build', (Join-Path $tests 'geometry'), '--target', 'android', '-o', $androidOutput) | Out-Null
+    $androidFolder = Join-Path $androidOutput 'android'
+    $sdk = @($env:ANDROID_HOME, $env:ANDROID_SDK_ROOT, $AquaToolchain.AndroidSdk) | Where-Object { $_ -and (Test-Path -LiteralPath $_) } | Select-Object -First 1
+    $adb = Join-Path $sdk "platform-tools/adb$($AquaToolchain.Exe)"
+    $d8 = Join-Path $sdk "build-tools/$($AquaPins.androidSdk.buildTools)/d8$($AquaToolchain.Script)"
+    $javaHome = @{ JAVA_HOME = $AquaToolchain.Jdk }
+    $header = Get-Content -LiteralPath (Join-Path $androidFolder 'include/geometry.h') -Raw -Encoding UTF8
+    $declared = @(@([regex]::Matches($header, '(?m)^\w+_API [^;(]*?\b(\w+)\(') | ForEach-Object { $_.Groups[1].Value }) + 'JNI_OnLoad' | Sort-Object -Unique)
+    foreach ($abiFolder in Get-ChildItem -LiteralPath (Join-Path $androidFolder 'lib') -Directory) {
+        $library = Join-Path $abiFolder.FullName 'libgeometry.so'
+        $exports = @(((Invoke-Checked (Tool 'llvm-nm') @('-D', '--defined-only', $library)).Output -split "`n") |
+            Where-Object { $_ -match '^\S+ \w (\S+)$' } | ForEach-Object { $Matches[1] } | Sort-Object -Unique)
+        if (-not (Compare-Object $exports $declared)) { Pass "android $($abiFolder.Name) exports its header's functions and JNI_OnLoad" }
+        else { Fail "android $($abiFolder.Name) exports" "exported: $($exports -join ', ')" }
+        $dynamic = (Invoke-Checked (Tool 'llvm-readelf') @('-d', $library)).Output
+        $needed = @([regex]::Matches($dynamic, 'NEEDED.*\[(.+?)\]') | ForEach-Object { $_.Groups[1].Value })
+        $foreign = @($needed | Where-Object { $_ -notmatch '^lib(c|m|dl|log)\.so$' })
+        if (-not $foreign.Count) { Pass "android $($abiFolder.Name) needs only system libraries ($($needed -join ', '))" } else { Fail "android $($abiFolder.Name) dependencies" ($foreign -join ', ') }
+        $segments = @(((Invoke-Checked (Tool 'llvm-readelf') @('-l', $library)).Output -split "`n") | Where-Object { $_ -match '^\s*LOAD\s' })
+        if ($segments.Count -and -not ($segments | Where-Object { $_ -notmatch '0x4000\s*$' })) { Pass "android $($abiFolder.Name) segments aligned to 16 KB pages" }
+        else { Fail "android $($abiFolder.Name) page alignment" ($segments -join "`n") }
+    }
+    Add-Type -AssemblyName System.IO.Compression.FileSystem
+    $aar = [IO.Compression.ZipFile]::OpenRead((Join-Path $androidFolder 'geometry.aar'))
+    $entries = @($aar.Entries | ForEach-Object FullName); $aar.Dispose()
+    $missing = @('AndroidManifest.xml', 'classes.jar', 'R.txt', 'prefab/prefab.json', 'prefab/modules/geometry/include/geometry.h') + @(Get-ChildItem -LiteralPath (Join-Path $androidFolder 'lib') -Directory |
+        ForEach-Object { "jni/$($_.Name)/libgeometry.so" }) | Where-Object { $entries -notcontains $_ }
+    if (-not $missing.Count) { Pass 'android .aar (manifest, classes.jar, jni libraries, Prefab)' } else { Fail 'android .aar' "missing: $($missing -join ', ')" }
+
+    $devices = @(((Invoke-Program $adb @('devices')).Output -split "`n") | Where-Object { $_ -match '\tdevice$' })
+    if (-not $devices.Count) { Fail 'Android device' 'No device or emulator is connected (adb devices): the Java and Kotlin consumers did not run.' }
+    else {
+        $abi = (Invoke-Checked $adb @('shell', 'getprop', 'ro.product.cpu.abi')).Output.Trim()
+        $deviceLibrary = Join-Path $androidFolder "lib/$abi/libgeometry.so"
+        $remote = '/data/local/tmp/aquarius-exports'
+        Invoke-Checked $adb @('shell', "rm -rf $remote && mkdir -p $remote") | Out-Null
+        Invoke-Checked $adb @('push', $deviceLibrary, "$remote/") | Out-Null
+        $geometryJar = Join-Path $androidFolder 'lib/geometry.jar'
+        # Dexes classes (jars and class folders) into one jar the device runs with app_process.
+        function Dex([string]$Name, [string[]]$Inputs) {
+            $folder = Join-Path $Work "dex-$Name"
+            New-Item -ItemType Directory -Force -Path $folder | Out-Null
+            Invoke-Checked $d8 (@('--release', '--min-api', '29', '--output', $folder) + $Inputs) $javaHome | Out-Null
+            $jar = Join-Path $Work "$Name.jar"
+            $zip = [IO.Compression.ZipFile]::Open($jar, 'Create')
+            [void][IO.Compression.ZipFileExtensions]::CreateEntryFromFile($zip, (Join-Path $folder 'classes.dex'), 'classes.dex')
+            $zip.Dispose()
+            Invoke-Checked $adb @('push', $jar, "$remote/") | Out-Null
+            return "$remote/$Name.jar"
+        }
+        function Run-OnDevice([string]$Jar, [string]$Class) {
+            Invoke-Program $adb @('shell', "cd $remote && LD_LIBRARY_PATH=$remote CLASSPATH=$Jar app_process $remote $Class")
+        }
+        # Java
+        $javaClasses = Join-Path $Work 'android-java-classes'
+        Invoke-Checked (Join-Path $AquaToolchain.Jdk "bin/javac$($AquaToolchain.Exe)") @('--release', '11', '-encoding', 'UTF-8', '-cp', $geometryJar, '-d', $javaClasses, (Join-Path $tests 'Consumer.java')) | Out-Null
+        $javaJar = Join-Path $Work 'android-java.jar'
+        Invoke-Checked (Join-Path $AquaToolchain.Jdk "bin/jar$($AquaToolchain.Exe)") @('cf', $javaJar, '-C', $javaClasses, '.') | Out-Null
+        Compare-Output "Java consumer (Android $abi)" (Run-OnDevice (Dex 'java-consumer' @($geometryJar, $javaJar)) 'Consumer') $managed
+        # Kotlin
+        if (-not (Test-Path -LiteralPath (Join-Path $AquaToolchain.Kotlin 'bin'))) {
+            & $AquaToolchain.PowerShell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'install-toolchain.ps1') -Tools kotlin | Out-Null
+        }
+        $kotlinJar = Join-Path $Work 'android-kotlin.jar'
+        Invoke-Checked (Join-Path $AquaToolchain.Kotlin "bin/kotlinc$($AquaToolchain.Script)") @((Join-Path $tests 'Consumer.kt'), '-cp', $geometryJar, '-d', $kotlinJar) $javaHome | Out-Null
+        Compare-Output "Kotlin consumer (Android $abi, Kotlin $($AquaPins.kotlin.version))" (Run-OnDevice (Dex 'kotlin-consumer' @($geometryJar, $kotlinJar,
+            (Join-Path $AquaToolchain.Kotlin 'lib/kotlin-stdlib.jar'))) 'ConsumerKt') $managed
     }
 }
 

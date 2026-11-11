@@ -14,6 +14,10 @@
 #include "aqua/embed.h"
 #include AQUA_EMBED_HEADER
 
+/* Rows of the Java binding, which jni.c expands (never this file). */
+#define AQUA_JAVA_FUNCTION(name, java, signature)
+#define AQUA_JAVA_STRUCT(index, java)
+
 #define EMBED_JOIN2(a, b) a##b
 #define EMBED_JOIN(a, b) EMBED_JOIN2(a, b)
 #define EXPORTED(name) EMBED_JOIN(AQUA_EMBED_PREFIX, name)
@@ -207,18 +211,30 @@ static const aqua_embed_library libraries[] = {
 #undef X
     {NULL, NULL}};
 
+/* The application module: #embed where the compiler has it, else the assembler's .incbin (the Android NDK's Clang,
+   which only builds ELF). */
+#if defined(__has_embed)
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wc23-extensions"
 static const unsigned char module[] = {
 #embed AQUA_EMBED_MODULE
 };
 #pragma clang diagnostic pop
+#define MODULE_SIZE sizeof module
+#else
+__asm__(".pushsection .rodata\n.balign 16\n.global aqua_embed_module_start\n.hidden aqua_embed_module_start\naqua_embed_module_start:\n"
+        ".incbin \"" AQUA_EMBED_MODULE "\"\n.global aqua_embed_module_end\n.hidden aqua_embed_module_end\naqua_embed_module_end:\n.popsection\n");
+extern const unsigned char aqua_embed_module_start[], aqua_embed_module_end[];
+#define module aqua_embed_module_start
+#define MODULE_SIZE ((size_t)(aqua_embed_module_end - aqua_embed_module_start))
+#endif
 
-static const aqua_embed_table table = {
+/* Not const: the .incbin path knows the module's size only when the program runs. */
+static aqua_embed_table table = {
     functions, sizeof functions / sizeof *functions - 1, structs, field_counts, sizeof structs / sizeof *structs - 1,
-    libraries, sizeof libraries / sizeof *libraries - 1, module, sizeof module
+    libraries, sizeof libraries / sizeof *libraries - 1, module, 0
 };
-const aqua_embed_table *aqua_embed_current_table(void) { return &table; }
+const aqua_embed_table *aqua_embed_current_table(void) { table.module_size = MODULE_SIZE; return &table; }
 
 /* ---- What every library defines ---- */
 EMBED_PUBLIC bool EXPORTED(initialize)(void) { return aqua_embed_initialize(); }
