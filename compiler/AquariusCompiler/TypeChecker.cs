@@ -37,7 +37,7 @@ internal sealed class NativeSignature {
 /// code. Scopes follow the runtime's: the program, each function and each loop; names resolve to every declaration of
 /// their scope regardless of order, because closures resolve names when they run.
 /// </summary>
-public sealed class TypeChecker {
+public sealed partial class TypeChecker {
     /// <summary>Static types: 0 is unknown (untyped), -1 is no value (void), -3 is the null literal, otherwise a type code.</summary>
     internal const int Dynamic = 0, Void = -1, Null = -3, Int = 1, Float = 2, Double = 3, Bool = 4, String = 5, Long = 6, ArrayFlag = 16, StructFlag = 32;
     internal static bool IsStruct(int code) => code > 0 && (code & StructFlag) != 0;
@@ -103,6 +103,7 @@ public sealed class TypeChecker {
         var checker = new TypeChecker();
         checker.Declare(tree.Statements);
         foreach (var statement in tree.Statements) checker.Statement(statement);
+        checker.CheckExports(tree.Statements);
         // Assignments and calls anywhere in the program are known only now.
         foreach (var (function, index, type) in checker.arguments)
             if (checker.parameterDeclarations.TryGetValue(function, out var declared) && index < declared.Length) declared[index].Observe(type);
@@ -157,11 +158,15 @@ public sealed class TypeChecker {
         foreach (var statement in list) DeclareIn(statement, direct);
     }
     private void AddStruct(StructStatement declaration) {
-        if (scope.Names.ContainsKey(declaration.Name.Value)) {
-            Error($"{declaration.Name.Value} 在同一範圍重複宣告 / {declaration.Name.Value} is declared twice in the same scope.", declaration.Name.Token);
+        AddStructName(declaration, declaration.Name);
+        if (declaration.Alias != null) AddStructName(declaration, declaration.Alias);
+    }
+    private void AddStructName(StructStatement declaration, Identifier name) {
+        if (scope.Names.ContainsKey(name.Value)) {
+            Error($"{name.Value} 在同一範圍重複宣告 / {name.Value} is declared twice in the same scope.", name.Token);
             return;
         }
-        scope.Names[declaration.Name.Value] = new Declaration { Struct = declaration, Count = 1 };
+        scope.Names[name.Value] = new Declaration { Struct = declaration, Count = 1 };
     }
     /// <summary>Resolves a struct type name in an annotation to its code (32 | id &lt;&lt; 6).</summary>
     private void Bind(TypeAnnotation? type) {
@@ -259,6 +264,7 @@ public sealed class TypeChecker {
     private void Statement(IStatement statement) {
         switch (statement) {
             case LetStatement let: {
+                if (let.Export != null && (functions.Count > 0 || blocks > 0)) MisplacedExport(let.Export);
                 int value = Expression(let.Value);
                 if (let.Name.Type != null) Require(let.Name.Type.Code, value, let, let.Name.Value, let.Name.Token);
                 else if (scope.Names.TryGetValue(let.Name.Value, out var declared)) Guess(declared, null, 0, value, let.Value);
@@ -272,8 +278,9 @@ public sealed class TypeChecker {
                 break;
             }
             case ExpressionStatement expression: Expression(expression.Expression); break;
-            case BlockStatement block: foreach (var s in block.Statements) Statement(s); break;
+            case BlockStatement block: blocks++; foreach (var s in block.Statements) Statement(s); blocks--; break;
             case StructStatement shape:
+                if (shape.Export != null && (functions.Count > 0 || blocks > 0)) MisplacedExport(shape.Export);
                 // Defaults are evaluated where the declaration runs; one that cannot fit its field is an error.
                 foreach (var field in shape.Fields) {
                     if (field.Default == null) continue;

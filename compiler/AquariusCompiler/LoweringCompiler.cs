@@ -57,7 +57,7 @@ public sealed class LoweringCompiler {
     public LoweredProgram Compile(string source) {
         var lexer = Lexer.NewInstance(source);
         var parser = Parser.NewInstance(lexer);
-        var tree = parser.ParseAST();
+        var tree = ExportTable.WithConstructors(parser.ParseAST());
         if (lexer.Errors.Count > 0 || parser.Errors.Count > 0)
             throw CompilationException.At(source, lexer.Errors.Select(e => (e.Message, e.Start)).Concat(parser.Diagnostics.Select(e => (e.Message, e.Token.Start))));
         if (types == null) {
@@ -66,7 +66,10 @@ public sealed class LoweringCompiler {
             if (checker.Errors.Count > 0) throw CompilationException.At(source, checker.Errors.Select(e => (e.Message, e.Token.Start)));
             types = checker;
         }
-        return Compile(tree);
+        var program = Compile(tree);
+        var exports = ExportTable.Build(tree, source);
+        if (!exports.IsEmpty) program.Exports = exports;
+        return program;
     }
 
     public LoweredProgram Compile(INode node) {
@@ -168,7 +171,12 @@ public sealed class LoweringCompiler {
                 foreach (var field in shape.Fields) if (field.Default != null) Node(field.Default);
                 Emit(IrOperation.StructType, Constant($"{shape.Id}\u0001{shape.Name.Value}" + string.Concat(shape.Fields.Select(f =>
                     $"\u0001{f.Value}\u0002{f.Type?.Code ?? 0}\u0002{f.Type?.String() ?? ""}\u0002{(f.Default != null ? 1 : 0)}"))));
+                if (shape.Alias != null) Emit(IrOperation.Duplicate);
                 Emit(IrOperation.Declare, Name(shape.Name.Value));
+                if (shape.Alias != null) {
+                    Emit(IrOperation.Pop);
+                    Emit(IrOperation.Declare, Name(shape.Alias.Value));
+                }
                 break;
             case ContinueStatement:
                 if (continues.Count == 0) throw new CompilationException("繼續 只能用在迴圈中 / continue can only be used inside a loop.");

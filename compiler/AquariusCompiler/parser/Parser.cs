@@ -286,14 +286,56 @@ namespace AquariusLang.parser {
                 case TokenType.IDENT when currToken.Literal is "結構" or "struct" && peekTokenIs(TokenType.IDENT):
                     return parseStructStatement();
                 // 常數 / const likewise: a declaration like 變數 / var whose binding is never written again.
-                case TokenType.IDENT when currToken.Literal is "常數" or "const" && peekTokenIs(TokenType.IDENT): {
-                    var constant = parseLetStatement();
-                    if (constant != null) constant.Constant = true;
-                    return constant;
-                }
+                case TokenType.IDENT when currToken.Literal is "常數" or "const" && peekTokenIs(TokenType.IDENT):
+                    return parseConstantStatement();
+                // 匯出 / export likewise: only before a declaration (直接 or after ("name")), so it stays a name elsewhere.
+                case TokenType.IDENT when currToken.Literal is "匯出" or "export" && exportStarts():
+                    return parseExportStatement();
                 default:
                     return parseExpressionStatement();
             }
+        }
+
+        private LetStatement parseConstantStatement() {
+            var constant = parseLetStatement();
+            if (constant != null) constant.Constant = true;
+            return constant;
+        }
+
+        /// <summary>Whether a token (the one after <c>匯出</c>, or after its <c>("name")</c>) starts a declaration the keyword
+        /// can mark: 變數 / var, or 常數 / const and 結構 / struct followed by a name (<paramref name="next"/>).</summary>
+        private static bool declarationStarts(Token token, Token next) =>
+            token.Type == TokenType.LET
+            || token.Type == TokenType.IDENT && token.Literal is "常數" or "const" or "結構" or "struct" && next.Type == TokenType.IDENT;
+
+        private bool exportStarts() {
+            if (declarationStarts(peekToken, lexer.Peek())) return true;
+            return peekTokenIs(TokenType.LPAREN) && lexer.Peek().Type == TokenType.STRING && lexer.Peek(2).Type == TokenType.RPAREN
+                && declarationStarts(lexer.Peek(3), lexer.Peek(4));
+        }
+
+        /// <summary><c>匯出 宣告</c> or <c>匯出("name") 宣告</c>: marks a top-level function or struct for native library outputs
+        /// (the TypeChecker enforces where and what may be exported).</summary>
+        private IStatement parseExportStatement() {
+            Token keyword = currToken;
+            string? name = null;
+            if (peekTokenIs(TokenType.LPAREN)) {
+                nextToken(); nextToken();
+                name = currToken.Literal;
+                nextToken();
+            }
+            nextToken();
+            if (currToken.Type == TokenType.LET || currToken.Literal is "常數" or "const") {
+                var declaration = currToken.Type == TokenType.LET ? parseLetStatement() : parseConstantStatement();
+                if (declaration == null) return null;
+                declaration.Export = new ExportMark(keyword, name);
+                // An exported binding is never written again, whichever keyword declared it.
+                declaration.Constant = true;
+                return declaration;
+            }
+            var shape = parseStructStatement();
+            if (shape != null) shape.Export = new ExportMark(keyword, name);
+            return shape;
         }
 
         private LetStatement parseLetStatement() {
@@ -340,11 +382,18 @@ namespace AquariusLang.parser {
             return statement;
         }
 
-        /// <summary><c>結構 名稱 { 欄位: 型別; 欄位 }</c>: fields separated by semicolons or commas, annotations optional.</summary>
+        /// <summary><c>結構 名稱 { 欄位: 型別; 欄位 }</c>: fields separated by semicolons or commas, annotations optional; a
+        /// second name may follow the first (<c>結構 點, Point { ... }</c>), like a function's.</summary>
         private StructStatement parseStructStatement() {
             var statement = new StructStatement(currToken);
             nextToken();
             statement.Name = new Identifier(currToken, currToken.Literal);
+            if (peekTokenIs(TokenType.COMMA)) {
+                nextToken();
+                if (!expectPeek(TokenType.IDENT)) return null;
+                statement.Alias = new Identifier(currToken, currToken.Literal);
+                if (statement.Alias.Value == statement.Name.Value) addError("結構的兩個名稱必須不同 / A struct's two names must be distinct.", currToken);
+            }
             if (!expectPeek(TokenType.LBRACE)) return null;
             var fields = new List<Identifier>();
             while (!peekTokenIs(TokenType.RBRACE)) {

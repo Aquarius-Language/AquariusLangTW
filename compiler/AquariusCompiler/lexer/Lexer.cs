@@ -30,11 +30,13 @@ namespace AquariusLang.lexer {
             return l;
         }
 
-        /// <summary>The token NextToken would return, without consuming it (the parser looks past a <c>)</c> for <c>=&gt;</c>).</summary>
-        public Token Peek() {
+        /// <summary>The token NextToken would return, without consuming it (the parser looks past a <c>)</c> for <c>=&gt;</c>);
+        /// with <paramref name="ahead"/> &gt; 1, the one after as many tokens (<c>匯出("name") 變數</c> looks four ahead).</summary>
+        public Token Peek(int ahead = 1) {
             int savedPosition = position, savedRead = readPosition, savedErrors = lexicalErrors.Count;
             char savedChar = ch;
             Token token = NextToken();
+            for (int i = 1; i < ahead; i++) token = NextToken();
             position = savedPosition; readPosition = savedRead; ch = savedChar;
             lexicalErrors.RemoveRange(savedErrors, lexicalErrors.Count - savedErrors);
             return token;

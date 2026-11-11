@@ -101,6 +101,9 @@ public class LetStatement : IStatement {
     /// <summary>A constant (<c>常數</c> / <c>const</c>): the binding is assigned once, here, and never written again.</summary>
     public bool Constant { get; set; }
 
+    /// <summary>Marked <c>匯出</c> / <c>export</c> for native library outputs; null otherwise.</summary>
+    public ExportMark? Export { get; set; }
+
     public IExpression Value {
         get => value;
         set => this.value = value;
@@ -961,14 +964,21 @@ public class CallExpression : IExpression {
 /// <summary>A struct type declaration: <c>結構 節點 { 左: 節點; 右: 節點; 值: 整數 }</c> /
 /// <c>struct Node { left: Node; value: int }</c>. It binds the name to the struct type, which constructs values when
 /// called. Fields may be annotated; struct-typed and untyped fields default to null.</summary>
+/// <summary>The <c>匯出</c> / <c>export</c> keyword before a declaration, with the public name given as <c>匯出("name")</c>.</summary>
+public sealed record ExportMark(Token Keyword, string? Name);
+
 public class StructStatement : IStatement {
     public Token Token { get; set; }
     public Identifier Name { get; set; } = null!;
+    /// <summary>An optional second name of the same type (<c>結構 點, Point { ... }</c>).</summary>
+    public Identifier? Alias { get; set; }
     public Identifier[] Fields { get; set; } = System.Array.Empty<Identifier>();
+    /// <summary>Marked <c>匯出</c> / <c>export</c> for native library outputs; null otherwise.</summary>
+    public ExportMark? Export { get; set; }
     public StructStatement(Token token) { Token = token; }
     public string TokenLiteral() => Token.Literal;
     public void StatementNode() { }
-    public string String() => $"{Token.Literal} {Name.Value} {{ {string.Join("; ", Fields.Select(f => f.Declared()))} }}";
+    public string String() => $"{Token.Literal} {Name.Value}{(Alias == null ? "" : ", " + Alias.Value)} {{ {string.Join("; ", Fields.Select(f => f.Declared()))} }}";
 
     /// <summary>The type's program-wide id: a hash of its declaration (name, fields and position), the same in every
     /// compilation of the same source, so annotations in other functions agree with the runtime type.</summary>
