@@ -143,7 +143,8 @@ internal sealed record AndroidTools(string Aapt2, string Zipalign, string Apksig
         return Version.TryParse(text, out var version) ? version : int.TryParse(text, out int major) ? new Version(major, 0) : new Version(0, 0);
     }
 
-    // A checkout pins the SDK pieces and the JDK in scripts/toolchain.json.
+    // A checkout pins the SDK pieces and the JDK in scripts/toolchain.json; the JDK sits in the native build folder
+    // (AQUARIUS_NATIVE_BUILD, or .native-build) beside the runtime packs.
     private static (string? BuildTools, string? Platform, string? Jdk) Pins()
     {
         if (AquariusInstallation.Current is not { IsRepository: true } repository) return (null, null, null);
@@ -153,7 +154,7 @@ internal sealed record AndroidTools(string Aapt2, string Zipalign, string Apksig
             string? jdk = json.RootElement.TryGetProperty("jdk", out var pin) ? pin.GetProperty("directory").GetString() : null;
             string host = AquariusInstallation.HostPlatform;
             return (android.GetProperty("buildTools").GetString(), android.GetProperty("platform").ToString(),
-                jdk == null ? null : Path.Combine(repository.Root, ".native-build", "toolchains", jdk.Replace("{platform}", host)));
+                jdk == null ? null : Path.Combine(Path.GetDirectoryName(repository.RuntimePacks)!, "toolchains", jdk.Replace("{platform}", host)));
         } catch (Exception e) when (e is IOException or JsonException or KeyNotFoundException or InvalidOperationException) { return (null, null, null); }
     }
 
