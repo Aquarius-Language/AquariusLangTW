@@ -21,3 +21,12 @@ java_package = "org.aquariuslang.tests.geometry"
 
 [export.android]
 java_package = "org.aquariuslang.tests.geometry"
+
+# Apple (not verified on a Mac yet): the Swift binding beside C, C++ and Rust; the desktop JVM on macOS too.
+[export.macos]
+bindings = ["c", "cpp", "rust", "swift", "java"]
+java_package = "org.aquariuslang.tests.geometry"
+
+[export.ios]
+kinds = ["shared", "static"]
+bindings = ["c", "cpp", "rust", "swift"]

@@ -13,7 +13,7 @@ jobs:
           node-version: '24'
       - uses: ./.github/actions/toolchain
         with:
-          targets: macos-arm64,ios-simulator-arm64,ios-arm64
+          targets: macos-arm64,ios-simulator-arm64,ios-arm64,web
       - name: Runtime packs (the pinned Clang against the Xcode SDKs)
         shell: pwsh
         run: ./scripts/build-runtime.ps1 -Targets macos-arm64,ios-simulator-arm64,ios-arm64
@@ -29,6 +29,15 @@ jobs:
       - name: Library tests (macOS and the iOS simulator)
         if: success() || failure()
         run: pwsh ./scripts/test-libraries.ps1 -Targets macos-arm64,ios-simulator-arm64
+      - name: Native library outputs (dylib, framework, xcframework; Swift, C, C++, Rust and Java consumers)
+        if: success() || failure()
+        shell: pwsh
+        run: |
+          npm ci --prefix scripts
+          npx --prefix scripts playwright install chromium-headless-shell
+          dotnet build compiler/AquariusCli -c Release
+          ./scripts/build-runtime.ps1 -Targets web
+          ./scripts/test-exports.ps1
       - name: Simulator log and crash reports
         if: failure()
         run: |
