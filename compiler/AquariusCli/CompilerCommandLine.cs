@@ -127,7 +127,7 @@ public static class CompilerCommandLine {
 
     /// <summary>What a platform build wrote: native libraries when --kind or [export] asked for them, else the target's artifact.</summary>
     private static string Built(IWasmBuildTarget backend, Dictionary<string, string> options, NativeLibrarySettings? export) =>
-        backend.OptionNames.Contains(NativeLibraryOutput.KindOption) && (options.ContainsKey(NativeLibraryOutput.KindOption) || export != null)
+        backend.OptionNames.Contains(NativeLibraryOutput.KindOption) && NativeLibraryOutput.Requested(new WasmBuildRequest("", "", Options: options, Export: export))
             ? "Native libraries" : backend.ArtifactDescription;
 
     private static Dictionary<string, string> TargetOptions(Dictionary<string, string> options, IWasmBuildTarget backend) =>
