@@ -120,7 +120,7 @@ foreach ($name in $libraries.Keys) {
             if ($symbols -and -not $missing.Count) { Pass "$name $import import library" } else { Fail "$name $import import library" "missing: $($missing -join ', ')" }
         }
     } else {
-        $versioned = Get-ChildItem -LiteralPath (Join-Path $folder 'lib') -Filter "lib$name.so.*" | Select-Object -First 1
+        $versioned = Get-ChildItem -LiteralPath (Join-Path $folder 'lib') | Where-Object Name -match "^lib$name\.so\.\d+$" | Select-Object -First 1
         $library = $versioned.FullName
         $exports = @(((Invoke-Checked (Tool 'llvm-nm') @('-D', '--defined-only', $library)).Output -split "`n") |
             Where-Object { $_ -match '^\S+ \w (\S+)$' } | ForEach-Object { $Matches[1] } | Sort-Object -Unique)

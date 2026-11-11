@@ -1,5 +1,7 @@
 using AquariusLang.Bottle;
 using AquariusLang.Build;
+using AquariusLang.Build.Bindings;
+using AquariusLang.Build.Libraries;
 using AquariusLang.Build.Targets;
 using AquariusLang.Compiler;
 using AquariusLang.Libraries;
@@ -16,6 +18,8 @@ public static class CompilerCommandLine {
         "aqua build (main.aqua ... | app.wasm) --target ios -o App.app [--simulator true|false] [--bundle-id org.example.app] [--app-name Name] [--signing-identity ID --provisioning-profile file]\n" +
         "aqua build (main.aqua ... | app.wasm) --target android -o app.apk [--entry main.aqua] [--application-id org.example.app] [--app-name Name] [--keystore file --key-alias name]\n" +
         "aqua build [aqua.toml|project-directory] [--target PLATFORM] [--platform PLATFORM] [-o output] [--locked] [--offline]\n" +
+        "aqua build (project | main.aqua ... | app.wasm) --target windows|linux --kind shared -o dist   (native libraries of the 匯出 / export functions)\n" +
+        "aqua export header (project | main.aqua ... | app.wasm) [-o file.h]\n" +
         "aqua run (app.wasm | main.aqua | project-directory) [--entry main.aqua] [argument ...]\n" +
         "aqua repl\n" + "aqua --version\n" + Tools.Usage + "\n" + BottleCommandLine.Usage + "\n" + LibraryBuilder.Usage + "\n" +
         "--hide-terminal true builds a Windows GUI executable without a console ([desktop] hide_terminal = true in aqua.toml).\n" +
@@ -94,7 +98,7 @@ public static class CompilerCommandLine {
                 var build = ProjectBuilder.Compile(input.Project, intermediate, target, flags.Contains("--locked"), flags.Contains("--offline"));
                 backend.Build(new WasmBuildRequest(intermediate, output, null, TargetOptions(options, backend), build.Libraries, project.Export));
             } finally { if (File.Exists(intermediate)) File.Delete(intermediate); }
-            Console.WriteLine($"{backend.ArtifactDescription} built: {Path.GetFullPath(output)}"); return 0;
+            Console.WriteLine($"{Built(backend, options, project.Export)} built: {Path.GetFullPath(output)}"); return 0;
         }
         if (flags.Count != 0) throw new ArgumentException("--locked and --offline require a TOML project.");
         if (Value("--platform") != null) throw new ArgumentException("--platform requires a TOML project.");
@@ -112,7 +116,7 @@ public static class CompilerCommandLine {
                     backend.Build(new WasmBuildRequest(temporary, output, Value("--entry"), TargetOptions(options, backend), input.Libraries));
                 } finally { if (File.Exists(temporary)) File.Delete(temporary); }
             }
-            Console.WriteLine($"{backend.ArtifactDescription} built: {Path.GetFullPath(output)}"); return 0;
+            Console.WriteLine($"{Built(backend, options, null)} built: {Path.GetFullPath(output)}"); return 0;
         }
         if (input.Wasm != null) throw new ArgumentException("Wasm builds require .aqua source files; export a .wasm with --target.");
         if (options.Keys.Any(k => k is not ("-o" or "--root" or "--entry" or "--target"))) throw new ArgumentException("Platform options require their platform target.");
@@ -120,6 +124,11 @@ public static class CompilerCommandLine {
         WasmApplication.Compile(input.Sources, wasm, Value("--root"), assets, Value("--entry"), libraries: input.Libraries);
         Console.WriteLine($"Compiled {input.Sources.Count} script(s) to {Path.GetFullPath(wasm)}"); return 0;
     }
+
+    /// <summary>What a platform build wrote: native libraries when --kind or [export] asked for them, else the target's artifact.</summary>
+    private static string Built(IWasmBuildTarget backend, Dictionary<string, string> options, NativeLibrarySettings? export) =>
+        backend.OptionNames.Contains(NativeLibraryOutput.KindOption) && (options.ContainsKey(NativeLibraryOutput.KindOption) || export != null)
+            ? "Native libraries" : backend.ArtifactDescription;
 
     private static Dictionary<string, string> TargetOptions(Dictionary<string, string> options, IWasmBuildTarget backend) =>
         options.Where(o => backend.OptionNames.Contains(o.Key)).ToDictionary(o => o.Key, o => o.Value);
@@ -242,17 +251,17 @@ public static class CompilerCommandLine {
         string temporary = Path.Combine(Path.GetTempPath(), "aquarius-export-" + Guid.NewGuid().ToString("N") + ".wasm");
         try {
             string wasm = input.Wasm ?? temporary;
-            AquariusLang.Build.Libraries.NativeLibrarySettings? settings = null;
+            NativeLibrarySettings? settings = null;
             if (input.Project != null) {
                 var project = ProjectManifest.Load(input.Project);
                 ProjectBuilder.Compile(input.Project, temporary, RuntimeTarget.Get(AquariusInstallation.HostTarget).Platform);
-                settings = project.Export ?? AquariusLang.Build.Libraries.NativeLibrarySettings.Default(project.Name, project.Version);
+                settings = project.Export ?? NativeLibrarySettings.Default(project.Name, project.Version);
             } else if (input.Wasm == null) WasmApplication.Compile(input.Sources, temporary, libraries: input.Libraries);
             var application = WasmApplication.Load(wasm);
             var exports = ExportTable.Read(application.Program)
                 ?? throw new InvalidDataException($"{application.EntryPoint} exports nothing: mark functions with 匯出 / export.");
-            settings ??= AquariusLang.Build.Libraries.NativeLibrarySettings.Default(Path.GetFileNameWithoutExtension(application.EntryPoint));
-            string header = AquariusLang.Build.Bindings.CBinding.Header(new AquariusLang.Build.Bindings.BindingContext(exports, settings));
+            settings ??= NativeLibrarySettings.Default(Path.GetFileNameWithoutExtension(application.EntryPoint));
+            string header = CBinding.Header(new BindingContext(exports, settings));
             if (output == null) Console.Write(header);
             else { File.WriteAllText(output, header); Console.WriteLine($"Header written: {Path.GetFullPath(output)}"); }
             return 0;

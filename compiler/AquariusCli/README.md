@@ -11,6 +11,8 @@ aqua build app.wasm --target web -o site
 aqua build app.wasm --target windows -o app.exe [--hide-terminal true] [--onnx-cuda true]
 aqua build app.wasm --target linux -o app
 aqua build app.wasm --target android -o app.apk [--application-id org.example.app] [--app-name Name]
+aqua build . --target windows --kind shared -o dist                 # native libraries of the export functions
+aqua export header . -o geometry.h
 aqua build main.aqua --target web -o site        # sources build straight to a target too
 aqua new MyApp; aqua new MyLibrary --type library
 aqua build MyApp [--target PLATFORM] [--locked] [--offline]

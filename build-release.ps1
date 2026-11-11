@@ -121,7 +121,12 @@ try {
 
     Write-Host '[2/6] Compiler build and tests (Release)'
     Invoke-Checked $Dotnet @('build', 'AquariusLang.sln', '-c', 'Release', '--nologo')
-    if (-not $SkipTests) { Invoke-Checked $Dotnet @('test', 'compiler/AquariusTests', '-c', 'Release', '--no-build', '--nologo') }
+    if (-not $SkipTests) {
+        Invoke-Checked $Dotnet @('test', 'compiler/AquariusTests', '-c', 'Release', '--no-build', '--nologo')
+        # Native library outputs of this host's target (docs/native-libraries.md).
+        & (Join-Path $PSScriptRoot 'scripts/test-exports.ps1') -Dotnet $Dotnet
+        if ($LASTEXITCODE -ne 0) { throw 'scripts/test-exports.ps1 failed.' }
+    }
 
     Write-Host '[3/6] Publishing dist/aqua'
     $package = Join-Path $repository 'dist/aqua'
