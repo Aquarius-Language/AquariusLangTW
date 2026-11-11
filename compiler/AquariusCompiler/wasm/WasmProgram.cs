@@ -102,6 +102,10 @@ public sealed class WasmProgram
         return assets;
     }
 
+    /// <summary>The payload of the custom section <paramref name="name"/> (after its name), or null when there is none.</summary>
+    public ReadOnlyMemory<byte>? CustomSection(string name) =>
+        Sections(bytes).Where(s => s.Name == name).Select(s => (ReadOnlyMemory<byte>?)new ReadOnlyMemory<byte>(bytes, s.Payload, s.End - s.Payload)).FirstOrDefault();
+
     /// <summary>Whether the module exports a function of this name.</summary>
     public bool HasExport(string name) => (exports ??= ReadExports()).Contains(name);
     private HashSet<string> ReadExports()

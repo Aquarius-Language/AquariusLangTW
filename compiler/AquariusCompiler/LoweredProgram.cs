@@ -52,6 +52,9 @@ public sealed class LoweredProgram {
     internal (int Enter, int Head, int Leave, NativeSignature? Region)[] Loops { get; }
     /// <summary>A function body's native-tier signature (typed, or a clone of an untyped function), with its parameters.</summary>
     internal (NativeSignature Signature, string[] Parameters)? Function { get; set; }
+    /// <summary>The module's <c>匯出</c> / <c>export</c> declarations; null when it has none. Only the entry module's are
+    /// written into the application (<see cref="ExportTable"/>).</summary>
+    public ExportTable? Exports { get; internal set; }
 
     internal LoweredProgram(Instruction[] code, object[] constants, bool wrapReturn, (int, int, int, NativeSignature?)[]? loops = null) {
         Code = code; Pool = constants; WrapReturn = wrapReturn; Loops = loops ?? System.Array.Empty<(int, int, int, NativeSignature?)>();

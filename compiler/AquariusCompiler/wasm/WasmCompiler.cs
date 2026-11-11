@@ -285,6 +285,9 @@ public sealed class WasmCompiler
             { U(w, 0); w.Write((byte)0x41); S(w, WasmRuntimeImage.ProgramAddress); w.Write((byte)0x0b); var payload = data.Bytes; U(w, payload.Length); w.Write(payload); });
         foreach (var section in runtime.Sections.OrderBy(p => p.Key)) Section(section.Key, w => w.Write(section.Value));
         if (stencils.Count > 0) Section(0, w => WasmJit.WriteSection(w, stencils, runtime, name => texts[name]));
+        // Native library outputs read the entry module's exports (docs/native-libraries.md); programs without any have none.
+        if (modules.TryGetValue(entry, out var entryModule) && entryModule.Exports is { } exported)
+            Section(0, w => { w.Write(ExportTable.SectionName); w.Write(exported.InModule(entry).Encode()); });
         return WasmProgram.Create(output.ToArray(), metadata,
             assets?.ToDictionary(p => p.Key, p => (ReadOnlyMemory<byte>)p.Value) ?? new Dictionary<string, ReadOnlyMemory<byte>>());
     }
