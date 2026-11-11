@@ -100,9 +100,17 @@ static void destroy(instance *i) {
 }
 
 /* Creates the instance and runs the entry module (with the lock held). */
+/* Registers the default libraries linked into this library, once per process (the registry outlives instances). */
+static void register_libraries(const aqua_embed_table *table) {
+    registry_ensure();
+    for (uint32_t k = 0; k < table->library_count; k++)
+        if (!registry_library(table->libraries[k].name)) registry_add(table->libraries[k].name, table->libraries[k].entry);
+}
+
 static bool start(void) {
     if (current) return true;
     const aqua_embed_table *table = &aqua_embed_exports;
+    register_libraries(table);
     instance *i = calloc(1, sizeof *i);
     uint8_t *module = malloc(table->module_size);
     memcpy(module, table->module, table->module_size);

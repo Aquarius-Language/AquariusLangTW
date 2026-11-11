@@ -8,6 +8,8 @@ platforms = ["windows", "linux", "macos", "ios", "android", "web"]
 
 [native]
 modules = ["Processing|繪圖", "WGPU|wgpu", "GLM", "TextInput", "Window", "Fonts"]
+# Needs a window system: native library outputs cannot include it yet (docs/native-libraries.md).
+window = true
 
 [[modules]]
 names = "Models|模型"

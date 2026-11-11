@@ -194,6 +194,19 @@ static const uint32_t field_counts[] = {
 #include "exports.def"
     0};
 
+/* The default libraries linked into this library (AQUA_EMBED_DEFAULT_LIBRARIES: X(name) entries). */
+#ifndef AQUA_EMBED_DEFAULT_LIBRARIES
+#define AQUA_EMBED_DEFAULT_LIBRARIES
+#endif
+#define X(name) void aqua_library_##name(aqua_library *library);
+AQUA_EMBED_DEFAULT_LIBRARIES
+#undef X
+static const aqua_embed_library libraries[] = {
+#define X(name) {#name, aqua_library_##name},
+    AQUA_EMBED_DEFAULT_LIBRARIES
+#undef X
+    {NULL, NULL}};
+
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wc23-extensions"
 static const unsigned char module[] = {
@@ -202,7 +215,8 @@ static const unsigned char module[] = {
 #pragma clang diagnostic pop
 
 const aqua_embed_table aqua_embed_exports = {
-    functions, sizeof functions / sizeof *functions - 1, structs, field_counts, sizeof structs / sizeof *structs - 1, module, sizeof module
+    functions, sizeof functions / sizeof *functions - 1, structs, field_counts, sizeof structs / sizeof *structs - 1,
+    libraries, sizeof libraries / sizeof *libraries - 1, module, sizeof module
 };
 
 /* ---- What every library defines ---- */

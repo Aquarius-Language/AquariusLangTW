@@ -9,6 +9,8 @@ platforms = ["windows", "linux", "macos", "ios", "android", "web"]
 
 [native]
 modules = ["Interaction|互動"]
+# Needs a window system: native library outputs cannot include it yet (docs/native-libraries.md).
+window = true
 
 [[modules]]
 names = "ScrollView|捲動檢視"

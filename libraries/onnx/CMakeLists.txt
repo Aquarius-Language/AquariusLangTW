@@ -140,6 +140,8 @@ if(NOT TARGET aqua_onnx)
     return()
 endif()
 target_compile_definitions(aqua_onnx PRIVATE ONNX_RUNTIME_VERSION="${onnx_version}")
+# Native library outputs ship the runtime files and licenses beside them (runtime/embed/runtime.cmake).
+set_target_properties(aqua_onnx PROPERTIES AQUA_RUNTIME_FILES "${runtime_files}" AQUA_LICENSE_FILES "${license_files}")
 if(AQUA_TARGET STREQUAL "web")
     # libc++ for ONNX Runtime; calls between ONNX Runtime's own symbols (ONNX and protobuf export some) bind inside the
     # module, and the name section is dropped (about half the size).

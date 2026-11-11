@@ -57,22 +57,29 @@ function Compare-Output([string]$Check, $Run, [string]$Expected) {
 
 # ---- The libraries ----
 $platform = $target.platform
-$libraries = @{}
-foreach ($name in 'geometry', 'counter') {
-    Invoke-Checked $Dotnet @($Compiler, 'build', (Join-Path $tests $name), '--target', $platform, '-o', (Join-Path $Work $name)) | Out-Null
+# Every kind the platform builds (Windows has no object kind: lld cannot prelink COFF objects).
+$kinds = if ($platform -eq 'windows') { @('shared', 'static') } else { @('shared', 'static', 'object') }
+$libraries = [ordered]@{}
+foreach ($name in 'geometry', 'counter', 'shapes', 'services') {
+    Invoke-Checked $Dotnet @($Compiler, 'build', (Join-Path $tests $name), '--target', $platform, '--kind', ($kinds -join ','), '-o', (Join-Path $Work $name)) | Out-Null
     $libraries[$name] = Join-Path $Work "$name/$($target.name)"
 }
-Pass "build geometry and counter for $($target.name)"
+Pass "build geometry, counter, services (default libraries) and the [library] shapes as $($kinds -join ', ') for $($target.name)"
+# A project with [export] still builds its executable when asked to.
+$executable = Join-Path $Work ('geometry-app' + $AquaToolchain.Exe)
+Invoke-Checked $Dotnet @($Compiler, 'build', (Join-Path $tests 'geometry'), '--target', $platform, '--kind', 'executable', '-o', $executable) | Out-Null
+Compare-Output 'executable of a project with [export] (--kind executable)' (Invoke-Program $executable) ''
 
 # ---- The consumers, as any program would build them ----
 function Build-Consumers([string]$Folder, [bool]$Sanitize) {
     $toolchain = Join-Path $repository "runtime/sdk/cmake/toolchains/$($target.name).cmake"
     Invoke-Checked $AquaToolchain.CMake @('-S', $tests, '-B', $Folder, '-G', 'Ninja', "-DCMAKE_MAKE_PROGRAM=$($AquaToolchain.Ninja)",
         "-DCMAKE_TOOLCHAIN_FILE=$toolchain", '-DCMAKE_BUILD_TYPE=Debug', "-DAQUA_EXPORTS_GEOMETRY=$($libraries.geometry)",
-        "-DAQUA_EXPORTS_COUNTER=$($libraries.counter)", "-DAQUA_EXPORTS_SANITIZE=$(if ($Sanitize) { 'ON' } else { 'OFF' })") | Out-Null
+        "-DAQUA_EXPORTS_COUNTER=$($libraries.counter)", "-DAQUA_EXPORTS_SHAPES=$($libraries.shapes)", "-DAQUA_EXPORTS_SERVICES=$($libraries.services)", "-DAQUA_EXPORTS_KINDS=$($kinds -join ';')",
+        "-DAQUA_EXPORTS_SANITIZE=$(if ($Sanitize) { 'ON' } else { 'OFF' })") | Out-Null
     Invoke-Checked $AquaToolchain.CMake @('--build', $Folder) | Out-Null
-    # Windows finds a program's DLLs beside it.
-    if ($platform -eq 'windows') { foreach ($name in $libraries.Keys) { Copy-Item (Join-Path $libraries[$name] "bin/$name.dll") $Folder -Force } }
+    # Windows finds a program's DLLs (and their runtime files) beside it.
+    if ($platform -eq 'windows') { foreach ($name in $libraries.Keys) { Copy-Item (Join-Path $libraries[$name] 'bin/*.dll') $Folder -Force } }
 }
 function Consumer([string]$Folder, [string]$Name) { Join-Path $Folder ($Name + $AquaToolchain.Exe) }
 
@@ -83,9 +90,16 @@ $expected = (Get-Content -LiteralPath (Join-Path $tests 'geometry.expected') -Ra
 $portable = (($expected -split "`n") | Where-Object { $_ -and $_ -notlike 'native *' } | ForEach-Object { "$_`n" }) -join ''
 
 function Test-Consumers([string]$Folder, [string]$Variant, [hashtable]$Environment = @{}) {
+    $two = "two libraries 1 101 2 102`nafter one shutdown 3 101`n"
     Compare-Output "C consumer$Variant" (Invoke-Program (Consumer $Folder 'consumer_c') @() $Environment) $expected
     Compare-Output "C++ consumer$Variant" (Invoke-Program (Consumer $Folder 'consumer_cpp') @() $Environment) $expected
-    Compare-Output "two libraries in one process$Variant" (Invoke-Program (Consumer $Folder 'two_libraries') @() $Environment) "two libraries 1 101 2 102`nafter one shutdown 3 101`n"
+    Compare-Output "two libraries in one process$Variant" (Invoke-Program (Consumer $Folder 'two_libraries') @() $Environment) $two
+    foreach ($kind in $kinds | Where-Object { $_ -ne 'shared' }) {
+        Compare-Output "C consumer, $kind library$Variant" (Invoke-Program (Consumer $Folder "consumer_c_$kind") @() $Environment) $expected
+        Compare-Output "two $kind libraries in one program$Variant" (Invoke-Program (Consumer $Folder "two_libraries_$kind") @() $Environment) $two
+    }
+    Compare-Output "[library] through [export] module$Variant" (Invoke-Program (Consumer $Folder 'shapes') @() $Environment) "shapes 225`n"
+    Compare-Output "default libraries inside a library (network, application, terminal, onnx)$Variant" (Invoke-Program (Consumer $Folder 'default_libraries') @() $Environment) "status Not Found`njson {`"name`":`"Ada`",`"count`":3}`nterminal 1`nonnx 1`n"
     Compare-Output "lifecycle x1000$Variant" (Invoke-Program (Consumer $Folder 'lifecycle') @() $Environment) "lifecycle 1000 ok`n"
     Compare-Output "8 calling threads$Variant" (Invoke-Program (Consumer $Folder 'threads') @() $Environment) "threads 2000 calls, 0 failures, next 2001`n"
     if ($platform -ne 'windows') {
@@ -112,7 +126,7 @@ foreach ($name in $libraries.Keys) {
             Where-Object { $_ -match '^\s*Name: (\S+)' } | ForEach-Object { $Matches[1] } | Sort-Object -Unique)
         $needed = @(((Invoke-Checked (Tool 'llvm-readobj') @('--coff-imports', $library)).Output -split "`n") |
             Where-Object { $_ -match '^\s*Name: (\S+\.dll)\s*$' } | ForEach-Object { $Matches[1] } | Sort-Object -Unique)
-        $system = '^(?i)(api-ms-win-[\w-]+|kernel32|ntdll|advapi32|shell32|ole32|user32|ws2_32|userenv|bcrypt|synchronization|ucrtbase|msvcrt)\.dll$'
+        $system = '^(?i)(api-ms-win-[\w-]+|kernel32|ntdll|advapi32|shell32|ole32|oleaut32|oleacc|user32|gdi32|comctl32|comdlg32|ws2_32|userenv|bcrypt|crypt32|synchronization|ucrtbase|msvcrt)\.dll$'
         foreach ($import in 'mingw', 'msvc') {
             $file = Join-Path $folder $(if ($import -eq 'mingw') { "lib/lib$name.dll.a" } else { "lib/$name.lib" })
             $symbols = if (Test-Path -LiteralPath $file) { (Invoke-Checked (Tool 'llvm-nm') @($file)).Output } else { '' }
@@ -135,6 +149,15 @@ foreach ($name in $libraries.Keys) {
     else { Fail "$name exports" "exported: $($exports -join ', ')`ndeclared: $($declared -join ', ')" }
     $foreign = @($needed | Where-Object { $_ -notmatch $system })
     if (-not $foreign.Count) { Pass "$name needs only system libraries ($($needed -join ', '))" } else { Fail "$name dependencies" "not system libraries: $($foreign -join ', ')" }
+    # Static and object outputs: the only global names defined are the exports; every internal is local (ELF) or carries
+    # the library's prefix (Windows).
+    foreach ($file in @("lib/lib$name.a", "lib/$name.o") | Where-Object { Test-Path -LiteralPath (Join-Path $folder $_) }) {
+        $prefix = [regex]::Match($header, '(?m)^\w+_API bool (\w+)initialize\(').Groups[1].Value
+        $globals = @(((Invoke-Checked (Tool 'llvm-nm') @('--defined-only', '--extern-only', '--format=just-symbols', (Join-Path $folder $file))).Output -split "`n") |
+            Where-Object { $_ -and $_ -notmatch ':$' -and -not $_.StartsWith($prefix + 'aqua_') } | Sort-Object -Unique)
+        if (-not (Compare-Object $globals $declared)) { Pass "$name $file defines only its exports globally" }
+        else { Fail "$name $file globals" "global: $($globals -join ', ')" }
+    }
 }
 
 # ---- Sanitizers (Linux) ----

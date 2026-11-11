@@ -81,6 +81,13 @@ public sealed record RuntimeTarget(string Name, string Platform, TargetKind Kind
     /// it), lib elsewhere.</summary>
     public string SharedLibraryFolder => Platform == "windows" ? "bin" : "lib";
 
+    /// <summary>A native library output's static library, lib&lt;name&gt;.a (MinGW's naming on Windows, which keeps it apart
+    /// from the MSVC import library &lt;name&gt;.lib).</summary>
+    public string StaticLibraryName(string name) => $"lib{name}.a";
+
+    /// <summary>A native library output's prelinked object, &lt;name&gt;.o.</summary>
+    public string ObjectName(string name) => name + ".o";
+
     /// <summary>The import libraries a native library output's DLL comes with, by kind: MinGW's lib&lt;name&gt;.dll.a and
     /// MSVC's &lt;name&gt;.lib on Windows; none elsewhere.</summary>
     public IReadOnlyList<(string Kind, string File)> ImportLibraryNames(string name) =>

@@ -370,6 +370,20 @@ public class CliProcessTest
     }
 
     [Fact]
+    public void NativeLibrariesRejectWindowLibrariesAndMixedExecutableKinds()
+    {
+        using var t = new TestFolder();
+        t.Write("drawing.aqua", "var processing = import(\"Processing\");\nexport var one = function(): int { 1; };\n");
+        var window = AquaCommand.Run(t.Path, "build", "drawing.aqua", "--target", "windows", "--kind", "shared", "-o", "dist");
+        Assert.Equal(1, window.Code);
+        Assert.Contains("needs a window system", window.Error);
+        t.Write("plain.aqua", "export var one = function(): int { 1; };\n");
+        var mixed = AquaCommand.Run(t.Path, "build", "plain.aqua", "--target", "windows", "--kind", "shared,executable", "-o", "dist");
+        Assert.Equal(2, mixed.Code);
+        Assert.Contains("executable alone", mixed.Error);
+    }
+
+    [Fact]
     public void CompileErrorsNameTheirLineAndColumn()
     {
         using var t = new TestFolder(); t.Write("main.aqua", "print(1);\nvar broken = ;\n");

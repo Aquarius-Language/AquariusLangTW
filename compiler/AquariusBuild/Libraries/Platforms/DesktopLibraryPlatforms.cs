@@ -1,10 +1,11 @@
 namespace AquariusLang.Build.Libraries.Platforms;
 
-/// <summary>Windows: a DLL with MinGW and MSVC import libraries, a static library, an object file.</summary>
+/// <summary>Windows: a DLL with MinGW and MSVC import libraries, or a static library with prefixed internals.</summary>
 public sealed class WindowsLibraryPlatform : INativeLibraryPlatform
 {
     public string Platform => "windows";
-    public IReadOnlyList<string> Kinds => ["shared", "static", "object"];
+    /// <summary>No object kind: lld cannot prelink COFF objects into one (docs/native-libraries.md).</summary>
+    public IReadOnlyList<string> Kinds => ["shared", "static"];
     public IReadOnlyList<string> Bindings => ["c", "cpp", "rust", "java"];
     public IReadOnlyList<string> DefaultBindings => ["c", "cpp", "rust"];
     public IReadOnlyList<string> Packages => ["folder"];

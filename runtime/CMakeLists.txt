@@ -33,6 +33,11 @@ else()
         list(APPEND library_folders "${folder}")
     endforeach()
 endif()
+# Native library outputs (embed/runtime.cmake) link the default libraries into shared libraries: on a platform that
+# has them, every library and its third-party code is position independent.
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/platform/${AQUA_OS}/embed.cmake")
+    set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+endif()
 foreach(folder IN LISTS library_folders)
     add_subdirectory("${AQUA_LIBRARY_ROOT}/${folder}" "libraries/${folder}")
 endforeach()

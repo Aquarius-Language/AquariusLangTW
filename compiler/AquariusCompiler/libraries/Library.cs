@@ -28,6 +28,9 @@ public sealed class Library
     public string? License { get; }
     /// <summary>The AquariusLang versions the library works with (<c>aquarius = "&gt;= 0.1.4"</c>), checked by Bottle; null for any.</summary>
     public string? Aquarius { get; private init; }
+    /// <summary>[native] window = true: the native part needs a window system (graphics, input, ...), so native library
+    /// outputs (docs/native-libraries.md) cannot include it yet.</summary>
+    public bool NeedsWindow { get; private init; }
     public string Root { get; }
     public string ManifestPath { get; }
     public IReadOnlyList<string> Platforms { get; }
@@ -134,11 +137,13 @@ public sealed class Library
             return aliases;
         }
 
-        string? nativeName = null, nativeSource = null; string[][] nativeModules = [];
+        string? nativeName = null, nativeSource = null; string[][] nativeModules = []; bool needsWindow = false;
         if (model.TryGetValue("native", out var nativeValue)) {
             if (nativeValue is not TomlTable native) { Fail("native", "[native] must be a table."); return null!; }
             section = "native";
-            Keys(native, "native", external ? ["name", "modules", "source"] : ["name", "modules"]);
+            Keys(native, "native", external ? ["name", "modules", "source", "window"] : ["name", "modules", "window"]);
+            if (native.TryGetValue("window", out var window) && window is not bool) Fail("window", "'window' must be true or false.");
+            needsWindow = native.TryGetValue("window", out var flag) && flag is true;
             nativeName = Text(native, "name") ?? name;
             if (!ValidNativeName(nativeName)) Fail("name", $"The native library name '{nativeName}' must use only a-z, 0-9 and _ (at most 64); set [native] name.");
             nativeModules = Texts(native, "modules").Select(spec => Aliases(spec, "modules")).ToArray();
@@ -172,7 +177,7 @@ public sealed class Library
             if (permissions.Any(p => !Regex.IsMatch(p, @"^[A-Za-z][A-Za-z0-9_]*(\.[A-Za-z0-9_]+)+$"))) Fail("permissions", "Android permissions are names such as android.permission.INTERNET.");
         }
         return new Library(file, name, libraryVersion, Text(library, "description"), Text(library, "license"), platforms,
-            nativeName, nativeModules, nativeSource, modules.ToArray(), permissions, external) { Aquarius = aquarius };
+            nativeName, nativeModules, nativeSource, modules.ToArray(), permissions, external) { Aquarius = aquarius, NeedsWindow = needsWindow };
     }
 }
 

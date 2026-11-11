@@ -17,10 +17,14 @@
 #define AQUA_EMBED_ABI_VERSION 1
 
 /* What the per-library half tells the runtime: the Aquarius names of its exported functions and of its exported
-   structs (whose hidden constructors are "export@" + name), and its application module. */
+   structs (whose hidden constructors are "export@" + name), the default libraries linked into it, and its application
+   module. */
+typedef struct aqua_library aqua_library;
+typedef struct aqua_embed_library { const char *name; void (*entry)(aqua_library *library); } aqua_embed_library;
 typedef struct aqua_embed_table {
     const char *const *functions; uint32_t function_count;
     const char *const *structs; const uint32_t *field_counts; uint32_t struct_count;
+    const aqua_embed_library *libraries; uint32_t library_count;
     const unsigned char *module; size_t module_size;
 } aqua_embed_table;
 extern const aqua_embed_table aqua_embed_exports; /* exports.c */

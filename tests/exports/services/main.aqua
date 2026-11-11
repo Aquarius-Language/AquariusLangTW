@@ -1,0 +1,18 @@
+# A test library of the native library outputs that uses default libraries needing no window system (network,
+# application, terminal, onnx): they link into the library, and onnx's runtime files ship beside it
+# (scripts/test-exports.ps1).
+var network = import("Network");
+var serialization = import("Serialization");
+var terminal = import("Terminal");
+var onnx = import("ONNX");
+
+# The reason phrase of an HTTP status code.
+export var statusText = function(code: int): string { network.StatusText(code); };
+
+# A small JSON document.
+export var json = function(name: string, count: int): string { serialization.Json({"name": name, "count": count}); };
+
+export var terminalSupported = function(): bool { terminal.IsSupported(); };
+
+# Whether ONNX Runtime runs on the CPU: its runtime files are found beside the library.
+export var onnxSupported = function(): bool { onnx.IsSupported("cpu"); };

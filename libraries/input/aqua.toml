@@ -9,6 +9,8 @@ platforms = ["windows", "linux", "macos", "ios", "android", "web"]
 
 [native]
 modules = ["AndroidInput|Android輸入"]
+# Needs a window system: native library outputs cannot include it yet (docs/native-libraries.md).
+window = true
 
 [android]
 permissions = ["android.permission.VIBRATE"]

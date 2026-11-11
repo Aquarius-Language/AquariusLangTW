@@ -9,3 +9,5 @@ platforms = ["windows", "linux", "macos", "ios", "android", "web"]
 
 [native]
 modules = ["RemoteWindow|遠端視窗"]
+# Needs a window system: native library outputs cannot include it yet (docs/native-libraries.md).
+window = true
