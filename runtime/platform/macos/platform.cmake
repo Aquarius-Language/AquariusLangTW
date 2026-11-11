@@ -3,6 +3,7 @@
 # (platform/desktop/metal_layer.m makes one for a GLFW window).
 enable_language(OBJC)
 set(platform_sources platform/macos/platform.c platform/posix/posix.c platform/posix/desktop.c platform/desktop/metal_layer.m)
+set(platform_entry platform/posix/entry.c)
 set(platform_libraries pthread m "-framework Cocoa" "-framework IOKit" "-framework QuartzCore" "-framework Metal"
     "-framework CoreFoundation" "-framework Security")
 include("${CMAKE_CURRENT_LIST_DIR}/../desktop/desktop.cmake")

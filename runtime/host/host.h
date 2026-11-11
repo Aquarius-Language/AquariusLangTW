@@ -178,6 +178,8 @@ struct aqua_runtime {
     bool out_of_memory;               /* the guest heap could not grow: the trap that follows is reported as that */
 #define OUT_OF_MEMORY_MESSAGE "Out of memory: the program's WebAssembly memory cannot grow any further (it holds at most 2 GiB)."
     uint32_t entry_module;           /* the module runtime_start ran */
+    uint32_t entry_scope;            /* its guest scope (native library outputs look its exports up there) */
+    aqua_done entry_done; void *entry_data; /* runtime_options.done */
     uint32_t importing[64], import_depth; /* modules whose import is running, innermost last */
     char *materialized;              /* directory holding assets as files (desktop, Android) */
     bool materialized_created;       /* that directory was created: the runtime removes it when it ends */
@@ -241,6 +243,9 @@ typedef struct runtime_options {
     /* Fuel per run slice of an execution (how often it yields to the loop); 0 for the portable default. A platform may
        choose a larger one: results never depend on it, only how often other work interleaves. */
     uint32_t quantum;
+    /* Receives the entry script's outcome instead of the launcher's default (which prints a final value or error and
+       sets the exit code); it must set rt->finished. NULL for the default. Native library outputs use it. */
+    aqua_done done; void *done_data;
 } runtime_options;
 aqua_runtime *runtime_create(uint8_t *module, size_t length, const runtime_options *options, char **error);
 /* Starts the entry script. */

@@ -1,6 +1,7 @@
 # The Windows runtime (runtime/CMakeLists.txt includes it for AQUA_OS windows): the desktop launchers with this layer.
 enable_language(RC) # the executable's manifest
-set(platform_sources platform/windows/platform.c platform/windows/aquarius.rc)
+set(platform_sources platform/windows/platform.c)
+set(platform_entry platform/windows/entry.c platform/windows/aquarius.rc)
 set(platform_libraries ws2_32 userenv ntdll bcrypt ole32 shell32 advapi32 kernel32 synchronization)
 include("${CMAKE_CURRENT_LIST_DIR}/../desktop/desktop.cmake")
 

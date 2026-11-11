@@ -1,6 +1,8 @@
-# The runtime of a desktop target, included by its platform/<os>/platform.cmake (windows, linux): GLFW windows and the
-# two launchers. The including file sets platform_sources and platform_libraries (its layer's sources and system
-# libraries) first, and adds what only its operating system needs (GLFW sources, linker options) after.
+# The runtime of a desktop target, included by its platform/<os>/platform.cmake (windows, linux, macos): GLFW windows and
+# the two launchers. The including file sets platform_sources, platform_entry and platform_libraries (its layer's
+# sources, its process entry and its system libraries) first, and adds what only its operating system needs (GLFW
+# sources, linker options) after. Native library outputs (runtime/embed) link the layer's sources with
+# platform/desktop/embed.c instead of the process entry and the launcher.
 #
 # GLFW 3.4 for desktop windows, checksum-pinned.
 include(FetchContent)
@@ -25,7 +27,9 @@ aqua_sdk_directory(wasmtime ${AQUA_TARGET} wasmtime_sdk)
 # it). The aot/ folder holds what aqua build compiles into that library (see aot/CMakeLists.txt). Compiled code recurses
 # on the native stack without a per-call depth count (aot_app.c), so the platform layer reserves a large stack for
 # aquarius-aot.
-set(launcher_sources ${host_sources} host/overlay.c host/sha256.c host/threads.c ${platform_sources} platform/desktop/main.c platform/desktop/jit.c)
+set(launcher_sources ${host_sources} host/overlay.c host/sha256.c host/threads.c ${platform_sources} ${platform_entry} platform/desktop/main.c
+    platform/desktop/jit.c)
+set(embed_platform_sources ${platform_sources} platform/desktop/embed.c)
 add_executable(aquarius ${launcher_sources} host/engine_wasmtime.c)
 add_executable(aquarius-aot ${launcher_sources} host/engine_aot.c)
 target_include_directories(aquarius PRIVATE "${wasmtime_sdk}/include")

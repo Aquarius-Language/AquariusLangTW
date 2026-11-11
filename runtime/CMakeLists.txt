@@ -53,3 +53,9 @@ if(NOT EXISTS "${platform_build}")
     message(FATAL_ERROR "${AQUA_TARGET} has no platform layer: add runtime/platform/${AQUA_OS}/platform.cmake (docs/adding-a-target.md).")
 endif()
 include("${platform_build}")
+
+# Native library outputs (docs/native-libraries.md): a platform layer with link rules for them (embed.cmake) gets the
+# embed runtime in its pack.
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/platform/${AQUA_OS}/embed.cmake")
+    include(embed/runtime.cmake)
+endif()

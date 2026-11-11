@@ -297,9 +297,12 @@ bool runtime_start(aqua_runtime *rt, const char *entry) {
     rt->entry_module = (uint32_t)module;
     uint32_t context = context_new(rt, rt->app.modules[module].path);
     uint32_t scope = guest(rt, GUEST_scope, 0, 0, 0, 0);
+    rt->entry_scope = scope;
     task *t = calloc(1, sizeof *t);
     t->execution = guest(rt, GUEST_execute, rt->app.program_address, rt->app.modules[module].function, scope, context);
-    t->done = main_done; t->loop = true;
+    if (rt->entry_done) { t->done = rt->entry_done; t->data = rt->entry_data; }
+    else t->done = main_done;
+    t->loop = true;
     append_task(rt, t);
     return true;
 }

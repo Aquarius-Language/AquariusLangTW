@@ -22,7 +22,9 @@ typedef struct aot_app {
     uint8_t *(*memory)(void *instance, size_t *size);
 } aot_app;
 
-#if defined(_WIN32)
+#if defined(AQUA_EMBED)
+#define AQUA_AOT_EXPORT /* linked into a native library output, which exports only its own functions */
+#elif defined(_WIN32)
 #define AQUA_AOT_EXPORT __declspec(dllexport)
 #else
 #define AQUA_AOT_EXPORT __attribute__((visibility("default")))

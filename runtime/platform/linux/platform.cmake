@@ -1,6 +1,7 @@
 # The Linux runtime (runtime/CMakeLists.txt includes it for AQUA_OS linux): the desktop launchers with this layer and the
 # POSIX one.
 set(platform_sources platform/linux/platform.c platform/posix/posix.c platform/posix/desktop.c)
+set(platform_entry platform/posix/entry.c)
 set(platform_libraries pthread dl m)
 include("${CMAKE_CURRENT_LIST_DIR}/../desktop/desktop.cmake")
 

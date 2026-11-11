@@ -1,14 +1,15 @@
 /* The ahead-of-time engine (CLAUDE.md rule 11): runs the application from its ahead-of-time code (aot_app.h), compiled
    from the same .wasm by wasm2c and Clang. On the desktop (the aquarius-aot launcher of aqua build --optimize) that is a
    library beside the executable, <executable>.aot.dll / .aot.dylib / .aot.so, or AQUARIUS_AOT for
-   `aquarius-aot app.wasm`; on iOS, which forbids run-time code generation, it is linked into the application itself. The library must be built from this very module (its
+   `aquarius-aot app.wasm`; on iOS, which forbids run-time code generation, and in native library outputs (runtime/embed,
+   compiled with AQUA_EMBED) it is linked into the application or library itself. It must be built from this very module (its
    SHA-256). The module bytes still serve the host's metadata and the JIT's stencils; the runtime JIT installs no
    modules in this engine (engine_install declines), so untyped loops without a native region run generically. */
 #include "host.h"
 #include "engine.h"
 #include "sha256.h"
 #include "../aot/aot_app.h"
-#if defined(AQUA_DESKTOP)
+#if defined(AQUA_DESKTOP) && !defined(AQUA_EMBED)
 #include "../platform/desktop/desktop.h"
 int32_t platform_jit(engine *e, int32_t loop);
 #endif
@@ -28,14 +29,14 @@ struct engine {
 static int32_t service(void *context, const int32_t arguments[7]) {
     engine *e = context;
     /* Operation 5 is a hot loop asking the runtime JIT. */
-#if defined(AQUA_DESKTOP)
+#if defined(AQUA_DESKTOP) && !defined(AQUA_EMBED)
     return arguments[0] == 5 ? platform_jit(e, arguments[2]) : e->service(e->service_data, arguments);
 #else
     return arguments[0] == 5 ? -1 : e->service(e->service_data, arguments);   /* no runtime JIT: the loop runs as compiled */
 #endif
 }
 
-#if defined(AQUA_DESKTOP)
+#if defined(AQUA_DESKTOP) && !defined(AQUA_EMBED)
 /* The library beside the executable (its name without .exe, then .aot.dll / .aot.dylib / .aot.so, the suffixes of
    RuntimeTarget.SharedLibrarySuffix in the compiler), or AQUARIUS_AOT. */
 static char *library_path(void) {
@@ -63,7 +64,7 @@ static char *library_path(void) {
 static const aot_app *load(const uint8_t *module, size_t length, char **error) {
     static const aot_app *app;
     if (app) return app;
-#if defined(AQUA_DESKTOP)
+#if defined(AQUA_DESKTOP) && !defined(AQUA_EMBED)
     char *path = library_path();
     if (!path) { *error = strdup("Cannot find this executable."); return NULL; }
     char *failure = NULL;

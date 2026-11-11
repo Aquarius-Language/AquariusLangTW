@@ -306,7 +306,7 @@ char *platform_full_path(const char *path) {
     return utf8;
 }
 
-/* ---- Process entry ---- */
+/* ---- The executable ---- */
 char *platform_executable_path(void) {
     wchar_t path[32768];
     DWORD n = GetModuleFileNameW(NULL, path, 32768);
@@ -316,15 +316,3 @@ char *platform_executable_path(void) {
     return utf8;
 }
 
-int main(void) {
-    SetConsoleOutputCP(CP_UTF8);
-    int count = 0;
-    wchar_t **wide = CommandLineToArgvW(GetCommandLineW(), &count);
-    char **arguments = malloc((size_t)(count + 1) * sizeof *arguments);
-    for (int i = 0; i < count; i++) arguments[i] = windows_utf8(wide[i]);
-    arguments[count] = NULL;
-    LocalFree(wide);
-    int code = desktop_main(count, arguments);
-    platform_flush();
-    return code;
-}

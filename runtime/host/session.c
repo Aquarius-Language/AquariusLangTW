@@ -370,6 +370,7 @@ aqua_runtime *runtime_create(uint8_t *module, size_t length, const runtime_optio
     if (!application_parse(&rt->app, module, length, error)) { free(rt); return NULL; }
     rt->start_ms = platform_now_ms();
     rt->quantum = options && options->quantum ? options->quantum : 65536;
+    if (options && options->done) { rt->entry_done = options->done; rt->entry_data = options->done_data; }
     rt->application_directory = copy(options && options->application_directory ? options->application_directory : "");
     for (char *p = rt->application_directory; *p; p++) if (*p == '\\') *p = '/';
     if (options && options->launch_count) {

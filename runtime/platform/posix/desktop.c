@@ -1,5 +1,5 @@
 /* The host services every POSIX desktop layer (linux, macos) shares: buffered console output, the event loop's wait and
-   wake, starting processes and the process entry. Each layer adds its executable path and cache directory. */
+   wake and starting processes (the process entry is entry.c). Each layer adds its executable path and cache directory. */
 #include <errno.h>
 #include <spawn.h>
 #include <stdio.h>
@@ -66,8 +66,3 @@ bool platform_execute(aqua_runtime *rt, const char *program, const char *const *
     return WIFEXITED(status) && WEXITSTATUS(status) == 0;
 }
 
-int main(int count, char **arguments) {
-    int code = desktop_main(count, arguments);
-    platform_flush();
-    return code;
-}
