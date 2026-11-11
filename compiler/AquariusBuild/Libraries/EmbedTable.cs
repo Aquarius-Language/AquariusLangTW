@@ -18,6 +18,11 @@ public static class EmbedTable
         Lifecycle.Select(name => context.Settings.SymbolPrefix + name)
             .Concat(context.Exports.Functions.Select(f => CNames.Function(context, f.Name))).Concat(java ? ["JNI_OnLoad"] : []).ToArray();
 
+    /// <summary>The same symbols as Mach-O names them (a leading underscore), one per line: the exported symbols list of
+    /// Apple's linker (runtime/platform/apple/embed-apple.cmake).</summary>
+    public static string MachOSymbols(BindingContext context, bool java = false) =>
+        string.Concat(Symbols(context, java).Select(symbol => "_" + symbol + "\n"));
+
     /// <summary>The table; with <paramref name="java"/>, the Java binding's rows too (jni.c).</summary>
     public static string Definitions(BindingContext context, bool java = false)
     {

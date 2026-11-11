@@ -9,3 +9,8 @@ set(platform_libraries pthread m "-framework Cocoa" "-framework IOKit" "-framewo
 include("${CMAKE_CURRENT_LIST_DIR}/../desktop/desktop.cmake")
 
 target_link_options(aquarius-aot PRIVATE -Wl,-stack_size,0x4000000)
+
+# Native library outputs (runtime/embed) link the layer without the Metal layer of GLFW windows, which they cannot open,
+# with Apple's link rules (embed.cmake includes platform/apple/embed-apple.cmake).
+list(REMOVE_ITEM embed_platform_sources platform/desktop/metal_layer.m)
+list(APPEND embed_platform_scripts "${CMAKE_CURRENT_LIST_DIR}/../apple/embed-apple.cmake")

@@ -65,3 +65,8 @@ string(REPLACE ";" "\n" ios_framework_lines "${ios_frameworks}")
 file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/frameworks.txt" "${ios_framework_lines}\n")
 install(FILES "${CMAKE_CURRENT_BINARY_DIR}/libaquarius.a" "${CMAKE_CURRENT_BINARY_DIR}/frameworks.txt" DESTINATION .)
 install(FILES platform/ios/app/CMakeLists.txt aot/aot_app.c aot/aot_app.h host/guest_exports.h DESTINATION app)
+
+# Native library outputs (runtime/embed) link this layer's library half (embed.c: no UIKit, no application) instead of
+# platform.c and window.m, with Apple's link rules (embed.cmake includes platform/apple/embed-apple.cmake).
+set(embed_platform_sources platform/posix/posix.c platform/ios/embed.c)
+list(APPEND embed_platform_scripts "${CMAKE_CURRENT_LIST_DIR}/../apple/embed-apple.cmake")

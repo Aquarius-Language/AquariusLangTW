@@ -6,7 +6,7 @@ namespace AquariusLang.Build.Libraries;
 /// <see cref="INativeLibraryPlatform"/>).</summary>
 public sealed record NativeLibraryPlatformSettings(IReadOnlyList<string>? Kinds = null, IReadOnlyList<string>? Bindings = null,
     string? Package = null, IReadOnlyList<string>? Targets = null, IReadOnlyList<string>? ImportLibraries = null, string? Module = null,
-    string? JavaPackage = null, string? JavaClass = null);
+    string? JavaPackage = null, string? JavaClass = null, string? BundleId = null);
 
 /// <summary>
 /// How a project's native library outputs are named and what they include: the root manifest's <c>[export]</c> table, or

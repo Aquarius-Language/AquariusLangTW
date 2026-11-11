@@ -51,7 +51,8 @@ public sealed record RuntimeTarget(string Name, string Platform, TargetKind Kind
     };
 
     public bool IsDesktop => Kind == TargetKind.Desktop;
-    private bool Apple => Platform is "macos" or "ios";
+    /// <summary>Whether the target is one of Apple's systems (Mach-O binaries, frameworks, codesign).</summary>
+    public bool Apple => Platform is "macos" or "ios";
 
     /// <summary>The suffix of the target's programs (aquarius.exe on Windows).</summary>
     public string ExecutableSuffix => Platform == "windows" ? ".exe" : "";

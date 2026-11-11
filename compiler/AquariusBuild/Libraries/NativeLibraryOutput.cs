@@ -9,8 +9,9 @@ namespace AquariusLang.Build.Libraries;
 /// its usual artifact when <c>--kind</c> names library kinds or the project has an <c>[export]</c> table. It reads the
 /// application's export table, compiles the application ahead of time (wasm2c and the pinned Clang) with the runtime
 /// pack's embed/ project into libraries exporting exactly that table's functions, and writes the bindings beside them:
-/// <c>&lt;output&gt;/&lt;target&gt;/</c> on the desktops (include/, bin/ or lib/, licenses/), <c>&lt;output&gt;/android/</c> (one
-/// library per ABI, the Java class compiled, an .aar) and <c>&lt;output&gt;/web/</c> (the application for loadLibrary()).
+/// <c>&lt;output&gt;/&lt;target&gt;/</c> on the desktops (include/, bin/ or lib/, licenses/; a framework on macOS when asked),
+/// <c>&lt;output&gt;/android/</c> (one library per ABI, the Java class compiled, an .aar), <c>&lt;output&gt;/ios/</c> (the
+/// device and simulator slices in an xcframework) and <c>&lt;output&gt;/web/</c> (the application for loadLibrary()).
 /// </summary>
 public static class NativeLibraryOutput
 {
@@ -36,6 +37,7 @@ public static class NativeLibraryOutput
     {
         var platform = NativeLibraryPlatforms.Find(platformName) ?? throw new ArgumentException($"{platformName} has no native library outputs.");
         if (!platform.Builds) throw new ArgumentException($"Native library outputs for {platformName} are not built yet (docs/native-libraries.md lists the phases).");
+        if (!platform.Verified) Console.Error.WriteLine(UnverifiedNote(platformName));
         var (application, entry) = Output.Read(request, platformName);
         if (!entry.Equals(application.EntryPoint, StringComparison.OrdinalIgnoreCase))
             throw new ArgumentException("Native library outputs export the application's entry module; --entry does not apply to them.");
@@ -47,7 +49,11 @@ public static class NativeLibraryOutput
             Generators(settings, platform), libraries);
     }
 
-    /// <summary>The outputs of a desktop target (windows-x64, linux-x64) or of the web ("web").</summary>
+    /// <summary>The line a build of a platform whose outputs have not run on its hardware yet prints first.</summary>
+    public static string UnverifiedNote(string platform) =>
+        $"Note: {platform} native library outputs are designed and built as docs/native-libraries.md describes, but not verified on {platform} hardware yet (the spec lists the checks).";
+
+    /// <summary>The outputs of a desktop target (windows-x64, linux-x64, macos-arm64) or of the web ("web").</summary>
     public static void Build(WasmBuildRequest request, string runtimeTarget)
     {
         var target = RuntimeTarget.Get(runtimeTarget);
@@ -57,9 +63,11 @@ public static class NativeLibraryOutput
         var installation = AquariusInstallation.Require();
         string pack = installation.RequireRuntimePack(runtimeTarget, Path.Combine("embed", "CMakeLists.txt"));
         string? jdk = plan.Java ? JavaClasses.Home() : null;
+        bool framework = Package(plan) == "framework";
         Output.ReplaceDirectory(Path.Combine(Path.GetFullPath(request.Output), runtimeTarget), Marker, stage => {
             WriteBindings(plan, stage);
-            var files = BuildKinds(request.Input, stage, plan, target, Path.Combine(pack, "embed"), jdk);
+            var files = BuildKinds(request.Input, stage, plan, target, Path.Combine(pack, "embed"), jdk, framework);
+            if (framework && files.Shared.Length > 0) files = MoveIntoFramework(plan, target, stage, files);
             Write(Path.Combine(stage, "lib", "cmake", plan.Context.Settings.Name, plan.Context.Settings.Name + "-config.cmake"), CMakePackage.Config(plan.Context, target, files));
             if (jdk != null) JavaClasses.Compile(jdk, Path.Combine(stage, "java"), Path.Combine(stage, "lib", plan.Context.Settings.Name + ".jar"));
             WriteLicenses(stage, installation, target);
@@ -94,6 +102,74 @@ public static class NativeLibraryOutput
             if ((plan.Context.Settings.For("android").Package ?? plan.Platform.Packages[0]) == "aar")
                 AndroidLibraryPackage.Write(Path.Combine(stage, name + ".aar"), plan.Context, chosen.Select(t => (AndroidAbi(t), Path.Combine(stage, "lib", AndroidAbi(t)))).ToArray(),
                     plan.Java ? Path.Combine(stage, "lib", name + ".jar") : null, Path.Combine(stage, "include"));
+        });
+    }
+
+    /// <summary>The package <c>[export.&lt;platform&gt;] package</c> names, else the platform's default.</summary>
+    private static string Package(Plan plan) => plan.Context.Settings.For(plan.Platform.Platform).Package ?? plan.Platform.Packages[0];
+
+    /// <summary>A macOS framework package: the shared library (linked with the framework's install name) becomes
+    /// &lt;Module&gt;.framework beside lib/, signed ad hoc as a bundle; the CMake package points at its binary.</summary>
+    private static LibraryFiles MoveIntoFramework(Plan plan, RuntimeTarget target, string stage, LibraryFiles files)
+    {
+        var context = plan.Context with { Platform = target.Platform };
+        string library = Path.Combine(stage, files.Shared);
+        string framework = AppleLibraryPackage.WriteFramework(context, AppleLibraryPackage.Slice.Of(target), stage, library, Path.Combine(stage, "include"));
+        File.Delete(library);
+        AppleLibraryPackage.SignAdHoc(framework);
+        string module = AppleLibraryPackage.FrameworkName(context);
+        return files with { Shared = $"{module}.framework/Versions/A/{module}" };
+    }
+
+    /// <summary>The iOS outputs: each slice ([export.ios] targets, else every iOS target whose runtime pack is built: the
+    /// device and the simulator) built with its pack, then the shared kind as a framework per slice and the static kind
+    /// as a library with Headers/ per slice, gathered into &lt;Module&gt;.xcframework and &lt;Module&gt;-static.xcframework
+    /// (the default package) or left as slice folders (package "folder"); the bindings and licenses beside them.</summary>
+    public static void BuildIos(WasmBuildRequest request)
+    {
+        var plan = Prepare(request, "ios");
+        var all = RuntimeTarget.Built.Where(t => t.Platform == "ios").ToArray();
+        foreach (var target in all) AquariusInstallation.RequireBuildableHere(target.Name, "native library outputs");
+        var installation = AquariusInstallation.Require();
+        var chosen = plan.Context.Settings.For("ios").Targets is { } named ? all.Where(t => named.Contains(t.Name)).ToArray()
+            : all.Where(t => installation.RuntimePack(t.Name) is { } pack && File.Exists(Path.Combine(pack, "embed", "CMakeLists.txt"))).ToArray();
+        if (chosen.Length == 0) throw new IOException("No iOS runtime pack has the embed runtime: run scripts/build-runtime.ps1 -Targets ios-arm64,ios-simulator-arm64.");
+        var context = plan.Context with { Platform = "ios" };
+        string name = context.Settings.Name, module = AppleLibraryPackage.FrameworkName(context);
+        bool xcframework = Package(plan) == "xcframework";
+        Output.ReplaceDirectory(Path.Combine(Path.GetFullPath(request.Output), "ios"), Marker, stage => {
+            WriteBindings(plan, stage);
+            var frameworks = new List<(AppleLibraryPackage.Slice, string, string, string?)>();
+            var statics = new List<(AppleLibraryPackage.Slice, string, string, string?)>();
+            var bundles = new List<string>();
+            string include = Path.Combine(stage, "include");
+            foreach (var target in chosen) {
+                var slice = AppleLibraryPackage.Slice.Of(target);
+                string pack = installation.RequireRuntimePack(target.Name, Path.Combine("embed", "CMakeLists.txt"));
+                string built = Path.Combine(stage, ".slice-" + target.Name);
+                var files = BuildKinds(request.Input, built, plan, target, Path.Combine(pack, "embed"), null, framework: true);
+                string shared = xcframework ? Path.Combine(stage, module + ".xcframework", slice.Identifier) : Path.Combine(stage, target.Name);
+                string archive = xcframework ? Path.Combine(stage, module + "-static.xcframework", slice.Identifier) : Path.Combine(stage, target.Name, "static");
+                if (files.Shared.Length > 0) {
+                    Directory.CreateDirectory(shared);
+                    string framework = AppleLibraryPackage.WriteFramework(context, slice, shared, Path.Combine(built, files.Shared), include);
+                    frameworks.Add((slice, module + ".framework", $"{module}.framework/{module}", null));
+                    if (!xcframework) bundles.Add(framework);
+                }
+                if (files.Static.Length > 0) {
+                    AppleLibraryPackage.WriteStaticSlice(context, archive, Path.Combine(built, files.Static), include);
+                    statics.Add((slice, target.StaticLibraryName(name), target.StaticLibraryName(name), "Headers"));
+                }
+                if (Directory.Exists(Path.Combine(built, "licenses"))) Output.CopyDirectory(Path.Combine(built, "licenses"), Path.Combine(stage, "licenses"));
+                Directory.Delete(built, true);
+            }
+            if (xcframework && frameworks.Count > 0) {
+                AppleLibraryPackage.WriteXcframework(Path.Combine(stage, module + ".xcframework"), frameworks);
+                bundles.Add(Path.Combine(stage, module + ".xcframework"));
+            }
+            if (xcframework && statics.Count > 0) AppleLibraryPackage.WriteXcframework(Path.Combine(stage, module + "-static.xcframework"), statics);
+            foreach (string bundle in bundles) AppleLibraryPackage.SignAdHoc(bundle);
+            WriteLicenses(stage, installation, chosen[0]);
         });
     }
 
@@ -177,7 +253,7 @@ public static class NativeLibraryOutput
     /// <summary>The kinds asked for, compiled with the pack's embed/ project from one translation: the shared library
     /// (with its import libraries), the static library and the prelinked object; with the Java binding, the JNI half
     /// (runtime/embed/jni.c) too, whose headers come from <paramref name="jdk"/> on the desktops.</summary>
-    private static LibraryFiles BuildKinds(string wasm, string stage, Plan plan, RuntimeTarget target, string project, string? jdk)
+    private static LibraryFiles BuildKinds(string wasm, string stage, Plan plan, RuntimeTarget target, string project, string? jdk, bool framework = false)
     {
         var context = plan.Context with { Platform = target.Platform };
         var settings = context.Settings;
@@ -195,6 +271,7 @@ public static class NativeLibraryOutput
             File.WriteAllText(Path.Combine(table, "exports.def"), EmbedTable.Definitions(context, plan.Java));
             File.WriteAllText(Path.Combine(table, CBinding.HeaderName(context)), CBinding.Header(context));
             File.WriteAllText(Path.Combine(table, "symbols.txt"), string.Join("\n", EmbedTable.Symbols(context, plan.Java)) + "\n");
+            File.WriteAllText(Path.Combine(table, "exported_symbols.txt"), EmbedTable.MachOSymbols(context, plan.Java));
             string Full(string relative) => Path.Combine(stage, relative);
             var definitions = new Dictionary<string, string> {
                 ["AQUA_EMBED_TABLE"] = table, ["AQUA_EMBED_HEADER"] = CBinding.HeaderName(context),
@@ -208,6 +285,12 @@ public static class NativeLibraryOutput
             if (files.Shared.Length > 0) {
                 definitions["AQUA_EMBED_SHARED_OUTPUT"] = Full(files.Shared);
                 if (versioned != null) definitions["AQUA_EMBED_SONAME"] = versioned;
+                if (target.Apple) {
+                    var (current, compatibility) = AppleLibraryPackage.Versions(settings);
+                    definitions["AQUA_EMBED_INSTALL_NAME"] = AppleLibraryPackage.InstallName(context, target, framework);
+                    definitions["AQUA_EMBED_CURRENT_VERSION"] = current;
+                    definitions["AQUA_EMBED_COMPATIBILITY_VERSION"] = compatibility;
+                }
                 foreach (var (kind, file) in target.ImportLibraryNames(settings.Name).Where(i => ImportLibraryWanted(settings, target, i.Kind))) {
                     definitions["AQUA_EMBED_IMPORT_" + kind.ToUpperInvariant()] = Full("lib/" + file);
                     if (kind == "mingw") files = files with { ImportLibrary = "lib/" + file };

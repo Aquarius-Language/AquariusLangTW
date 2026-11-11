@@ -23,6 +23,9 @@ public interface INativeLibraryPlatform
     IReadOnlyList<string> ManifestKeys { get; }
     /// <summary>Whether this compiler builds the platform's outputs yet (the phases of docs/native-libraries.md).</summary>
     bool Builds { get; }
+    /// <summary>Whether the platform's outputs have been built and run on its own hardware. A build of an unverified
+    /// platform says so (docs/native-libraries.md lists what verifying it takes).</summary>
+    bool Verified { get; }
 }
 
 /// <summary>The platform descriptors, one per built platform of <see cref="RuntimeTarget.All"/>.</summary>

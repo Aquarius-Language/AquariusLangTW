@@ -67,6 +67,7 @@ internal static class ExportSection
                 "module" => settings with { Module = Identifier(text, file, section, key, item) },
                 "java_package" => settings with { JavaPackage = JavaPackage(text, file, section, key, item) },
                 "java_class" => settings with { JavaClass = Identifier(text, file, section, key, item) },
+                "bundle_id" => settings with { BundleId = BundleId(text, file, section, key, item) },
                 _ => settings
             };
         }
@@ -103,6 +104,14 @@ internal static class ExportSection
     {
         string value = String(text, file, section, key, item);
         return value.Split('.').All(ExportTable.IsIdentifier) ? value : throw Error(text, file, key, section, $"'{key}' must be a Java package such as org.example.geometry.");
+    }
+
+    /// <summary>A framework's CFBundleIdentifier: reverse DNS such as org.example.geometry.</summary>
+    private static string BundleId(string text, string file, string section, string key, object item)
+    {
+        string value = String(text, file, section, key, item);
+        return System.Text.RegularExpressions.Regex.IsMatch(value, @"\A[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)+\z") ? value
+            : throw Error(text, file, key, section, $"'{key}' must be a bundle identifier such as org.example.geometry.");
     }
 
     private static ManifestException Error(string text, string file, string key, string section, string message) =>

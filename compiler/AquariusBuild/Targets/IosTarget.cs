@@ -23,10 +23,13 @@ public sealed class IosTarget : IWasmBuildTarget
     public const string Marker = ".aquarius-ios-output";
     public string Name => "ios";
     public string ArtifactDescription => "iOS application";
-    public IReadOnlyCollection<string> OptionNames => [SimulatorOption, BundleIdOption, NameOption, SigningIdentityOption, ProvisioningProfileOption];
+    public IReadOnlyCollection<string> OptionNames => [SimulatorOption, BundleIdOption, NameOption, SigningIdentityOption, ProvisioningProfileOption,
+        Libraries.NativeLibraryOutput.KindOption];
 
     public void Build(WasmBuildRequest request)
     {
+        // Native library outputs (docs/native-libraries.md): the xcframework of the device and simulator slices.
+        if (Libraries.NativeLibraryOutput.Requested(request)) { Libraries.NativeLibraryOutput.BuildIos(request); return; }
         string output = Path.TrimEndingDirectorySeparator(Path.GetFullPath(request.Output));
         if (!output.EndsWith(".app", StringComparison.OrdinalIgnoreCase)) throw new ArgumentException("iOS builds write a *.app bundle.");
         string name = Path.GetFileNameWithoutExtension(output);

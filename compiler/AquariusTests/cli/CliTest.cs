@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Text.Json;
 using AquariusLang.Bottle;
+using AquariusLang.Build.Libraries;
 using AquariusLang.Cli;
 using AquariusLang.Wasm;
 using AquariusTests.Packaging;
@@ -366,7 +367,9 @@ public class CliProcessTest
         Assert.Equal(1, none.Code);
         Assert.Contains("exports nothing", none.Error);
         Assert.Equal(2, AquaCommand.Run(t.Path, "export", "footer", "plain.aqua").Code);
-        Assert.Contains("not built yet", AquaCommand.Run(t.Path, "build", "shapes.aqua", "--target", "macos", "--kind", "shared", "-o", "dist").Error);
+        var mac = AquaCommand.Run(t.Path, "build", "shapes.aqua", "--target", "macos", "--kind", "shared", "-o", "dist");
+        Assert.StartsWith(NativeLibraryOutput.UnverifiedNote("macos"), mac.Error);
+        if (!OperatingSystem.IsMacOS()) Assert.Contains("macos-arm64 host", mac.Error);
     }
 
     [Fact]

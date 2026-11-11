@@ -1,0 +1,6 @@
+// The C module of the geometry native library for Swift, written by aqua <version>. Do not edit.
+framework module Geometry {
+    umbrella header "geometry.h"
+    export *
+    module * { export * }
+}

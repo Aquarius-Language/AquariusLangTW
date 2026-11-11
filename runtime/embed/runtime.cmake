@@ -16,8 +16,10 @@ install(TARGETS aquarius_embed ARCHIVE DESTINATION embed)
 install(FILES embed/CMakeLists.txt embed/exports.c embed/jni.c aot/aot_app.c aot/aot_app.h host/guest_exports.h DESTINATION embed)
 install(FILES embed/aqua/embed.h DESTINATION embed/aqua)
 install(FILES "platform/${AQUA_OS}/embed.cmake" DESTINATION embed RENAME platform.cmake)
-file(GLOB embed_platform_scripts "${CMAKE_CURRENT_SOURCE_DIR}/platform/${AQUA_OS}/embed-*.cmake")
-install(FILES ${embed_platform_scripts} DESTINATION embed)
+# Scripts the link rules include: the layer's own embed-*.cmake and those its platform.cmake shares from another folder
+# (embed_platform_scripts: Apple's rules for macOS and iOS).
+file(GLOB embed_layer_scripts "${CMAKE_CURRENT_SOURCE_DIR}/platform/${AQUA_OS}/embed-*.cmake")
+install(FILES ${embed_layer_scripts} ${embed_platform_scripts} DESTINATION embed)
 
 # Walks a target's link interface: the static targets it builds (embed_targets), prebuilt archives and import
 # libraries (embed_files), system libraries by name (embed_system), and whether any of its code is C++ (embed_cxx).

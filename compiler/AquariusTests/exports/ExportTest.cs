@@ -173,6 +173,20 @@ public class ExportTest
             foreach (var file in generator.Generate(context)) yield return ($"{generator.Language}/{file.Path}", file.Text);
         yield return ("embed/exports.def", EmbedTable.Definitions(context));
         yield return ("embed/symbols.txt", string.Join("\n", EmbedTable.Symbols(context)) + "\n");
+        yield return ("embed/exported_symbols.txt", EmbedTable.MachOSymbols(context));
+        // Apple's packages: the framework module map and every Info.plist, for a versioned library.
+        var apple = context with { Settings = context.Settings with { Version = "1.2.0" } };
+        var device = AppleLibraryPackage.Slice.Of(RuntimeTarget.Get("ios-arm64"));
+        var simulator = AppleLibraryPackage.Slice.Of(RuntimeTarget.Get("ios-simulator-arm64"));
+        yield return ("apple/Geometry.framework/Modules/module.modulemap", SwiftBinding.FrameworkModuleMap(apple));
+        yield return ("apple/macos/Geometry.framework/Resources/Info.plist",
+            AppleLibraryPackage.FrameworkInfoPlist(apple with { Platform = "macos" }, AppleLibraryPackage.Slice.Of(RuntimeTarget.Get("macos-arm64"))));
+        yield return ("apple/ios-arm64/Geometry.framework/Info.plist", AppleLibraryPackage.FrameworkInfoPlist(apple with { Platform = "ios" }, device));
+        yield return ("apple/ios-arm64-simulator/Geometry.framework/Info.plist", AppleLibraryPackage.FrameworkInfoPlist(apple with { Platform = "ios" }, simulator));
+        yield return ("apple/Geometry.xcframework/Info.plist", AppleLibraryPackage.XcframeworkInfoPlist([
+            (device, "Geometry.framework", "Geometry.framework/Geometry", null), (simulator, "Geometry.framework", "Geometry.framework/Geometry", null)]));
+        yield return ("apple/Geometry-static.xcframework/Info.plist", AppleLibraryPackage.XcframeworkInfoPlist([
+            (device, "libgeometry.a", "libgeometry.a", "Headers"), (simulator, "libgeometry.a", "libgeometry.a", "Headers")]));
     }
     public static string GoldenFolder => Path.Combine(Repository, "compiler", "AquariusTests", "exports", "goldens");
 

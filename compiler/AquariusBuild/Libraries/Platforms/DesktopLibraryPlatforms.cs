@@ -11,6 +11,7 @@ public sealed class WindowsLibraryPlatform : INativeLibraryPlatform
     public IReadOnlyList<string> Packages => ["folder"];
     public IReadOnlyList<string> ManifestKeys => ["import_libraries", "java_package", "java_class"];
     public bool Builds => true;
+    public bool Verified => true;
     /// <summary>The import libraries a Windows DLL can come with.</summary>
     public static readonly IReadOnlyList<string> ImportLibraries = ["mingw", "msvc"];
 }
@@ -25,9 +26,11 @@ public sealed class LinuxLibraryPlatform : INativeLibraryPlatform
     public IReadOnlyList<string> Packages => ["folder"];
     public IReadOnlyList<string> ManifestKeys => ["java_package", "java_class"];
     public bool Builds => true;
+    public bool Verified => true;
 }
 
-/// <summary>macOS: a dylib or a framework, with a Swift binding (phase 5).</summary>
+/// <summary>macOS: a dylib (install name <c>@rpath/lib&lt;name&gt;.dylib</c>), a static library, an object file, or a
+/// framework (<c>&lt;Module&gt;.framework</c>), with a Swift binding. Not verified on a Mac yet.</summary>
 public sealed class MacOSLibraryPlatform : INativeLibraryPlatform
 {
     public string Platform => "macos";
@@ -35,6 +38,7 @@ public sealed class MacOSLibraryPlatform : INativeLibraryPlatform
     public IReadOnlyList<string> Bindings => ["c", "cpp", "rust", "swift", "java"];
     public IReadOnlyList<string> DefaultBindings => ["c", "cpp", "rust", "swift"];
     public IReadOnlyList<string> Packages => ["folder", "framework"];
-    public IReadOnlyList<string> ManifestKeys => ["module", "java_package", "java_class"];
-    public bool Builds => false;
+    public IReadOnlyList<string> ManifestKeys => ["module", "bundle_id", "java_package", "java_class"];
+    public bool Builds => true;
+    public bool Verified => false;
 }
