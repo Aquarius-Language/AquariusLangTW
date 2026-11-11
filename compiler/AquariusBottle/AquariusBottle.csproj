@@ -2,6 +2,7 @@
   <!-- Bottle, the package manager: TOML projects, local and GitHub libraries (with native parts), the per-user cache. -->
   <ItemGroup>
     <ProjectReference Include="../AquariusCompiler/AquariusCompiler.csproj" />
+    <ProjectReference Include="../AquariusBuild/AquariusBuild.csproj" />
     <InternalsVisibleTo Include="AquariusTests" />
   </ItemGroup>
 </Project>

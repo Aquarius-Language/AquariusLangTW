@@ -54,6 +54,9 @@ public sealed class ProjectManifest {
     public IReadOnlyDictionary<string, BottleDependency> Dependencies { get; } = new Dictionary<string, BottleDependency>();
     public OnnxSettings Onnx { get; } = OnnxSettings.Default;
     public DesktopSettings Desktop { get; } = DesktopSettings.Default;
+    /// <summary>The <c>[export]</c> table: native library outputs of this project or library (docs/native-libraries.md); null
+    /// without one. Only the root manifest's applies.</summary>
+    public AquariusLang.Build.Libraries.NativeLibrarySettings? Export { get; }
     /// <summary>The library tables of a manifest_version 2 library; null for projects and version 1 libraries.</summary>
     public Library? Library { get; }
     /// <summary>A version 2 library: its Aquarius modules are imported by name, never staged under /bottles.</summary>
@@ -92,13 +95,13 @@ public sealed class ProjectManifest {
         string[] shared = ["manifest_version", "dependencies", "assets", "tool"];
         if (ManifestVersion == 2 && model.ContainsKey("library")) {
             // A library: its tables follow the default libraries' manifest rules.
-            try { Library = Library.FromModel(file, model, true, "dependencies", "assets", "tool"); }
+            try { Library = Library.FromModel(file, model, true, "dependencies", "assets", "tool", "export"); }
             catch (LibraryManifestException e) { throw new ManifestException(file, [Locate(text, e.Key, e.Reason, e.Section)]); }
             Name = Library!.Name; Type = "library"; Version = Library.Version; Platforms = Library.Platforms; Aquarius = Library.Aquarius;
             Entry = Library.Modules.FirstOrDefault()?.Source ?? "";
             Sources = Library.Modules.Select(m => m.Source).ToArray();
         } else {
-            Keys(model, "manifest", [.. shared, "project", "onnx", "desktop"]);
+            Keys(model, "manifest", [.. shared, "project", "onnx", "desktop", "export"]);
             if (!model.TryGetValue("project", out var projectValue) || projectValue is not TomlTable) Fail("project", ManifestVersion == 2 ? "Missing [project] or [library] table." : "Missing [project] table.");
             var project = (TomlTable)model["project"];
             if (ManifestVersion == 1) Keys(project, "project", "name", "type", "version", "entry", "sources", "platforms", "description", "license", "libraries", "aquarius");
@@ -158,6 +161,7 @@ public sealed class ProjectManifest {
             } else Fail("assets", "Use assets = ['relative/path'] before [project], or [[assets]] tables with source, optional target and platforms.");
         }
         Assets = assets;
+        if (model.TryGetValue("export", out var exportValue)) Export = ExportSection.Parse(text, file, exportValue, this);
         if (model.TryGetValue("desktop", out var desktopValue)) {
             if (desktopValue is not TomlTable desktop) { Fail("desktop", "[desktop] must be a table, e.g. [desktop] hide_terminal = true."); return; }
             Keys(desktop, "desktop", "hide_terminal");
