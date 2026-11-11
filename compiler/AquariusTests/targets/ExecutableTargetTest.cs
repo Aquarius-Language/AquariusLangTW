@@ -3,6 +3,7 @@ using System.Reflection.PortableExecutable;
 using System.Security.Cryptography;
 using System.Text;
 using AquariusLang.Build;
+using AquariusLang.Build.Libraries;
 using AquariusLang.Build.Targets;
 using AquariusLang.Compiler;
 using AquariusLang.Libraries;
@@ -335,8 +336,9 @@ public class ExecutableTargetTest
         Assert.Contains(ExecutableTarget.OptimizeOption, targets.Resolve("windows").OptionNames);
         Assert.Contains(ExecutableTarget.OptimizeOption, targets.Resolve("linux").OptionNames);
         Assert.DoesNotContain(ExecutableTarget.HideTerminalOption, targets.Resolve("linux").OptionNames);
-        Assert.Empty(targets.Resolve("web").OptionNames);
-        Assert.Equal([AndroidTarget.ApplicationIdOption, AndroidTarget.NameOption, AndroidTarget.KeystoreOption, AndroidTarget.KeyAliasOption],
+        Assert.Equal([NativeLibraryOutput.KindOption], targets.Resolve("web").OptionNames);
+        Assert.Equal([AndroidTarget.ApplicationIdOption, AndroidTarget.NameOption, AndroidTarget.KeystoreOption, AndroidTarget.KeyAliasOption,
+            NativeLibraryOutput.KindOption],
             targets.Resolve("android").OptionNames);
         Assert.Throws<ArgumentException>(() => new BuildTargets([new WebTarget(), new WebTarget()]));
     }

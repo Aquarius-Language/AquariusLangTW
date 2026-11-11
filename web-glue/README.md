@@ -16,7 +16,8 @@ memory to one Web API call (or one asynchronous operation) and its result back.
 ```text
 web-glue/
   index.mjs          imports every domain; the page imports startApplication from here
-  core/              loader, WASI, application start, the registry (glue.mjs)
+  core/              loader, WASI, application start, loadLibrary() of native library outputs (library.mjs), the
+                     registry (glue.mjs)
   page/              index.html and app.mjs of exported websites
   window/            <canvas> windows and DOM input for aqua/window.h
   webgl/             WebGL 2 calls, typed pixel/buffer views and opaque GL object handles
@@ -54,3 +55,8 @@ calling library. Both domains are available to external SDK side modules through
 `history` keeps a History API entry while an application handles back and reports the browser's back button;
 `mediaquery` answers `matchMedia` queries (pointer kind, hover, dark mode, reduced motion). Both serve
 [interaction](../libraries/interaction/README.md), which decides what they mean.
+
+`core/library.mjs` is `loadLibrary({ library, runtime, ... })` for web outputs of native libraries (`aqua build --target web --kind
+shared`, [native libraries](../docs/native-libraries.md)): it links the library's module like an application and
+builds one JavaScript function per export from the export table the host side module reads in C; the library ships
+only its `.wasm` and a `.d.ts`, never JavaScript.

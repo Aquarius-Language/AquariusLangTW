@@ -63,6 +63,10 @@ function Compare-Output([string]$Check, $Run, [string]$Expected) {
 }
 
 # ---- The libraries ----
+# geometry has the Java binding, whose jar aqua build compiles with the pinned JDK.
+if (-not (Test-Path -LiteralPath (Join-Path $AquaToolchain.Jdk 'bin'))) {
+    & $AquaToolchain.PowerShell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'install-toolchain.ps1') -Tools jdk | Out-Null
+}
 $platform = $target.platform
 # Every kind the platform builds (Windows has no object kind: lld cannot prelink COFF objects).
 $kinds = if ($platform -eq 'windows') { @('shared', 'static') } else { @('shared', 'static', 'object') }
@@ -153,9 +157,6 @@ else {
 }
 
 # ---- The Java binding on the desktop JVM (JNI): Consumer.java against the geometry output's jar ----
-if (-not (Test-Path -LiteralPath (Join-Path $AquaToolchain.Jdk 'bin'))) {
-    & $AquaToolchain.PowerShell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'install-toolchain.ps1') -Tools jdk | Out-Null
-}
 $javaClasses = Join-Path $Work 'java-consumer'
 $geometryJar = Join-Path $libraries.geometry 'lib/geometry.jar'
 Invoke-Checked (Join-Path $AquaToolchain.Jdk "bin/javac$($AquaToolchain.Exe)") @('-encoding', 'UTF-8', '-cp', $geometryJar, '-d', $javaClasses, (Join-Path $tests 'Consumer.java')) | Out-Null

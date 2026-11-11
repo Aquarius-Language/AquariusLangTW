@@ -48,7 +48,8 @@ $AquaToolchain = [pscustomobject]@{
     Script = if ($aquaWindows) { '.bat' } else { '' }
     AndroidSdk = $aquaAndroidSdk
     # The PowerShell running this script, for scripts that start another one (powershell.exe or pwsh).
-    PowerShell = (Get-Process -Id $PID).Path
+    # pwsh installed as a .NET tool runs as dotnet, which cannot start a script.
+    PowerShell = if ((Split-Path -Leaf (Get-Process -Id $PID).Path) -match '^(pwsh|powershell)') { (Get-Process -Id $PID).Path } else { 'pwsh' }
 }
 # Wasm feature baseline of every built binary: lime1 (bulk-memory-opt, call-indirect-overlong, extended-const, multivalue,
 # mutable-globals, nontrapping-fptoint, sign-ext). Freestanding builds that relied on -mbulk-memory still pass it.

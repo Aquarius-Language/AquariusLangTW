@@ -18,7 +18,7 @@ public static class CompilerCommandLine {
         "aqua build (main.aqua ... | app.wasm) --target ios -o App.app [--simulator true|false] [--bundle-id org.example.app] [--app-name Name] [--signing-identity ID --provisioning-profile file]\n" +
         "aqua build (main.aqua ... | app.wasm) --target android -o app.apk [--entry main.aqua] [--application-id org.example.app] [--app-name Name] [--keystore file --key-alias name]\n" +
         "aqua build [aqua.toml|project-directory] [--target PLATFORM] [--platform PLATFORM] [-o output] [--locked] [--offline]\n" +
-        "aqua build (project | main.aqua ... | app.wasm) --target windows|linux --kind shared -o dist   (native libraries of the 匯出 / export functions)\n" +
+        "aqua build (project | main.aqua ... | app.wasm) --target windows|linux|android|web --kind shared[,static,object] -o dist   (native libraries of the 匯出 / export functions; --kind executable builds the usual artifact)\n" +
         "aqua export header (project | main.aqua ... | app.wasm) [-o file.h]\n" +
         "aqua run (app.wasm | main.aqua | project-directory) [--entry main.aqua] [argument ...]\n" +
         "aqua repl\n" + "aqua --version\n" + Tools.Usage + "\n" + BottleCommandLine.Usage + "\n" + LibraryBuilder.Usage + "\n" +

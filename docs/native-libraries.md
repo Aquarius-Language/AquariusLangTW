@@ -1,6 +1,6 @@
 # Native library outputs (design, implementation spec)
 
-Status: design approved 2026-11-11; phases 1 and 2 implemented 2026-11-11 (see "Status of the phases" and "Deviations"
+Status: design approved 2026-11-11; phases 1 to 4 implemented 2026-11-11 (see "Status of the phases" and "Deviations"
 below). Full design document (with rationale, diagrams and the complete test plan):
 https://claude.ai/artifact/AWcNZdKyLjU3abUSrPv1uL . This file is the working spec kept in the repository; keep it in
 step with the code as phases land. Follow CLAUDE.md throughout.
@@ -127,34 +127,44 @@ and stub-pack target tests cover what a PC can check.
 
 ## Status of the phases
 
-Phases 1 and 2 are implemented on branch `native-library-exports`:
+Phases 1 to 4 are implemented on branch `native-library-exports`; phase 5 (Apple outputs and Swift) and phase 6 (the
+showcase) remain.
 
 - Language: `Parser.parseExportStatement` (contextual like `常數`; `Lexer.Peek(n)` looks past `("name")`),
   `LetStatement.Export` / `StructStatement.Export` (`ExportMark`), struct aliases, the rules in
   `TypeChecker.Exports.cs`, `ExportTable` (built in `LoweringCompiler.Compile`, written by `WasmCompiler` for the entry
   module), `ExportTable.Read(WasmProgram)`.
 - Manifest: `ProjectManifest.Export` parsed by `AquariusBottle/ExportSection.cs` against
-  `AquariusBuild/Libraries/INativeLibraryPlatform` descriptors (`Platforms/`), into `NativeLibrarySettings`.
-- Bindings: `AquariusBuild/Bindings/` (`CBinding`, `CppBinding`, shared names in `CNames`); `aqua export header`.
-- Build: `NativeLibraryOutput` (called by `ExecutableTarget` when `--kind` is given or the project has `[export]`),
-  `EmbedTable` (exports.def and the symbol list), `RuntimeTarget.SharedLibraryName` / `VersionedSharedLibraryName` /
-  `SharedLibraryFolder` / `ImportLibraryNames`, `AheadOfTime.Compile` with the pack's `embed/` project.
-- Runtime: `runtime/embed/` (`embed.c`, `exports.c`, `aqua/embed.h`, `no_window.c`, `runtime.cmake` for the pack,
-  `CMakeLists.txt` for each library), `runtime/platform/desktop/embed.c` (the desktop hooks in place of the launcher),
-  `runtime/platform/windows|linux/embed.cmake` (link rules). The process entries moved to
-  `runtime/platform/windows/entry.c` and `runtime/platform/posix/entry.c` so libraries link the layers without them.
-- Output: `<output>/<target>/` with `include/<name>.h` and `<name>.hpp`, `licenses/`, and on Windows
-  `bin/<name>.dll`, `lib/lib<name>.dll.a` (MinGW), `lib/<name>.lib` (MSVC, llvm-dlltool); on Linux
-  `lib/lib<name>.so.<major>` (the SONAME) and the link `lib/lib<name>.so`.
-- Tests: `compiler/AquariusTests/exports/ExportTest.cs` (keyword, one case per rule, table and section, binding and
-  exports.def goldens in `exports/goldens/`, manifest errors with positions), `architecture/NativeLibraryRulesTest.cs`,
-  a language server test, and `scripts/test-exports.ps1` with `tests/exports/` (geometry and counter libraries, C and
-  C++ consumers against `geometry.expected`, parity through `geometry/parity.aqua`, binary audit, two libraries,
-  lifecycle x1000, 8 threads, reentrancy, sanitizers on Linux), run by `build-release.ps1`.
-
-Phase 3 remains as planned (Rust binding, static and object outputs with localized symbols, their isolation tests),
-plus what the deviations below defer: `[library]` exports through `[export] module`, and default libraries inside
-outputs.
+  `AquariusBuild/Libraries/INativeLibraryPlatform` descriptors (`Platforms/`), into `NativeLibrarySettings`. A `[library]`
+  builds through `[export] module` (`ProjectBuilder.CompileExportedLibrary`: the facade module is the entry).
+- Kinds: `--kind shared,static,object` (or `[export] kinds`) selects library outputs; `--kind executable` builds a
+  target's usual artifact, also from a project with `[export]` (a native library is an additional output: without
+  `--kind`, a project with `[export]` builds its libraries, one without builds what it always did).
+- Bindings (`AquariusBuild/Bindings/`): `CBinding` (the ABI), `CppBinding`, `RustBinding` (a crate with `build.rs`
+  and safe wrappers returning `Result`), `JavaBinding` (one final class, static natives, nested struct classes,
+  `AquariusException`, `NonNull`/`Nullable`), `TypeScriptBinding` (the web's `.d.ts`); `aqua export header`.
+- Build: `NativeLibraryOutput` (desktop targets, `BuildAndroid` for every Android ABI, `BuildWeb`), `EmbedTable`
+  (exports.def, symbols; the Java rows with the java binding), `CMakePackage` (`lib/cmake/<name>/<name>-config.cmake`
+  with `<name>::shared|static|object`), `JavaClasses` (the binding's jar), `AndroidLibraryPackage` (the .aar).
+- Runtime: `runtime/embed/` (`embed.c`, `exports.c`, `jni.c`, `aqua/embed.h`, `no_window.c`, `runtime.cmake` for
+  native packs, `CMakeLists.txt` for each library; `table.c` and `web.c` in the web's host side module),
+  `runtime/platform/desktop/embed.c` and `runtime/platform/android/embed.c` (the layers' library halves), and each
+  platform's link rules `runtime/platform/<os>/embed.cmake` (Windows also `embed-archive.cmake`). Default libraries
+  without windows link in: each pack installs their link interface (`embed/libraries/<name>/link.cmake`, archives,
+  runtime files, licenses), and `exports.c` registers them. `web-glue/core/library.mjs` is `loadLibrary()`.
+- Outputs: `<output>/<target>/` on the desktops (`include/`, `bin/` or `lib/`, `lib/cmake/`, `rust/`, and with the
+  java binding `java/` and `lib/<name>.jar`; the linked libraries' runtime files such as ONNX Runtime beside the
+  library; `licenses/`); `<output>/android/` (`lib/<abi>/lib<name>.so`, `include/`, `java/`, `lib/<name>.jar`,
+  `<name>.aar`, `licenses/`); `<output>/web/` (`<name>.wasm`, `<name>.d.ts`, `runtime/`, `glue/`, `licenses/`).
+- Tests: `compiler/AquariusTests/exports/ExportTest.cs` (keyword, one case per rule, table and section, goldens of
+  every generator and of exports.def in `exports/goldens/`, manifest errors with positions),
+  `architecture/NativeLibraryRulesTest.cs`, language server and CLI tests, and `scripts/test-exports.ps1 [-Android]`
+  with `tests/exports/`: the geometry, counter, services (default libraries) and shapes (`[library]`) libraries;
+  consumers in C, C++, Rust, Java (desktop JVM and Android), Kotlin (Android) and JavaScript (Chromium) printing
+  `geometry.expected`; parity with `aqua run`; binary audits (exports, dependencies, SONAME, import libraries, static
+  and object globals, Android 16 KB pages, the .aar); two libraries as shared, static and object; lifecycle x1000;
+  8 threads; reentrancy; sanitizers on Linux. Rust, Kotlin and the JDK are pinned in `scripts/toolchain.json` for
+  tests only (`install-toolchain.ps1 -Tools rust,kotlin,jdk`).
 
 ## Deviations from the design
 
@@ -165,23 +175,38 @@ outputs.
 - Struct arguments are built by a hidden constructor function the compiler adds for each exported struct
   (`export@<Name>`, a name no source can write), because the guest's `invoke` export calls closures only. Programs
   without exported structs are unchanged.
-- exports.def rows are `AQUA_STRUCT/FIELD/STRUCT_END` and `AQUA_FUNCTION/PARAMETER (or NO_PARAMETERS)/CALL/ARGUMENT/
-  RETURN`: a C definition needs its parameter list, so each function is a sequence of rows that exports.c expands in
-  four passes (struct arguments, struct results, functions, the name table); types are tokens (`DOUBLE`,
+- exports.def rows are `AQUA_STRUCT/FIELD/STRUCT_END`, `AQUA_FUNCTION/PARAMETER (or NO_PARAMETERS)/CALL/ARGUMENT/
+  RETURN` and, with the java binding, `AQUA_JAVA_STRUCT/AQUA_JAVA_FUNCTION`: a C definition needs its parameter list,
+  so each function is a sequence of rows that exports.c and jni.c expand in passes; types are tokens (`DOUBLE`,
   `INT_ARRAY`, `STRUCT(point)`, `VOID`).
-- The embed runtime links the host core without default libraries yet: an application whose metadata needs any native
-  library is rejected at build time (the design rejected only window libraries). Windows cannot be opened
-  (`no_window.c`).
+- Window-dependent libraries are marked by their own manifest (`[native] window = true`: graphics, imgui, input,
+  interaction, opengl, remotewindow, webframe) and rejected; every other default library links in. External libraries'
+  native parts are not included yet. Windows cannot be opened (`no_window.c`).
 - A library's linear memory uses malloc and explicit bounds checks (`WASM_RT_USE_MMAP=0`,
   `WASM_RT_MEMCHECK_BOUNDS_CHECK=1`): a library installs no signal handlers in its host process.
+- Windows has no object kind (lld cannot prelink COFF objects); its static archive renames every internal symbol to
+  `<prefix>aqua_<name>` (`embed-archive.cmake`). Linux static and object outputs are one `ld.lld -r` object with
+  internals made local (Android static likewise; Android has no object kind).
 - C structs and functions share one namespace (`<prefix><snake_case>`), so the collision rule covers both; exported
   struct fields need ASCII names; non-ASCII parameter names become `arg<N>` in bindings (keywords get a `_`).
 - The last error is NULL after a successful call; a reentrant call's refusal does not replace the running call's own
   outcome. Reentrancy is tested on POSIX only (a timer signal calls the library during a call); Windows has no way to
   interrupt a thread with a call, and the check is the same C code.
+- Consumers print the lines of `geometry.expected` they can cause: `c-abi` lines (invalid UTF-8, a NULL array with a
+  count) only C, C++ and Rust (through `ffi`); `native` lines every native consumer; `aqua run` neither.
+- The web's `shutdown()` returns a Promise: a page holds one WebAssembly instance, so starting again links a fresh one.
+  The web parses the export table in C (`runtime/embed/table.c`), and its host side module carries the embed runtime.
+- The Java binding's nullability annotations are its own nested `NonNull`/`Nullable` (no annotation library is a
+  dependency), so Kotlin sees platform types; its exception is the nested `AquariusException`. Android libraries write
+  their output to logcat and to standard output.
+- On Linux, LeakSanitizer ignores allocations of the prebuilt ONNX Runtime (`tests/exports/lsan.supp`): it keeps 14
+  bytes from its environment setup until the process exits; nothing of AquariusLang's own is suppressed.
+- On Windows, the pinned Rust's host tools are windows-gnu (no gnullvm host release exists), building for
+  `x86_64-pc-windows-gnullvm` with that target's standard library through the pinned clang, statically.
+- Clang without `#embed` (the Android NDK's) includes the application module with the assembler's `.incbin`.
 - `AquariusBottle` references `AquariusBuild` so the manifest can check `[export.<platform>]` against the descriptors.
-- With `[export]`, `aqua build --target windows|linux` builds the libraries instead of the executable.
-- `licenses/` holds AquariusLang's license and a THIRD-PARTY notice (WABT's wasm2c runtime, and on Windows the
-  statically linked MinGW-w64 and compiler-rt pieces): the pinned WABT archive ships no license file.
-- `scripts/test-exports.ps1` tests the host's own desktop target (Windows on Windows; Linux on Linux or in WSL), since
-  desktop outputs build only on their own host.
+- `licenses/` holds AquariusLang's license, a THIRD-PARTY notice (WABT's wasm2c runtime, and on Windows the
+  statically linked MinGW-w64 and compiler-rt pieces; the pinned WABT archive ships no license file) and the linked
+  libraries' license folders.
+- `scripts/test-exports.ps1` tests the host's own desktop target (Windows on Windows; Linux on Linux or in WSL), the
+  web, and with `-Android` the connected device, since desktop outputs build only on their own host.

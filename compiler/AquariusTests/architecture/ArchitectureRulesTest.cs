@@ -83,8 +83,9 @@ public class ArchitectureRulesTest
 
     // ---- 2. JavaScript only in web-glue/ ---------------------------------------------------------------------------
 
-    /// <summary>Development tools that never ship with applications: the VS Code extension, the project website and scripts/.</summary>
-    private static readonly string[] JavaScriptTools = ["editors/vscode/", "website/", "scripts/"];
+    /// <summary>Development tools that never ship with applications: the VS Code extension, the project website, scripts/,
+    /// and the native library tests' JavaScript consumer and TypeScript binding golden.</summary>
+    private static readonly string[] JavaScriptTools = ["editors/vscode/", "website/", "scripts/", "tests/exports/", "compiler/AquariusTests/exports/goldens/"];
 
     [Fact]
     public void JavaScriptLivesOnlyInWebGlue()

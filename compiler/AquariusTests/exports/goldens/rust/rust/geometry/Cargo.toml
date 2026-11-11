@@ -1,0 +1,10 @@
+# The Rust binding of the geometry native library, written by aqua <version>. Do not edit.
+[package]
+name = "geometry"
+version = "0.0.0"
+edition = "2021"
+links = "geometry"
+build = "build.rs"
+
+[lib]
+path = "src/lib.rs"

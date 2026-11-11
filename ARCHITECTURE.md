@@ -44,7 +44,7 @@ runtime/             C, the run time of every target
                        each OS's platform.cmake builds its runtime
   sdk/                 aqua/*.h, api.def, AquariusLibrary.cmake, toolchain files, an example library
 libraries/<name>/    default libraries, one self-contained folder each
-web-glue/            the only JavaScript: core/ (loader, WASI, start), page/, one folder per Web API domain
+web-glue/            the only JavaScript: core/ (loader, WASI, start, loadLibrary), page/, one folder per Web API domain
 tools/<name>/        tools written in AquariusLang that ship beside aqua (aqua_wellplay, the notebook server), submodules
 scripts/             toolchain pins and installers, runtime builds, library tests, web/Android runners, release
 examples/, tests/, docs/, editors/, website/

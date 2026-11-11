@@ -120,24 +120,35 @@ dependencies' desktop settings and other export targets are unaffected. Use a
 project build (`aqua build . --target windows -o app.exe`) to apply this setting;
 exporting a standalone `.wasm` requires the CLI option.
 
-`[export]` builds the project as native libraries instead of an executable for the
-platforms that have them (Windows and Linux shared libraries so far): the functions
-and structs its entry module marks `匯出` / `export`, behind a C ABI with C and C++
-bindings. See [native libraries](../../docs/native-libraries.md).
+`[export]` builds the project as native libraries instead of an executable: Windows and
+Linux shared, static and object libraries (Windows has no object kind), Android
+`lib<name>.so` per ABI with a Java binding and an `.aar`, and a web `.wasm` loaded by
+`loadLibrary()` with a `.d.ts`. They hold the functions and structs its entry module
+marks `匯出` / `export`, behind a C ABI with C, C++ and Rust bindings (Java on request
+on the desktops). A `[library]` builds through `[export] module`, its facade module.
+Default libraries that need no window link in. See
+[native libraries](../../docs/native-libraries.md).
 
 ```toml
 [export]
 name = "geometry"            # file base name; default: the project name in lower case
 prefix = "geo_"              # C symbol prefix; default: name + "_"
 kinds = ["shared"]           # "shared", "static", "object"; default ["shared"]
+module = "src/facade.aqua"   # a [library]'s exported module
 
 [export.windows]             # optional, per platform: kinds, bindings, package, targets
 import_libraries = ["mingw"] # and the platform's own keys (Windows: "mingw", "msvc")
+bindings = ["cpp", "rust", "java"]
+
+[export.android]
+java_package = "org.example.geometry"  # default: the name; java_class defaults to UpperCamel
 ```
 
 `aqua build . --target windows -o dist` then writes `dist/windows-x64/` (`bin/`,
-`lib/`, `include/`, `licenses/`); `--kind` overrides the kinds and also works without
-`[export]`. Every key and value is checked against the platform (an unknown key, a
+`lib/`, `lib/cmake/`, `include/`, `rust/`, `licenses/`); `--target android` writes
+`dist/android/` and `--target web` `dist/web/`. `--kind` overrides the kinds and also
+works without `[export]`; `--kind executable` builds the usual executable of a project
+that has `[export]`. Every key and value is checked against the platform (an unknown key, a
 kind or binding the platform lacks, a target of another platform) and reported with
 its position. Only the root manifest's `[export]` applies; dependencies are compiled
 into the library. `aqua export header .` writes the C header alone.

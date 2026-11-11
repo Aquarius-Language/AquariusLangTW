@@ -117,7 +117,7 @@ and runs in WSL (see `docs/linux.md`).
 ## Before you finish a change, check
 
 - No `.cs` outside `compiler/`; no JavaScript in `runtime/` or `libraries/` (only `web-glue/`, plus development tools
-  that never ship with applications: `scripts/`, `editors/vscode`, `website/`); no Python or code generators.
+  that never ship with applications: `scripts/`, `editors/vscode`, `website/`, the native library tests' consumer in `tests/exports/`); no Python or code generators.
 - The library's folder is self-contained; its dependencies are pinned in it; its symbols stay private.
 - Glue functions only call Web APIs; the logic is in C/C++/Rust.
 - No MSVC, no target list hard-coded in a new place, no leftover code of an old design.
