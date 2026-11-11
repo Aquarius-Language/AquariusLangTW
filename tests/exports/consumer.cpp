@@ -50,11 +50,15 @@ int main() {
     std::printf("next %d\n", geometry::next());
 
     error_line("divide", [] { geometry::divide(1, 0); });
-    error_line("utf8", [] { geometry::greet("\xff"); });
+    try {
+        geometry::greet("\xff");
+    } catch (const geometry::error &error) {
+        std::printf("c-abi error utf8: %s\n", error.what());
+    }
     geo_greet(nullptr);
     std::printf("native error null string: %s\n", geo_last_error());
     geo_sum(nullptr, 3);
-    std::printf("native error null array: %s\n", geo_last_error());
+    std::printf("c-abi error null array: %s\n", geo_last_error());
     geometry::area(1, 1);
     std::printf("native error %s\n", geo_last_error() ? "kept" : "cleared");
     geometry::shutdown();

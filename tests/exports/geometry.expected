@@ -19,8 +19,8 @@ log: hello
 next 1
 next 2
 native error divide: ERROR: Integer division by zero / 整數不能除以零。
-native error utf8: A string argument is not valid UTF-8.
+c-abi error utf8: A string argument is not valid UTF-8.
 native error null string: A string argument is NULL.
-native error null array: An array argument is NULL with a nonzero count.
+c-abi error null array: An array argument is NULL with a nonzero count.
 native error cleared
 native next after shutdown 1

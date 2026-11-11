@@ -87,7 +87,10 @@ $consumers = Join-Path $Work 'consumers'
 Build-Consumers $consumers $false
 Pass 'build the C and C++ consumers'
 $expected = (Get-Content -LiteralPath (Join-Path $tests 'geometry.expected') -Raw -Encoding UTF8).Replace("`r`n", "`n")
-$portable = (($expected -split "`n") | Where-Object { $_ -and $_ -notlike 'native *' } | ForEach-Object { "$_`n" }) -join ''
+# parity.aqua prints the lines of every consumer but those about the native interface ("native", "c-abi"); consumers in
+# JavaScript and Java print every line but the "c-abi" ones, which only the C ABI can cause (invalid UTF-8, NULL arrays).
+$portable = (($expected -split "`n") | Where-Object { $_ -and $_ -notlike 'native *' -and $_ -notlike 'c-abi *' } | ForEach-Object { "$_`n" }) -join ''
+$managed = (($expected -split "`n") | Where-Object { $_ -and $_ -notlike 'c-abi *' } | ForEach-Object { "$_`n" }) -join ''
 
 function Test-Consumers([string]$Folder, [string]$Variant, [hashtable]$Environment = @{}) {
     $two = "two libraries 1 101 2 102`nafter one shutdown 3 101`n"
@@ -109,6 +112,38 @@ function Test-Consumers([string]$Folder, [string]$Variant, [hashtable]$Environme
     }
 }
 Test-Consumers $consumers ''
+
+# ---- The Rust binding: a crate depending on the geometry output's crate, built with the pinned Rust ----
+if (-not (Test-Path -LiteralPath (Join-Path $AquaToolchain.Rust 'bin'))) {
+    & $AquaToolchain.PowerShell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'install-toolchain.ps1') -Tools rust | Out-Null
+}
+$rust = $AquaPins.rust.($AquaToolchain.Platform)
+$crate = Join-Path $Work 'rust-consumer'
+New-Item -ItemType Directory -Force -Path (Join-Path $crate 'src') | Out-Null
+Copy-Item (Join-Path $tests 'consumer.rs') (Join-Path $crate 'src/main.rs')
+$geometryCrate = (Join-Path $libraries.geometry 'rust/geometry').Replace('\', '/')
+Set-Content -LiteralPath (Join-Path $crate 'Cargo.toml') -Encoding ascii -Value "[package]`nname = `"consumer`"`nversion = `"0.0.0`"`nedition = `"2021`"`n`n[dependencies]`ngeometry = { path = `"$geometryCrate`" }`n"
+$cargoEnvironment = @{ CARGO_HOME = (Join-Path $Work 'cargo-home'); RUSTC = (Join-Path $AquaToolchain.Rust "bin/rustc$($AquaToolchain.Exe)");
+    PATH = (Join-Path $AquaToolchain.Rust 'bin') + [IO.Path]::PathSeparator + $env:PATH }
+$linker = 'CARGO_TARGET_' + $rust.target.ToUpperInvariant().Replace('-', '_') + '_LINKER'
+$cargoEnvironment[$linker] = $AquaToolchain.Clang
+if ($platform -eq 'windows') {
+    # The gnullvm target links like llvm-mingw's x86_64-w64-mingw32-clang: the pinned clang with the MinGW sysroot and
+    # compiler-rt, statically (a program then needs no libunwind.dll).
+    $resource = (Get-ChildItem -LiteralPath (Join-Path $AquaToolchain.MinGW 'lib/clang') -Directory | Select-Object -First 1).FullName
+    $cargoEnvironment['RUSTFLAGS'] = "-C target-feature=+crt-static -C link-arg=-rtlib=compiler-rt -C link-arg=--target=x86_64-w64-mingw32 -C link-arg=--sysroot=$($AquaToolchain.MinGW.Replace('\', '/')) -C link-arg=-resource-dir=$($resource.Replace('\', '/'))"
+}
+$built = Invoke-Program (Join-Path $AquaToolchain.Rust "bin/cargo$($AquaToolchain.Exe)") @('build', '--offline', '--release', '--target', $rust.target,
+    '--manifest-path', (Join-Path $crate 'Cargo.toml'), '--target-dir', (Join-Path $crate 'target')) $cargoEnvironment
+if ($built.Code -ne 0) { Fail 'build the Rust consumer' "$($built.Output)$($built.Error)" }
+else {
+    Pass "build the Rust consumer (Rust $($AquaPins.rust.version), $($rust.target))"
+    $program = Join-Path $crate "target/$($rust.target)/release/consumer$($AquaToolchain.Exe)"
+    $runEnvironment = @{}
+    if ($platform -eq 'windows') { Copy-Item (Join-Path $libraries.geometry 'bin/geometry.dll') (Split-Path $program) -Force }
+    else { $runEnvironment['LD_LIBRARY_PATH'] = Join-Path $libraries.geometry 'lib' }
+    Compare-Output 'Rust consumer' (Invoke-Program $program @() $runEnvironment) $expected
+}
 
 # ---- Parity with aqua run ----
 Compare-Output 'parity with aqua run' (Invoke-Program $Dotnet @($Compiler, 'run', (Join-Path $tests 'geometry/parity.aqua'))) $portable
@@ -164,7 +199,8 @@ foreach ($name in $libraries.Keys) {
 if ($platform -eq 'linux') {
     $sanitized = Join-Path $Work 'sanitized'
     Build-Consumers $sanitized $true
-    Test-Consumers $sanitized ' (ASan, LSan, UBSan)' @{ ASAN_OPTIONS = 'detect_leaks=1:abort_on_error=0'; UBSAN_OPTIONS = 'halt_on_error=1:print_stacktrace=1' }
+    Test-Consumers $sanitized ' (ASan, LSan, UBSan)' @{ ASAN_OPTIONS = 'detect_leaks=1:abort_on_error=0'; UBSAN_OPTIONS = 'halt_on_error=1:print_stacktrace=1'
+        LSAN_OPTIONS = "suppressions=$(Join-Path $tests 'lsan.supp')" }
 }
 
 Remove-Item -LiteralPath $Work -Recurse -Force -ErrorAction SilentlyContinue

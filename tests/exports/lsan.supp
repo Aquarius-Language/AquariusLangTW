@@ -1,0 +1,4 @@
+# LeakSanitizer suppressions of the native library tests (scripts/test-exports.ps1, Linux): allocations made and kept
+# by prebuilt third-party binaries we do not build, never by AquariusLang's own code.
+# ONNX Runtime (libraries/onnx's pinned release) keeps 14 bytes from its environment setup until the process exits.
+leak:libonnxruntime.so

@@ -40,6 +40,8 @@ $AquaToolchain = [pscustomobject]@{
     CMake = Join-Path $aquaToolchains "$($AquaPins.cmake.directory.Replace('{platform}', $aquaPlatform))/$($AquaPins.cmake.$aquaPlatform.bin)/cmake$aquaExe"
     Ninja = Join-Path $aquaToolchains "$($AquaPins.ninja.directory.Replace('{platform}', $aquaPlatform))/ninja$aquaExe"
     Wabt = Join-Path $aquaToolchains $AquaPins.wabt.directory.Replace('{platform}', $aquaPlatform)
+    # Test-only tools (install-toolchain.ps1 -Tools).
+    Rust = Join-Path $aquaToolchains $AquaPins.rust.directory.Replace('{platform}', $aquaPlatform)
     # Suffixes of this host's programs and of the Android build-tools' wrapper scripts (apksigner.bat on Windows).
     Exe = $aquaExe
     Script = if ($aquaWindows) { '.bat' } else { '' }

@@ -61,11 +61,11 @@ int main(void) {
     geo_divide(1, 0);
     error_line("divide");
     geo_greet("\xff");
-    error_line("utf8");
+    printf("c-abi error utf8: %s\n", geo_last_error());
     geo_greet(NULL);
     error_line("null string");
     geo_sum(NULL, 3);
-    error_line("null array");
+    printf("c-abi error null array: %s\n", geo_last_error());
     geo_area(1, 1);
     printf("native error %s\n", geo_last_error() ? "kept" : "cleared");
     geo_shutdown();

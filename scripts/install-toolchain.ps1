@@ -6,7 +6,8 @@
 # again only fetches what is missing. build-runtime.ps1 runs it for the targets it builds. install-toolchain.sh does
 # the same on Linux/macOS without PowerShell. Prints clang's path.
 #   -Targets windows-x64,android-arm64-v8a   SDK targets to install (default: the desktop target of this host).
-param([string[]]$Targets = @())
+#   -Tools rust,kotlin                       test-only tools (scripts/test-exports.ps1): the pinned Rust and Kotlin compilers.
+param([string[]]$Targets = @(), [string[]]$Tools = @())
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'toolchain.ps1')
 Add-Type -AssemblyName System.IO.Compression.FileSystem
@@ -14,10 +15,10 @@ $toolchains = $AquaToolchain.Toolchains
 New-Item -ItemType Directory -Path $toolchains, $AquaToolchain.Sdks -Force | Out-Null
 if ($Targets.Count -eq 0) { $Targets = @($AquaToolchain.Platform) }
 $Targets = @($Targets | ForEach-Object { $_ -split ',' } | Where-Object { $_ })
+$Tools = @($Tools | ForEach-Object { $_ -split ',' } | Where-Object { $_ })
 
-# Unpacks a verified archive into $Destination. An archive with one top-level directory becomes that directory.
-function Install-Archive([string]$Url, [string]$Sha256, [string]$Destination) {
-    if (Test-Path -LiteralPath $Destination) { return }
+# Downloads an archive into the toolchains folder once and checks its SHA-256; returns its path.
+function Get-VerifiedArchive([string]$Url, [string]$Sha256, [string]$Destination) {
     $archive = Join-Path $toolchains ([IO.Path]::GetFileName([Uri]::UnescapeDataString($Url)))
     if (-not (Test-Path -LiteralPath $archive)) {
         $progress = $ProgressPreference; $ProgressPreference = 'SilentlyContinue'
@@ -31,6 +32,13 @@ function Install-Archive([string]$Url, [string]$Sha256, [string]$Destination) {
         Remove-Item -LiteralPath $archive -Force
         throw "Checksum mismatch for $Url"
     }
+    return $archive
+}
+
+# Unpacks a verified archive into $Destination. An archive with one top-level directory becomes that directory.
+function Install-Archive([string]$Url, [string]$Sha256, [string]$Destination) {
+    if (Test-Path -LiteralPath $Destination) { return }
+    $archive = Get-VerifiedArchive $Url $Sha256 $Destination
     $staging = Join-Path $toolchains ('.unpack-' + [Guid]::NewGuid().ToString('N'))
     New-Item -ItemType Directory -Path $staging | Out-Null
     try {
@@ -85,6 +93,38 @@ foreach ($target in $Targets) {
         if (-not $pin) { throw "No pinned $name SDK for $target." }
         Install-Archive ($AquaPins.sdks.$name.base + $pin.file) $pin.sha256 (Get-AquaSdk $name $target)
     }
+}
+# Test-only tools. A standalone Rust release holds one folder per component (rustc, cargo, rust-std-<target>, docs,
+# ...): rustc, cargo and the standard libraries are unpacked (the docs' paths exceed Windows' path limit) and merge
+# into one installation, with the standard library of the target the tests build for (on Windows,
+# x86_64-pc-windows-gnullvm, a separate archive).
+if ($Tools -contains 'rust' -and -not (Test-Path -LiteralPath (Join-Path $AquaToolchain.Rust 'bin'))) {
+    $pin = $AquaPins.rust.($AquaToolchain.Platform)
+    $parts = @(@{ File = $pin.file; Sha256 = $pin.sha256 })
+    if ($pin.std) { $parts += @{ File = $pin.std.file; Sha256 = $pin.std.sha256 } }
+    $installation = $AquaToolchain.Rust + '.partial'
+    Remove-Item -LiteralPath $installation -Recurse -Force -ErrorAction SilentlyContinue
+    foreach ($part in $parts) {
+        $archive = Get-VerifiedArchive ($AquaPins.rust.base + $part.File) $part.Sha256 $AquaToolchain.Rust
+        $staging = Join-Path $toolchains ('.rust-' + [Guid]::NewGuid().ToString('N').Substring(0, 8))
+        New-Item -ItemType Directory -Path $staging | Out-Null
+        $patterns = if ($part.File -like 'rust-std-*') { @('*/rust-std-*') } else { @('*/rustc/*', '*/cargo/*', '*/rust-std-*') }
+        # bsdtar (Windows, macOS) selects members with --include; GNU tar takes wildcard patterns.
+        if ($aquaWindows) { & tar -xf $archive -C $staging ($patterns | ForEach-Object { '--include', $_ }) }
+        else { & tar -xf $archive -C $staging --wildcards @patterns }
+        if ($LASTEXITCODE -ne 0) { throw "Could not unpack $archive" }
+        foreach ($component in Get-ChildItem -LiteralPath (Get-ChildItem -LiteralPath $staging -Directory)[0].FullName -Directory) {
+            foreach ($file in Get-ChildItem -LiteralPath $component.FullName -Recurse -File) {
+                if ($file.Name -eq 'manifest.in') { continue }
+                $target = Join-Path $installation $file.FullName.Substring($component.FullName.Length + 1)
+                New-Item -ItemType Directory -Path (Split-Path $target) -Force | Out-Null
+                Copy-Item -LiteralPath $file.FullName -Destination $target -Force
+            }
+        }
+        Remove-Item -LiteralPath $staging -Recurse -Force
+    }
+    Move-Item -LiteralPath $installation -Destination $AquaToolchain.Rust
+    if (-not $aquaWindows) { & chmod +x (Join-Path $AquaToolchain.Rust 'bin/rustc') (Join-Path $AquaToolchain.Rust 'bin/cargo') }
 }
 Assert-AquaToolchain
 Write-Output $AquaToolchain.Clang

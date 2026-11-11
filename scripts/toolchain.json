@@ -46,6 +46,21 @@
     "linux-x64": { "file": "cmake-3.31.12-linux-x86_64.tar.gz", "sha256": "0dc2e9a6860f06bf10bd8fadc03e35d9eeb4df46e33763a7e480e987758f385c", "bin": "bin" },
     "macos-arm64": { "file": "cmake-3.31.12-macos-universal.tar.gz", "sha256": "799af7fd545db9bf1b9cfe72f8095880e727a2d4e0df0e3dffc3bc7b95c2d3b0", "bin": "CMake.app/Contents/bin" }
   },
+  "rust": {
+    "comment": "Tests only (scripts/test-exports.ps1 builds the Rust binding's consumer; install-toolchain.ps1 -Tools rust): the official standalone Rust release for this host. On Windows its windows-gnu host tools build for x86_64-pc-windows-gnullvm (the UCRT and libunwind of the pinned llvm-mingw) with that target's standard library, linking through llvm-mingw's clang. Applications and libraries never need it.",
+    "version": "1.88.0",
+    "base": "https://static.rust-lang.org/dist/2025-06-26/",
+    "directory": "rust-1.88.0-{platform}",
+    "windows-x64": {
+      "file": "rust-1.88.0-x86_64-pc-windows-gnu.tar.xz", "sha256": "483cb8456cb2d123c042cb958beae72fff18ecfee63a1e676a2ea57e0415b5ae",
+      "target": "x86_64-pc-windows-gnullvm",
+      "std": { "file": "rust-std-1.88.0-x86_64-pc-windows-gnullvm.tar.xz", "sha256": "d90943cd992569d36f3a18ea671838ae10eb0d658e0d61c6537224bd7ac3aef2" }
+    },
+    "linux-x64": {
+      "file": "rust-1.88.0-x86_64-unknown-linux-gnu.tar.xz", "sha256": "7b5437c1d18a174faae253a18eac22c32288dccfc09ff78d5ee99b7467e21bca",
+      "target": "x86_64-unknown-linux-gnu"
+    }
+  },
   "wabt": {
     "comment": "WABT's wasm2c: aqua build --optimize translates the application's Wasm to C and compiles it with the pinned Clang into an ahead-of-time library (runtime/aot/CMakeLists.txt). Its share/wabt/wasm2c runtime and include/ are compiled with it. Built from this source on every host by scripts/build-wabt.cmake with the pinned Clang (WABT's prebuilt binaries need OpenSSL's libcrypto, which the Windows one does not ship).",
     "version": "1.0.42",
