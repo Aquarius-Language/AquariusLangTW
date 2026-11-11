@@ -1,0 +1,20 @@
+manifest_version = 2
+
+[library]
+name = "shapes"
+version = "1.0.0"
+description = "A test [library] built as a native library through [export] module (scripts/test-exports.ps1)."
+license = "MIT"
+platforms = ["windows", "linux", "android", "web"]
+
+[[modules]]
+names = "ShapesMath|形狀數學"
+source = "aqua/ShapesMath.aqua"
+
+[[modules]]
+names = "Shapes|形狀"
+source = "aqua/Shapes.aqua"
+
+[export]
+module = "Shapes"
+prefix = "shapes_"

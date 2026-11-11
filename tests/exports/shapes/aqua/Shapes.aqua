@@ -1,0 +1,7 @@
+# The facade of the shapes test library: [export] module names it, so its exports are the library's.
+var math = import("ShapesMath");
+
+# The area of a square with this side.
+export var squareArea = function(side: double): double { math.square(side); };
+
+export var label = function(): string { "shapes"; };

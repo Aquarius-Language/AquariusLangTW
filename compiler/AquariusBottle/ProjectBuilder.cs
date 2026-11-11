@@ -12,7 +12,10 @@ public static class ProjectBuilder {
     /// (also under bottles/NAME/, whatever their target), then compiles them with the project's version 2 libraries as external libraries.</summary>
     public static ProjectBuild Compile(string projectPath, string output, string target = "wasm", bool locked = false, bool offline = false, BottleCache? cache = null) {
         var project = ProjectManifest.Load(projectPath);
-        if (project.IsModuleLibrary) throw new InvalidDataException($"{project.Name} is a library. Build a program that imports it, such as one of its tests: aqua build {Path.Combine(project.Root, "tests", "<case>.aqua")}");
+        if (project.IsModuleLibrary) {
+            if (project.Export == null) throw new InvalidDataException($"{project.Name} is a library. Build a program that imports it, such as one of its tests: aqua build {Path.Combine(project.Root, "tests", "<case>.aqua")}, or give it an [export] table to build it as a native library.");
+            return CompileExportedLibrary(project, output, target, cache);
+        }
         var manager = new BottleManager(cache); var resolved = manager.Restore(project, target, locked: locked, offline: offline);
         var packages = resolved.Packages.Select(p => ProjectManifest.Load(manager.Cache.ContentRoot(p))).ToArray();
         var libraries = Libraries(packages);
@@ -62,6 +65,24 @@ public static class ProjectBuilder {
             WasmApplication.Compile(sources, output, stage, assets, project.Entry, supported, libraries, declared);
             return new ProjectBuild(project, libraries);
         } finally { if (Directory.Exists(stage)) Directory.Delete(stage, true); }
+    }
+
+    /// <summary>A [library] with [export] (docs/native-libraries.md): its Aquarius modules compiled as an application whose
+    /// entry is the facade module ([export] module, else its first [[modules]] entry), so the facade's exports form the
+    /// export table. Its other modules and its dependencies' libraries link as they do for any program importing them;
+    /// its assets come along under their own paths.</summary>
+    private static ProjectBuild CompileExportedLibrary(ProjectManifest library, string output, string target, BottleCache? cache) {
+        var modules = library.Library!.Modules;
+        var facade = library.Export!.Module is { } name ? modules.First(m => m.Names.Contains(name, StringComparer.Ordinal)) : modules.FirstOrDefault()
+            ?? throw new InvalidDataException($"{library.Name} has no [[modules]] to export.");
+        var manager = new BottleManager(cache);
+        var packages = manager.Restore(library, target).Packages.Select(p => ProjectManifest.Load(manager.Cache.ContentRoot(p)));
+        var libraries = LibrarySet.Default.With(packages.Where(p => p.IsModuleLibrary).Select(p => p.Library!).Prepend(library.Library).DistinctBy(l => l.Name));
+        string entry = Path.GetRelativePath(library.Root, library.Library.SourcePath(facade.Source)).Replace('\\', '/');
+        var assets = library.Assets.Where(a => a.Platforms.Count == 0 || a.Platforms.Contains(target)).Select(a => SafeFiles.Under(library.Root, a.Source));
+        string[] supported = target == "wasm" ? library.Platforms.ToArray() : [target];
+        WasmApplication.Compile(library.SourceFiles(), output, library.Root, assets, entry, supported, libraries);
+        return new ProjectBuild(library, libraries);
     }
 
     /// <summary>The default libraries plus the version 2 libraries among a project's resolved packages.</summary>

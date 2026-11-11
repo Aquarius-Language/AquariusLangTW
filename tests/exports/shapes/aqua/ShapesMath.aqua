@@ -1,0 +1,2 @@
+# A helper module of the shapes test library: imported by the facade, never exported itself.
+var square = function(x: double): double { x * x; };
