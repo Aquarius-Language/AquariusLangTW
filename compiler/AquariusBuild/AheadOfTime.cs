@@ -26,8 +26,9 @@ public static partial class AheadOfTime
     }
 
     /// <summary>Translates the module at <paramref name="wasm"/> with wasm2c and builds it with the pack's CMake
-    /// <paramref name="project"/> (aot/: a desktop library; app/: an iOS executable) into <paramref name="output"/>.</summary>
-    public static string Compile(string wasm, string output, string runtimeTarget, string project)
+    /// <paramref name="project"/> (aot/: a desktop library; app/: an iOS executable; embed/: a native library output) into
+    /// <paramref name="output"/>, passing the project its own <paramref name="definitions"/> too.</summary>
+    public static string Compile(string wasm, string output, string runtimeTarget, string project, IReadOnlyDictionary<string, string>? definitions = null)
     {
         var installation = AquariusInstallation.Require();
         var environment = new Dictionary<string, string>();
@@ -57,7 +58,8 @@ public static partial class AheadOfTime
             Run(cmake, ["-S", project, "-B", build, "-G", "Ninja", "-DCMAKE_MAKE_PROGRAM=" + ninja,
                 "-DCMAKE_TOOLCHAIN_FILE=" + toolchain, "-DCMAKE_BUILD_TYPE=Release", "-DAQUA_AOT_SOURCE=" + Forward(source),
                 "-DAQUA_AOT_DIGEST=" + digest, "-DAQUA_WASM2C=" + Forward(Path.Combine(wabt, "share", "wabt", "wasm2c")),
-                "-DAQUA_WASM2C_INCLUDE=" + Forward(Path.Combine(wabt, "include")), "-DAQUA_AOT_OUTPUT=" + Forward(output)], environment);
+                "-DAQUA_WASM2C_INCLUDE=" + Forward(Path.Combine(wabt, "include")), "-DAQUA_AOT_OUTPUT=" + Forward(output),
+                .. (definitions ?? new Dictionary<string, string>()).Select(d => $"-D{d.Key}={Forward(d.Value)}")], environment);
             Run(cmake, ["--build", build], environment);
             if (!File.Exists(output)) throw new IOException($"The ahead-of-time build produced no {output}.");
             return output;

@@ -43,6 +43,7 @@ public static class CompilerCommandLine {
                     return Repl.Run(Console.In, Console.Out);
                 case "run": return RunCommand(args[1..]);
                 case "build": return Build(args[1..]);
+                case "export": return ExportCommand(args[1..]);
                 default: throw new ArgumentException($"Unknown command: {args[0]}");
             }
         } catch (ArgumentException error) { Console.Error.WriteLine(error.Message + "\n" + Usage); return 2; }
@@ -91,7 +92,7 @@ public static class CompilerCommandLine {
             string intermediate = Path.Combine(Path.GetTempPath(), "aquarius-project-build-" + Guid.NewGuid().ToString("N") + ".wasm");
             try {
                 var build = ProjectBuilder.Compile(input.Project, intermediate, target, flags.Contains("--locked"), flags.Contains("--offline"));
-                backend.Build(new WasmBuildRequest(intermediate, output, null, TargetOptions(options, backend), build.Libraries));
+                backend.Build(new WasmBuildRequest(intermediate, output, null, TargetOptions(options, backend), build.Libraries, project.Export));
             } finally { if (File.Exists(intermediate)) File.Delete(intermediate); }
             Console.WriteLine($"{backend.ArtifactDescription} built: {Path.GetFullPath(output)}"); return 0;
         }
@@ -225,6 +226,37 @@ public static class CompilerCommandLine {
             }
         }
         return found;
+    }
+
+    // aqua export header [project | main.aqua ... | app.wasm] [-o file.h]: the C header of the native library outputs
+    // (docs/native-libraries.md), written without building a library; standard output without -o.
+    private static int ExportCommand(string[] args) {
+        if (args.Length == 0 || args[0] != "header") throw new ArgumentException("Use: aqua export header [project | main.aqua ... | app.wasm] [-o file.h]");
+        var files = new List<string>(); string? output = null;
+        for (int i = 1; i < args.Length; i++) {
+            if (args[i] == "-o") { if (++i == args.Length || output != null) throw new ArgumentException("-o needs one file."); output = args[i]; }
+            else if (args[i].StartsWith('-')) throw new ArgumentException($"Unknown option: {args[i]}");
+            else files.Add(args[i]);
+        }
+        var input = Classify(files);
+        string temporary = Path.Combine(Path.GetTempPath(), "aquarius-export-" + Guid.NewGuid().ToString("N") + ".wasm");
+        try {
+            string wasm = input.Wasm ?? temporary;
+            AquariusLang.Build.Libraries.NativeLibrarySettings? settings = null;
+            if (input.Project != null) {
+                var project = ProjectManifest.Load(input.Project);
+                ProjectBuilder.Compile(input.Project, temporary, RuntimeTarget.Get(AquariusInstallation.HostTarget).Platform);
+                settings = project.Export ?? AquariusLang.Build.Libraries.NativeLibrarySettings.Default(project.Name, project.Version);
+            } else if (input.Wasm == null) WasmApplication.Compile(input.Sources, temporary, libraries: input.Libraries);
+            var application = WasmApplication.Load(wasm);
+            var exports = ExportTable.Read(application.Program)
+                ?? throw new InvalidDataException($"{application.EntryPoint} exports nothing: mark functions with 匯出 / export.");
+            settings ??= AquariusLang.Build.Libraries.NativeLibrarySettings.Default(Path.GetFileNameWithoutExtension(application.EntryPoint));
+            string header = AquariusLang.Build.Bindings.CBinding.Header(new AquariusLang.Build.Bindings.BindingContext(exports, settings));
+            if (output == null) Console.Write(header);
+            else { File.WriteAllText(output, header); Console.WriteLine($"Header written: {Path.GetFullPath(output)}"); }
+            return 0;
+        } finally { if (File.Exists(temporary)) File.Delete(temporary); }
     }
 
     // aqua library build [folder] [--targets a,b]

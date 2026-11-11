@@ -1,5 +1,6 @@
 using System.Buffers.Binary;
 using System.Reflection.PortableExecutable;
+using AquariusLang.Build.Libraries;
 using AquariusLang.Compiler;
 using AquariusLang.Libraries;
 
@@ -33,10 +34,13 @@ public sealed class ExecutableTarget(string name, string runtimeTarget) : IWasmB
     /// <summary>Marks a .app this target wrote, so rebuilding may replace it.</summary>
     public const string AppMarker = "Contents/Resources/.aquarius-app-output";
     private string Exe => AquariusLang.Compiler.RuntimeTarget.Get(runtimeTarget).ExecutableSuffix;
-    public IReadOnlyCollection<string> OptionNames => Windows ? [HideTerminalOption, OnnxCudaOption, OptimizeOption] : [OnnxCudaOption, OptimizeOption];
+    public IReadOnlyCollection<string> OptionNames => Windows ? [HideTerminalOption, OnnxCudaOption, OptimizeOption, NativeLibraryOutput.KindOption]
+        : [OnnxCudaOption, OptimizeOption, NativeLibraryOutput.KindOption];
 
     public void Build(WasmBuildRequest request)
     {
+        // --kind or an [export] table: native library outputs instead of an executable (docs/native-libraries.md).
+        if (NativeLibraryOutput.Requested(request)) { NativeLibraryOutput.Build(request, runtimeTarget); return; }
         bool hideTerminal = request.Flag(HideTerminalOption), cuda = request.Flag(OnnxCudaOption), optimize = request.Flag(OptimizeOption);
         if (hideTerminal && !Windows) throw new ArgumentException($"{HideTerminalOption} applies only to Windows executables.");
         string output = Path.GetFullPath(request.Output);

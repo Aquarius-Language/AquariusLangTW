@@ -68,6 +68,24 @@ public sealed record RuntimeTarget(string Name, string Platform, TargetKind Kind
         _ => $"libaqua_{nativeName}{SharedLibrarySuffix}"
     };
 
+    /// <summary>A native library output's shared library (docs/native-libraries.md): geometry.dll on Windows,
+    /// lib&lt;name&gt; with the shared library suffix elsewhere; on Linux the file is the versioned
+    /// <see cref="VersionedSharedLibraryName"/> and this name a link to it.</summary>
+    public string SharedLibraryName(string name) => Platform == "windows" ? name + ".dll" : "lib" + name + SharedLibrarySuffix;
+
+    /// <summary>The SONAME of a native library output where the platform versions shared libraries (libgeometry.so.1 on
+    /// Linux), else null.</summary>
+    public string? VersionedSharedLibraryName(string name, int major) => Platform == "linux" ? $"lib{name}.so.{major}" : null;
+
+    /// <summary>The folder of a native library output's shared library: bin on Windows (beside the programs that load
+    /// it), lib elsewhere.</summary>
+    public string SharedLibraryFolder => Platform == "windows" ? "bin" : "lib";
+
+    /// <summary>The import libraries a native library output's DLL comes with, by kind: MinGW's lib&lt;name&gt;.dll.a and
+    /// MSVC's &lt;name&gt;.lib on Windows; none elsewhere.</summary>
+    public IReadOnlyList<(string Kind, string File)> ImportLibraryNames(string name) =>
+        Platform == "windows" ? [("mingw", $"lib{name}.dll.a"), ("msvc", $"{name}.lib")] : [];
+
     /// <summary>Whether a host (a desktop platform such as windows-x64 or macos-arm64) can build this target's native
     /// binaries.</summary>
     public bool BuildsOn(string host) => Hosts?.Contains(host) ?? (!IsDesktop || host == Name);

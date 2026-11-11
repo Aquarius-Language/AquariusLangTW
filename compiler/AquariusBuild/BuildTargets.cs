@@ -11,8 +11,10 @@ namespace AquariusLang.Build;
 /// <param name="Options">Target options (<see cref="IWasmBuildTarget.OptionNames"/>) with their values.</param>
 /// <param name="Libraries">The libraries the application was compiled with: default libraries plus the project's
 /// external ones, whose native binaries the target ships.</param>
+/// <param name="Export">The project's [export] table: a target with native library outputs builds them instead of its usual
+/// artifact (docs/native-libraries.md); null without one.</param>
 public sealed record WasmBuildRequest(string Input, string Output, string? EntryPoint = null,
-    IReadOnlyDictionary<string, string>? Options = null, LibrarySet? Libraries = null)
+    IReadOnlyDictionary<string, string>? Options = null, LibrarySet? Libraries = null, AquariusLang.Build.Libraries.NativeLibrarySettings? Export = null)
 {
     public bool Flag(string name)
     {
