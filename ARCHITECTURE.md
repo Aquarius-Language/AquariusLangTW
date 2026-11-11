@@ -39,7 +39,7 @@ runtime/             C, the run time of every target
   guest/               runtime.c: values, GC, scheduler, linked into every application (layout.def is the shared table)
   embed/               the embed runtime of native library outputs (docs/native-libraries.md)
   host/                the host core: metadata, imports, registry, calls, scheduler, threads, the core library
-  platform/<os>/       windows, linux, macos, posix, desktop (Windows, Linux, macOS), android (+ the Java activity shim),
+  platform/<os>/       windows, linux, macos, posix, desktop (Windows, Linux, macOS), apple (shared macOS and iOS link rules), android (+ the Java activity shim),
                        ios (+ the UIKit shim), web;
                        each OS's platform.cmake builds its runtime
   sdk/                 aqua/*.h, api.def, AquariusLibrary.cmake, toolchain files, an example library

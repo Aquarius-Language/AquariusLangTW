@@ -1,6 +1,6 @@
 # Native library outputs (design, implementation spec)
 
-Status: design approved 2026-11-11; phases 1 to 4 implemented 2026-11-11 (see "Status of the phases" and "Deviations"
+Status: design approved 2026-11-11; phases 1 to 5 implemented 2026-11-11, phase 5 (Apple) not verified on a Mac yet (see "Status of the phases" and "Deviations"
 below). Full design document (with rationale, diagrams and the complete test plan):
 https://claude.ai/artifact/AWcNZdKyLjU3abUSrPv1uL . This file is the working spec kept in the repository; keep it in
 step with the code as phases land. Follow CLAUDE.md throughout.
@@ -111,9 +111,66 @@ threads, reentrancy error; ASan/LSan/UBSan consumers on Linux; full existing sui
 
 ## macOS and iOS
 
-Implemented in full but unverified until a Mac or the macOS CI runner runs `test-exports.ps1`. Until then
-`aqua build --target macos|ios --kind ...` prints a one-line "not verified yet" notice, and docs say the same. Goldens
-and stub-pack target tests cover what a PC can check.
+Implemented in full (phase 5) but **not verified**: no Mac has built or run these outputs yet. Their descriptors say so
+(`INativeLibraryPlatform.Verified` is false for `macos` and `ios`), and every `aqua build --target macos|ios` of a
+library kind first prints one line: "Note: macos native library outputs are designed and built as
+docs/native-libraries.md describes, but not verified on macos hardware yet (the spec lists the checks)."
+(`NativeLibraryOutput.UnverifiedNote`). What a PC can check is tested on every run: the Swift binding, both module
+maps, every Info.plist and the exported symbols list against goldens; slices, install names, versions and the iOS
+framework, static slice and xcframework layouts; the manifest's Apple keys; and the errors a build gives before it
+needs a Mac (`compiler/AquariusTests/exports/AppleLibraryTest.cs`).
+
+Outputs:
+
+- macOS (`<output>/macos-arm64/`): `lib/lib<name>.dylib` (install name `@rpath/lib<name>.dylib`, current version the
+  project's, compatibility version `<major>.0.0`, exactly the exports, no undefined symbols, signed ad hoc),
+  `lib/lib<name>.a` and `lib/<name>.o` (one `ld -r` object whose only globals are the exports), `include/` (header,
+  C++ header, `module.modulemap`), `swift/<Module>.swift`, `rust/`, `lib/cmake/`, `java/` and the jar with the java
+  binding, `licenses/`. `[export.macos] package = "framework"` writes `<Module>.framework` (versioned: `Versions/A` with
+  the binary, `Headers/`, `Modules/module.modulemap` and `Resources/Info.plist`; install name
+  `@rpath/<Module>.framework/Versions/A/<Module>`; signed) instead of the dylib.
+- iOS (`<output>/ios/`): for each slice (`ios-arm64`, `ios-arm64-simulator`) the shared kind as a flat
+  `<Module>.framework` (install name `@rpath/<Module>.framework/<Module>`) in `<Module>.xcframework`, and the static
+  kind as `lib<name>.a` with `Headers/` (header and module map) in `<Module>-static.xcframework`; each xcframework's
+  Info.plist is written directly, and the dynamic one is signed ad hoc (an app re-signs what it embeds).
+  `[export.ios] package = "folder"` leaves the slices in `<output>/ios/<target>/`. Bindings and `licenses/` sit beside
+  them.
+- Keys: `[export.macos]` and `[export.ios]` take `module` (the Swift module and framework name; default the library's
+  name in UpperCamelCase) and `bundle_id` (the frameworks' CFBundleIdentifier; default
+  `org.aquariuslang.library.<name>`), besides kinds, bindings, package and targets; macOS also `java_package` and
+  `java_class`.
+- Swift: `include/module.modulemap` makes the C header the Clang module `<Module>` (and links the library); the
+  framework carries it as `framework module <Module>`. `swift/<Module>.swift` declares `public enum <Module>` with
+  static functions that take and return `String`, arrays (`[Double]`, `[Int32]`, ...) and structs, free what the library
+  returns and `throw <Module>.Error` with the library's reason; programs add the file to their own target.
+- Link rules: `runtime/platform/apple/embed-apple.cmake`, which `runtime/platform/macos/embed.cmake` and
+  `runtime/platform/ios/embed.cmake` include (the packs install it beside them: `embed_platform_scripts`). iOS links
+  `runtime/platform/ios/embed.c`, the layer's library half (no UIKit application); macOS links the desktop layer without
+  the Metal layer of windows.
+
+Verification checklist (on an Apple Silicon Mac with Xcode and an iOS simulator runtime, in this order; when every step
+passes, set `Verified` to true in `MacOSLibraryPlatform` and `IosLibraryPlatform`, and drop the "not verified" wording
+here, in docs/macos.md and in docs/ios.md):
+
+1. `pwsh scripts/install-toolchain.ps1 -Targets macos-arm64,ios-arm64,ios-simulator-arm64,web -Tools rust,jdk` and
+   `pwsh scripts/build-runtime.ps1 -Targets macos-arm64,ios-arm64,ios-simulator-arm64,web`: each Apple pack gains
+   `embed/` (libaquarius_embed.a, platform.cmake, embed-apple.cmake, the default libraries' link interfaces).
+2. `dotnet test compiler/AquariusTests`: `AppleLibraryTest.MacLibrariesExportExactlyTheirSymbolsWithAnRpathInstallName`
+   and `IosLibrariesAreXcframeworksOfTheDeviceAndSimulatorSlices` run instead of skipping.
+3. `pwsh scripts/test-exports.ps1`: on macOS every check the desktops have (C and C++ consumers on shared, static and
+   object outputs, two libraries per process, lifecycle, threads, reentrancy, default libraries, Rust, Java on the JVM,
+   JavaScript in Chromium, parity, exports, dependencies) plus the install names and signatures, the Swift consumer on
+   the folder package and on a framework package; and iOS: both xcframeworks' Info.plists (`plutil -lint`), each
+   slice's install name, platform (`vtool -show-build`: IOS, IOSSIMULATOR) and exports, the static slices' globals, the
+   signature, and the Swift, C, C++ and Rust consumers on a simulator (`xcrun simctl spawn`), all printing
+   `geometry.expected`.
+4. By hand, once: an Xcode iOS app that embeds `<Module>.xcframework` (Embed & Sign) and calls it from Swift, run on a
+   device, and one that links `<Module>-static.xcframework`.
+5. `.github/workflows/test-macos.yml` runs steps 1 to 3 on GitHub's macOS runner.
+
+Where the design is most likely to need adjusting on a Mac: `ld -r` with `-exported_symbols_list` and archives (the
+prelinked object), `xcrun libtool`, signing the xcframework, the consumers' CMake rpath to `@rpath` dylibs, and Swift's
+import of the C module beside the `<Module>` enum.
 
 ## Phases
 
@@ -127,8 +184,9 @@ and stub-pack target tests cover what a PC can check.
 
 ## Status of the phases
 
-Phases 1 to 4 are implemented on branch `native-library-exports`; phase 5 (Apple outputs and Swift) and phase 6 (the
-showcase) remain.
+Phases 1 to 5 are implemented on branch `native-library-exports`; phase 5 (Apple outputs and Swift) is not verified on a
+Mac yet ("macOS and iOS" lists the checks). Phase 6, the showcase, is its own repository
+(`AquariusLangTW_ExportAsNativeLibrary_Showcase`, beside this one).
 
 - Language: `Parser.parseExportStatement` (contextual like `常數`; `Lexer.Peek(n)` looks past `("name")`),
   `LetStatement.Export` / `StructStatement.Export` (`ExportMark`), struct aliases, the rules in
@@ -141,11 +199,13 @@ showcase) remain.
   target's usual artifact, also from a project with `[export]` (a native library is an additional output: without
   `--kind`, a project with `[export]` builds its libraries, one without builds what it always did).
 - Bindings (`AquariusBuild/Bindings/`): `CBinding` (the ABI), `CppBinding`, `RustBinding` (a crate with `build.rs`
-  and safe wrappers returning `Result`), `JavaBinding` (one final class, static natives, nested struct classes,
-  `AquariusException`, `NonNull`/`Nullable`), `TypeScriptBinding` (the web's `.d.ts`); `aqua export header`.
+  and safe wrappers returning `Result`), `SwiftBinding` (the module map and an enum of throwing functions),
+  `JavaBinding` (one final class, static natives, nested struct classes, `AquariusException`, `NonNull`/`Nullable`),
+  `TypeScriptBinding` (the web's `.d.ts`); `aqua export header`.
 - Build: `NativeLibraryOutput` (desktop targets, `BuildAndroid` for every Android ABI, `BuildWeb`), `EmbedTable`
   (exports.def, symbols; the Java rows with the java binding), `CMakePackage` (`lib/cmake/<name>/<name>-config.cmake`
-  with `<name>::shared|static|object`), `JavaClasses` (the binding's jar), `AndroidLibraryPackage` (the .aar).
+  with `<name>::shared|static|object`), `JavaClasses` (the binding's jar), `AndroidLibraryPackage` (the .aar),
+  `AppleLibraryPackage` (frameworks, xcframeworks and their Info.plists; `BuildIos` builds the slices).
 - Runtime: `runtime/embed/` (`embed.c`, `exports.c`, `jni.c`, `aqua/embed.h`, `no_window.c`, `runtime.cmake` for
   native packs, `CMakeLists.txt` for each library; `table.c` and `web.c` in the web's host side module),
   `runtime/platform/desktop/embed.c` and `runtime/platform/android/embed.c` (the layers' library halves), and each
@@ -167,6 +227,24 @@ showcase) remain.
   tests only (`install-toolchain.ps1 -Tools rust,kotlin,jdk`).
 
 ## Deviations from the design
+
+Phase 5 (Apple):
+
+- Apple's link rules are shared by macOS and iOS in `runtime/platform/apple/embed-apple.cmake`, a folder with no target
+  of its own; the layers' `platform.cmake` name it in `embed_platform_scripts`, which `runtime/embed/runtime.cmake`
+  installs beside the layer's `embed.cmake`.
+- The Swift module, the framework and the Swift enum share one name (`<Module>`): inside a program the enum shadows the
+  C module, whose functions stay reachable unqualified. The static xcframework is `<Module>-static.xcframework`, since an
+  xcframework holds one kind.
+- Descriptors gained `Verified` (false for macOS and iOS) and the Apple tables gained `bundle_id`; iOS also allows the
+  C++ and Rust bindings so the same consumers run on the simulator.
+- Dylibs and frameworks are signed ad hoc after linking; an app re-signs what it embeds with its own identity.
+- The Rust pin gained macOS (aarch64-apple-darwin, with the aarch64-apple-ios-sim standard library for the iOS
+  consumer), whose system `cc` links. The iOS Rust consumer links the static slice (the crate's `build.rs` links
+  `-l<name>`, which finds the archive).
+- The Swift consumer prints every line of `geometry.expected`, the `c-abi` ones included, through the C module.
+
+Phases 1 to 4:
 
 - Documentation comments are the language's own: `#` lines or a `## ... ##` block directly above the export.
 - `匯出("name")` sets only the public name; the Aquarius binding keeps its own names.

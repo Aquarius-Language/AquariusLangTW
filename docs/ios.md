@@ -34,6 +34,16 @@ aqua build app.wasm --target ios -o App.app --bundle-id org.example.app `
 `--bundle-id` and `--app-name` name the application. Without a signing identity, device builds are signed ad hoc and
 link and verify, but a real device installs only applications signed with your identity and provisioning profile.
 
+## Native libraries (not verified yet)
+
+`aqua build <project> --target ios --kind shared,static` builds a project's `匯出` / `export` functions for the device
+and the simulator: `<Module>.xcframework` (a framework per slice) and `<Module>-static.xcframework` (a static library
+with its headers and module map per slice), with the C header and the Swift binding (`swift/<Module>.swift`) beside
+them, for an Xcode app to embed. This is designed and implemented but **has not run on a Mac yet**: the build prints a
+one-line notice saying so. [Native library outputs](native-libraries.md) ("macOS and iOS") describes the outputs and
+the checklist that verifies them, including the Swift, C, C++ and Rust consumers that
+`pwsh scripts/test-exports.ps1` runs on a simulator.
+
 ## Not yet available on iOS
 
 - Native code in external (Bottle) libraries: it would have to be linked into the application when it is built.

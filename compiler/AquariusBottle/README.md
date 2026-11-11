@@ -123,7 +123,9 @@ exporting a standalone `.wasm` requires the CLI option.
 `[export]` builds the project as native libraries instead of an executable: Windows and
 Linux shared, static and object libraries (Windows has no object kind), Android
 `lib<name>.so` per ABI with a Java binding and an `.aar`, and a web `.wasm` loaded by
-`loadLibrary()` with a `.d.ts`. They hold the functions and structs its entry module
+`loadLibrary()` with a `.d.ts`; on a Mac, macOS dylibs (or a framework) and iOS
+xcframeworks with a Swift binding (not verified on a Mac yet). They hold the functions
+and structs its entry module
 marks `匯出` / `export`, behind a C ABI with C, C++ and Rust bindings (Java on request
 on the desktops). A `[library]` builds through `[export] module`, its facade module.
 Default libraries that need no window link in. See
@@ -142,6 +144,10 @@ bindings = ["cpp", "rust", "java"]
 
 [export.android]
 java_package = "org.example.geometry"  # default: the name; java_class defaults to UpperCamel
+
+[export.ios]
+module = "Geometry"                    # Swift module and framework name (macOS too)
+bundle_id = "org.example.geometry"     # the frameworks' CFBundleIdentifier
 ```
 
 `aqua build . --target windows -o dist` then writes `dist/windows-x64/` (`bin/`,

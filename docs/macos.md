@@ -46,3 +46,12 @@ Macs needs a Developer ID signature and notarization (with the hardened runtime,
   caches in `~/Library/Caches/aquarius` (or `$XDG_CACHE_HOME/aquarius`).
 - Not yet available: the OpenGL library (macOS deprecates OpenGL; WGPU and Processing render through Metal) and the
   webcam (`camera` needs an AVFoundation backend).
+
+## Native libraries (not verified yet)
+
+`aqua build <project> --target macos --kind shared,static,object` builds a project's `匯出` / `export` functions as a
+dylib (`@rpath/lib<name>.dylib`, signed ad hoc), a static library and an object file, with C, C++, Rust, Swift (a module
+map and `swift/<Module>.swift`) and optionally Java bindings; `[export.macos] package = "framework"` writes
+`<Module>.framework` instead of the dylib. This is designed and implemented but **has not run on a Mac yet**: the build
+prints a one-line notice saying so. [Native library outputs](native-libraries.md) ("macOS and iOS") describes the
+outputs and the checklist that verifies them (`dotnet test`, then `pwsh scripts/test-exports.ps1` on a Mac).

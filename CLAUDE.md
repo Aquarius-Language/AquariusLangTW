@@ -67,7 +67,7 @@ runtime/
   guest/             runtime.c: the guest runtime linked into every application (values, GC, scheduler), layout.def
   embed/             the embed runtime of native library outputs (docs/native-libraries.md)
   host/              the shared C host: application metadata, imports, registry, scheduler, calls, core library
-  platform/<os>/     windows, linux, macos, posix, desktop (Windows+Linux+macOS), android (+ java/ activity shim), ios (+ UIKit
+  platform/<os>/     windows, linux, macos, posix, desktop (Windows+Linux+macOS), apple (macOS+iOS library link rules), android (+ java/ activity shim), ios (+ UIKit
                      shim), web; platform.cmake
   sdk/               the library SDK: include/aqua/*.h, api.def, cmake/ (AquariusLibrary.cmake, toolchains/), example/
 libraries/<name>/    default libraries (application, audio, camera, clay, graphics, imgui, input, interaction, network, onnx,
