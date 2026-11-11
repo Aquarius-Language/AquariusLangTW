@@ -1,0 +1,10 @@
+manifest_version = 2
+
+[project]
+name = "counter"
+version = "2.0.0"
+entry = "counter.aqua"
+sources = ["counter.aqua"]
+
+[export]
+prefix = "counter_"

@@ -1,0 +1,26 @@
+native abi 1
+area 1350
+distance 500
+midpoint 150 200
+scale 200 500 -800
+sum 10
+halve 250
+isEven 1 0
+evens 1 0 1 0 1
+squares 1000000000 4000000000 9000000000
+widths 175
+total 5000000001
+countTrue 2
+greet 你好, 世界!
+big 6000000000
+person Ada 36
+describe Ada is 36
+log: hello
+next 1
+next 2
+native error divide: ERROR: Integer division by zero / 整數不能除以零。
+native error utf8: A string argument is not valid UTF-8.
+native error null string: A string argument is NULL.
+native error null array: An array argument is NULL with a nonzero count.
+native error cleared
+native next after shutdown 1

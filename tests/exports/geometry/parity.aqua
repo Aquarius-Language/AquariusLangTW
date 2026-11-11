@@ -1,0 +1,37 @@
+# Parity with aqua run (scripts/test-exports.ps1): calls the geometry library's functions the way the consumers in
+# tests/exports call them through its native library, and prints the same lines (all of geometry.expected but the
+# "native" lines, which only native consumers can print: the ABI version, error reports, shutdown).
+var geometry = import("main.aqua");
+var strings = import("String");
+var text = function(n) { strings.From(n); };
+var hundredths = function(x: double): string { text(int(x * 100.0)); };
+var bit = function(b: bool): string { if (b) { "1"; } else { "0"; } };
+var join = function(values, convert) {
+    var result = "";
+    for (var i = 0; i < len(values); i++) { result = result + " " + convert(values[i]); }
+    result;
+};
+
+print("area " + hundredths(geometry.area(3.0, 4.5)));
+var a = geometry.Point(0.0, 0.0);
+var b = geometry.Point(3.0, 4.0);
+print("distance " + hundredths(geometry.距離(a, b)));
+var m = geometry.midpoint(a, b);
+print("midpoint " + hundredths(m.x) + " " + hundredths(m.y));
+print("scale" + join(geometry.scale([1.0, 2.5, -4.0], 2.0), hundredths));
+print("sum " + text(geometry.sum([1, 2, 3, 4])));
+print("halve " + hundredths(double(geometry.halve(5.0f))));
+print("isEven " + bit(geometry.isEven(4)) + " " + bit(geometry.isEven(7)));
+print("evens" + join(geometry.evens(5), bit));
+print("squares" + join(geometry.squares(3), text));
+print("widths " + hundredths(double(geometry.widths([0.5f, 1.25f]))));
+print("total " + text(geometry.total([5000000000L, 1L])));
+print("countTrue " + text(geometry.countTrue([true, false, true])));
+print("greet " + geometry.greet("世界"));
+print("big " + text(geometry.big(3000000000L)));
+var p = geometry.makePerson("Ada", 36);
+print("person " + p.name + " " + text(p.age));
+print("describe " + geometry.describe(p));
+geometry.log("hello");
+print("next " + text(geometry.next()));
+print("next " + text(geometry.next()));

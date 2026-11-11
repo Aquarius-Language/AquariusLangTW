@@ -1,0 +1,89 @@
+# The geometry test library of the native library outputs (docs/native-libraries.md): every exportable type once.
+# scripts/test-exports.ps1 builds it for each target and runs the consumers in tests/exports, which print the lines of
+# geometry.expected; parity.aqua prints the same lines through aqua run.
+
+var arrays = import("Array");
+var strings = import("String");
+
+# Calls made since the library was initialized (top-level code runs once, on the first call).
+變數 呼叫次數 = 0;
+
+# Area of a rectangle.
+匯出 變數 面積, area = 函式(寬: 雙精度, 高: 雙精度): 雙精度 { 寬 * 高; };
+
+# A point in the plane.
+匯出 結構 點, Point { x: 雙精度; y: 雙精度 }
+
+# Distance between two points.
+匯出("distance") 變數 距離 = 函式(a: 點, b: 點): 雙精度 {
+    數學.平方根((a.x - b.x) * (a.x - b.x) + (a.y - b.y) * (a.y - b.y));
+};
+
+## The point halfway between two points.
+   Both are copied in and the result is copied out. ##
+export var midpoint = function(a: Point, b: Point): Point { Point((a.x + b.x) / 2.0, (a.y + b.y) / 2.0); };
+
+# Every value multiplied by a factor.
+export var scale = function(values: double[], factor: double): double[] {
+    var result: double[] = [];
+    for (var i = 0; i < len(values); i++) { arrays.Append(result, values[i] * factor); }
+    result;
+};
+
+export var sum = function(values: int[]): int {
+    var total = 0;
+    for (var i = 0; i < len(values); i++) { total += values[i]; }
+    total;
+};
+
+export var halve = function(x: float): float { x / 2.0f; };
+
+export var isEven = function(n: int): bool { n % 2 == 0; };
+
+export var evens = function(n: int): bool[] {
+    var result: bool[] = [];
+    for (var i = 0; i < n; i++) { arrays.Append(result, i % 2 == 0); }
+    result;
+};
+
+export var squares = function(n: int): long[] {
+    var result: long[] = [];
+    for (var i = 1; i <= n; i++) { arrays.Append(result, long(i) * 1000000000L * long(i)); }
+    result;
+};
+
+export var widths = function(values: float[]): float {
+    var total = 0.0f;
+    for (var i = 0; i < len(values); i++) { total += values[i]; }
+    total;
+};
+
+export var total = function(values: long[]): long {
+    var result = 0L;
+    for (var i = 0; i < len(values); i++) { result += values[i]; }
+    result;
+};
+
+export var countTrue = function(values: bool[]): int {
+    var result = 0;
+    for (var i = 0; i < len(values); i++) { if (values[i]) { result += 1; } }
+    result;
+};
+
+# Greets someone by name.
+匯出 常數 問候, greet = 函式(名字: 字串): 字串 { "你好, " + 名字 + "!"; };
+
+export var big = function(n: long): long { n * 2L; };
+
+# A person with a name.
+export struct Person { name: string; age: int }
+
+export var makePerson = function(name: string, age: int): Person { Person(name, age); };
+
+export var describe = function(p: Person): string { p.name + " is " + strings.From(p.age); };
+
+export var log = function(message: string) { print("log: " + message); };
+
+export var divide = function(a: int, b: int): int { a / b; };
+
+export var next = function(): int { 呼叫次數 += 1; 呼叫次數; };

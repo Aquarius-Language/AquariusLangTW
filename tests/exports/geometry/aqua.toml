@@ -1,0 +1,11 @@
+manifest_version = 2
+
+[project]
+name = "geometry"
+version = "1.2.0"
+entry = "main.aqua"
+sources = ["main.aqua"]
+
+[export]
+name = "geometry"
+prefix = "geo_"

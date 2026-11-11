@@ -1,0 +1,13 @@
+# The second test library of the native library outputs (scripts/test-exports.ps1): loaded with geometry into one
+# process, its state stays its own.
+var count = 100;
+
+# Adds one to the counter and returns it.
+export var increment = function(): int { count += 1; count; };
+
+# Busy work for the reentrancy test: a long call the test interrupts.
+export var spin = function(n: int): int {
+    var total = 0;
+    for (var i = 0; i < n; i++) { total = (total + i) % 1000003; }
+    total;
+};
