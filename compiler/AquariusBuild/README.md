@@ -15,5 +15,11 @@ command-line changes. Builds never run application code, and replace their outpu
 `--onnx-cuda true` (or `[onnx] cuda = true`) builds Windows and Linux executables from the `<target>-cuda` pack, built
 with `scripts/build-runtime.ps1 -OnnxCuda` (ONNX Runtime's CUDA build; see `libraries/onnx/README.md`).
 
+`--kind shared` (or an `[export]` table) makes the `windows` and `linux` targets build native libraries instead
+(`Libraries/NativeLibraryOutput`, [native libraries](../../docs/native-libraries.md)): the functions the entry module
+marks `匯出` / `export`, compiled ahead of time with the pack's `embed/` project into `<output>/<target>/` (the DLL or
+`lib<name>.so.<major>`, import libraries, `include/` with the bindings of `Bindings/`, `licenses/`).
+`Libraries/Platforms/` describes what each platform offers (`INativeLibraryPlatform`).
+
 `NativeRuntime` runs the pack of this machine for `aqua run`, the REPL, the tests and the language server's catalog
 (`aquarius [--library file ...] --catalog`).

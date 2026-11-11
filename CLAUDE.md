@@ -65,6 +65,7 @@ it works. (繁中摘要見文末。)
 compiler/            C#: AquariusCompiler, AquariusBuild, AquariusBottle, AquariusCli, AquariusLanguageServer, AquariusTests
 runtime/
   guest/             runtime.c: the guest runtime linked into every application (values, GC, scheduler), layout.def
+  embed/             the embed runtime of native library outputs (docs/native-libraries.md)
   host/              the shared C host: application metadata, imports, registry, scheduler, calls, core library
   platform/<os>/     windows, linux, macos, posix, desktop (Windows+Linux+macOS), android (+ java/ activity shim), ios (+ UIKit
                      shim), web; platform.cmake

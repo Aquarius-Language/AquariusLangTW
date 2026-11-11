@@ -37,6 +37,7 @@ compiler/            C#, compile time only
   AquariusLanguageServer, AquariusTests
 runtime/             C, the run time of every target
   guest/               runtime.c: values, GC, scheduler, linked into every application (layout.def is the shared table)
+  embed/               the embed runtime of native library outputs (docs/native-libraries.md)
   host/                the host core: metadata, imports, registry, calls, scheduler, threads, the core library
   platform/<os>/       windows, linux, macos, posix, desktop (Windows, Linux, macOS), android (+ the Java activity shim),
                        ios (+ the UIKit shim), web;
@@ -147,6 +148,8 @@ runtime packs into `.native-build/install/<target>`, where the compiler of a che
 
 - `dotnet test compiler/AquariusTests`: language semantics, Wasm emission, codegen goldens, packaging, build targets,
   CLI, language server and the architecture rules below. Programs run on the runtime pack of this machine.
+- `scripts/test-exports.ps1`: native library outputs on this host's target ([native libraries](docs/native-libraries.md)):
+  `tests/exports` consumers in C and C++, parity with `aqua run`, a binary audit, threads, lifecycle and sanitizers.
 - `scripts/test-libraries.ps1`: every library's `tests/<case>.aqua` on Windows, Linux (WSL), the web (Chromium) and
   Android (device or emulator); output must equal `<case>.expected`.
 
@@ -166,6 +169,7 @@ runtime packs into `.native-build/install/<target>`, where the compiler of a che
 | One portable artifact for every target; target-specific tuning only in engine and platform layers | `EveryTargetRunsOnePortableArtifact` |
 | Reviewed codegen changes; the embedded guest runtime rebuilds from source | `CompiledOutputMatchesGoldens`, `TheEmbeddedGuestRuntimeRebuildsFromSource` |
 | Repository hygiene | `NoCommittedIdeOrUserFiles`, `AquariusSourcesLiveInExamplesLibrariesAndTests`, `DocsUseRepositoryRelativeLinks` |
+| Native library outputs extend by platform and language (`NativeLibraryRulesTest`) | `EveryBuiltPlatformHasOneNativeLibraryDescriptor`, `PlatformsThatBuildLibrariesHaveLinkRulesInTheirLayer`, `EveryBindingGeneratorHasGoldens` |
 
 After an intended codegen change, run `AQUARIUS_UPDATE_CODEGEN_GOLDENS=1 dotnet test compiler/AquariusTests --filter
 CompiledOutputMatchesGoldens` and commit `compiler/AquariusTests/architecture/codegen-goldens.txt`. After changing

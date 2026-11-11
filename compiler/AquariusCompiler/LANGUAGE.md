@@ -44,6 +44,7 @@ map to the same token types, AST nodes and WebAssembly semantics.
 | --- | --- | --- |
 | `變數` | `var` | Mutable variable declaration |
 | `常數` | `const` | Constant declaration: assigned once, never written again |
+| `匯出` | `export` | Export a function or struct to native library outputs (before a declaration) |
 | `函式` | `function` | Function expression / closure |
 | `回傳` | `return` | Return a function result |
 | `如果` | `if` | Conditional expression |
@@ -138,6 +139,19 @@ Default value inspection still prints booleans as `真` / `假` and null as `nul
   literal is folded by the native tier into every typed function and loop written after it: the value becomes an
   instruction operand, with no binding to pass or check. A function written before the declaration reads the binding
   as before, so calling it before the declaration has run is still the `Identifier not found` error.
+- `匯出 宣告` / `export declaration` marks a top-level function (`變數`/`var` or `常數`/`const` with a function literal)
+  or struct (`結構`/`struct`) of the entry module for native library outputs: `aqua build --target windows|linux --kind
+  shared` builds a library exporting it through a C ABI with C and C++ bindings ([native libraries](../../docs/native-libraries.md)).
+  `匯出("name")` gives the public name; otherwise it is the first ASCII name the declaration has (`匯出 變數 面積, area
+  = ...`). `匯出` and `export` are keywords only before such a declaration (`LetStatement.Export`,
+  `StructStatement.Export`), and an exported binding is constant. The TypeChecker requires the top level, a function
+  literal that is not async, an annotation on every parameter with an exportable type (int, long, float, double, bool,
+  string, a typed array of numbers or Booleans, an exported struct whose fields are ASCII-named scalars or strings), an
+  exportable result annotation or none (no value), an ASCII public name and names that stay distinct in snake_case and
+  lowerCamelCase. The comment above an export (`#` lines or a `## ... ##` block) becomes its documentation in the
+  bindings. Exports change nothing when the program runs: another module may import an exporting module, and only the
+  entry module's exports form the `aquarius.exports` section. A struct may declare a second name like a function
+  (`結構 點, Point { ... }`).
 - `++值` returns the updated number; `值++` returns the original number. The operand is a numeric variable, an array
   element or hash entry (`計數[鍵]++`, `IncrementIndex`) or a struct field (`點.x++`, `IncrementMember`); the value keeps
   its numeric type.

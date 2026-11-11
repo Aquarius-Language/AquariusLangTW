@@ -120,6 +120,28 @@ dependencies' desktop settings and other export targets are unaffected. Use a
 project build (`aqua build . --target windows -o app.exe`) to apply this setting;
 exporting a standalone `.wasm` requires the CLI option.
 
+`[export]` builds the project as native libraries instead of an executable for the
+platforms that have them (Windows and Linux shared libraries so far): the functions
+and structs its entry module marks `匯出` / `export`, behind a C ABI with C and C++
+bindings. See [native libraries](../../docs/native-libraries.md).
+
+```toml
+[export]
+name = "geometry"            # file base name; default: the project name in lower case
+prefix = "geo_"              # C symbol prefix; default: name + "_"
+kinds = ["shared"]           # "shared", "static", "object"; default ["shared"]
+
+[export.windows]             # optional, per platform: kinds, bindings, package, targets
+import_libraries = ["mingw"] # and the platform's own keys (Windows: "mingw", "msvc")
+```
+
+`aqua build . --target windows -o dist` then writes `dist/windows-x64/` (`bin/`,
+`lib/`, `include/`, `licenses/`); `--kind` overrides the kinds and also works without
+`[export]`. Every key and value is checked against the platform (an unknown key, a
+kind or binding the platform lacks, a target of another platform) and reported with
+its position. Only the root manifest's `[export]` applies; dependencies are compiled
+into the library. `aqua export header .` writes the C header alone.
+
 Library versions require `major.minor.patch`, with optional SemVer prerelease and
 build metadata. Supported requirement operators are `=`, `==`, `>`, `>=`, `<`,
 `<=`; a bare version means equality. Commas mean **AND**. One- and two-component

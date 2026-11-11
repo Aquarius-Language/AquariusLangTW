@@ -30,7 +30,8 @@ more target names outside the table.
    `AQUA_TARGET` before `include(.../AquariusToolchain.cmake)`.
 4. **Platform layer.** Add `runtime/platform/<platform>/`: `platform.cmake` and the C layer (process entry, files,
    clocks, dynamic loading, and the window and input implementation of `<aqua/window.h>`). Reuse `posix/` and
-   `desktop/` where they fit.
+   `desktop/` where they fit. A desktop layer keeps its process entry in its own file (`platform_entry`, like
+   `windows/entry.c`), so native library outputs link the rest of the layer.
 5. **Libraries.** Each library with platform code needs a branch or a `src/platform/<platform>.c` for the new OS (rule
    3). Some `CMakeLists.txt` files still compare whole target names (`AQUA_TARGET STREQUAL "windows-x64"`); new
    branches use `AQUA_OS`. `aqua_add_library(PLATFORMS ...)` and `[library] platforms` in `aqua.toml` say where a library builds and runs.
@@ -39,7 +40,10 @@ more target names outside the table.
 7. **Scripts and CI.** `build-runtime.ps1`, `test-libraries.ps1`, `install-toolchain.ps1` and `build-release.ps1`
    take the target from the table. Add a workflow under `.github/workflows/` that builds the pack and runs
    `dotnet test` and `test-libraries.ps1` on that host.
-8. **Docs.** Add a `docs/<platform>.md` like [linux.md](linux.md), and update the target lists in
+8. **Native library outputs.** Add the platform's `INativeLibraryPlatform` in `compiler/AquariusBuild/Libraries/Platforms/`
+   and, once it builds them, its link rules in `runtime/platform/<platform>/embed.cmake` (`NativeLibraryRulesTest`
+   checks both; see [native libraries](native-libraries.md)).
+9. **Docs.** Add a `docs/<platform>.md` like [linux.md](linux.md), and update the target lists in
    [ARCHITECTURE.md](../ARCHITECTURE.md) and the libraries' READMEs.
 
 ## macOS and iOS

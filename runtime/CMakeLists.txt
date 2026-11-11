@@ -5,6 +5,8 @@
 #                      (both through platform/desktop/desktop.cmake)
 #   android            libaquarius.so: the native activity of Android applications
 #   web                aquarius.wasm plus one side module per library, loaded by ../web-glue
+# A platform layer with an embed.cmake also gets embed/ (embed/runtime.cmake): the runtime native library outputs
+# link (docs/native-libraries.md).
 cmake_minimum_required(VERSION 3.20)
 project(aquarius C CXX)
 if(NOT AQUA_TARGET)
