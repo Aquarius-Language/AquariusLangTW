@@ -22,7 +22,7 @@ internal static class ExportSection
         foreach (var (key, item) in table) {
             if (item is TomlTable platformTable) {
                 var platform = NativeLibraryPlatforms.Find(key)
-                    ?? throw Error(text, file, key, "export", $"Unknown [export] platform '{key}'; use {string.Join(", ", NativeLibraryPlatforms.All.Select(p => p.Platform))}.");
+                    ?? throw Error(text, file, "export." + key, "", $"Unknown [export] platform '{key}'; use {string.Join(", ", NativeLibraryPlatforms.All.Select(p => p.Platform))}.");
                 platforms[key] = ParsePlatform(text, file, platform, platformTable);
                 continue;
             }
