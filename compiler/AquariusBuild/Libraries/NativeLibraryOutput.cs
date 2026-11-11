@@ -39,6 +39,7 @@ public static class NativeLibraryOutput
         var kinds = Kinds(request, settings, platform);
         var context = new BindingContext(exports, settings);
         var generators = Generators(settings, platform);
+        if (target.Kind == TargetKind.Web) { BuildWeb(request, application, context, generators, linked); return; }
 
         AquariusInstallation.RequireBuildableHere(runtimeTarget, "native library outputs");
         var installation = AquariusInstallation.Require();
@@ -66,6 +67,34 @@ public static class NativeLibraryOutput
         return application.NativeLibraries;
     }
 
+    /// <summary>The web's library: no native code is built. <c>&lt;output&gt;/web/</c> holds the application as
+    /// &lt;name&gt;.wasm, the web pack in runtime/ with the needed libraries' side modules in runtime/libraries/, the glue
+    /// (whose loadLibrary() loads it) in glue/, the bindings and licenses/.</summary>
+    private static void BuildWeb(WasmBuildRequest request, WasmApplication application, BindingContext context,
+        IReadOnlyList<IBindingGenerator> generators, IReadOnlyList<string> libraries)
+    {
+        var installation = AquariusInstallation.Require();
+        string pack = installation.RequireRuntimePack("web", "aquarius.wasm", "libc.so");
+        var sideModules = libraries.Select(name => Path.Combine(pack, "libraries", name + ".wasm")).ToArray();
+        if (sideModules.FirstOrDefault(m => !File.Exists(m)) is { } missing) throw new IOException($"The web runtime pack has no side module {missing}.");
+        string output = Path.Combine(Path.GetFullPath(request.Output), "web");
+        Output.ReplaceDirectory(output, Marker, stage => {
+            foreach (var generator in generators)
+                foreach (var file in generator.Generate(context)) Write(Path.Combine(stage, file.Path), file.Text);
+            File.WriteAllBytes(Path.Combine(stage, context.Settings.Name + ".wasm"), application.Program.Bytes.ToArray());
+            string runtime = Path.Combine(stage, "runtime");
+            Directory.CreateDirectory(Path.Combine(runtime, "libraries"));
+            foreach (string file in Directory.EnumerateFiles(pack)) File.Copy(file, Path.Combine(runtime, Path.GetFileName(file)));
+            foreach (string module in sideModules) File.Copy(module, Path.Combine(runtime, "libraries", Path.GetFileName(module)));
+            Targets.WebTarget.CopyGlue(installation.WebGlue, Path.Combine(stage, "glue"));
+            string licenses = Path.Combine(stage, "licenses");
+            if (Directory.Exists(Path.Combine(pack, "licenses"))) Output.CopyDirectory(Path.Combine(pack, "licenses"), licenses);
+            Directory.CreateDirectory(licenses);
+            string own = Path.Combine(installation.Root, "LICENSE");
+            if (File.Exists(own)) File.Copy(own, Path.Combine(licenses, "AquariusLang.txt"), true);
+        });
+    }
+
     /// <summary>The kinds to build: <c>--kind a,b</c>, else the manifest's for this platform; each allowed there.</summary>
     private static IReadOnlyList<string> Kinds(WasmBuildRequest request, NativeLibrarySettings settings, INativeLibraryPlatform platform)
     {
@@ -87,8 +116,9 @@ public static class NativeLibraryOutput
                 throw new ArgumentException($"The {missing} binding is not written yet (docs/native-libraries.md lists the phases).");
             return explicitly.Select(b => BindingGenerators.Find(b)!).ToArray();
         }
-        // The C header is the ABI itself: it always ships.
-        return platform.DefaultBindings.Prepend("c").Distinct().Select(BindingGenerators.Find).OfType<IBindingGenerator>().ToArray();
+        // The C header is the ABI itself: it ships wherever the platform has a C binding.
+        var defaults = platform.Bindings.Contains("c") ? platform.DefaultBindings.Prepend("c").Distinct() : platform.DefaultBindings;
+        return defaults.Select(BindingGenerators.Find).OfType<IBindingGenerator>().ToArray();
     }
 
     /// <summary>The files of the kinds built, relative to the output folder; empty strings for kinds not built.</summary>

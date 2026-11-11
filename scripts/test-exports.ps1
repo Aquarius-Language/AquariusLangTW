@@ -145,6 +145,11 @@ else {
     Compare-Output 'Rust consumer' (Invoke-Program $program @() $runEnvironment) $expected
 }
 
+# ---- The web: loadLibrary() of the web glue, a JavaScript consumer in Chromium ----
+$webOutput = Join-Path $Work 'geometry-web'
+Invoke-Checked $Dotnet @($Compiler, 'build', (Join-Path $tests 'geometry'), '--target', 'web', '-o', $webOutput) | Out-Null
+Compare-Output 'JavaScript consumer (web, Chromium)' (Invoke-Program 'node' @((Join-Path $PSScriptRoot 'web-library-run.mjs'), (Join-Path $webOutput 'web'), (Join-Path $tests 'consumer.mjs'))) $managed
+
 # ---- Parity with aqua run ----
 Compare-Output 'parity with aqua run' (Invoke-Program $Dotnet @($Compiler, 'run', (Join-Path $tests 'geometry/parity.aqua'))) $portable
 

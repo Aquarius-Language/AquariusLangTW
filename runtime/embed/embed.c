@@ -70,6 +70,9 @@ static void entry_done(aqua_runtime *rt, bool ok, aqua_value value, void *data) 
 /* Runs the runtime's loop until nothing is left to run now; with `wait`, until the application has finished (the
    entry module, which may wait for timers or deferred calls). */
 static void pump(aqua_runtime *rt, bool wait) {
+#if defined(AQUA_OS_WEB)
+    wait = false; /* the page's thread cannot block: work that waits runs in later turns */
+#endif
     double next;
     while ((next = runtime_turn(rt, 50)) >= 0) {
         embed_platform_flush();
@@ -109,7 +112,7 @@ static void register_libraries(const aqua_embed_table *table) {
 
 static bool start(void) {
     if (current) return true;
-    const aqua_embed_table *table = &aqua_embed_exports;
+    const aqua_embed_table *table = aqua_embed_current_table();
     register_libraries(table);
     instance *i = calloc(1, sizeof *i);
     uint8_t *module = malloc(table->module_size);
@@ -241,7 +244,7 @@ void aqua_embed_put_array(const void *data, size_t count, aqua_embed_element ele
 }
 
 void aqua_embed_put_struct(uint32_t structure) {
-    uint32_t fields = aqua_embed_exports.field_counts[structure];
+    uint32_t fields = aqua_embed_current_table()->field_counts[structure];
     uint32_t first = argument_count - fields;
     aqua_value value = aqua_null();
     if (!conversion_failed) {

@@ -20,3 +20,4 @@ import './mediaquery/mediaquery.mjs';
 import './frame/frame.mjs';
 
 export { startApplication } from './core/runtime.mjs';
+export { loadLibrary } from './core/library.mjs';

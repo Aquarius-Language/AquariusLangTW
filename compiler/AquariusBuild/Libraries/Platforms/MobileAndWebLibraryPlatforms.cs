@@ -24,7 +24,7 @@ public sealed class AndroidLibraryPlatform : INativeLibraryPlatform
     public bool Builds => false;
 }
 
-/// <summary>The web: the application's .wasm with a JavaScript module and its .d.ts (phase 4).</summary>
+/// <summary>The web: the application's .wasm, loaded by the glue's loadLibrary(), with its .d.ts.</summary>
 public sealed class WebLibraryPlatform : INativeLibraryPlatform
 {
     public string Platform => "web";
@@ -33,5 +33,5 @@ public sealed class WebLibraryPlatform : INativeLibraryPlatform
     public IReadOnlyList<string> DefaultBindings => ["javascript"];
     public IReadOnlyList<string> Packages => ["folder"];
     public IReadOnlyList<string> ManifestKeys => [];
-    public bool Builds => false;
+    public bool Builds => true;
 }

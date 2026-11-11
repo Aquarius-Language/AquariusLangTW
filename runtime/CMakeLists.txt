@@ -61,8 +61,8 @@ if(NOT EXISTS "${platform_build}")
 endif()
 include("${platform_build}")
 
-# Native library outputs (docs/native-libraries.md): a platform layer with link rules for them (embed.cmake) gets the
-# embed runtime in its pack.
-if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/platform/${AQUA_OS}/embed.cmake")
+# Native library outputs (docs/native-libraries.md): a native platform layer with link rules for them (embed.cmake)
+# gets the embed runtime in its pack. The web's host side module carries it instead (platform/web/embed.cmake).
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/platform/${AQUA_OS}/embed.cmake" AND NOT AQUA_KIND STREQUAL "web")
     include(embed/runtime.cmake)
 endif()

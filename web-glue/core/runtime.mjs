@@ -48,6 +48,28 @@ function lineWriter(output) {
  * @returns {Promise<{exitCode: number}>} once the application finishes
  */
 export async function startApplication(options) {
+    const { context, host, writer, programBytes } = await linkHost(options);
+    const [modulePointer] = context.allocate(programBytes);
+    const [directory] = context.allocate(options.directory ?? '');
+    const error = host.aqua_web_create(modulePointer, programBytes.length, directory);
+    if (error) throw new Error(context.text(error));
+    // The libraries the application declares, plus any the page names, link before the program starts.
+    const declared = Array.from({ length: host.aqua_web_library_count() }, (_, i) => context.text(host.aqua_web_library_name(i)));
+    await linkLibraries(context, host, [...(options.libraries ?? []), ...declared]);
+    const assetCount = host.aqua_web_asset_count();
+    await Promise.all(Array.from({ length: assetCount }, async (_, i) => {
+        const name = context.text(host.aqua_web_asset_name(i));
+        const bytes = options.asset ? await options.asset(name) : null;
+        if (!bytes) return;
+        const [pointer] = context.allocate(bytes);
+        host.aqua_web_asset_set(i, pointer, bytes.length);
+    }));
+    return run(context, host, writer, options);
+}
+
+/** Instantiates the program (`options.program`) and links the host core into its memory; nothing runs yet. Shared by
+ * startApplication and loadLibrary (library.mjs). */
+export async function linkHost(options) {
     const base = new URL(options.base, globalThis.location?.href);
     const fetchBytes = options.fetch ?? (async (url) => {
         const response = await fetch(url);
@@ -83,28 +105,23 @@ export async function startApplication(options) {
     context.linker = linker;
     const host = (await linker.load('aquarius.wasm')).exports;
     service = host.aqua_web_service;
-    const [modulePointer] = context.allocate(programBytes);
-    const [directory] = context.allocate(options.directory ?? '');
-    const error = host.aqua_web_create(modulePointer, programBytes.length, directory);
-    if (error) throw new Error(context.text(error));
-    // The libraries the application declares, plus any the page names, link before the program starts.
-    const libraries = new Set(options.libraries ?? []);
-    for (let i = 0; i < host.aqua_web_library_count(); i++) libraries.add(context.text(host.aqua_web_library_name(i)));
-    for (const library of libraries) {
-        const { exports } = await linker.load(`libraries/${library}.wasm`);
+    context.nextFrame = nextFrame;
+    return { context, host, writer, programBytes };
+}
+
+/** Links each library side module (libraries/<name>.wasm) and registers it with the host core. */
+export async function linkLibraries(context, host, names) {
+    for (const library of new Set(names)) {
+        const { exports } = await context.linker.load(`libraries/${library}.wasm`);
         const [name] = context.allocate(library);
-        if (!exports.aqua_library_entry || !host.aqua_web_add_library(name, linker.tableIndex(exports.aqua_library_entry)))
+        if (!exports.aqua_library_entry || !host.aqua_web_add_library(name, context.linker.tableIndex(exports.aqua_library_entry)))
             throw new Error(`The library ${library} does not support this runtime.`);
     }
-    const assetCount = host.aqua_web_asset_count();
-    await Promise.all(Array.from({ length: assetCount }, async (_, i) => {
-        const name = context.text(host.aqua_web_asset_name(i));
-        const bytes = options.asset ? await options.asset(name) : null;
-        if (!bytes) return;
-        const [pointer] = context.allocate(bytes);
-        host.aqua_web_asset_set(i, pointer, bytes.length);
-    }));
+}
 
+/** Drives a created application's loop from the browser's event loop until it finishes. */
+function run(context, host, writer, options) {
+    const nextFrame = context.nextFrame;
     const [entry] = context.allocate(options.entry ?? '');
     return new Promise((resolve, reject) => {
         let scheduled = false, finished = false;

@@ -27,7 +27,8 @@ typedef struct aqua_embed_table {
     const aqua_embed_library *libraries; uint32_t library_count;
     const unsigned char *module; size_t module_size;
 } aqua_embed_table;
-extern const aqua_embed_table aqua_embed_exports; /* exports.c */
+/* The table of this library: exports.c's on native targets, the one web.c reads from the loaded module on the web. */
+const aqua_embed_table *aqua_embed_current_table(void);
 
 /* The element kinds of arrays. */
 typedef enum aqua_embed_element { AQUA_EMBED_INT, AQUA_EMBED_LONG, AQUA_EMBED_FLOAT, AQUA_EMBED_DOUBLE, AQUA_EMBED_BOOL } aqua_embed_element;

@@ -214,10 +214,11 @@ static const unsigned char module[] = {
 };
 #pragma clang diagnostic pop
 
-const aqua_embed_table aqua_embed_exports = {
+static const aqua_embed_table table = {
     functions, sizeof functions / sizeof *functions - 1, structs, field_counts, sizeof structs / sizeof *structs - 1,
     libraries, sizeof libraries / sizeof *libraries - 1, module, sizeof module
 };
+const aqua_embed_table *aqua_embed_current_table(void) { return &table; }
 
 /* ---- What every library defines ---- */
 EMBED_PUBLIC bool EXPORTED(initialize)(void) { return aqua_embed_initialize(); }

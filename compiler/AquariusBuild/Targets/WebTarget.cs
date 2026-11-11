@@ -22,9 +22,12 @@ public sealed class WebTarget : IWasmBuildTarget
     private static readonly string[] GlueExtensions = [".mjs", ".js", ".json", ".wasm", ".css"];
     public string Name => "web";
     public string ArtifactDescription => "Website";
+    public IReadOnlyCollection<string> OptionNames => [Libraries.NativeLibraryOutput.KindOption];
 
     public void Build(WasmBuildRequest request)
     {
+        // --kind or an [export] table: the library for loadLibrary() instead of a website (docs/native-libraries.md).
+        if (Libraries.NativeLibraryOutput.Requested(request)) { Libraries.NativeLibraryOutput.Build(request, "web"); return; }
         var (application, entry) = Output.Read(request, Name);
         string output = Path.GetFullPath(request.Output);
         if (Path.GetFullPath(request.Input).StartsWith(Path.TrimEndingDirectorySeparator(output) + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
@@ -62,7 +65,8 @@ public sealed class WebTarget : IWasmBuildTarget
         });
     }
 
-    private static void CopyGlue(string source, string destination)
+    /// <summary>The web glue's files (modules, data, styles), folder by folder.</summary>
+    internal static void CopyGlue(string source, string destination)
     {
         Directory.CreateDirectory(destination);
         foreach (string file in Directory.EnumerateFiles(source))
