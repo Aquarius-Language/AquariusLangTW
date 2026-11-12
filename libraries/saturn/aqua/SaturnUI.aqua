@@ -370,6 +370,84 @@ var PaintIcon = function(p, name, size, color) {
     var w = s * 0.11d;
     if (name == "check") { p.Line(s * 0.2d, s * 0.52d, s * 0.42d, s * 0.74d, w, color); p.Line(s * 0.42d, s * 0.74d, s * 0.8d, s * 0.28d, w, color); }
     elif (name == "close") { p.Line(s * 0.25d, s * 0.25d, s * 0.75d, s * 0.75d, w, color); p.Line(s * 0.75d, s * 0.25d, s * 0.25d, s * 0.75d, w, color); }
+    elif (name == "pause") { p.Rect(s * 0.27d, s * 0.22d, s * 0.16d, s * 0.56d, color, s * 0.03d); p.Rect(s * 0.57d, s * 0.22d, s * 0.16d, s * 0.56d, color, s * 0.03d); }
+    elif (name == "undo" || name == "redo") {
+        # A hook-shaped arrow: back to the left (undo) or on to the right (redo).
+        var P = import("Processing");
+        var flip = if (name == "redo") { -1; } else { 1; };
+        var cx = s * 0.5d; var cy = s * 0.55d; var r = s * 0.24d;
+        for (var k = 0; k < 8; k++) {
+            var a0 = -1.5707963d + k * 0.3926991d; var a1 = a0 + 0.3926991d;
+            p.Line(cx + flip * r * P.cos(a0), cy + r * P.sin(a0), cx + flip * r * P.cos(a1), cy + r * P.sin(a1), w, color);
+        }
+        p.Line(cx, cy - r, cx - flip * s * 0.28d, cy - r, w, color);
+        triangle(p, [cx - flip * s * 0.38d, cy - r, cx - flip * s * 0.22d, cy - r - s * 0.13d, cx - flip * s * 0.22d, cy - r + s * 0.13d], color);
+    }
+    elif (name == "move") {
+        p.Line(s * 0.5d, s * 0.14d, s * 0.5d, s * 0.86d, w, color); p.Line(s * 0.14d, s * 0.5d, s * 0.86d, s * 0.5d, w, color);
+        triangle(p, [s * 0.5d, s * 0.08d, s * 0.4d, s * 0.22d, s * 0.6d, s * 0.22d], color); triangle(p, [s * 0.5d, s * 0.92d, s * 0.4d, s * 0.78d, s * 0.6d, s * 0.78d], color);
+        triangle(p, [s * 0.08d, s * 0.5d, s * 0.22d, s * 0.4d, s * 0.22d, s * 0.6d], color); triangle(p, [s * 0.92d, s * 0.5d, s * 0.78d, s * 0.4d, s * 0.78d, s * 0.6d], color);
+    }
+    elif (name == "rotate") {
+        var P = import("Processing");
+        for (var k = 0; k < 12; k++) {
+            var a0 = -0.6d + k * 0.42d; var a1 = a0 + 0.42d;
+            p.Line(s * 0.5d + s * 0.3d * P.cos(a0), s * 0.5d + s * 0.3d * P.sin(a0), s * 0.5d + s * 0.3d * P.cos(a1), s * 0.5d + s * 0.3d * P.sin(a1), w, color);
+        }
+        var ex = s * 0.5d + s * 0.3d * P.cos(-0.6d); var ey = s * 0.5d + s * 0.3d * P.sin(-0.6d);
+        triangle(p, [ex + s * 0.14d, ey - s * 0.02d, ex - s * 0.06d, ey - s * 0.12d, ex - s * 0.04d, ey + s * 0.12d], color);
+    }
+    elif (name == "scale") {
+        p.Border(s * 0.16d, s * 0.42d, s * 0.42d, s * 0.42d, w, color, s * 0.04d);
+        p.Line(s * 0.48d, s * 0.52d, s * 0.82d, s * 0.18d, w, color);
+        p.Line(s * 0.6d, s * 0.18d, s * 0.84d, s * 0.18d, w, color); p.Line(s * 0.84d, s * 0.16d, s * 0.84d, s * 0.4d, w, color);
+    }
+    elif (name == "grid") {
+        for (var k = 0; k < 4; k++) {
+            var at = s * (0.16d + 0.2267d * k);
+            p.Line(at, s * 0.16d, at, s * 0.84d, w * 0.8d, color); p.Line(s * 0.16d, at, s * 0.84d, at, w * 0.8d, color);
+        }
+    }
+    elif (name == "cube") {
+        p.Line(s * 0.5d, s * 0.14d, s * 0.84d, s * 0.32d, w, color); p.Line(s * 0.84d, s * 0.32d, s * 0.84d, s * 0.7d, w, color);
+        p.Line(s * 0.84d, s * 0.7d, s * 0.5d, s * 0.88d, w, color); p.Line(s * 0.5d, s * 0.88d, s * 0.16d, s * 0.7d, w, color);
+        p.Line(s * 0.16d, s * 0.7d, s * 0.16d, s * 0.32d, w, color); p.Line(s * 0.16d, s * 0.32d, s * 0.5d, s * 0.14d, w, color);
+        p.Line(s * 0.16d, s * 0.32d, s * 0.5d, s * 0.5d, w, color); p.Line(s * 0.5d, s * 0.5d, s * 0.84d, s * 0.32d, w, color); p.Line(s * 0.5d, s * 0.5d, s * 0.5d, s * 0.88d, w, color);
+    }
+    elif (name == "camera") {
+        p.Border(s * 0.12d, s * 0.3d, s * 0.54d, s * 0.42d, w, color, s * 0.06d);
+        triangle(p, [s * 0.66d, s * 0.51d, s * 0.88d, s * 0.34d, s * 0.88d, s * 0.68d], color);
+    }
+    elif (name == "light") {
+        p.Border(s * 0.3d, s * 0.12d, s * 0.4d, s * 0.44d, w, color, s * 0.2d);
+        p.Line(s * 0.4d, s * 0.64d, s * 0.6d, s * 0.64d, w, color); p.Line(s * 0.42d, s * 0.76d, s * 0.58d, s * 0.76d, w, color);
+        p.Line(s * 0.46d, s * 0.88d, s * 0.54d, s * 0.88d, w, color);
+    }
+    elif (name == "eye" || name == "eyeOff") {
+        var P = import("Processing");
+        for (var k = 0; k < 8; k++) {
+            var a0 = 0.35d + k * 0.3054326d; var a1 = a0 + 0.3054326d;
+            p.Line(s * 0.5d + s * 0.4d * P.cos(a0), s * 0.78d - s * 0.5d * P.sin(a0), s * 0.5d + s * 0.4d * P.cos(a1), s * 0.78d - s * 0.5d * P.sin(a1), w, color);
+            p.Line(s * 0.5d + s * 0.4d * P.cos(a0), s * 0.22d + s * 0.5d * P.sin(a0), s * 0.5d + s * 0.4d * P.cos(a1), s * 0.22d + s * 0.5d * P.sin(a1), w, color);
+        }
+        p.Circle(s * 0.5d, s * 0.5d, s * 0.11d, color);
+        if (name == "eyeOff") { p.Line(s * 0.18d, s * 0.82d, s * 0.82d, s * 0.18d, w, color); }
+    }
+    elif (name == "globe") {
+        p.Border(s * 0.14d, s * 0.14d, s * 0.72d, s * 0.72d, w, color, s * 0.36d);
+        p.Border(s * 0.34d, s * 0.14d, s * 0.32d, s * 0.72d, w, color, s * 0.16d);
+        p.Line(s * 0.16d, s * 0.5d, s * 0.84d, s * 0.5d, w, color);
+    }
+    elif (name == "image") {
+        p.Border(s * 0.14d, s * 0.2d, s * 0.72d, s * 0.6d, w, color, s * 0.06d);
+        triangle(p, [s * 0.2d, s * 0.74d, s * 0.42d, s * 0.44d, s * 0.62d, s * 0.74d], color);
+        p.Circle(s * 0.66d, s * 0.38d, s * 0.07d, color);
+    }
+    elif (name == "music") {
+        p.Line(s * 0.4d, s * 0.7d, s * 0.4d, s * 0.2d, w, color); p.Line(s * 0.4d, s * 0.2d, s * 0.76d, s * 0.14d, w, color);
+        p.Line(s * 0.76d, s * 0.14d, s * 0.76d, s * 0.62d, w, color);
+        p.Circle(s * 0.32d, s * 0.72d, s * 0.1d, color); p.Circle(s * 0.68d, s * 0.64d, s * 0.1d, color);
+    }
     elif (name == "plus") { p.Line(s * 0.5d, s * 0.2d, s * 0.5d, s * 0.8d, w, color); p.Line(s * 0.2d, s * 0.5d, s * 0.8d, s * 0.5d, w, color); }
     elif (name == "minus") { p.Line(s * 0.2d, s * 0.5d, s * 0.8d, s * 0.5d, w, color); }
     elif (name == "chevronLeft") { p.Line(s * 0.62d, s * 0.22d, s * 0.36d, s * 0.5d, w, color); p.Line(s * 0.36d, s * 0.5d, s * 0.62d, s * 0.78d, w, color); }
