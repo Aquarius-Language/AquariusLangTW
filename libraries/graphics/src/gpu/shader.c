@@ -2,10 +2,11 @@
    through an error scope, and the render pipelines each shader needs (cached by state).
 
    Group 2: textures at bindings 0..7 and 18..31, the linear clamp-to-edge sampler at 8, the linear repeating sampler
-   (mipmapped, 8x anisotropic) at 16 when the shader declares it, read-only storage buffers at 9..15.
+   (mipmapped, 8x anisotropic) at 16 when the shader declares it, read-only storage buffers at 9..15 and 32..39 (more than
+   8 in one stage where the adapter allows it).
 
    Compute shaders (gpu_compute_create: one source with cs_main) use the same groups 1 and 2, and may also declare
-   read_write storage buffers at 9..15, storage textures (texture_storage_2d / texture_storage_3d with rgba8unorm,
+   read_write storage buffers at 9..15 and 32..39, storage textures (texture_storage_2d / texture_storage_3d with rgba8unorm,
    rgba16float, r32float or rgba32float, write or read_write) and 3D textures (texture_3d<f32>, also allowed in render
    shaders) at the texture bindings. Group 0 is empty for them.
 
@@ -39,7 +40,7 @@ struct gpu_shader {
     bool repeating;                     /* declares the repeating sampler (binding 16) */
     uniform_field fields[128]; int field_count;
     texture_field textures[TEXTURE_SLOTS]; int texture_count;
-    buffer_field buffers[7]; int buffer_count;
+    buffer_field buffers[15]; int buffer_count;
     uint8_t user[GPU_USER_BYTES];
     int version, user_version;
     WGPUBuffer user_buffer;
@@ -243,9 +244,9 @@ static bool parse_bindings(gpu_shader *s, const char *source, char *error, size_
             if (!*name || *skip_space(r) != ':') continue;
             if (group != 2) continue;
             bool writable = strcmp(space, "storage,read_write") == 0;
-            if (binding < 9 || binding > 15 || (strcmp(space, "storage") != 0 && strcmp(space, "storage,read") != 0 && !(writable && s->compute))) {
-                snprintf(error, error_size, s->compute ? "Group 2 storage buffers must be var<storage, read> or var<storage, read_write> at bindings 9..15."
-                                                       : "Group 2 storage buffers must be var<storage, read> at bindings 9..15 (read_write is for compute shaders).");
+            if (!((binding >= 9 && binding <= 15) || (binding >= 32 && binding <= 39)) || (strcmp(space, "storage") != 0 && strcmp(space, "storage,read") != 0 && !(writable && s->compute))) {
+                snprintf(error, error_size, s->compute ? "Group 2 storage buffers must be var<storage, read> or var<storage, read_write> at bindings 9..15 and 32..39."
+                                                       : "Group 2 storage buffers must be var<storage, read> at bindings 9..15 and 32..39 (read_write is for compute shaders).");
                 return false;
             }
             if (used[binding]) { snprintf(error, error_size, "Duplicate texture group binding."); return false; }
@@ -313,7 +314,7 @@ static bool parse_bindings(gpu_shader *s, const char *source, char *error, size_
 /* ---- Creation ---- */
 
 static void create_layouts(gpu_shader *s, gpu_device *device) {
-    WGPUBindGroupLayoutEntry entries[TEXTURE_SLOTS + 9];
+    WGPUBindGroupLayoutEntry entries[TEXTURE_SLOTS + 17];
     int n = 0;
     WGPUShaderStage stages = s->compute ? WGPUShaderStage_Compute : (WGPUShaderStage_Vertex | WGPUShaderStage_Fragment);
     for (int i = 0; i < s->texture_count; i++) {
@@ -634,7 +635,11 @@ bool gpu_shader_dispatch(gpu_shader *s, uint32_t x, uint32_t y, uint32_t z, char
     WGPUBindGroup user = gpu_shader_user_group(s);
     gpu_device_flush(d);
     WGPUCommandEncoder encoder = wgpuDeviceCreateCommandEncoder(gpu_device_handle(d), NULL);
-    WGPUComputePassEncoder pass = wgpuCommandEncoderBeginComputePass(encoder, NULL);
+    WGPUComputePassDescriptor pass_descriptor = WGPU_COMPUTE_PASS_DESCRIPTOR_INIT;
+    WGPUPassTimestampWrites writes;
+    pass_descriptor.timestampWrites = gpu_profile_pass(d, &writes);
+    gpu_counters.compute_passes++; gpu_counters.dispatches++;
+    WGPUComputePassEncoder pass = wgpuCommandEncoderBeginComputePass(encoder, &pass_descriptor);
     wgpuComputePassEncoderSetPipeline(pass, s->compute_pipeline);
     wgpuComputePassEncoderSetBindGroup(pass, 0, s->empty_group, 0, NULL);
     wgpuComputePassEncoderSetBindGroup(pass, 1, user, 0, NULL);
@@ -658,7 +663,11 @@ bool gpu_shader_dispatch_indirect(gpu_shader *s, gpu_buffer *arguments, uint64_t
     WGPUBindGroup user = gpu_shader_user_group(s);
     gpu_device_flush(d);
     WGPUCommandEncoder encoder = wgpuDeviceCreateCommandEncoder(gpu_device_handle(d), NULL);
-    WGPUComputePassEncoder pass = wgpuCommandEncoderBeginComputePass(encoder, NULL);
+    WGPUComputePassDescriptor pass_descriptor = WGPU_COMPUTE_PASS_DESCRIPTOR_INIT;
+    WGPUPassTimestampWrites writes;
+    pass_descriptor.timestampWrites = gpu_profile_pass(d, &writes);
+    gpu_counters.compute_passes++; gpu_counters.dispatches++;
+    WGPUComputePassEncoder pass = wgpuCommandEncoderBeginComputePass(encoder, &pass_descriptor);
     wgpuComputePassEncoderSetPipeline(pass, s->compute_pipeline);
     wgpuComputePassEncoderSetBindGroup(pass, 0, s->empty_group, 0, NULL);
     wgpuComputePassEncoderSetBindGroup(pass, 1, user, 0, NULL);
@@ -684,6 +693,7 @@ WGPUBindGroup gpu_shader_user_group(gpu_shader *s) {
     WGPUBindGroupDescriptor descriptor = WGPU_BIND_GROUP_DESCRIPTOR_INIT;
     descriptor.layout = s->user_layout ? s->user_layout : gpu_device_user_layout(d); descriptor.entryCount = 1; descriptor.entries = &entry;
     s->user_group = wgpuDeviceCreateBindGroup(gpu_device_handle(d), &descriptor);
+    gpu_counters.bind_groups++;
     s->user_version = s->version;
     return s->user_group;
 }
@@ -703,7 +713,7 @@ WGPUBindGroup gpu_shader_texture_group(gpu_shader *s, gpu_target *destination, c
         if (!b->buffer || gpu_buffer_released(b->buffer)) { snprintf(error, error_size, "Missing or disposed shader storage buffer: %s", b->name); return NULL; }
     }
     if (s->texture_group) return s->texture_group;
-    WGPUBindGroupEntry entries[TEXTURE_SLOTS + 9];
+    WGPUBindGroupEntry entries[TEXTURE_SLOTS + 17];
     int n = 0;
     for (int i = 0; i < s->texture_count; i++) {
         WGPUBindGroupEntry e = WGPU_BIND_GROUP_ENTRY_INIT;
@@ -724,6 +734,7 @@ WGPUBindGroup gpu_shader_texture_group(gpu_shader *s, gpu_target *destination, c
     WGPUBindGroupDescriptor descriptor = WGPU_BIND_GROUP_DESCRIPTOR_INIT;
     descriptor.layout = s->texture_layout; descriptor.entryCount = (size_t)n; descriptor.entries = entries;
     s->texture_group = wgpuDeviceCreateBindGroup(gpu_device_handle(s->link.device), &descriptor);
+    gpu_counters.bind_groups++;
     return s->texture_group;
 }
 
@@ -856,7 +867,9 @@ WGPURenderPipeline gpu_shader_pipeline(gpu_shader *s, int mode, int blend, int d
     WGPURenderPipeline pipeline = cached(s, &key);
     if (pipeline) return pipeline;
     gpu_device *d = s->link.device;
+    double building = gpu_clock_ms();
     pipeline = build(s, &key, NULL);
+    gpu_counters.pipelines++; gpu_counters.pipeline_ms += gpu_clock_ms() - building;
     const char *failure = gpu_device_take_error(d);
     if (failure || !pipeline) {
         if (pipeline) wgpuRenderPipelineRelease(pipeline);

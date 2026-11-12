@@ -330,7 +330,8 @@ static void shader_SetBuffer(aqua_call *call) {
     aqua_runtime *rt = aqua_call_runtime(call);
     if (!device_live(call, s->owner)) return;
     buffer_object *b = aqua_object_data(rt, aqua_arg(call, 1), buffer_class);
-    if (!b || b->owner != s->owner) { gfx_fail(call, "Expected a live storage buffer from this device."); return; }
+    if (!b) b = aqua_object_data(rt, aqua_arg(call, 1), vertex_class);   /* vertex buffers bind as storage too (12 floats a vertex) */
+    if (!b || b->owner != s->owner) { gfx_fail(call, "Expected a live storage or vertex buffer from this device."); return; }
     aqua_str name = gfx_text(call, 0);
     if (aqua_failed(call)) return;
     char error[256];
@@ -750,7 +751,8 @@ static void device_CreateBuffer(aqua_call *call) {
     } else {
         int length = gfx_int(call, 0);
         if (aqua_failed(call)) return;
-        if (length < 1 || length > GPU_MAX_FLOATS) { gfx_fail(call, "Buffer length must be 1..16777216 floats / 緩衝區長度必須為 1..16777216。"); return; }
+        uint64_t most = gpu_device_max_buffer_bytes(d->device) / 4;
+        if (length < 1 || (uint64_t)length > most) { gfx_fail(call, "Buffer length must be 1..%llu floats on this device / 緩衝區長度必須為 1..%llu。", (unsigned long long)most, (unsigned long long)most); return; }
         n = (uint32_t)length;
     }
     char error[512];
@@ -979,7 +981,7 @@ static void wgpu_CreateWindow(aqua_call *call) {
     if (aqua_failed(call)) return;
     aqua_runtime *rt = aqua_call_runtime(call);
     /* Options: {"scaleToMonitor": true} sizes the window in logical units (see above). */
-    bool scale_to_monitor = false;
+    bool scale_to_monitor = false, fullscreen = false;
     if (aqua_argc(call) == 4) {
         aqua_value options = aqua_arg(call, 3);
         if (options.type != AQUA_HASH) { gfx_fail(call, "Window options must be a hash such as {\"scaleToMonitor\": true}."); return; }
@@ -989,7 +991,8 @@ static void wgpu_CreateWindow(aqua_call *call) {
             if (key.type != AQUA_STRING) { gfx_fail(call, "Window options are named by strings."); return; }
             aqua_str k = aqua_str_of(call, key);
             if (strcmp(k.data, "scaleToMonitor") == 0) scale_to_monitor = value.type == AQUA_BOOL && value.number != 0;
-            else { gfx_fail(call, "Unknown window option '%s'; expected scaleToMonitor.", k.data); return; }
+            else if (strcmp(k.data, "fullscreen") == 0) fullscreen = value.type == AQUA_BOOL && value.number != 0;
+            else { gfx_fail(call, "Unknown window option '%s'; expected scaleToMonitor or fullscreen.", k.data); return; }
         }
     }
     char *error = NULL;
@@ -1006,6 +1009,8 @@ static void wgpu_CreateWindow(aqua_call *call) {
             if (fit < 1) aqua_window_set_size(window, (int32_t)(ww * fit), (int32_t)(wh * fit));
         }
     }
+    /* {"fullscreen": true}: the whole primary display at its own resolution. */
+    if (fullscreen) aqua_window_set_fullscreen(window, true);
     wgpu_state *state = state_of(call);
     wgpu_window *w = calloc(1, sizeof *w);
     w->rt = rt;
@@ -1137,13 +1142,102 @@ void gfx_wgpu_destroy(wgpu_state *state) {
 
 /* ---- Registration ---- */
 
-#define WGPU_MODULE(X) X(wgpu_CreateDevice, "CreateDevice|建立裝置", 0, 1) X(wgpu_CreateWindow, "CreateWindow|建立視窗", 3, 4)
+/* ---- Profiling ---- */
+
+/* Native time per member, kept by the wrappers below (WGPU.Stats). */
+typedef struct call_time { uint64_t count; double ms; } call_time;
+static call_time call_times[128];
+static double native_total_ms;  /* every member's time since the module loaded (WGPU.NativeMs) */
+
+static void device_Profile(aqua_call *call) {
+    device_object *d = device_self(call);
+    if (!device_live(call, d)) return;
+    bool enabled = gfx_bool(call, 0);
+    if (aqua_failed(call)) return;
+    aqua_return_bool(call, gpu_profile_set(d->device, enabled));
+}
+static void device_ProfileScope(aqua_call *call) {
+    device_object *d = device_self(call);
+    if (!device_live(call, d)) return;
+    aqua_str label = gfx_text(call, 0);
+    if (aqua_failed(call)) return;
+    char text[48];
+    snprintf(text, sizeof text, "%.*s", (int)(label.length < 47 ? label.length : 47), label.data ? label.data : "");
+    gpu_profile_scope(d->device, text);
+}
+/* Ends the frame's timestamps and returns the newest finished frame: {"frame", "spanMs", "passes": [{"name", "ms",
+   "count"}]}, or null before the first one finishes (or when timestamps are unsupported). */
+static void device_ProfileFrame(aqua_call *call) {
+    device_object *d = device_self(call);
+    if (!device_live(call, d)) return;
+    aqua_runtime *rt = aqua_call_runtime(call);
+    gpu_profile_end_frame(d->device);
+    const gpu_profile_entry *entries; double span; uint64_t frame;
+    int count = gpu_profile_results(d->device, &entries, &span, &frame);
+    if (!frame) { aqua_return_null(call); return; }
+    aqua_value result = aqua_hash_new(rt, 4);
+    aqua_hash_set_field(rt, result, "frame", aqua_double((double)frame));
+    aqua_hash_set_field(rt, result, "spanMs", aqua_double(span));
+    aqua_value list = aqua_array_new(rt, 0);
+    for (int i = 0; i < count; i++) {
+        if (!entries[i].passes) continue;
+        aqua_value item = aqua_hash_new(rt, 3);
+        aqua_hash_set_field(rt, item, "name", aqua_cstring(rt, entries[i].label));
+        aqua_hash_set_field(rt, item, "ms", aqua_double(entries[i].ms));
+        aqua_hash_set_field(rt, item, "count", aqua_int(entries[i].passes));
+        aqua_array_push(rt, list, item);
+    }
+    aqua_hash_set_field(rt, result, "passes", list);
+    aqua_return(call, result);
+}
+/* WGPU.NativeMs(): milliseconds spent inside WGPU members so far (never reset), for profilers that measure scopes. */
+static void wgpu_NativeMs(aqua_call *call) { aqua_return_double(call, native_total_ms); }
+static void device_ProfileSupported(aqua_call *call) { aqua_return_bool(call, gpu_profile_supported(device_self(call)->device)); }
+
+static const char *call_name(int index);
+static int call_name_count(void);
+/* WGPU.Stats(reset = true): counters since the last reset (submits, passes, draws, dispatches, uploads and their
+   bytes, created buffers, bind groups and pipelines, readbacks) with the CPU milliseconds of the webgpu.h calls
+   that wait or build (submitMs, pipelineMs, readbackMs, acquireMs, presentMs), "calls": {member: {"count", "ms"}}
+   of native time inside each WGPU member, and "nativeMs", their sum. */
+static void wgpu_Stats(aqua_call *call) {
+    aqua_runtime *rt = aqua_call_runtime(call);
+    bool reset = true;
+    if (!aqua_is_nullish(aqua_arg(call, 0))) { reset = gfx_bool(call, 0); if (aqua_failed(call)) return; }
+    gpu_stats c = gpu_counters;
+    aqua_value result = aqua_hash_new(rt, 32);
+#define COUNT(field, name) aqua_hash_set_field(rt, result, name, aqua_double((double)c.field));
+    COUNT(submits, "submits") COUNT(render_passes, "renderPasses") COUNT(compute_passes, "computePasses") COUNT(draws, "draws")
+    COUNT(dispatches, "dispatches") COUNT(writes, "bufferWrites") COUNT(write_bytes, "bufferWriteBytes") COUNT(texture_writes, "textureWrites")
+    COUNT(texture_write_bytes, "textureWriteBytes") COUNT(buffers_created, "buffersCreated") COUNT(buffer_bytes, "bufferBytesCreated")
+    COUNT(bind_groups, "bindGroups") COUNT(pipelines, "pipelines") COUNT(readbacks, "readbacks") COUNT(flush_scans, "flushScans")
+    COUNT(submit_ms, "submitMs") COUNT(pipeline_ms, "pipelineMs") COUNT(readback_ms, "readbackMs") COUNT(acquire_ms, "acquireMs") COUNT(present_ms, "presentMs")
+#undef COUNT
+    aqua_value calls = aqua_hash_new(rt, 16);
+    double total = 0;
+    for (int i = 0; i < call_name_count(); i++) {
+        if (!call_times[i].count) continue;
+        aqua_value item = aqua_hash_new(rt, 2);
+        aqua_hash_set_field(rt, item, "count", aqua_double((double)call_times[i].count));
+        aqua_hash_set_field(rt, item, "ms", aqua_double(call_times[i].ms));
+        aqua_hash_set_field(rt, calls, call_name(i), item);
+        total += call_times[i].ms;
+    }
+    aqua_hash_set_field(rt, result, "calls", calls);
+    aqua_hash_set_field(rt, result, "nativeMs", aqua_double(total));
+    if (reset) { gpu_stats_reset(); memset(call_times, 0, sizeof call_times); }
+    aqua_return(call, result);
+}
+
+#define WGPU_MODULE(X) X(wgpu_CreateDevice, "CreateDevice|建立裝置", 0, 1) X(wgpu_CreateWindow, "CreateWindow|建立視窗", 3, 4) X(wgpu_Stats, "Stats|統計", 0, 1) X(wgpu_NativeMs, "NativeMs|原生毫秒", 0, 0)
 #define DEVICE_MEMBERS(X) \
     X(device_CreateBuffer, "CreateBuffer|建立緩衝區", 1, 1) X(device_CreateRenderTarget, "CreateRenderTarget|建立繪圖目標", 2, 4) \
     X(device_CreateShader, "CreateShader|建立著色器", 2, 2) X(device_CreateVertexBuffer, "CreateVertexBuffer|建立頂點緩衝區", 1, 1) \
     X(device_CreateCompute, "CreateCompute|建立運算著色器", 1, 1) X(device_CreateVolume, "CreateVolume|建立體積紋理", 3, 4) \
     X(device_Dispatch, "Dispatch|派送", 3, 3) X(device_Dispose, "Dispose|釋放", 0, 0) X(device_LoadTexture, "LoadTexture|載入紋理", 6, 6) \
-    X(device_Poll, "Poll|輪詢", 0, 0) X(device_Present, "Present|呈現", 1, 1)
+    X(device_Poll, "Poll|輪詢", 0, 0) X(device_Present, "Present|呈現", 1, 1) \
+    X(device_Profile, "Profile|效能分析", 1, 1) X(device_ProfileScope, "ProfileScope|分析範圍", 1, 1) X(device_ProfileFrame, "ProfileFrame|分析畫格", 0, 0) \
+    X(device_ProfileSupported, "ProfileSupported|支援效能分析", 0, 0)
 #define BUFFER_MEMBERS(X) \
     X(buffer_Dispose, "Dispose|釋放", 0, 0) X(buffer_Read, "Read|讀取", 0, 0) X(buffer_ReadRange, "ReadRange|讀取範圍", 2, 2) \
     X(buffer_Write, "Write|寫入", 1, 1) X(buffer_WriteRange, "WriteRange|寫入範圍", 2, 2)
@@ -1166,8 +1260,24 @@ void gfx_wgpu_destroy(wgpu_state *state) {
     X(window_MouseReleased, "MouseReleased|滑鼠放開", 1, 1) X(window_Poll, "Poll|輪詢", 0, 0) \
     X(window_SetPointerLock, "SetPointerLock|設定指標鎖定", 1, 1) X(window_SetTitle, "SetTitle|設定標題", 1, 1)
 
-/* Each member runs through a wrapper naming it for failures ("Dispatch: ..."); members shared by classes get one. */
-#define WRAPPER(function, names, minimum, maximum) GFX_WRAP("", function, names, function)
+/* Each member runs through a wrapper naming it for failures ("Dispatch: ..."); members shared by classes get one. The
+   wrapper also adds the member's native time to call_times (WGPU.Stats). */
+#define INDEX(function, names, minimum, maximum) CALL_##function,
+enum { WGPU_MODULE(INDEX) DEVICE_MEMBERS(INDEX) BUFFER_MEMBERS(INDEX) SHADER_MEMBERS(INDEX) TARGET_MEMBERS(INDEX) TEXTURE_MEMBERS(INDEX)
+       WINDOW_MEMBERS(INDEX) CALL_vertex_Write, CALL_vertex_WriteRange, CALL_COUNT };
+#undef INDEX
+#define NAME(function, names, minimum, maximum) #function,
+static const char *const call_names[] = { WGPU_MODULE(NAME) DEVICE_MEMBERS(NAME) BUFFER_MEMBERS(NAME) SHADER_MEMBERS(NAME) TARGET_MEMBERS(NAME)
+       TEXTURE_MEMBERS(NAME) WINDOW_MEMBERS(NAME) "vertex_Write", "vertex_WriteRange" };
+#undef NAME
+static int call_name_count(void) { return CALL_COUNT < 128 ? CALL_COUNT : 128; }
+static const char *call_name(int index) { return call_names[index]; }
+#define TIMED_WRAP(name, names, implementation) \
+    static void wrapper_##name(aqua_call *call) { \
+        double started = gpu_clock_ms(); gfx_enter(call, "", names); implementation(call); \
+        double spent = gpu_clock_ms() - started; native_total_ms += spent; \
+        if (CALL_##name < 128) { call_times[CALL_##name].count++; call_times[CALL_##name].ms += spent; } }
+#define WRAPPER(function, names, minimum, maximum) TIMED_WRAP(function, names, function)
 WGPU_MODULE(WRAPPER)
 DEVICE_MEMBERS(WRAPPER)
 BUFFER_MEMBERS(WRAPPER)
@@ -1175,8 +1285,8 @@ SHADER_MEMBERS(WRAPPER)
 TARGET_MEMBERS(WRAPPER)
 TEXTURE_MEMBERS(WRAPPER)
 WINDOW_MEMBERS(WRAPPER)
-GFX_WRAP("", vertex_Write, "Write|寫入", vertex_Write)
-GFX_WRAP("", vertex_WriteRange, "WriteRange|寫入範圍", vertex_WriteRange)
+TIMED_WRAP(vertex_Write, "Write|寫入", vertex_Write)
+TIMED_WRAP(vertex_WriteRange, "WriteRange|寫入範圍", vertex_WriteRange)
 #undef WRAPPER
 
 void gfx_wgpu_register(aqua_library *library) {

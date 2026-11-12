@@ -59,7 +59,7 @@ static void record_pending(gpu_target *t) {
     wgpuRenderPassEncoderSetStencilReference(t->pass, p->stencil == 2 ? 0u : 1u);
     wgpuRenderPassEncoderSetVertexBuffer(t->pass, 0, p->vertex_buffer, p->vertex_offset, p->bytes);
     wgpuRenderPassEncoderSetScissorRect(t->pass, (uint32_t)p->scissor.x, (uint32_t)p->scissor.y, (uint32_t)p->scissor.width, (uint32_t)p->scissor.height);
-    if (p->scissor.width > 0 && p->scissor.height > 0) wgpuRenderPassEncoderDraw(t->pass, (uint32_t)(p->bytes / (GPU_FLOATS_PER_VERTEX * 4)), 1, 0, 0);
+    if (p->scissor.width > 0 && p->scissor.height > 0) { wgpuRenderPassEncoderDraw(t->pass, (uint32_t)(p->bytes / (GPU_FLOATS_PER_VERTEX * 4)), 1, 0, 0); gpu_counters.draws++; }
     p->bytes = 0;
 }
 
@@ -110,9 +110,9 @@ void gpu_target_flush(gpu_target *t) {
     wgpuRenderPassEncoderRelease(t->pass);
     t->pass = NULL;
     WGPUQueue queue = gpu_device_queue(d);
-    for (size_t i = 0; i < t->spent_count; i++) if (t->spent[i].used) wgpuQueueWriteBuffer(queue, t->spent[i].buffer, 0, t->spent[i].data, (t->spent[i].used + 3) & ~(size_t)3);
-    if (t->vertices.used) wgpuQueueWriteBuffer(queue, t->vertices.buffer, 0, t->vertices.data, (t->vertices.used + 3) & ~(size_t)3);
-    if (t->uniforms.used) wgpuQueueWriteBuffer(queue, t->uniforms.buffer, 0, t->uniforms.data, t->uniforms.used);
+    for (size_t i = 0; i < t->spent_count; i++) if (t->spent[i].used) { wgpuQueueWriteBuffer(queue, t->spent[i].buffer, 0, t->spent[i].data, (t->spent[i].used + 3) & ~(size_t)3); gpu_counters.writes++; gpu_counters.write_bytes += t->spent[i].used; }
+    if (t->vertices.used) { wgpuQueueWriteBuffer(queue, t->vertices.buffer, 0, t->vertices.data, (t->vertices.used + 3) & ~(size_t)3); gpu_counters.writes++; gpu_counters.write_bytes += t->vertices.used; }
+    if (t->uniforms.used) { wgpuQueueWriteBuffer(queue, t->uniforms.buffer, 0, t->uniforms.data, t->uniforms.used); gpu_counters.writes++; gpu_counters.write_bytes += t->uniforms.used; }
     WGPUCommandEncoder encoder = t->encoder;
     t->encoder = NULL;
     gpu_device_submit(d, encoder);
@@ -153,6 +153,9 @@ static void begin(gpu_target *t, const float *clear, bool clear_depth, bool clea
     WGPURenderPassDescriptor descriptor = WGPU_RENDER_PASS_DESCRIPTOR_INIT;
     descriptor.colorAttachmentCount = (size_t)t->colors; descriptor.colorAttachments = colors;
     descriptor.depthStencilAttachment = &depth;
+    WGPUPassTimestampWrites writes;
+    descriptor.timestampWrites = gpu_profile_pass(d, &writes);
+    gpu_counters.render_passes++;
     t->pass = wgpuCommandEncoderBeginRenderPass(t->encoder, &descriptor);
 }
 
@@ -236,6 +239,7 @@ static WGPUBindGroup drawing_group(gpu_target *t, gpu_texture *texture, int samp
     WGPUBindGroupDescriptor descriptor = WGPU_BIND_GROUP_DESCRIPTOR_INIT;
     descriptor.layout = gpu_device_drawing_layout(d); descriptor.entryCount = 3; descriptor.entries = entries;
     WGPUBindGroup group = wgpuDeviceCreateBindGroup(gpu_device_handle(d), &descriptor);
+    gpu_counters.bind_groups++;
     push_group(t, group);
     if (t->cache_count == 16) { memmove(t->cache, t->cache + 1, 15 * sizeof *t->cache); t->cache_count = 15; }
     t->cache[t->cache_count++] = (cached_group){t->uniforms.buffer, view, sampler, group};
@@ -352,6 +356,7 @@ bool gpu_target_draw_instances(gpu_target *t, gpu_shader *shader, gpu_buffer *ve
     if (r.width > 0 && r.height > 0) {
         if (indirect) wgpuRenderPassEncoderDrawIndirect(t->pass, gpu_buffer_handle(indirect), indirect_offset);
         else wgpuRenderPassEncoderDraw(t->pass, (uint32_t)count, (uint32_t)instances, (uint32_t)first, (uint32_t)first_instance);
+        gpu_counters.draws++;
     }
     const char *failure = gpu_device_take_error(d);
     if (failure) { snprintf(error, error_size, "%s", failure); return false; }
@@ -433,7 +438,9 @@ void gpu_target_read(gpu_target *t, gpu_pixels_done done, void *data) {
 #else
     r->waiting = true;
     wgpuBufferMapAsync(r->buffer, WGPUMapMode_Read, 0, (size_t)descriptor.size, callback);
+    double waited = gpu_clock_ms();
     gpu_device_wait(d, &r->finished);
+    gpu_counters.readbacks++; gpu_counters.readback_ms += gpu_clock_ms() - waited;
     deliver(r);
     free(r);
 #endif

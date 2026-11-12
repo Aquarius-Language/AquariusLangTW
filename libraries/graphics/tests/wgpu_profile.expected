@@ -1,0 +1,8 @@
+draws 12 dispatches 6 computePasses 6
+renderPasses at least 6: 真, submits at least 12: 真
+buffer writes 真 真
+calls 12 6 真
+native grows 真
+reset 0 真
+timestamps consistent 真
+off 假

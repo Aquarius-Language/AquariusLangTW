@@ -73,3 +73,24 @@ draws with four u32 a compute shader wrote into a storage buffer at `offset` flo
 first vertex, first instance), so GPU culling can decide how many instances are drawn. Vertex shaders read the instance
 as a second parameter: `fn vs_main(input: VertexInput, @builtin(instance_index) instance: u32)`. Storage buffers are
 created with the indirect usage for this.
+
+## 效能分析與裝置限制 / Profiling and device limits
+
+- `WGPU.Stats(reset = true)`: what the module did since the last reset: `submits`, `renderPasses`, `computePasses`,
+  `draws`, `dispatches`, `bufferWrites` / `bufferWriteBytes`, `textureWrites` / `textureWriteBytes`, `buffersCreated` /
+  `bufferBytesCreated`, `bindGroups`, `pipelines`, `readbacks`, `flushScans`, the CPU milliseconds inside the calls that
+  wait or build (`submitMs`, `pipelineMs`, `readbackMs`, `acquireMs` (waiting for a swap-chain image), `presentMs`),
+  `calls`: `{member: {"count", "ms"}}` with the native time spent in each module member, and `nativeMs`, their sum.
+- `WGPU.NativeMs()`: milliseconds spent inside module members since start (never reset), for profilers that time
+  their own scopes and want the native part of them.
+- `device.Profile(true)` turns on GPU timestamps where the adapter supports them (`device.ProfileSupported()`; it
+  returns false otherwise): every render and compute pass begun afterwards writes its start and end time.
+  `device.ProfileScope(name)` labels the passes begun after it. `device.ProfileFrame()` ends the frame's timestamps
+  (resolved into a readback buffer, nothing waits) and returns the newest frame whose results arrived, usually two to
+  four frames old: `{"frame", "spanMs", "passes": [{"name", "ms", "count"}]}` with the GPU time summed per label, or
+  null. `device.Profile(false)` stops.
+- Devices ask the adapter for more than WebGPU's default limits where it has them: up to 16 storage buffers per shader
+  stage and storage buffers up to 1 GiB. `CreateBuffer(length)` accepts what the device allows. Storage buffers bind
+  at 9..15 and 32..39 of group 2. Vertex buffers can be bound with `SetBuffer` too (read as 12 floats a vertex).
+- `WGPU.CreateWindow(width, height, title, {"fullscreen": true})`: the whole primary display at its own resolution; it
+  stays on screen when another window takes the focus.

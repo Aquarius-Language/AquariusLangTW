@@ -1,0 +1,47 @@
+# (needs a GPU device) WGPU profiling: WGPU.Stats counts submits, passes, draws, dispatches, uploads and created
+# objects since the last reset and the native time of each member; WGPU.NativeMs only grows; device.Profile turns on
+# GPU timestamps where the adapter has them, ProfileScope labels the passes begun after it and ProfileFrame returns
+# the newest finished frame ({"frame", "spanMs", "passes": [{"name", "ms", "count"}]}) without waiting for the GPU.
+var gpu = import("WGPU");
+var device = gpu.CreateDevice();
+var target = device.CreateRenderTarget(64, 64, "rgba8unorm");
+var shader = device.CreateShader("@vertex fn vs_main(@builtin(vertex_index) i: u32) -> @builtin(position) vec4<f32> { var p = array<vec2<f32>, 3>(vec2<f32>(-1.0, -1.0), vec2<f32>(3.0, -1.0), vec2<f32>(-1.0, 3.0)); return vec4<f32>(p[i], 0.0, 1.0); }",
+    "@fragment fn fs_main() -> @location(0) vec4<f32> { return vec4<f32>(1.0, 0.5, 0.25, 1.0); }");
+var compute = device.CreateCompute("@group(2) @binding(9) var<storage, read_write> data: array<f32>; @compute @workgroup_size(1) fn cs_main(@builtin(global_invocation_id) id: vec3<u32>) { data[id.x] = f32(id.x); }");
+var buffer = device.CreateBuffer([0, 0, 0, 0]);
+compute.SetBuffer("data", buffer);
+target.DrawProcedural(shader, 3); target.Flush();
+var reset = gpu.Stats(true);
+var before = gpu.NativeMs();
+var timestamps = device.Profile(true);
+var results = null;
+for (var frame = 0; frame < 6; frame++) {
+    device.ProfileScope("draw");
+    target.DrawProcedural(shader, 3); target.DrawProcedural(shader, 3); target.Flush();
+    device.ProfileScope("compute");
+    compute.Dispatch(4, 1, 1);
+    buffer.Write([1, 2, 3, 4]);
+    var r = device.ProfileFrame();
+    if (r != null) { results = r; }
+}
+var stats = gpu.Stats(true);
+print("draws " + String.From(stats["draws"]) + " dispatches " + String.From(stats["dispatches"]) + " computePasses " + String.From(stats["computePasses"]));
+print("renderPasses at least 6: " + String.From(stats["renderPasses"] >= 6) + ", submits at least 12: " + String.From(stats["submits"] >= 12));
+print("buffer writes " + String.From(stats["bufferWrites"] >= 6) + " " + String.From(stats["bufferWriteBytes"] >= 96));
+print("calls " + String.From(stats["calls"]["target_DrawProcedural"]["count"]) + " " + String.From(stats["calls"]["shader_Dispatch"]["count"]) + " " + String.From(stats["nativeMs"] > 0));
+print("native grows " + String.From(gpu.NativeMs() > before));
+var after = gpu.Stats(false);
+print("reset " + String.From(after["draws"]) + " " + String.From(!Hash.Has(after["calls"], "target_DrawProcedural")));
+# Timestamps: either unsupported (Profile returns false, ProfileFrame null) or labelled passes with times.
+var consistent = false;
+if (!timestamps) { consistent = results == null; }
+else {
+    device.Poll();
+    var last = device.ProfileFrame();
+    if (last != null) { results = last; }
+    var names = [];
+    if (results != null) { for (var i = 0; i < len(results["passes"]); i++) { Array.Append(names, results["passes"][i]["name"]); if (results["passes"][i]["ms"] < 0) { names = []; } } }
+    consistent = results != null && Array.Contains(names, "draw") && Array.Contains(names, "compute") && results["spanMs"] >= 0;
+}
+print("timestamps consistent " + String.From(consistent));
+print("off " + String.From(device.Profile(false)));

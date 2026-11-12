@@ -423,6 +423,9 @@ bool aqua_window_set_fullscreen(aqua_window *w, bool fullscreen) {
     GLFWmonitor *monitor = glfwGetPrimaryMonitor();
     const GLFWvidmode *mode = monitor ? glfwGetVideoMode(monitor) : NULL;
     if (!mode) return false;
+    /* At the desktop's own mode this is a borderless full-screen window: it stays on screen when another window takes
+       the focus instead of minimizing (GLFW's auto-iconify), as borderless windows do. */
+    if (fullscreen) glfwSetWindowAttrib(w->glfw, GLFW_AUTO_ICONIFY, GLFW_FALSE);
     if (fullscreen) glfwSetWindowMonitor(w->glfw, monitor, 0, 0, mode->width, mode->height, mode->refreshRate);
     else glfwSetWindowMonitor(w->glfw, NULL, mode->width / 4, mode->height / 4, mode->width / 2, mode->height / 2, 0);
     return true;

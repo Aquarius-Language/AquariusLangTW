@@ -14,13 +14,15 @@ struct gpu_buffer {
 
 gpu_buffer *gpu_buffer_create(gpu_device *device, const float *values, int length, bool vertex, char *error, size_t error_size) {
     uint64_t size = (uint64_t)length * 4;
-    if (length < 1 || size > 64u * 1024 * 1024) { snprintf(error, error_size, "wgpu buffer size must be 1..64 MiB."); return NULL; }
+    uint64_t limit = gpu_device_max_buffer_bytes(device);
+    if (length < 1 || size > limit) { snprintf(error, error_size, "wgpu buffer size must be 1..%llu MiB on this device.", (unsigned long long)(limit >> 20)); return NULL; }
     gpu_buffer *b = calloc(1, sizeof *b);
     b->link.next = b->link.previous = &b->link;
     b->length = length;
     b->vertex = vertex;
     /* Storage buffers can also hold indirect draw arguments a compute shader wrote (DrawIndirect). */
-    WGPUBufferUsage usage = vertex ? WGPUBufferUsage_Vertex : WGPUBufferUsage_Storage | WGPUBufferUsage_CopySrc | WGPUBufferUsage_Indirect;
+    /* Vertex buffers can also be read by compute shaders (SetBuffer), e.g. to copy skinned vertices elsewhere. */
+    WGPUBufferUsage usage = vertex ? WGPUBufferUsage_Vertex | WGPUBufferUsage_Storage | WGPUBufferUsage_CopySrc : WGPUBufferUsage_Storage | WGPUBufferUsage_CopySrc | WGPUBufferUsage_Indirect;
     b->handle = gpu_device_buffer(device, size, usage, values);
     gpu_device_link(device, &b->link, GPU_BUFFER);
     const char *failure = gpu_device_take_error(device);
@@ -57,6 +59,7 @@ void gpu_buffer_write(gpu_buffer *b, int offset, const float *values, int count)
     gpu_device *d = b->link.device;
     gpu_device_flush(d); /* draws recorded earlier read the previous contents */
     wgpuQueueWriteBuffer(gpu_device_queue(d), b->handle, (uint64_t)offset * 4, values, (size_t)count * 4);
+    gpu_counters.writes++; gpu_counters.write_bytes += (uint64_t)count * 4;
 }
 
 typedef struct read_operation {
@@ -108,7 +111,9 @@ void gpu_buffer_read(gpu_buffer *b, int offset, int count, gpu_floats_done done,
 #else
     r->waiting = true;
     wgpuBufferMapAsync(r->staging, WGPUMapMode_Read, 0, (size_t)descriptor.size, callback);
+    double waited = gpu_clock_ms();
     gpu_device_wait(d, &r->finished);
+    gpu_counters.readbacks++; gpu_counters.readback_ms += gpu_clock_ms() - waited;
     deliver(r);
     free(r);
 #endif
@@ -151,7 +156,11 @@ static void run(gpu_device *d, kernel *k, gpu_buffer *b, uint32_t groups, gpu_di
     descriptor.layout = k->layout; descriptor.entryCount = 1; descriptor.entries = &binding;
     WGPUBindGroup group = wgpuDeviceCreateBindGroup(gpu_device_handle(d), &descriptor);
     WGPUCommandEncoder encoder = wgpuDeviceCreateCommandEncoder(gpu_device_handle(d), NULL);
-    WGPUComputePassEncoder pass = wgpuCommandEncoderBeginComputePass(encoder, NULL);
+    WGPUComputePassDescriptor pass_descriptor = WGPU_COMPUTE_PASS_DESCRIPTOR_INIT;
+    WGPUPassTimestampWrites writes;
+    pass_descriptor.timestampWrites = gpu_profile_pass(d, &writes);
+    gpu_counters.compute_passes++; gpu_counters.dispatches++;
+    WGPUComputePassEncoder pass = wgpuCommandEncoderBeginComputePass(encoder, &pass_descriptor);
     wgpuComputePassEncoderSetPipeline(pass, k->pipeline);
     wgpuComputePassEncoderSetBindGroup(pass, 0, group, 0, NULL);
     wgpuComputePassEncoderDispatchWorkgroups(pass, groups, 1, 1);

@@ -14,9 +14,24 @@
 #include <windows.h>
 #elif !defined(AQUA_OS_WEB)
 #include <time.h>
+#else
+#include <emscripten.h>
 #endif
 
 typedef struct blit_pipeline { WGPUTextureFormat format; uint32_t samples; WGPURenderPipeline pipeline; } blit_pipeline;
+
+#define PROFILE_QUERIES 4096   /* two per pass */
+#define PROFILE_RING 4
+#define PROFILE_LABELS 256
+typedef struct profile_slot {
+    WGPUBuffer readback;
+    int count;                         /* queries written */
+    unsigned char *label_of;           /* label index per pass */
+    char (*labels)[48]; int label_count;
+    uint64_t frame;
+    bool pending;
+    volatile bool done; bool ok;
+} profile_slot;
 
 struct gpu_device {
     aqua_runtime *rt;
@@ -49,6 +64,18 @@ struct gpu_device {
     char error[1024], taken[1024];
     char backend[32];
     void *kernels;           /* buffer.c: compiled compute kernels */
+    /* GPU timestamps (gpu_profile_*) */
+    bool timestamps, profiling;
+    WGPUQuerySet queries;
+    WGPUBuffer resolve;
+    int used;
+    unsigned char label_of[PROFILE_QUERIES / 2];
+    char labels[PROFILE_LABELS][48]; int label_count, scope;
+    profile_slot ring[PROFILE_RING];
+    uint64_t frame;
+    double period;
+    uint64_t max_buffer_bytes;      /* what the device was created with (gpu_device_max_buffer_bytes) */
+    gpu_profile_entry results[PROFILE_LABELS]; int result_count; double result_span; uint64_t result_frame;
     /* creation */
     gpu_device_done done;
     void *done_data;
@@ -59,6 +86,24 @@ static void free_struct(gpu_device *d) {
     free(d->retired_groups);
     free(d->retired_buffers);
     free(d);
+}
+
+gpu_stats gpu_counters;
+void gpu_stats_reset(void) { memset(&gpu_counters, 0, sizeof gpu_counters); }
+double gpu_clock_ms(void) {
+#if defined(AQUA_OS_WINDOWS)
+    static LARGE_INTEGER frequency;
+    if (!frequency.QuadPart) QueryPerformanceFrequency(&frequency);
+    LARGE_INTEGER now;
+    QueryPerformanceCounter(&now);
+    return (double)now.QuadPart * 1000.0 / (double)frequency.QuadPart;
+#elif defined(AQUA_OS_WEB)
+    return emscripten_get_now();
+#else
+    struct timespec t;
+    clock_gettime(CLOCK_MONOTONIC, &t);
+    return (double)t.tv_sec * 1000.0 + (double)t.tv_nsec / 1e6;
+#endif
 }
 
 void gpu_device_retain(gpu_device *d) { d->references++; }
@@ -208,14 +253,137 @@ WGPUBuffer gpu_device_buffer(gpu_device *d, uint64_t size, WGPUBufferUsage usage
     descriptor.usage = usage | WGPUBufferUsage_CopyDst;
     WGPUBuffer buffer = wgpuDeviceCreateBuffer(d->device, &descriptor);
     if (buffer && data) wgpuQueueWriteBuffer(d->queue, buffer, 0, data, (size_t)size);
+    gpu_counters.buffers_created++; gpu_counters.buffer_bytes += descriptor.size;
+    if (data) { gpu_counters.writes++; gpu_counters.write_bytes += size; }
     return buffer;
 }
 
 void gpu_device_submit(gpu_device *d, WGPUCommandEncoder encoder) {
+    double start = gpu_clock_ms();
     WGPUCommandBuffer commands = wgpuCommandEncoderFinish(encoder, NULL);
     wgpuQueueSubmit(d->queue, 1, &commands);
     wgpuCommandBufferRelease(commands);
     wgpuCommandEncoderRelease(encoder);
+    gpu_counters.submits++;
+    gpu_counters.submit_ms += gpu_clock_ms() - start;
+}
+
+/* ---- GPU timestamps ---- */
+
+bool gpu_profile_supported(const gpu_device *d) { return d->timestamps; }
+uint64_t gpu_device_max_buffer_bytes(const gpu_device *d) { return d->max_buffer_bytes ? d->max_buffer_bytes : 64u * 1024 * 1024; }
+
+bool gpu_profile_set(gpu_device *d, bool enabled) {
+    if (!enabled) { d->profiling = false; return false; }
+    if (!d->timestamps || d->disposed) return false;
+    if (!d->queries) {
+        WGPUQuerySetDescriptor q = WGPU_QUERY_SET_DESCRIPTOR_INIT;
+        q.type = WGPUQueryType_Timestamp; q.count = PROFILE_QUERIES;
+        d->queries = wgpuDeviceCreateQuerySet(d->device, &q);
+        WGPUBufferDescriptor b = WGPU_BUFFER_DESCRIPTOR_INIT;
+        b.size = PROFILE_QUERIES * 8; b.usage = WGPUBufferUsage_QueryResolve | WGPUBufferUsage_CopySrc;
+        d->resolve = wgpuDeviceCreateBuffer(d->device, &b);
+        b.usage = WGPUBufferUsage_MapRead | WGPUBufferUsage_CopyDst;
+        for (int i = 0; i < PROFILE_RING; i++) {
+            d->ring[i].readback = wgpuDeviceCreateBuffer(d->device, &b);
+            d->ring[i].label_of = malloc(PROFILE_QUERIES / 2);
+            d->ring[i].labels = malloc(sizeof(char[48]) * PROFILE_LABELS);
+        }
+#if defined(AQUA_OS_WEB)
+        d->period = 1.0;
+#else
+        d->period = wgpuQueueGetTimestampPeriod(d->queue);
+        if (!(d->period > 0)) d->period = 1.0;
+#endif
+        if (!d->queries || !d->resolve) return false;
+    }
+    d->profiling = true;
+    return true;
+}
+
+void gpu_profile_scope(gpu_device *d, const char *label) {
+    if (!label || !*label) label = "other";
+    for (int i = 0; i < d->label_count; i++) if (strncmp(d->labels[i], label, 47) == 0) { d->scope = i; return; }
+    if (d->label_count >= PROFILE_LABELS) { d->scope = PROFILE_LABELS - 1; return; }
+    snprintf(d->labels[d->label_count], 48, "%s", label);
+    d->scope = d->label_count++;
+}
+
+const WGPUPassTimestampWrites *gpu_profile_pass(gpu_device *d, WGPUPassTimestampWrites *w) {
+    if (!d->profiling || d->used + 2 > PROFILE_QUERIES) return NULL;
+    if (d->label_count == 0) gpu_profile_scope(d, "other");
+    *w = (WGPUPassTimestampWrites)WGPU_PASS_TIMESTAMP_WRITES_INIT;
+    w->querySet = d->queries;
+    w->beginningOfPassWriteIndex = (uint32_t)d->used;
+    w->endOfPassWriteIndex = (uint32_t)d->used + 1;
+    d->label_of[d->used / 2] = (unsigned char)d->scope;
+    d->used += 2;
+    return w;
+}
+
+static void on_profile_mapped(WGPUMapAsyncStatus status, WGPUStringView message, void *user, void *unused) {
+    (void)message; (void)unused;
+    profile_slot *slot = user;
+    slot->ok = status == WGPUMapAsyncStatus_Success;
+    slot->done = true;
+}
+
+static void collect_profile(gpu_device *d, profile_slot *slot) {
+    slot->pending = false;
+    if (!slot->ok) return;
+    const uint64_t *ticks = wgpuBufferGetConstMappedRange(slot->readback, 0, (size_t)slot->count * 8);
+    if (ticks) {
+        uint64_t first = UINT64_MAX, last = 0;
+        for (int i = 0; i < slot->label_count; i++) { snprintf(d->results[i].label, 48, "%s", slot->labels[i]); d->results[i].ms = 0; d->results[i].passes = 0; }
+        for (int p = 0; p < slot->count / 2; p++) {
+            uint64_t a = ticks[p * 2], b = ticks[p * 2 + 1];
+            if (!a || !b || b < a) continue;   /* a pass that never ran, or a counter reset */
+            if (a < first) first = a;
+            if (b > last) last = b;
+            gpu_profile_entry *e = &d->results[slot->label_of[p]];
+            e->ms += (double)(b - a) * d->period / 1e6;
+            e->passes++;
+        }
+        d->result_count = slot->label_count;
+        d->result_span = last > first ? (double)(last - first) * d->period / 1e6 : 0;
+        d->result_frame = slot->frame;
+    }
+    wgpuBufferUnmap(slot->readback);
+}
+
+void gpu_profile_end_frame(gpu_device *d) {
+    if (d->disposed || !d->queries) return;
+#if !defined(AQUA_OS_WEB)
+    wgpuDevicePoll(d->device, false, NULL);
+    wgpuInstanceProcessEvents(d->instance);
+#endif
+    for (int i = 0; i < PROFILE_RING; i++) if (d->ring[i].pending && d->ring[i].done) collect_profile(d, &d->ring[i]);
+    d->frame++;
+    if (!d->used) return;
+    gpu_device_flush(d);  /* ends every open pass, so each pass written this frame has its end timestamp */
+    profile_slot *slot = NULL;
+    for (int i = 0; i < PROFILE_RING && !slot; i++) if (!d->ring[i].pending) slot = &d->ring[i];
+    if (slot) {
+        slot->count = d->used;
+        memcpy(slot->label_of, d->label_of, (size_t)d->used / 2);
+        memcpy(slot->labels, d->labels, sizeof(char[48]) * (size_t)d->label_count);
+        slot->label_count = d->label_count;
+        slot->frame = d->frame;
+        slot->pending = true; slot->done = false; slot->ok = false;
+        WGPUCommandEncoder encoder = wgpuDeviceCreateCommandEncoder(d->device, NULL);
+        wgpuCommandEncoderResolveQuerySet(encoder, d->queries, 0, (uint32_t)d->used, d->resolve, 0);
+        wgpuCommandEncoderCopyBufferToBuffer(encoder, d->resolve, 0, slot->readback, 0, (uint64_t)d->used * 8);
+        gpu_device_submit(d, encoder);
+        WGPUBufferMapCallbackInfo callback = WGPU_BUFFER_MAP_CALLBACK_INFO_INIT;
+        callback.mode = GPU_CALLBACK_MODE; callback.callback = on_profile_mapped; callback.userdata1 = slot;
+        wgpuBufferMapAsync(slot->readback, WGPUMapMode_Read, 0, (size_t)d->used * 8, callback);
+    }
+    d->used = 0;
+}
+
+int gpu_profile_results(gpu_device *d, const gpu_profile_entry **entries, double *span_ms, uint64_t *frame) {
+    *entries = d->results; *span_ms = d->result_span; *frame = d->result_frame;
+    return d->result_count;
 }
 
 static bool create_shared(gpu_device *d) {
@@ -331,6 +499,30 @@ static void on_adapter(WGPURequestAdapterStatus status, WGPUAdapter adapter, WGP
     }
     d->adapter = adapter;
     WGPUDeviceDescriptor descriptor = WGPU_DEVICE_DESCRIPTOR_INIT;
+    /* Timestamp queries for the profiler (gpu_profile_*), where the adapter has them. */
+    static const WGPUFeatureName timestamp_feature[1] = {WGPUFeatureName_TimestampQuery};
+    if (wgpuAdapterHasFeature(adapter, WGPUFeatureName_TimestampQuery)) {
+        descriptor.requiredFeatureCount = 1; descriptor.requiredFeatures = timestamp_feature;
+        d->timestamps = true;
+    }
+    /* Larger scenes than WebGPU's default limits allow (8 storage buffers a stage, 128 MiB a binding): what the adapter
+       supports, up to 16 buffers and 1 GiB. */
+    static WGPULimits required;
+    required = (WGPULimits)WGPU_LIMITS_INIT;
+    WGPULimits supported = WGPU_LIMITS_INIT;
+    d->max_buffer_bytes = 64u * 1024 * 1024;
+    if (wgpuAdapterGetLimits(adapter, &supported) == WGPUStatus_Success) {
+        if (supported.maxStorageBuffersPerShaderStage != WGPU_LIMIT_U32_UNDEFINED && supported.maxStorageBuffersPerShaderStage > 8)
+            required.maxStorageBuffersPerShaderStage = supported.maxStorageBuffersPerShaderStage < 16 ? supported.maxStorageBuffersPerShaderStage : 16;
+        uint64_t cap = 1024u * 1024 * 1024, binding = supported.maxStorageBufferBindingSize, size = supported.maxBufferSize;
+        if (binding != WGPU_LIMIT_U64_UNDEFINED && size != WGPU_LIMIT_U64_UNDEFINED) {
+            uint64_t m = binding < size ? binding : size;
+            if (m > cap) m = cap;
+            if (m > 128u * 1024 * 1024) { required.maxStorageBufferBindingSize = m; required.maxBufferSize = m; }
+            d->max_buffer_bytes = m;
+        }
+        descriptor.requiredLimits = &required;
+    }
     descriptor.uncapturedErrorCallbackInfo.callback = on_uncaptured;
     descriptor.uncapturedErrorCallbackInfo.userdata1 = d;
     descriptor.deviceLostCallbackInfo.mode = GPU_CALLBACK_MODE;
@@ -431,8 +623,10 @@ void gpu_device_release_retired(gpu_device *d) {
 
 void gpu_device_flush(gpu_device *d) {
     if (d->disposed) return;
-    for (gpu_resource *r = d->resources.next; r != &d->resources; r = r->next)
+    for (gpu_resource *r = d->resources.next; r != &d->resources; r = r->next) {
+        gpu_counters.flush_scans++;
         if (r->kind == GPU_TARGET) gpu_target_flush((gpu_target *)r);
+    }
 }
 
 typedef struct poll_wait { volatile bool done; void (*callback)(void *, const char *); void *data; } poll_wait;
@@ -500,6 +694,9 @@ void gpu_device_blit(gpu_device *d, WGPUTextureView source, WGPUTextureView dest
     attachment.storeOp = WGPUStoreOp_Store;
     WGPURenderPassDescriptor pass_descriptor = WGPU_RENDER_PASS_DESCRIPTOR_INIT;
     pass_descriptor.colorAttachmentCount = 1; pass_descriptor.colorAttachments = &attachment;
+    WGPUPassTimestampWrites writes;
+    pass_descriptor.timestampWrites = gpu_profile_pass(d, &writes);
+    gpu_counters.render_passes++; gpu_counters.draws++; gpu_counters.bind_groups++;
     WGPURenderPassEncoder pass = wgpuCommandEncoderBeginRenderPass(encoder, &pass_descriptor);
     wgpuRenderPassEncoderSetPipeline(pass, pipeline);
     wgpuRenderPassEncoderSetBindGroup(pass, 0, group, 0, NULL);
@@ -566,7 +763,9 @@ bool gpu_device_present(gpu_device *d, gpu_target *target, char *error, size_t e
         configure(d);
     }
     WGPUSurfaceTexture frame = WGPU_SURFACE_TEXTURE_INIT;
+    double acquire = gpu_clock_ms();
     wgpuSurfaceGetCurrentTexture(d->surface, &frame);
+    gpu_counters.acquire_ms += gpu_clock_ms() - acquire;
     if (frame.status == WGPUSurfaceGetCurrentTextureStatus_Outdated || frame.status == WGPUSurfaceGetCurrentTextureStatus_Lost) {
         if (frame.texture) wgpuTextureRelease(frame.texture);
         configure(d);
@@ -592,7 +791,9 @@ bool gpu_device_present(gpu_device *d, gpu_target *target, char *error, size_t e
     WGPUTextureView view = wgpuTextureCreateView(frame.texture, NULL);
     gpu_device_blit(d, gpu_texture_view(gpu_target_color(target)), view, d->config.format, 1);
 #if !defined(AQUA_OS_WEB)
+    double presenting = gpu_clock_ms();
     wgpuSurfacePresent(d->surface); /* the browser presents when the task yields */
+    gpu_counters.present_ms += gpu_clock_ms() - presenting;
 #endif
     wgpuTextureViewRelease(view);
     wgpuTextureRelease(frame.texture);
@@ -635,6 +836,14 @@ void gpu_device_dispose(gpu_device *d) {
     }
     d->disposed = true;
     gpu_device_release_kernels(d);
+    for (int i = 0; i < PROFILE_RING; i++) {
+        if (d->ring[i].readback) { if (d->ring[i].pending) wgpuBufferUnmap(d->ring[i].readback); wgpuBufferRelease(d->ring[i].readback); }
+        free(d->ring[i].label_of); free(d->ring[i].labels);
+        memset(&d->ring[i], 0, sizeof d->ring[i]);
+    }
+    if (d->resolve) wgpuBufferRelease(d->resolve);
+    if (d->queries) wgpuQuerySetRelease(d->queries);
+    d->resolve = NULL; d->queries = NULL; d->profiling = false;
 #if !defined(AQUA_OS_WEB)
     if (d->device) wgpuDevicePoll(d->device, true, NULL);
 #endif

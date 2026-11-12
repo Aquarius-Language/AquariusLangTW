@@ -101,6 +101,7 @@ gpu_texture *gpu_texture_create(gpu_device *device, const gpu_texture_desc *d, c
         WGPUExtent3D extent = {w, h, (uint32_t)layers};
         wgpuQueueWriteTexture(gpu_device_queue(device), &copy, bytes + offset, size, &layout, &extent);
         offset += size;
+        gpu_counters.texture_writes++; gpu_counters.texture_write_bytes += size;
     }
     const char *failure = gpu_device_take_error(device);
     if (failure) { snprintf(error, error_size, "%s", failure); gpu_texture_free(t); return NULL; }
@@ -213,6 +214,7 @@ void gpu_texture_upload(gpu_texture *t, const uint8_t *rgba, bool unused) {
     layout.bytesPerRow = (uint32_t)t->width * 4; layout.rowsPerImage = (uint32_t)t->height;
     WGPUExtent3D extent = {(uint32_t)t->width, (uint32_t)t->height, 1};
     wgpuQueueWriteTexture(gpu_device_queue(device), &copy, rgba, (size_t)t->width * (size_t)t->height * 4, &layout, &extent);
+    gpu_counters.texture_writes++; gpu_counters.texture_write_bytes += (uint64_t)t->width * (uint64_t)t->height * 4;
 }
 
 void gpu_texture_release_handles(gpu_texture *t) {

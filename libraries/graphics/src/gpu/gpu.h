@@ -79,6 +79,9 @@ void gpu_instance_wait(WGPUInstance instance, WGPUDevice device, const volatile 
 WGPUShaderModule gpu_device_shader_module(gpu_device *device, const char *source, size_t length);
 WGPUBuffer gpu_device_buffer(gpu_device *device, uint64_t size, WGPUBufferUsage usage, const void *data);
 void gpu_device_submit(gpu_device *device, WGPUCommandEncoder encoder);
+/* The largest storage buffer this device binds, in bytes: the adapter's limit, at most 1 GiB (64 MiB before the device
+   exists). */
+uint64_t gpu_device_max_buffer_bytes(const gpu_device *device);
 /* Records an uncaptured-style error for the next check (used when an operation fails on our side). */
 void gpu_device_error(gpu_device *device, const char *message);
 
@@ -89,6 +92,31 @@ void gpu_device_error(gpu_device *device, const char *message);
 #define GPU_CALLBACK_MODE WGPUCallbackMode_AllowProcessEvents
 #endif
 static inline WGPUStringView gpu_text(const char *s) { WGPUStringView v = {s, WGPU_STRLEN}; return v; }
+
+/* ---- Profiling (device.c) ------------------------------------------------------------------------------------ */
+/* Counters of everything the renderer core does, for all devices, since the last gpu_stats_reset: what the engine's
+   profiler reads every frame. Times are CPU milliseconds spent inside the named webgpu.h calls. */
+typedef struct gpu_stats {
+    uint64_t submits, render_passes, compute_passes, draws, dispatches, writes, write_bytes, texture_writes, texture_write_bytes,
+             buffers_created, buffer_bytes, bind_groups, pipelines, readbacks, flush_scans;
+    double submit_ms, pipeline_ms, readback_ms, acquire_ms, present_ms;
+} gpu_stats;
+extern gpu_stats gpu_counters;
+void gpu_stats_reset(void);
+double gpu_clock_ms(void);   /* a monotonic clock in milliseconds */
+/* GPU timestamps: every render or compute pass begun while profiling is on writes a timestamp at its start and end,
+   labelled with the current scope. gpu_profile_end_frame resolves them into a readback buffer (no waiting); results
+   arrive one to three frames later. */
+bool gpu_profile_supported(const gpu_device *device);
+bool gpu_profile_set(gpu_device *device, bool enabled);   /* false when timestamps are unsupported */
+void gpu_profile_scope(gpu_device *device, const char *label);
+/* Fills `writes` for the pass about to begin and returns it, or NULL when not profiling (or out of queries). */
+const WGPUPassTimestampWrites *gpu_profile_pass(gpu_device *device, WGPUPassTimestampWrites *writes);
+void gpu_profile_end_frame(gpu_device *device);
+/* The newest finished frame: `count` labels with their summed pass time and pass count, the GPU span from the first
+   pass's start to the last pass's end, and the frame number it belongs to (0 when none has finished yet). */
+typedef struct gpu_profile_entry { char label[48]; double ms; int passes; } gpu_profile_entry;
+int gpu_profile_results(gpu_device *device, const gpu_profile_entry **entries, double *span_ms, uint64_t *frame);
 
 /* ---- Textures (texture.c) ------------------------------------------------------------------------------------ */
 typedef enum gpu_format { GPU_R8UNORM, GPU_RGBA8UNORM, GPU_RGBA8UNORM_SRGB, GPU_RGBA16FLOAT } gpu_format;
