@@ -72,3 +72,29 @@ shown.SetState({"blend": "replace", "depth": "none"});
 shown.DrawProcedural(show, 3);
 var sp = shown.ReadPixels();
 print("sampled", channel(sp[0], 16), channel(sp[0], 8), channel(sp[0], 0));
+
+# 5. Instanced and indirect draws: one quad per instance in its own column, instance_index picks the column. The
+# indirect arguments (vertex count, instance count, first vertex, first instance) come from a compute shader.
+var quad = device.CreateVertexBuffer([-1, -1, 0, 0, 0, 1, 0, 0, 1, 1, 1, 1,  1, -1, 0, 0, 0, 1, 1, 0, 1, 1, 1, 1,  1, 1, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1,
+                                      -1, -1, 0, 0, 0, 1, 0, 0, 1, 1, 1, 1,  1, 1, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1,  -1, 1, 0, 0, 0, 1, 0, 1, 1, 1, 1, 1]);
+var columns = device.CreateShader("@vertex fn vs_main(input: VertexInput, @builtin(instance_index) instance: u32) -> VertexOutput {
+    var o: VertexOutput;
+    let x = (input.position.x * 0.5 + 0.5 + f32(instance)) / 4.0 * 2.0 - 1.0;
+    o.position = vec4<f32>(x, input.position.y, 0.0, 1.0);
+    o.vertexColor = vec4<f32>(f32(instance + 1u) / 4.0, 0.0, 0.0, 1.0);
+    return o;
+}", "@fragment fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> { return input.vertexColor; }");
+var strip = device.CreateRenderTarget(4, 1, "rgba8unorm");
+strip.SetState({"blend": "replace", "depth": "none", "cull": "none"});
+var row = function(target) { var p = target.ReadPixels(); return [channel(p[0], 16), channel(p[1], 16), channel(p[2], 16), channel(p[3], 16)]; };
+strip.Clear([0, 0, 0, 1]);
+strip.DrawInstanced(columns, quad, 3);
+print("instanced", row(strip));
+var args = device.CreateBuffer([0, 0, 0, 0]);
+var writeArgs = device.CreateCompute("@group(2) @binding(9) var<storage, read_write> args: array<u32>;
+@compute @workgroup_size(1) fn cs_main() { args[0] = 6u; args[1] = 4u; args[2] = 0u; args[3] = 0u; }");
+writeArgs.SetBuffer("args", args);
+writeArgs.Dispatch(1);
+strip.Clear([0, 0, 0, 1]);
+strip.DrawIndirect(columns, quad, args);
+print("indirect", row(strip));

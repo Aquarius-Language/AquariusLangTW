@@ -492,6 +492,41 @@ static void target_DrawBuffer(aqua_call *call) {
     if (count > 0 && !gpu_target_draw_retained(t->target, s->shader, b->buffer, first, count, NULL, error, sizeof error)) gfx_fail(call, "%s", error);
 }
 
+/* (shader, vertex buffer, instances, first instance = 0): the whole buffer, instances times. */
+static void target_DrawInstanced(aqua_call *call) {
+    target_object *t = aqua_self(call);
+    if (!target_live(call, t)) return;
+    shader_object *s = shader_argument(call, 0, t->owner);
+    if (!s) return;
+    buffer_object *b = aqua_object_data(aqua_call_runtime(call), aqua_arg(call, 1), vertex_class);
+    if (!b || b->owner != t->owner || gpu_buffer_released(b->buffer)) { gfx_fail(call, "Expected a live vertex buffer from this wgpu device."); return; }
+    int instances = gfx_int(call, 2), first = aqua_argc(call) > 3 ? gfx_int(call, 3) : 0;
+    if (aqua_failed(call)) return;
+    if (instances < 0 || first < 0) { gfx_fail(call, "Instance counts must be nonnegative."); return; }
+    char error[1024];
+    int vertices = gpu_buffer_length(b->buffer) / 12;
+    if (instances > 0 && vertices > 0 && !gpu_target_draw_instances(t->target, s->shader, b->buffer, 0, vertices, instances, first, NULL, 0, NULL, error, sizeof error)) gfx_fail(call, "%s", error);
+}
+
+/* (shader, vertex buffer, arguments buffer, offset in floats = 0): draws with the four u32 arguments a compute shader
+   wrote into a storage buffer (vertex count, instance count, first vertex, first instance). */
+static void target_DrawIndirect(aqua_call *call) {
+    target_object *t = aqua_self(call);
+    if (!target_live(call, t)) return;
+    shader_object *s = shader_argument(call, 0, t->owner);
+    if (!s) return;
+    aqua_runtime *rt = aqua_call_runtime(call);
+    buffer_object *b = aqua_object_data(rt, aqua_arg(call, 1), vertex_class);
+    if (!b || b->owner != t->owner || gpu_buffer_released(b->buffer)) { gfx_fail(call, "Expected a live vertex buffer from this wgpu device."); return; }
+    buffer_object *args = aqua_object_data(rt, aqua_arg(call, 2), buffer_class);
+    if (!args || args->owner != t->owner || gpu_buffer_released(args->buffer)) { gfx_fail(call, "Expected a live storage buffer with the arguments."); return; }
+    int offset = aqua_argc(call) > 3 ? gfx_int(call, 3) : 0;
+    if (aqua_failed(call)) return;
+    if (offset < 0 || offset + 4 > gpu_buffer_length(args->buffer)) { gfx_fail(call, "The arguments (4 numbers at the offset) are outside the buffer."); return; }
+    char error[1024];
+    if (!gpu_target_draw_instances(t->target, s->shader, b->buffer, 0, 0, 0, 0, args->buffer, (uint64_t)offset * 4, NULL, error, sizeof error)) gfx_fail(call, "%s", error);
+}
+
 static void target_DrawProcedural(aqua_call *call) {
     target_object *t = aqua_self(call);
     if (!target_live(call, t)) return;
@@ -1103,7 +1138,8 @@ void gfx_wgpu_destroy(wgpu_state *state) {
     X(shader_SetStorage, "SetStorage|設定儲存紋理", 2, 2) X(shader_Dispatch, "Dispatch|派送", 1, 3)
 #define TARGET_MEMBERS(X) \
     X(target_Clear, "Clear|清除", 1, 1) X(target_Dispose, "Dispose|釋放", 0, 0) X(target_Draw, "Draw|繪製", 2, 2) \
-    X(target_DrawBuffer, "DrawBuffer|繪製緩衝區", 2, 4) X(target_DrawProcedural, "DrawProcedural|程序化繪製", 2, 4) X(target_Flush, "Flush|送出", 0, 0) X(target_Prepare, "Prepare|準備", 1, 2) \
+    X(target_DrawBuffer, "DrawBuffer|繪製緩衝區", 2, 4) X(target_DrawProcedural, "DrawProcedural|程序化繪製", 2, 4) \
+    X(target_DrawInstanced, "DrawInstanced|實例繪製", 3, 4) X(target_DrawIndirect, "DrawIndirect|間接繪製", 3, 4) X(target_Flush, "Flush|送出", 0, 0) X(target_Prepare, "Prepare|準備", 1, 2) \
     X(target_GenerateMipmaps, "GenerateMipmaps|產生多級紋理", 0, 0) X(target_GetTexture, "GetTexture|取得紋理", 0, 1) X(target_ReadPixels, "ReadPixels|讀取像素", 0, 0) X(target_Save, "Save|儲存", 1, 1) \
     X(target_SetState, "SetState|設定狀態", 1, 1)
 #define TEXTURE_MEMBERS(X) X(texture_Dispose, "Dispose|釋放", 0, 0)

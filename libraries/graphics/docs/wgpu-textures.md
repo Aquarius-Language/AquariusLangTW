@@ -65,3 +65,10 @@ English summary: `device.CreateCompute(source)` compiles a compute shader (`cs_m
 a render target's single-mip color texture or a volume) and `texture_3d<f32>` (render shaders too). `device.CreateVolume(w,
 h, d, format)` makes a zero-filled 3D texture. Draws recorded on the targets a dispatch uses are submitted before it;
 later work sees its writes. Test: `tests/wgpu_compute.aqua` (windows-x64 so far).
+
+實例與間接繪製 / Instanced and indirect draws: `target.DrawInstanced(shader, vertexBuffer, instances, firstInstance = 0)`
+draws the whole vertex buffer `instances` times; `target.DrawIndirect(shader, vertexBuffer, argumentsBuffer, offset = 0)`
+draws with four u32 a compute shader wrote into a storage buffer at `offset` floats (vertex count, instance count,
+first vertex, first instance), so GPU culling can decide how many instances are drawn. Vertex shaders read the instance
+as a second parameter: `fn vs_main(input: VertexInput, @builtin(instance_index) instance: u32)`. Storage buffers are
+created with the indirect usage for this.

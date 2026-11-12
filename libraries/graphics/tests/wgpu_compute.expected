@@ -2,3 +2,5 @@ buffer 0.5 3.5 297.5
 texture 0 0 255 255 255
 volume 2016 27
 sampled 64 0 127
+instanced [64, 127, 191, 0]
+indirect [64, 127, 191, 255]

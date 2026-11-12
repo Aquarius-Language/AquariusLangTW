@@ -325,10 +325,16 @@ bool gpu_target_draw(gpu_target *t, gpu_shader *shader, const float *vertices, s
 
 bool gpu_target_draw_retained(gpu_target *t, gpu_shader *shader, gpu_buffer *vertices, int first, int count, const gpu_rect *scissor,
                               char *error, size_t error_size) {
+    return gpu_target_draw_instances(t, shader, vertices, first, count, 1, 0, NULL, 0, scissor, error, error_size);
+}
+
+bool gpu_target_draw_instances(gpu_target *t, gpu_shader *shader, gpu_buffer *vertices, int first, int count, int instances, int first_instance,
+                               gpu_buffer *indirect, uint64_t indirect_offset, const gpu_rect *scissor, char *error, size_t error_size) {
     if (!live(t, error, error_size)) return false;
     gpu_device *d = t->link.device;
     if (gpu_shader_device(shader) != d || (vertices && gpu_buffer_device(vertices) != d)) { snprintf(error, error_size, "wgpu resources must belong to the same device."); return false; }
     if (vertices && gpu_buffer_released(vertices)) { snprintf(error, error_size, "wgpu vertex buffer has been disposed."); return false; }
+    if (indirect && (gpu_buffer_released(indirect) || gpu_buffer_device(indirect) != d)) { snprintf(error, error_size, "The indirect arguments buffer is disposed or from another device."); return false; }
     WGPUBindGroup textures = gpu_shader_texture_group(shader, t, error, error_size);
     if (!textures) return false;
     WGPURenderPipeline pipeline = gpu_shader_pipeline(shader, 4, t->state.blend, t->state.depth, t->samples, 0, t->format, t->colors, t->state.cull, vertices != NULL, error, error_size);
@@ -343,7 +349,10 @@ bool gpu_target_draw_retained(gpu_target *t, gpu_shader *shader, gpu_buffer *ver
     if (vertices) wgpuRenderPassEncoderSetVertexBuffer(t->pass, 0, gpu_buffer_handle(vertices), 0, (uint64_t)gpu_buffer_length(vertices) * 4);
     gpu_rect r = scissor ? *scissor : (gpu_rect){0, 0, gpu_texture_width(t->color), gpu_texture_height(t->color)};
     wgpuRenderPassEncoderSetScissorRect(t->pass, (uint32_t)r.x, (uint32_t)r.y, (uint32_t)r.width, (uint32_t)r.height);
-    if (r.width > 0 && r.height > 0) wgpuRenderPassEncoderDraw(t->pass, (uint32_t)count, 1, (uint32_t)first, 0);
+    if (r.width > 0 && r.height > 0) {
+        if (indirect) wgpuRenderPassEncoderDrawIndirect(t->pass, gpu_buffer_handle(indirect), indirect_offset);
+        else wgpuRenderPassEncoderDraw(t->pass, (uint32_t)count, (uint32_t)instances, (uint32_t)first, (uint32_t)first_instance);
+    }
     const char *failure = gpu_device_take_error(d);
     if (failure) { snprintf(error, error_size, "%s", failure); return false; }
     return true;

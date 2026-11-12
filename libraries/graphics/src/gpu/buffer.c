@@ -19,7 +19,8 @@ gpu_buffer *gpu_buffer_create(gpu_device *device, const float *values, int lengt
     b->link.next = b->link.previous = &b->link;
     b->length = length;
     b->vertex = vertex;
-    WGPUBufferUsage usage = vertex ? WGPUBufferUsage_Vertex : WGPUBufferUsage_Storage | WGPUBufferUsage_CopySrc;
+    /* Storage buffers can also hold indirect draw arguments a compute shader wrote (DrawIndirect). */
+    WGPUBufferUsage usage = vertex ? WGPUBufferUsage_Vertex : WGPUBufferUsage_Storage | WGPUBufferUsage_CopySrc | WGPUBufferUsage_Indirect;
     b->handle = gpu_device_buffer(device, size, usage, values);
     gpu_device_link(device, &b->link, GPU_BUFFER);
     const char *failure = gpu_device_take_error(device);

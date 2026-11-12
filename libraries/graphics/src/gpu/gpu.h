@@ -170,6 +170,11 @@ bool gpu_target_draw(gpu_target *target, gpu_shader *shader, const float *vertic
    `scissor` (pixels; NULL for the whole target). */
 bool gpu_target_draw_retained(gpu_target *target, gpu_shader *shader, gpu_buffer *vertices, int first, int count,
                               const gpu_rect *scissor, char *error, size_t error_size);
+/* As gpu_target_draw_retained, `instances` times (the vertex shader reads @builtin(instance_index)); or, with an
+   `indirect` buffer, with the arguments a compute shader wrote at `indirect_offset` bytes: four u32 (vertex count,
+   instance count, first vertex, first instance). */
+bool gpu_target_draw_instances(gpu_target *target, gpu_shader *shader, gpu_buffer *vertices, int first, int count, int instances, int first_instance,
+                               gpu_buffer *indirect, uint64_t indirect_offset, const gpu_rect *scissor, char *error, size_t error_size);
 /* Compiles the pipeline gpu_target_draw_retained will use for `shader` (see gpu_shader_prepare). */
 void gpu_target_prepare(gpu_target *target, gpu_shader *shader, bool vertex_buffer, gpu_prepare_done done, void *data);
 /* Reads the color attachment as straight-alpha RGBA8 rows (top-down); `done` gets the pixels or an error. */
