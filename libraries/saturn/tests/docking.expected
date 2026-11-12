@@ -1,0 +1,16 @@
+scale 2 400 300 8 2 9
+scaled taps [box]
+unscaled 800 600 真
+rows 10 30 50 70 真
+select sun
+toggle [player 真] 真
+child row camera
+drops [sun inside ui, sun before ui, sun after ui]
+start row([hierarchy], column([scene game], [console]))
+active game
+join row([hierarchy game], column([scene], [console]))
+split row([hierarchy game], row([scene], [console])) row
+float row([game], row([scene], [console])) 1 [hierarchy] 420
+closed [game] row([scene], [console])
+changes 真
+functions 假 假

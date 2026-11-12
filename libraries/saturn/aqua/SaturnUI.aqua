@@ -93,8 +93,8 @@ struct Element { widget; type; node; children; parent; surface; state; data; key
 struct SaturnSurface {
     width; height; root; theme; sheets; tree; rootNode; overlayNode; dirty; hover; pressed; captured; focus;
     time; cursor; pressX; pressY; pressTime; lastTap; lastTapTime; tooltip; tooltipAt; pathAt; fontOf; textColor; pointer;
-    popup; autoscroll; swallow; relayout; stale; force; breakpoint; conventions; options; errors; painted;
-    Frame; Paint; Feed; Wants; Resize; SetRoot; SetTheme; Rebuild; Cursor; NeedsFrame; ImeRect; HasPopup; Errors; Dispose
+    popup; autoscroll; swallow; relayout; stale; force; breakpoint; conventions; options; errors; painted; scale; hostWidth; hostHeight;
+    Frame; Paint; Feed; Wants; Resize; SetRoot; SetTheme; Rebuild; Cursor; NeedsFrame; ImeRect; HasPopup; Errors; Dispose; SetScale; Scale
 }
 struct DropdownMenu { owner; options; value; key }
 struct MenuPopup { owner; items; at; key }
@@ -240,7 +240,38 @@ var ThemeSheet = function(t) {
         # A SplitView's bar: a thin line in a wider strip that takes the pointer, in the primary color while hovered or
         # dragged.
         "SplitLine": {"background": t.border, "transition": 120},
-        "SplitLine:selected": {"background": t.primary}
+        "SplitLine:selected": {"background": t.primary},
+        # TreeView rows: indentation comes from the row itself; the selected row is drawn like a selected list item.
+        "TreeRow": {"flexDirection": "row", "alignItems": "center", "gap": 6, "paddingRight": 8, "borderRadius": Processing_min(r, 6),
+            "cursor": "pointer", "transition": 80},
+        "TreeRow:hover": {"background": t.surfaceHover},
+        "TreeRowSelected": {"background": t.primarySoft, "color": t.text},
+        "TreeChevron": {"width": 16, "height": 16, "alignItems": "center", "justifyContent": "center", "borderRadius": 4},
+        "TreeChevron:hover": {"background": t.primarySoft},
+        "TreeDropLine": {"position": "absolute", "left": 0, "right": 0, "height": 2, "background": t.primary, "pointerEvents": "none"},
+        "TreeDropBox": {"position": "absolute", "left": 0, "right": 0, "top": 0, "bottom": 0, "borderWidth": 1.5d, "borderColor": t.primary,
+            "borderRadius": Processing_min(r, 6), "pointerEvents": "none"},
+        # DockSpace: panel groups with a tab strip, floating windows and the drop preview shown while a tab is dragged.
+        "DockGroup": {"flexGrow": 1, "flexDirection": "column", "background": t.surface, "overflow": "hidden"},
+        "DockStrip": {"flexDirection": "row", "alignItems": "flex-end", "height": 32, "paddingHorizontal": 4, "gap": 2,
+            "background": t.background, "borderBottomWidth": 1, "borderColor": t.border, "flexShrink": 0},
+        "DockTab": {"flexDirection": "row", "alignItems": "center", "gap": 6, "height": 28, "paddingHorizontal": 10,
+            "borderTopLeftRadius": Processing_min(r, 6), "borderTopRightRadius": Processing_min(r, 6), "color": t.muted, "cursor": "pointer",
+            "transition": 80, "fontSize": t.fontSize - 1},
+        "DockTab:hover": {"background": t.surfaceHover, "color": t.text},
+        "DockTabActive": {"background": t.surface, "color": t.text, "borderTopWidth": 2, "borderColor": t.primary},
+        "DockClose": {"width": 16, "height": 16, "borderRadius": 4, "alignItems": "center", "justifyContent": "center"},
+        "DockClose:hover": {"background": t.primarySoft},
+        "DockBody": {"flexGrow": 1, "flexBasis": 0, "overflow": "hidden"},
+        "DockWindow": {"flexGrow": 1, "flexDirection": "column", "background": t.surface, "borderRadius": r, "borderWidth": 1,
+            "borderColor": t.border, "overflow": "hidden", "shadow": {"y": 10, "blur": 28, "color": "#00000066"}},
+        "DockWindowTitle": {"flexDirection": "row", "alignItems": "center", "height": 28, "paddingHorizontal": 10, "gap": 8,
+            "background": t.background, "cursor": "move", "fontSize": t.fontSize - 1, "fontWeight": 600, "flexShrink": 0},
+        "DockResize": {"position": "absolute", "right": 0, "bottom": 0, "width": 14, "height": 14, "cursor": "nwse-resize"},
+        "DockDrop": {"position": "absolute", "background": t.primarySoft, "borderWidth": 2, "borderColor": t.primary,
+            "borderRadius": Processing_min(r, 6), "pointerEvents": "none"},
+        "DockGhost": {"position": "absolute", "paddingHorizontal": 10, "paddingVertical": 4, "borderRadius": 6, "background": t.primary,
+            "color": t.onPrimary, "fontSize": t.fontSize - 1, "pointerEvents": "none", "opacity": 0.9d}
     };
 };
 
@@ -1808,7 +1839,25 @@ var CreateSurface = function(width, height, root, options) {
         s.dirty = true;
         s.force = true;
     };
-    s.Resize = function(w, h) { if (w != s.width || h != s.height) { s.width = w; s.height = h; s.dirty = true; } };
+    # Scale: the surface lays out in logical pixels, `scale` host units each (a UI zoom, or the display's density when
+    # the host draws in device pixels). Resize, Feed, Wants, Paint and ImeRect speak host units; layout, widgets and
+    # handlers see logical pixels.
+    s.scale = 1;
+    if (options != null && options["scale"] != null && options["scale"] > 0) { s.scale = options["scale"]; }
+    s.hostWidth = width; s.hostHeight = height;
+    s.width = width / s.scale; s.height = height / s.scale;
+    s.Resize = function(w, h) {
+        s.hostWidth = w; s.hostHeight = h;
+        var lw = w / s.scale; var lh = h / s.scale;
+        if (lw != s.width || lh != s.height) { s.width = lw; s.height = lh; s.dirty = true; }
+    };
+    s.SetScale = function(scale) {
+        if (scale == null || scale <= 0 || scale == s.scale) { return; }
+        s.scale = scale;
+        s.width = s.hostWidth / scale; s.height = s.hostHeight / scale;
+        s.dirty = true; s.force = true;
+    };
+    s.Scale = function() { return s.scale; };
     s.Cursor = function() { if (s.autoscroll != null) { return "move"; } return s.cursor; };
     s.NeedsFrame = function() { return s.dirty || s.relayout || len(s.stale) > 0 || Saturn.Animating() || s.focus != null || s.tooltip != null || s.autoscroll != null; };
     # Whether a dropdown or menu is open: it takes the keyboard and the pointer until it closes.
@@ -1889,8 +1938,18 @@ var CreateSurface = function(width, height, root, options) {
     };
     # A frame whose building fails keeps the tree it had; painting falls back to the last list that painted.
     s.Frame = function(time) { guarded(s, "frame", () => frame(time)); return null; };
+    var paintScaled = function() {
+        var list = s.rootNode.Paint();
+        if (list == null || s.scale == 1) { return list; }
+        # A scaled surface: the whole list under one transform.
+        var commands = [8, s.scale, 0, 0, s.scale, 0, 0];
+        Array.AppendArray(commands, list["commands"]);
+        Array.Append(commands, 9);
+        list["commands"] = commands;
+        return list;
+    };
     s.Paint = function() {
-        var list = guarded(s, "paint", () => s.rootNode.Paint());
+        var list = guarded(s, "paint", paintScaled);
         if (list != null) { s.painted = list; return list; }
         if (s.painted != null) { return s.painted; }
         return {"version": 1, "commands": [], "strings": [], "images": [], "vertices": [], "indices": []};
@@ -2012,6 +2071,16 @@ var CreateSurface = function(width, height, root, options) {
     # over one of its widgets, or a focused field took a key), so layered UIs pass the rest on.
     s.Feed = function(raw) {
         var ev = eventOf(raw);
+        if (s.scale != 1) {
+            # Host units to logical pixels (a copy: the caller's event stays as it was). Wheel and zoom amounts are
+            # not positions and keep their size.
+            ev = Hash.Clone(ev);
+            if (ev["x"] != null) { ev["x"] = ev["x"] / s.scale; }
+            if (ev["y"] != null) { ev["y"] = ev["y"] / s.scale; }
+            var amounts = ev["type"] == "scroll" || ev["type"] == "zoom" || ev["type"] == "pinch";
+            if (!amounts && ev["dx"] != null) { ev["dx"] = ev["dx"] / s.scale; }
+            if (!amounts && ev["dy"] != null) { ev["dy"] = ev["dy"] / s.scale; }
+        }
         var type = ev["type"];
         # Updates wait for the next frame, which makes them once however many events asked (typing or moving fast must
         # not rebuild per event). A press hit-tests what an earlier handler just changed, so it brings them in first.
@@ -2274,13 +2343,17 @@ var CreateSurface = function(width, height, root, options) {
         var caret = text.TextCaret(TextEditing.Display(s.focus.state)[1]);
         return {"x": box["x"] + caret["x"] - Hash.Get(s.focus.data, "scrollX", 0), "y": box["y"] + caret["y"], "width": 1, "height": caret["height"]};
     };
-    s.ImeRect = function() { return guarded(s, "ime", imeRect); };
+    s.ImeRect = function() {
+        var r = guarded(s, "ime", imeRect);
+        if (r == null || s.scale == 1) { return r; }
+        return {"x": r["x"] * s.scale, "y": r["y"] * s.scale, "width": r["width"] * s.scale, "height": r["height"] * s.scale};
+    };
     s.Dispose = function() { dispose(host); s.overlayNode.Free(); };
     # An open popup or autoscroll takes the whole window, so layers below see no press until it ends.
     s.Wants = function(x, y) {
         if (len(host.children) == 0) { s.Frame(s.time); }
         if (s.popup != null || s.autoscroll != null) { return true; }
-        return solid(s.pathAt(x, y));
+        return solid(s.pathAt(x / s.scale, y / s.scale));
     };
     return s;
 };
@@ -2519,3 +2592,324 @@ var RunApp = function(root, options) {
 };
 
 var Surface = CreateSurface;
+
+# ---- Composite widgets: TreeView, DockSpace -------------------------------------------------------------------------
+# Built from the widgets above (Stateful, Gesture, Box, ListView, SplitView, Stack), themed through the sheet entries
+# TreeRow, TreeRowSelected, TreeChevron, TreeDropLine, TreeDropBox, DockGroup, DockStrip, DockTab, DockTabActive,
+# DockClose, DockBody, DockWindow, DockWindowTitle, DockResize, DockDrop and DockGhost.
+
+# The deepest element at a surface point whose key is a string starting with prefix, or null.
+var keyedAt = function(surface, x, y, prefix) {
+    var path = surface.pathAt(x, y);
+    for (var i = len(path) - 1; i >= 0; i -= 1) {
+        var k = path[i].key;
+        if (typeOf(k) == "string" && String.StartsWith(k, prefix)) { return path[i]; }
+    }
+    return null;
+};
+
+# TreeView(nodes | selected, expanded, onSelect, onToggle, onActivate, onDrop, rowHeight, indent, key): a hierarchy.
+# nodes: [{"id", "label", "icon" (an Icon name), "muted": bool, "children": [...]}] with unique string ids.
+# selected: an id or a list of ids. expanded: a hash id -> true that the app keeps (null: the tree keeps its own).
+# onSelect(id, event) on a press (event has the modifier keys: shift, ctrl / command); onToggle(id, open) from the
+# arrow; onActivate(id) on a double press; onDrop(id, targetId, where) when a row is dragged onto another, where is
+# "before", "inside" or "after" (a row cannot go inside itself or its own children). Rows are virtualized, so trees of
+# thousands of rows stay quick.
+var TreeView = function(nodes, selected = null, expanded = null, onSelect = null, onToggle = null, onActivate = null, onDrop = null,
+                        rowHeight = 24, indent = 16, key = null) {
+    return Stateful(key: key, init: () => ({"open": {}, "drag": null, "drop": null}),
+        build: function(state, context) {
+            var surface = context.surface;
+            var open = if (expanded == null) { state["open"]; } else { expanded; };
+            var rows = [];
+            var parents = {};
+            var walk = function(list, depth, parent) {
+                for (var i = 0; i < len(list); i++) {
+                    var n = list[i];
+                    var kids = Hash.Get(n, "children", null);
+                    var has = kids != null && len(kids) > 0;
+                    parents[n["id"]] = parent;
+                    Array.Append(rows, {"node": n, "depth": depth, "has": has});
+                    if (has && Hash.Get(open, n["id"], false) == true) { walk(kids, depth + 1, n["id"]); }
+                }
+            };
+            walk(nodes, 0, null);
+            var isSelected = function(id) {
+                if (typeOf(selected) == "array") { return Array.Contains(selected, id); }
+                return selected == id;
+            };
+            # Whether id is the dragged row or one of its descendants.
+            var within = function(id, dragged) {
+                for (var at = id; at != null; at = Hash.Get(parents, at, null)) { if (at == dragged) { return true; } }
+                return false;
+            };
+            var toggle = function(id) {
+                var now = Hash.Get(open, id, false) != true;
+                if (expanded == null) { state["open"][id] = now; }
+                if (onToggle != null) { onToggle(id, now); }
+            };
+            var row = function(r) {
+                var n = r["node"];
+                var id = n["id"];
+                var cls = "TreeRow";
+                if (isSelected(id)) { cls = cls + " TreeRowSelected"; }
+                var children = [];
+                if (r["has"]) {
+                    var name = if (Hash.Get(open, id, false) == true) { "chevronDown"; } else { "chevronRight"; };
+                    Array.Append(children, Gesture(onTap: () => toggle(id), child: Box(class: "TreeChevron", child: Icon(name, size: 12))));
+                } else { Array.Append(children, SizedBox(width: 16)); }
+                var icon = Hash.Get(n, "icon", null);
+                if (icon != null) { Array.Append(children, Icon(icon, size: 14)); }
+                var label = Text(String.From(Hash.Get(n, "label", id)), maxLines: 1, ellipsis: true,
+                                 style: if (Hash.Get(n, "muted", false) == true) { {"opacity": 0.55d}; } else { null; });
+                Array.Append(children, Expanded(child: label));
+                var drop = state["drop"];
+                if (drop != null && drop["id"] == id) {
+                    if (drop["where"] == "inside") { Array.Append(children, Box(class: "TreeDropBox")); }
+                    elif (drop["where"] == "before") { Array.Append(children, Box(class: "TreeDropLine", style: {"top": 0})); }
+                    else { Array.Append(children, Box(class: "TreeDropLine", style: {"bottom": 0})); }
+                }
+                return Gesture(key: "tree:" + id,
+                    onTap: () => { if (onSelect != null) { onSelect(id, null); } },
+                    onDoubleTap: () => { if (onActivate != null) { onActivate(id); } else { if (r["has"]) { toggle(id); } } },
+                    onDragStart: ev => { state["drag"] = {"id": id, "x": ev["x"], "y": ev["y"], "moved": false}; state["drop"] = null; },
+                    onDrag: function(ev) {
+                        var d = state["drag"];
+                        if (d == null) { return; }
+                        if (!d["moved"] && Processing_abs(ev["x"] - d["x"]) + Processing_abs(ev["y"] - d["y"]) < 6) { return; }
+                        d["moved"] = true;
+                        state["drop"] = null;
+                        if (onDrop == null) { return; }
+                        var over = keyedAt(surface, ev["x"], ev["y"], "tree:");
+                        if (over == null) { return; }
+                        var target = String.Slice(over.key, 5, len(over.key));
+                        if (within(target, d["id"])) { return; }
+                        var box = over.node.GetAbsoluteLayout();
+                        var f = (ev["y"] - box["y"]) / Processing_max(1, box["height"]);
+                        var where = if (f < 0.25d) { "before"; } elif (f > 0.75d) { "after"; } else { "inside"; };
+                        state["drop"] = {"id": target, "where": where};
+                    },
+                    onDragEnd: function(ev) {
+                        var d = state["drag"]; var drop = state["drop"];
+                        state["drag"] = null; state["drop"] = null;
+                        if (d != null && d["moved"] && drop != null && onDrop != null) { onDrop(d["id"], drop["id"], drop["where"]); }
+                    },
+                    child: Box(class: cls, style: {"height": rowHeight, "paddingLeft": 4 + r["depth"] * indent}, children: children));
+            };
+            return ListView(itemCount: len(rows), itemExtent: rowHeight, itemBuilder: i => row(rows[i]), style: {"flexGrow": 1});
+        });
+};
+
+# DockSpace(layout, panels | onLayout, onClose, key): panels the user arranges by dragging their tabs.
+# panels: a hash id -> {"title", "icon", "build": () => widget, "closable": bool}.
+# layout (kept and changed in place, so the app can save it as JSON): {"root": node, "floating": [window, ...]} where a
+# node is a group {"tabs": [panel ids], "active": id} or a split {"split": "row" | "column", "size": first pane size,
+# "first": node, "second": node}, and a window is {"x", "y", "width", "height", "group": group}.
+# Drag a tab onto a group's middle to join it, onto its edge to split beside it, or onto empty space to float it;
+# drag a floating window by its title and resize it from its corner; split bars resize panes. onLayout(layout) hears
+# every change; onClose(id) a closable tab's close button (the panel is taken out of the layout first).
+var dockGroups = function(node, out) {
+    if (node == null) { return out; }
+    if (Hash.Get(node, "split", null) != null) { dockGroups(node["first"], out); dockGroups(node["second"], out); }
+    else { Array.Append(out, node); }
+    return out;
+};
+var dockAllGroups = function(layout) {
+    var out = dockGroups(layout["root"], []);
+    var floating = Hash.Get(layout, "floating", []);
+    for (var i = 0; i < len(floating); i++) { Array.Append(out, floating[i]["group"]); }
+    return out;
+};
+var dockId = function(layout, node) {
+    if (Hash.Get(node, "id", null) == null) {
+        layout["next"] = Hash.Get(layout, "next", 0) + 1;
+        node["id"] = "g" + String.From(layout["next"]);
+    }
+    return node["id"];
+};
+var dockFind = function(layout, id) {
+    var groups = dockAllGroups(layout);
+    for (var i = 0; i < len(groups); i++) { if (Hash.Get(groups[i], "id", null) == id) { return groups[i]; } }
+    return null;
+};
+# Makes `node` (a hash in the tree) take the content of `other`, so whoever holds node now holds other's content.
+var dockBecome = function(node, other) {
+    var copy = Hash.Clone(other);
+    Hash.Clear(node);
+    Hash.Merge(node, copy);
+};
+var dockParent = function(node, child) {
+    if (node == null || Hash.Get(node, "split", null) == null) { return null; }
+    if (node["first"] == child || node["second"] == child) { return node; }
+    var found = dockParent(node["first"], child);
+    if (found != null) { return found; }
+    return dockParent(node["second"], child);
+};
+# Takes a panel out of whatever group holds it; an emptied group goes away (its split collapses into the other side,
+# an emptied floating window closes). The root keeps an empty group when the last panel leaves.
+var DockRemove = function(layout, panel) {
+    var groups = dockAllGroups(layout);
+    for (var i = 0; i < len(groups); i++) {
+        var g = groups[i];
+        var tabs = Hash.Get(g, "tabs", []);
+        if (!Array.Contains(tabs, panel)) { continue; }
+        var keep = [];
+        for (var t = 0; t < len(tabs); t++) { if (tabs[t] != panel) { Array.Append(keep, tabs[t]); } }
+        g["tabs"] = keep;
+        if (g["active"] == panel) { g["active"] = if (len(keep) > 0) { keep[0]; } else { null; }; }
+        if (len(keep) > 0) { return true; }
+        var floating = Hash.Get(layout, "floating", []);
+        for (var f = 0; f < len(floating); f++) { if (floating[f]["group"] == g) { Array.Delete(floating, f, 1); return true; } }
+        var parent = dockParent(layout["root"], g);
+        if (parent != null) { dockBecome(parent, if (parent["first"] == g) { parent["second"]; } else { parent["first"]; }); }
+        return true;
+    }
+    return false;
+};
+# Puts a panel into a group: zone "center" adds a tab, "left" / "right" / "top" / "bottom" split the group with a new
+# one on that side (half of `extent`, the group's width or height). Returns false when the group is unknown.
+var DockInsert = function(layout, panel, groupId, zone, extent = 400) {
+    var target = dockFind(layout, groupId);
+    if (target == null) { return false; }
+    if (zone == "center" || zone == null) {
+        Array.Append(target["tabs"], panel);
+        target["active"] = panel;
+        return true;
+    }
+    var fresh = {"tabs": [panel], "active": panel};
+    dockId(layout, fresh);
+    var old = Hash.Clone(target);
+    var direction = if (zone == "left" || zone == "right") { "row"; } else { "column"; };
+    var first = if (zone == "left" || zone == "top") { fresh; } else { old; };
+    var second = if (zone == "left" || zone == "top") { old; } else { fresh; };
+    Hash.Clear(target);
+    Hash.Merge(target, {"split": direction, "size": Processing_max(80, extent / 2), "first": first, "second": second});
+    return true;
+};
+var DockSpace = function(layout, panels, onLayout = null, onClose = null, key = null) {
+    return Stateful(key: key, init: () => ({"drag": null, "target": null, "move": null, "origin": {"x": 0, "y": 0}}),
+        build: function(state, context) {
+            var surface = context.surface;
+            if (Hash.Get(layout, "root", null) == null) { layout["root"] = {"tabs": [], "active": null}; }
+            if (Hash.Get(layout, "floating", null) == null) { layout["floating"] = []; }
+            var changed = function() { if (onLayout != null) { onLayout(layout); } };
+            # Where the pointer would drop the dragged tab: a group and a zone, or "float" over no group.
+            var aim = function(x, y) {
+                var over = keyedAt(surface, x, y, "dock:");
+                if (over == null) { return {"zone": "float"}; }
+                var box = over.node.GetAbsoluteLayout();
+                var rx = (x - box["x"]) / Processing_max(1, box["width"]);
+                var ry = (y - box["y"]) / Processing_max(1, box["height"]);
+                var zone = "center";
+                if (y - box["y"] > 34) {
+                    var nearest = Processing_min(Processing_min(rx, 1 - rx), Processing_min(ry, 1 - ry));
+                    if (nearest < 0.25d) {
+                        if (nearest == rx) { zone = "left"; } elif (nearest == 1 - rx) { zone = "right"; } elif (nearest == ry) { zone = "top"; } else { zone = "bottom"; }
+                    }
+                }
+                return {"group": String.Slice(over.key, 5, len(over.key)), "zone": zone, "box": box};
+            };
+            var begin = function(panel, group, ev) {
+                state["drag"] = {"panel": panel, "from": group, "x0": ev["x"], "y0": ev["y"], "x": ev["x"], "y": ev["y"], "moved": false};
+                # The space's own origin on the surface: previews and new windows are placed from pointer positions.
+                var me = keyedAt(surface, ev["x"], ev["y"], "dockspace");
+                if (me != null) { var box = me.node.GetAbsoluteLayout(); state["origin"] = {"x": box["x"], "y": box["y"]}; }
+            };
+            var dragging = function(ev) {
+                var d = state["drag"];
+                if (d == null) { return; }
+                d["x"] = ev["x"]; d["y"] = ev["y"];
+                if (!d["moved"] && Processing_abs(ev["x"] - d["x0"]) + Processing_abs(ev["y"] - d["y0"]) < 8) { return; }
+                d["moved"] = true;
+                state["target"] = aim(ev["x"], ev["y"]);
+            };
+            var drop = function(ev) {
+                var d = state["drag"]; var t = state["target"];
+                state["drag"] = null; state["target"] = null;
+                if (d == null || !d["moved"] || t == null) { return; }
+                var from = dockFind(layout, d["from"]);
+                var alone = from != null && len(from["tabs"]) == 1;
+                if (t["zone"] != "float" && t["group"] == d["from"] && (t["zone"] == "center" || alone)) { return; }
+                DockRemove(layout, d["panel"]);
+                if (t["zone"] == "float") {
+                    var origin = Hash.Get(state, "origin", {"x": 0, "y": 0});
+                    var g = {"tabs": [d["panel"]], "active": d["panel"]};
+                    dockId(layout, g);
+                    Array.Append(layout["floating"], {"x": ev["x"] - origin["x"] - 60, "y": ev["y"] - origin["y"] - 14, "width": 420, "height": 300, "group": g});
+                } else {
+                    var box = t["box"];
+                    var extent = if (t["zone"] == "left" || t["zone"] == "right") { box["width"]; } else { box["height"]; };
+                    if (!DockInsert(layout, d["panel"], t["group"], t["zone"], extent)) { DockInsert(layout, d["panel"], dockId(layout, layout["root"]), "center"); }
+                }
+                changed();
+            };
+            var close = function(panel) { DockRemove(layout, panel); if (onClose != null) { onClose(panel); } changed(); };
+            var group = function(node) {
+                var id = dockId(layout, node);
+                var tabs = Hash.Get(node, "tabs", []);
+                var active = Hash.Get(node, "active", null);
+                if (active == null && len(tabs) > 0) { active = tabs[0]; node["active"] = active; }
+                var strip = [];
+                for (var i = 0; i < len(tabs); i++) {
+                    var pid = tabs[i];
+                    var panel = Hash.Get(panels, pid, null);
+                    if (panel == null) { continue; }
+                    var bits = [];
+                    if (Hash.Get(panel, "icon", null) != null) { Array.Append(bits, Icon(panel["icon"], size: 13)); }
+                    Array.Append(bits, Text(String.From(Hash.Get(panel, "title", pid)), maxLines: 1));
+                    if (Hash.Get(panel, "closable", false) == true) {
+                        Array.Append(bits, Gesture(onTap: () => close(pid), child: Box(class: "DockClose", child: Icon("close", size: 10))));
+                    }
+                    var cls = if (pid == active) { "DockTab DockTabActive"; } else { "DockTab"; };
+                    Array.Append(strip, Gesture(key: "tab:" + pid, onTap: () => { node["active"] = pid; changed(); },
+                        onDragStart: ev => begin(pid, id, ev), onDrag: dragging, onDragEnd: drop, child: Box(class: cls, children: bits)));
+                }
+                var body = null;
+                var shown = Hash.Get(panels, active, null);
+                if (shown != null) { body = shown["build"](); }
+                return Box(key: "dock:" + id, class: "DockGroup", children: [Box(class: "DockStrip", children: strip), Box(class: "DockBody", child: body)]);
+            };
+            var tree = function(node) {
+                if (Hash.Get(node, "split", null) != null) {
+                    return SplitView(direction: node["split"], size: node["size"], min: 80, minSecond: 80,
+                        first: tree(node["first"]), second: tree(node["second"]), onResize: v => { node["size"] = v; changed(); });
+                }
+                return group(node);
+            };
+            var children = [Positioned(left: 0, top: 0, right: 0, bottom: 0, child: tree(layout["root"]))];
+            var floating = layout["floating"];
+            for (var i = 0; i < len(floating); i++) {
+                var w = floating[i];
+                var title = "";
+                var g = w["group"];
+                var shown = Hash.Get(panels, Hash.Get(g, "active", null), null);
+                if (shown != null) { title = String.From(Hash.Get(shown, "title", "")); }
+                var mover = Gesture(onDragStart: ev => { state["move"] = {"x": ev["x"], "y": ev["y"], "wx": w["x"], "wy": w["y"]}; },
+                    onDrag: ev => { var m = state["move"]; if (m != null) { w["x"] = m["wx"] + ev["x"] - m["x"]; w["y"] = m["wy"] + ev["y"] - m["y"]; } },
+                    onDragEnd: ev => { state["move"] = null; changed(); },
+                    child: Box(class: "DockWindowTitle", children: [Icon("menu", size: 12), Text(title, maxLines: 1)]));
+                var sizer = Gesture(onDragStart: ev => { state["move"] = {"x": ev["x"], "y": ev["y"], "ww": w["width"], "wh": w["height"]}; },
+                    onDrag: ev => { var m = state["move"]; if (m != null) { w["width"] = Processing_max(200, m["ww"] + ev["x"] - m["x"]); w["height"] = Processing_max(120, m["wh"] + ev["y"] - m["y"]); } },
+                    onDragEnd: ev => { state["move"] = null; changed(); },
+                    child: Box(class: "DockResize"));
+                Array.Append(children, Positioned(key: "float:" + dockId(layout, g), left: w["x"], top: w["y"], width: w["width"], height: w["height"],
+                    child: Box(class: "DockWindow", children: [mover, Box(style: {"flexGrow": 1}, child: group(g)), sizer])));
+            }
+            var d = state["drag"]; var t = state["target"];
+            if (d != null && d["moved"]) {
+                var origin = Hash.Get(state, "origin", {"x": 0, "y": 0});
+                if (t != null && t["zone"] != "float") {
+                    var b = t["box"];
+                    var x = b["x"] - origin["x"]; var y = b["y"] - origin["y"]; var bw = b["width"]; var bh = b["height"];
+                    if (t["zone"] == "left") { bw = bw / 2; } elif (t["zone"] == "right") { x = x + bw / 2; bw = bw / 2; }
+                    elif (t["zone"] == "top") { bh = bh / 2; } elif (t["zone"] == "bottom") { y = y + bh / 2; bh = bh / 2; }
+                    Array.Append(children, Positioned(left: x + 2, top: y + 2, width: bw - 4, height: bh - 4, child: Box(class: "DockDrop")));
+                }
+                var panel = Hash.Get(panels, d["panel"], {});
+                Array.Append(children, Positioned(left: d["x"] - origin["x"] + 12, top: d["y"] - origin["y"] + 10,
+                    child: Box(class: "DockGhost", child: Text(String.From(Hash.Get(panel, "title", d["panel"]))))));
+            }
+            # Keyed so a drag can find the space's origin (see begin).
+            return Box(key: "dockspace", style: {"flexGrow": 1, "position": "relative"}, child: Stack(children: children, style: {"flexGrow": 1}));
+        });
+};

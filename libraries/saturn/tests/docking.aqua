@@ -1,0 +1,122 @@
+# Surface scale, TreeView and DockSpace: a scaled surface lays out in logical pixels and paints under one transform;
+# a tree selects, opens rows from their arrow and reports drops before, inside and after rows (never into its own
+# children); a dock space moves tabs between groups, splits a group from its edge, floats a tab dropped over no group,
+# closes a closable tab, collapses emptied groups and keeps the layout as plain data.
+var UI = import("SaturnUI");
+# The element with this key in a surface's tree, and its box.
+var find = function(e, key) {
+    if (e.key == key) { return e; }
+    for (var i = 0; i < len(e.children); i++) { var f = find(e.children[i], key); if (f != null) { return f; } }
+    return null;
+};
+var centre = function(s, key) {
+    var e = find(s.tree, key);
+    if (e == null) { return null; }
+    var b = e.node.GetAbsoluteLayout();
+    return [b["x"] + b["width"] / 2, b["y"] + b["height"] / 2, b["width"], b["height"], b["x"], b["y"]];
+};
+
+# ---- Scale ----
+var tapped = [];
+var scaled = UI.Surface(800, 600, UI.Column(children: [UI.Box(style: {"width": 100, "height": 40}, onTap: () => Array.Append(tapped, "box"))]), {"scale": 2});
+scaled.Frame(0);
+var list = scaled.Paint();
+print("scale", scaled.Scale(), scaled.width, scaled.height, list["commands"][0], list["commands"][1], list["commands"][len(list["commands"]) - 1]);
+scaled.Feed({"type": "press", "x": 150, "y": 60, "button": 0});
+scaled.Feed({"type": "release", "x": 150, "y": 60, "button": 0});
+scaled.Feed({"type": "press", "x": 250, "y": 60, "button": 0});
+scaled.Feed({"type": "release", "x": 250, "y": 60, "button": 0});
+scaled.Frame(16);
+print("scaled taps", tapped);
+scaled.SetScale(1);
+scaled.Frame(32);
+print("unscaled", scaled.width, scaled.height, scaled.Paint()["commands"][0] != 8);
+
+# ---- TreeView ----
+var nodes = [
+    {"id": "world", "label": "World", "children": [
+        {"id": "sun", "label": "Sun"},
+        {"id": "player", "label": "Player", "children": [{"id": "camera", "label": "Camera"}]}]},
+    {"id": "ui", "label": "UI", "icon": "star"}];
+var selected = null;
+var open = {"world": true};
+var drops = [];
+var toggles = [];
+var tree = UI.Builder(build: context => UI.TreeView(nodes, selected: selected, expanded: open, onSelect: (id, e) => selected = id,
+    onToggle: (id, now) => { open[id] = now; Array.Append(toggles, id + " " + String.From(now)); },
+    onDrop: (id, target, where) => Array.Append(drops, id + " " + where + " " + target), rowHeight: 20));
+var t = UI.Surface(300, 200, tree, null);
+t.Frame(0);
+var click = function(x, y) { t.Feed({"type": "press", "x": x, "y": y, "button": 0}); t.Feed({"type": "release", "x": x, "y": y, "button": 0}); t.Frame(t.time + 16); };
+var row = id => centre(t, "tree:" + id);
+print("rows", row("world")[1], row("sun")[1], row("player")[1], row("ui")[1], row("camera") == null);
+click(150, row("sun")[1]);
+print("select", selected);
+# The arrow sits at the start of the row, after its indentation (4 + 16 per level).
+click(4 + 16 + 8, row("player")[1]);
+print("toggle", toggles, row("camera") != null);
+click(150, row("camera")[1]);
+print("child row", selected);
+var drag = function(fromId, toId, part) {
+    var from = row(fromId); var to = row(toId);
+    var y = to[5] + to[3] * part;
+    t.Feed({"type": "press", "x": 150, "y": from[1], "button": 0});
+    t.Feed({"type": "drag", "x": 150, "y": from[1] + 10});
+    t.Feed({"type": "drag", "x": 150, "y": y});
+    t.Frame(t.time + 16);
+    t.Feed({"type": "release", "x": 150, "y": y, "button": 0});
+    t.Frame(t.time + 16);
+};
+drag("sun", "ui", 0.5d);
+drag("sun", "ui", 0.1d);
+drag("sun", "ui", 0.9d);
+drag("player", "camera", 0.5d);
+print("drops", drops);
+
+# ---- DockSpace ----
+var panels = {
+    "hierarchy": {"title": "Hierarchy", "build": () => UI.Text("tree")},
+    "scene": {"title": "Scene", "build": () => UI.Text("scene view")},
+    "game": {"title": "Game", "build": () => UI.Text("game view"), "closable": true},
+    "console": {"title": "Console", "build": () => UI.Text("log")}};
+var layout = {"root": {"split": "row", "size": 200,
+    "first": {"tabs": ["hierarchy"], "active": "hierarchy"},
+    "second": {"split": "column", "size": 300, "first": {"tabs": ["scene", "game"], "active": "scene"}, "second": {"tabs": ["console"]}}}};
+var changes = 0;
+var closed = [];
+var dock = UI.Surface(800, 500, UI.DockSpace(layout, panels, onLayout: l => changes += 1, onClose: id => Array.Append(closed, id)), null);
+dock.Frame(0);
+var shape = function(node) {
+    if (Hash.Get(node, "split", null) != null) { return node["split"] + "(" + shape(node["first"]) + ", " + shape(node["second"]) + ")"; }
+    return "[" + String.Join(node["tabs"], " ") + "]";
+};
+print("start", shape(layout["root"]));
+var tab = name => centre(dock, "tab:" + name);
+var tap = function(p) { dock.Feed({"type": "press", "x": p[0], "y": p[1], "button": 0}); dock.Feed({"type": "release", "x": p[0], "y": p[1], "button": 0}); dock.Frame(dock.time + 16); };
+var move = function(from, toX, toY) {
+    dock.Feed({"type": "press", "x": from[0], "y": from[1], "button": 0});
+    dock.Feed({"type": "drag", "x": from[0] + 20, "y": from[1]});
+    dock.Feed({"type": "drag", "x": toX, "y": toY});
+    dock.Frame(dock.time + 16);
+    var preview = find(dock.tree, "dockspace") != null;
+    dock.Feed({"type": "release", "x": toX, "y": toY, "button": 0});
+    dock.Frame(dock.time + 16);
+    return preview;
+};
+tap(tab("game"));
+print("active", layout["root"]["second"]["first"]["active"]);
+# Game into the middle of the Hierarchy group: it joins as a tab.
+move(tab("game"), 100, 250);
+print("join", shape(layout["root"]));
+# Console to the right edge of the Scene group: that group splits, Console on the right.
+move(tab("console"), 790, 150);
+print("split", shape(layout["root"]), layout["root"]["second"]["split"]);
+# Hierarchy over no group (outside the space): it floats.
+move(tab("hierarchy"), 900, 600);
+print("float", shape(layout["root"]), len(layout["floating"]), layout["floating"][0]["group"]["tabs"], layout["floating"][0]["width"]);
+# Game's close button (at the right end of its tab).
+var g = tab("game");
+tap([g[4] + g[2] - 12, g[1]]);
+print("closed", closed, shape(layout["root"]));
+print("changes", changes > 3);
+print("functions", UI.DockRemove(layout, "nothing"), UI.DockInsert(layout, "game", "no-group", "center"));
