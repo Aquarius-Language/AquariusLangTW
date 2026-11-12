@@ -1,0 +1,6 @@
+panel arrow
+splitter resizeHorizontal
+view arrow
+splitter again resizeHorizontal
+panel again arrow
+hover changes [真, 假, 真, 假]

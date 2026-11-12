@@ -2242,7 +2242,13 @@ var CreateSurface = function(width, height, root, options) {
         if ((type == "back" || type == "forward") && ev["source"] == "keyboard" && s.focus != null) {
             if (s.focus.type == "TextField" || s.focus.type == "Immediate") { return true; }
         }
-        # Events over (or captured by) an Immediate widget go to its feed function in its own coordinates.
+        # Events over (or captured by) an Immediate widget go to its feed function in its own coordinates. The pointer
+        # moving onto one still leaves the elements it was over: their hover state ends and their cursor (a splitter's
+        # resize arrows, say) gives way to the Immediate widget's.
+        if ((type == "move" || type == "drag") && s.captured == null && ev["x"] != null) {
+            var over = s.pathAt(ev["x"], ev["y"]);
+            if (immediateIn(over) != null) { s.pointer = [ev["x"], ev["y"]]; setHover(over); }
+        }
         var embedded = routeImmediate(s, ev, type);
         if (embedded != null) { return embedded; }
         if (type == "move" || type == "drag" || type == "dragStart" || type == "dragEnd") {

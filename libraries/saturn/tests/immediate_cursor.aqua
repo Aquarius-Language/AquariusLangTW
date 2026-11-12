@@ -1,0 +1,17 @@
+# The pointer moving from an element with a cursor (a splitter's resize arrows) onto an Immediate widget (an embedded
+# game view, say) ends that element's hover, and the cursor changes back, as it does over any other element.
+var UI = import("SaturnUI");
+var hovered = [];
+var s = UI.Surface(300, 100, UI.Builder(build: c => UI.Row(children: [
+    UI.Box(style: {"width": 100, "height": 100}, key: "panel"),
+    UI.Gesture(cursor: "ew-resize", onHover: on => { Array.Append(hovered, on); }, child: UI.Box(style: {"width": 8, "height": 100}, key: "splitter")),
+    UI.Immediate(width: 192, height: 100, key: "view", paint: (x, y, w, h) => null, feed: event => true)])),
+    {"conventions": {"platform": "windows", "formFactor": "desktop", "primaryModifier": "Ctrl", "scrollbars": "classic"}});
+s.Frame(0);
+var move = function(x) { s.Feed({"type": "move", "x": x, "y": 50, "pointerType": "mouse"}); s.Frame(s.time + 16); return s.Cursor(); };
+print("panel", move(50));
+print("splitter", move(104));
+print("view", move(200));
+print("splitter again", move(104));
+print("panel again", move(50));
+print("hover changes", hovered);
