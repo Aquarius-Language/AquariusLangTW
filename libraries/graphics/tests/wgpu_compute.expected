@@ -4,3 +4,4 @@ volume 2016 27
 sampled 64 0 127
 instanced [64, 127, 191, 0]
 indirect [64, 127, 191, 255]
+dispatch indirect 6

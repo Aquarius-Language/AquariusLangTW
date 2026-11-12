@@ -98,3 +98,22 @@ writeArgs.Dispatch(1);
 strip.Clear([0, 0, 0, 1]);
 strip.DrawIndirect(columns, quad, args);
 print("indirect", row(strip));
+
+# 6. DispatchIndirect: one shader writes the workgroup counts (3, 2, 1), another runs over them and counts its groups.
+var counts = device.CreateBuffer([0, 0, 0, 0, 0]);
+var writeCounts = device.CreateCompute("@group(2) @binding(9) var<storage, read_write> counts: array<u32>;
+@compute @workgroup_size(1) fn cs_main() { counts[0] = 0u; counts[1] = 3u; counts[2] = 2u; counts[3] = 1u; counts[4] = 0u; }");
+writeCounts.SetBuffer("counts", counts);
+writeCounts.Dispatch(1);
+var tally = device.CreateBuffer([0]);
+var countGroups = device.CreateCompute("@group(2) @binding(9) var<storage, read_write> tally: array<atomic<u32>>;
+@compute @workgroup_size(4) fn cs_main(@builtin(local_invocation_index) lane: u32) { if (lane == 0u) { atomicAdd(&tally[0], 1u); } }");
+countGroups.SetBuffer("tally", tally);
+countGroups.DispatchIndirect(counts, 1);
+var total = device.CreateBuffer([0]);
+var convert = device.CreateCompute("@group(2) @binding(9) var<storage, read_write> tally: array<u32>;
+@group(2) @binding(10) var<storage, read_write> total: array<f32>;
+@compute @workgroup_size(1) fn cs_main() { total[0] = f32(tally[0]); }");
+convert.SetBuffer("tally", tally); convert.SetBuffer("total", total);
+convert.Dispatch(1);
+print("dispatch indirect", total.Read()[0]);

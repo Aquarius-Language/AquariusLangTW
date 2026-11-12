@@ -196,6 +196,8 @@ void gpu_compute_create(gpu_device *device, const char *source, gpu_shader_done 
 bool gpu_shader_is_compute(const gpu_shader *shader);
 bool gpu_shader_set_storage(gpu_shader *shader, const char *name, gpu_texture *texture, char *error, size_t error_size);
 bool gpu_shader_dispatch(gpu_shader *shader, uint32_t x, uint32_t y, uint32_t z, char *error, size_t error_size);
+/* Runs cs_main over the workgroup counts (three u32) at byte offset `offset` of `arguments` (a storage buffer). */
+bool gpu_shader_dispatch_indirect(gpu_shader *shader, gpu_buffer *arguments, uint64_t offset, char *error, size_t error_size);
 void gpu_shader_free(gpu_shader *shader);
 bool gpu_shader_released(const gpu_shader *shader);
 gpu_device *gpu_shader_device(const gpu_shader *shader);

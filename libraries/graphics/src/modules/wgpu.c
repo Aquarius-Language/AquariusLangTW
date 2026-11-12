@@ -362,6 +362,21 @@ static void shader_Dispatch(aqua_call *call) {
     if (!gpu_shader_dispatch(s->shader, (uint32_t)x, (uint32_t)y, (uint32_t)z, error, sizeof error)) gfx_fail(call, "%s", error);
 }
 
+/* (arguments buffer, offset in floats = 0): runs a compute shader over the three u32 workgroup counts an earlier
+   dispatch wrote into a storage buffer at that offset. */
+static void shader_DispatchIndirect(aqua_call *call) {
+    shader_object *s = aqua_self(call);
+    if (!shader_live(call, s)) return;
+    if (!gpu_shader_is_compute(s->shader)) { gfx_fail(call, "DispatchIndirect runs compute shaders (CreateCompute)."); return; }
+    buffer_object *args = aqua_object_data(aqua_call_runtime(call), aqua_arg(call, 0), buffer_class);
+    if (!args || args->owner != s->owner || gpu_buffer_released(args->buffer)) { gfx_fail(call, "Expected a live storage buffer with the workgroup counts."); return; }
+    int offset = aqua_argc(call) > 1 ? gfx_int(call, 1) : 0;
+    if (aqua_failed(call)) return;
+    if (offset < 0 || offset + 3 > gpu_buffer_length(args->buffer)) { gfx_fail(call, "The workgroup counts (3 numbers at the offset) are outside the buffer."); return; }
+    char error[1024];
+    if (!gpu_shader_dispatch_indirect(s->shader, args->buffer, (uint64_t)offset * 4, error, sizeof error)) gfx_fail(call, "%s", error);
+}
+
 static void shader_Dispose(aqua_call *call) { gpu_shader_release_handles(((shader_object *)aqua_self(call))->shader); }
 
 /* ---- Render targets ---- */
@@ -1135,7 +1150,7 @@ void gfx_wgpu_destroy(wgpu_state *state) {
 #define SHADER_MEMBERS(X) \
     X(shader_Dispose, "Dispose|釋放", 0, 0) X(shader_Set, "Set|設定", 2, 2) X(shader_SetBuffer, "SetBuffer|設定緩衝區", 2, 2) \
     X(shader_SetInt, "SetInt|設定整數", 2, 2) X(shader_SetTexture, "SetTexture|設定紋理", 2, 2) \
-    X(shader_SetStorage, "SetStorage|設定儲存紋理", 2, 2) X(shader_Dispatch, "Dispatch|派送", 1, 3)
+    X(shader_SetStorage, "SetStorage|設定儲存紋理", 2, 2) X(shader_Dispatch, "Dispatch|派送", 1, 3) X(shader_DispatchIndirect, "DispatchIndirect|間接派送", 1, 2)
 #define TARGET_MEMBERS(X) \
     X(target_Clear, "Clear|清除", 1, 1) X(target_Dispose, "Dispose|釋放", 0, 0) X(target_Draw, "Draw|繪製", 2, 2) \
     X(target_DrawBuffer, "DrawBuffer|繪製緩衝區", 2, 4) X(target_DrawProcedural, "DrawProcedural|程序化繪製", 2, 4) \

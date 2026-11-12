@@ -60,7 +60,8 @@ repeating anisotropic sampler at binding 16; `UserUniforms` (4096 bytes) adds `a
 
 English summary: `device.CreateCompute(source)` compiles a compute shader (`cs_main`); it takes `Set`, `SetInt`,
 `SetTexture` and `SetBuffer` like render shaders, `SetStorage(name, texture)` for storage textures, and runs with
-`Dispatch(x, y, z)`. Compute shaders may also declare `read_write` storage buffers (9..15), storage textures
+`Dispatch(x, y, z)` (or `DispatchIndirect(buffer, offset = 0)`: three u32 workgroup counts an earlier dispatch wrote
+into a storage buffer at that offset in numbers). Compute shaders may also declare `read_write` storage buffers (9..15), storage textures
 (`texture_storage_2d` / `texture_storage_3d` in rgba8unorm, rgba16float, r32float or rgba32float, `write` or `read_write`:
 a render target's single-mip color texture or a volume) and `texture_3d<f32>` (render shaders too). `device.CreateVolume(w,
 h, d, format)` makes a zero-filled 3D texture. Draws recorded on the targets a dispatch uses are submitted before it;

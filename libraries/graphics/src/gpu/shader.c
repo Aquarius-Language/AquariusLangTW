@@ -648,6 +648,30 @@ bool gpu_shader_dispatch(gpu_shader *s, uint32_t x, uint32_t y, uint32_t z, char
     return true;
 }
 
+/* Like gpu_shader_dispatch with the workgroup counts read by the GPU from `arguments` at byte offset `offset`
+   (three u32, written by an earlier dispatch). */
+bool gpu_shader_dispatch_indirect(gpu_shader *s, gpu_buffer *arguments, uint64_t offset, char *error, size_t error_size) {
+    if (!s->compute || s->released || !s->compute_pipeline) { snprintf(error, error_size, "Not a live compute shader."); return false; }
+    gpu_device *d = s->link.device;
+    WGPUBindGroup textures = gpu_shader_texture_group(s, NULL, error, error_size);
+    if (!textures) return false;
+    WGPUBindGroup user = gpu_shader_user_group(s);
+    gpu_device_flush(d);
+    WGPUCommandEncoder encoder = wgpuDeviceCreateCommandEncoder(gpu_device_handle(d), NULL);
+    WGPUComputePassEncoder pass = wgpuCommandEncoderBeginComputePass(encoder, NULL);
+    wgpuComputePassEncoderSetPipeline(pass, s->compute_pipeline);
+    wgpuComputePassEncoderSetBindGroup(pass, 0, s->empty_group, 0, NULL);
+    wgpuComputePassEncoderSetBindGroup(pass, 1, user, 0, NULL);
+    wgpuComputePassEncoderSetBindGroup(pass, 2, textures, 0, NULL);
+    wgpuComputePassEncoderDispatchWorkgroupsIndirect(pass, gpu_buffer_handle(arguments), offset);
+    wgpuComputePassEncoderEnd(pass);
+    wgpuComputePassEncoderRelease(pass);
+    gpu_device_submit(d, encoder);
+    const char *failure = gpu_device_take_error(d);
+    if (failure) { snprintf(error, error_size, "%s", failure); return false; }
+    return true;
+}
+
 /* User uniforms are uploaded once per Set version and shared by later draws. */
 WGPUBindGroup gpu_shader_user_group(gpu_shader *s) {
     if (s->user_group && s->user_version == s->version) return s->user_group;
