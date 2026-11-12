@@ -120,3 +120,35 @@ tap([g[4] + g[2] - 12, g[1]]);
 print("closed", closed, shape(layout["root"]));
 print("changes", changes > 3);
 print("functions", UI.DockRemove(layout, "nothing"), UI.DockInsert(layout, "game", "no-group", "center"));
+
+# ---- System and user scale ----
+var both = UI.Surface(1200, 900, UI.Box(style: {"width": 10, "height": 10}), {"systemScale": 2, "userScale": 1.5d});
+both.Frame(0);
+print("scales", both.SystemScale(), both.UserScale(), both.Scale(), both.width, both.height);
+both.SetSystemScale(1.25d);
+both.Frame(16);
+print("system", both.Scale(), both.width, both.height);
+both.SetUserScale(2);
+both.Frame(32);
+print("user", both.Scale(), both.width, both.height, both.Paint()["commands"][1]);
+
+# ---- An anchored split keeps its second pane's size when the space changes ----
+var side = {"root": {"split": "row", "size": 200, "anchor": "second", "min": 100, "minSecond": 100,
+    "first": {"tabs": ["scene"], "active": "scene"}, "second": {"tabs": ["console"], "active": "console"}}};
+var anchored = UI.Surface(800, 400, UI.DockSpace(side, panels), null);
+for (var f = 0; f < 3; f++) { anchored.Frame(f * 16); }
+var paneX = s => { var e = find(s.tree, "tab:console"); return e.node.GetAbsoluteLayout()["x"]; };
+print("anchored", paneX(anchored));
+anchored.Resize(1000, 400);
+for (var f = 3; f < 6; f++) { anchored.Frame(f * 16); }
+print("wider", paneX(anchored));
+# Under a 50 px header the space is 350 tall: an anchored bottom pane of 100 starts at 50 + 350 - 100 (its tab a few
+# pixels lower, inside the tab strip).
+var column = {"root": {"split": "column", "size": 100, "anchor": "second", "min": 60, "minSecond": 60,
+    "first": {"tabs": ["scene"], "active": "scene"}, "second": {"tabs": ["console"], "active": "console"}}};
+var framed = UI.Surface(800, 400, UI.Column(crossAxis: "stretch", style: {"flexGrow": 1}, children: [UI.Box(style: {"height": 50}),
+    UI.Expanded(child: UI.DockSpace(column, panels))]), null);
+for (var f = 0; f < 4; f++) { framed.Frame(f * 16); }
+var e = find(framed.tree, "tab:console");
+var y = e.node.GetAbsoluteLayout()["y"];
+print("under header", y >= 300 && y <= 306);

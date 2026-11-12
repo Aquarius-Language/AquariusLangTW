@@ -124,6 +124,13 @@ Other libraries get the windows as shared window objects: `Processing.platformWi
 `size()`) and `PlatformWindow` of a WGPU window (null once disposed), for example
 `Interaction.Attach(p.platformWindow)` for native-feeling input ([interaction](../interaction/README.md)).
 
+Display scaling of WGPU windows: `WGPU.Window.ContentScale` is the display's scale for the window (device pixels per
+device-independent pixel: 1 at 96 dpi, 2.5 on a 250% monitor; it follows the window to another monitor, and
+`Resized` is true when it changes). `WGPU.CreateWindow(width, height, title, {"scaleToMonitor": true})` takes the
+size in logical units, so the window has the same physical size at every scale (Windows and X11 multiply it by the
+monitor's scale; it is kept inside the display); without the option the size is in the window system's units as
+before. On Windows the runtime is per-monitor-v2 DPI aware (manifest), so windows are never bitmap-stretched.
+
 ## Differences from the earlier implementation
 
 Behavior, names, aliases, argument counts, results and messages follow the earlier desktop implementation (checked

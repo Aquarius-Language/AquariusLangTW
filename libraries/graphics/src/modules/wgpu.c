@@ -28,6 +28,7 @@ typedef struct texture_object { gpu_device *device; aqua_ref keep; gpu_texture *
 
 typedef struct window_snapshot {
     int width, height, pixel_width, pixel_height;
+    double content_scale;   /* the display's scale for this window (1 = 96 dpi on Windows; 2 on a Retina or 200% display) */
     double mouse_x, mouse_y, mouse_dx, mouse_dy, wheel;
     bool focused, pointer_locked, should_close, resized;
 } window_snapshot;
@@ -825,9 +826,11 @@ static void window_publish(wgpu_window *w) {
     double dx = w->have_last ? x - w->last_x : 0, dy = w->have_last ? y - w->last_y : 0;
     w->last_x = x; w->last_y = y; w->have_last = true;
     window_snapshot *s = &w->state;
-    bool resized = width != s->width || height != s->height || pw != s->pixel_width || ph != s->pixel_height;
+    double scale = aqua_window_content_scale(w->window);
+    if (!(scale > 0)) scale = 1;
+    bool resized = width != s->width || height != s->height || pw != s->pixel_width || ph != s->pixel_height || scale != s->content_scale;
     bool close = w->close_requested || aqua_window_should_close(w->window);
-    *s = (window_snapshot){width, height, pw, ph, x, y, dx, dy, w->wheel, w->focused, w->locked, close, resized};
+    *s = (window_snapshot){width, height, pw, ph, scale, x, y, dx, dy, w->wheel, w->focused, w->locked, close, resized};
     w->wheel = 0;
 }
 
@@ -857,14 +860,42 @@ static void window_finalize(aqua_runtime *rt, void *data) {
     free(w);
 }
 
+/* GLFW's GLFW_SCALE_TO_MONITOR: the requested size is in logical units, multiplied by the monitor's content scale where
+   window sizes are pixels (Windows, X11), so a 1280 x 720 window looks the same size at 100% and at 250%. */
+#define HINT_SCALE_TO_MONITOR 0x0002200C
 static void wgpu_CreateWindow(aqua_call *call) {
     int width = gfx_dimension(call, 0), height = gfx_dimension(call, 1);
     aqua_str title = gfx_text(call, 2);
     if (aqua_failed(call)) return;
     aqua_runtime *rt = aqua_call_runtime(call);
+    /* Options: {"scaleToMonitor": true} sizes the window in logical units (see above). */
+    bool scale_to_monitor = false;
+    if (aqua_argc(call) == 4) {
+        aqua_value options = aqua_arg(call, 3);
+        if (options.type != AQUA_HASH) { gfx_fail(call, "Window options must be a hash such as {\"scaleToMonitor\": true}."); return; }
+        for (uint32_t i = 0, n = aqua_hash_count(rt, options); i < n; i++) {
+            aqua_value key, value;
+            aqua_hash_entry(rt, options, i, &key, &value);
+            if (key.type != AQUA_STRING) { gfx_fail(call, "Window options are named by strings."); return; }
+            aqua_str k = aqua_str_of(call, key);
+            if (strcmp(k.data, "scaleToMonitor") == 0) scale_to_monitor = value.type == AQUA_BOOL && value.number != 0;
+            else { gfx_fail(call, "Unknown window option '%s'; expected scaleToMonitor.", k.data); return; }
+        }
+    }
     char *error = NULL;
+    aqua_window_hint(HINT_SCALE_TO_MONITOR, scale_to_monitor ? 1 : 0);
     aqua_window *window = aqua_window_create(rt, width, height, title.data, 0, &error);
+    aqua_window_hint(HINT_SCALE_TO_MONITOR, 0);
     if (!window) { gfx_fail(call, "%s", error ? error : "Window creation failed."); aqua_free(error); return; }
+    if (scale_to_monitor) {
+        /* A window scaled to a high-density monitor can come out larger than the display: keep it inside, same shape. */
+        int32_t ww = 0, wh = 0, dw = 0, dh = 0;
+        aqua_window_size(window, &ww, &wh);
+        if (aqua_display_size(rt, &dw, &dh) && dw > 0 && dh > 0 && ww > 0 && wh > 0) {
+            double fit = fmin(dw * 0.92 / ww, dh * 0.86 / wh);
+            if (fit < 1) aqua_window_set_size(window, (int32_t)(ww * fit), (int32_t)(wh * fit));
+        }
+    }
     wgpu_state *state = state_of(call);
     wgpu_window *w = calloc(1, sizeof *w);
     w->rt = rt;
@@ -873,6 +904,8 @@ static void wgpu_CreateWindow(aqua_call *call) {
     aqua_window_listen(window, window_event, w);
     aqua_window_size(window, &w->state.width, &w->state.height);
     aqua_window_framebuffer_size(window, &w->state.pixel_width, &w->state.pixel_height);
+    w->state.content_scale = aqua_window_content_scale(window);
+    if (!(w->state.content_scale > 0)) w->state.content_scale = 1;
     aqua_window_cursor(window, &w->last_x, &w->last_y);
     w->state.mouse_x = w->last_x; w->state.mouse_y = w->last_y;
     w->state.focused = true;
@@ -963,6 +996,7 @@ WINDOW_FIELD(Width, int, w->state.width)
 WINDOW_FIELD(Height, int, w->state.height)
 WINDOW_FIELD(PixelWidth, int, w->state.pixel_width)
 WINDOW_FIELD(PixelHeight, int, w->state.pixel_height)
+WINDOW_FIELD(ContentScale, double, w->state.content_scale)
 WINDOW_FIELD(MouseX, double, w->state.mouse_x)
 WINDOW_FIELD(MouseY, double, w->state.mouse_y)
 WINDOW_FIELD(MouseDeltaX, double, w->state.mouse_dx)
@@ -993,7 +1027,7 @@ void gfx_wgpu_destroy(wgpu_state *state) {
 
 /* ---- Registration ---- */
 
-#define WGPU_MODULE(X) X(wgpu_CreateDevice, "CreateDevice|建立裝置", 0, 1) X(wgpu_CreateWindow, "CreateWindow|建立視窗", 3, 3)
+#define WGPU_MODULE(X) X(wgpu_CreateDevice, "CreateDevice|建立裝置", 0, 1) X(wgpu_CreateWindow, "CreateWindow|建立視窗", 3, 4)
 #define DEVICE_MEMBERS(X) \
     X(device_CreateBuffer, "CreateBuffer|建立緩衝區", 1, 1) X(device_CreateRenderTarget, "CreateRenderTarget|建立繪圖目標", 2, 4) \
     X(device_CreateShader, "CreateShader|建立著色器", 2, 2) X(device_CreateVertexBuffer, "CreateVertexBuffer|建立頂點緩衝區", 1, 1) \
@@ -1069,7 +1103,7 @@ void gfx_wgpu_register(aqua_library *library) {
     aqua_define_property(target_class, "Width", target_Width);
     aqua_define_property(target_class, "Height", target_Height);
 #define WINDOW_PROPERTY(name) aqua_define_property(window_class_w, #name, window_get_##name);
-    WINDOW_PROPERTY(Width) WINDOW_PROPERTY(Height) WINDOW_PROPERTY(PixelWidth) WINDOW_PROPERTY(PixelHeight)
+    WINDOW_PROPERTY(Width) WINDOW_PROPERTY(Height) WINDOW_PROPERTY(PixelWidth) WINDOW_PROPERTY(PixelHeight) WINDOW_PROPERTY(ContentScale)
     WINDOW_PROPERTY(MouseX) WINDOW_PROPERTY(MouseY) WINDOW_PROPERTY(MouseDeltaX) WINDOW_PROPERTY(MouseDeltaY)
     WINDOW_PROPERTY(Wheel) WINDOW_PROPERTY(Focused) WINDOW_PROPERTY(PointerLocked) WINDOW_PROPERTY(ShouldClose)
     WINDOW_PROPERTY(Resized) WINDOW_PROPERTY(PlatformWindow)

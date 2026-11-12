@@ -14,3 +14,9 @@ float row([game], row([scene], [console])) 1 [hierarchy] 420
 closed [game] row([scene], [console])
 changes 真
 functions 假 假
+scales 2 1.5 3 400 300
+system 1.875 640 480
+user 2.5 480 360 2.5
+anchored 604
+wider 804
+under header 真

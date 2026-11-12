@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- aquarius.exe: UTF-8 as the process code page (so ANSI-only APIs of native libraries, such as ONNX Runtime's plugin
+<!-- aquarius.exe: per-monitor (v2) DPI awareness, so windows are never bitmap-stretched and report each monitor's scale
+     (aqua_window_content_scale, WGPU.Window.ContentScale); UTF-8 as the process code page (so ANSI-only APIs of native libraries, such as ONNX Runtime's plugin
      registration, accept any path), and no elevation. -->
 <assembly manifestVersion="1.0" xmlns="urn:schemas-microsoft-com:asm.v1">
   <assemblyIdentity version="1.0.0.0" name="AquariusLang.Runtime" />
@@ -10,6 +11,8 @@
     <windowsSettings>
       <activeCodePage xmlns="http://schemas.microsoft.com/SMI/2019/WindowsSettings">UTF-8</activeCodePage>
       <longPathAware xmlns="http://schemas.microsoft.com/SMI/2016/WindowsSettings">true</longPathAware>
+      <dpiAware xmlns="http://schemas.microsoft.com/SMI/2005/WindowsSettings">true/pm</dpiAware>
+      <dpiAwareness xmlns="http://schemas.microsoft.com/SMI/2016/WindowsSettings">PerMonitorV2, PerMonitor</dpiAwareness>
     </windowsSettings>
   </application>
 </assembly>

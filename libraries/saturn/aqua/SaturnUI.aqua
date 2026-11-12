@@ -48,7 +48,7 @@ struct Divider { thickness = 1; color; vertical = false; key }
 # Two panes with a bar between them that the pointer drags to resize them (see kinds["SplitView"]).
 struct SplitView {
     first; second; direction = "row"; size = 240; min = 0; max; minSecond = 0; onResize; collapsed = false; thickness = 1;
-    grip = 8; style; class; key
+    grip = 8; anchor = "first"; style; class; key
 }
 struct Card { child; children; style; class; key; onTap }
 struct Gesture { child; onTap; onDoubleTap; onLongPress; onHover; onPress; onRelease; onDragStart; onDrag; onDragEnd; cursor; key }
@@ -93,8 +93,8 @@ struct Element { widget; type; node; children; parent; surface; state; data; key
 struct SaturnSurface {
     width; height; root; theme; sheets; tree; rootNode; overlayNode; dirty; hover; pressed; captured; focus;
     time; cursor; pressX; pressY; pressTime; lastTap; lastTapTime; tooltip; tooltipAt; pathAt; fontOf; textColor; pointer;
-    popup; autoscroll; swallow; relayout; stale; force; breakpoint; conventions; options; errors; painted; scale; hostWidth; hostHeight;
-    Frame; Paint; Feed; Wants; Resize; SetRoot; SetTheme; Rebuild; Cursor; NeedsFrame; ImeRect; HasPopup; Errors; Dispose; SetScale; Scale
+    popup; autoscroll; swallow; relayout; stale; force; breakpoint; conventions; options; errors; painted; scale; systemScale; userScale; hostWidth; hostHeight;
+    Frame; Paint; Feed; Wants; Resize; SetRoot; SetTheme; Rebuild; Cursor; NeedsFrame; ImeRect; HasPopup; Errors; Dispose; SetScale; Scale; SetSystemScale; SetUserScale; SystemScale; UserScale
 }
 struct DropdownMenu { owner; options; value; key }
 struct MenuPopup { owner; items; at; key }
@@ -936,13 +936,19 @@ kinds["Divider"] = {"update": function(e, w) {
 var splitLimit = function(e, size) {
     var w = e.widget;
     var hi = w.max;
+    var lo = pick(w.min, 0);
+    var loSecond = pick(w.minSecond, 0);
     var total = Hash.Get(e.data, "total", null);
     if (total != null) {
-        var room = total - w.thickness - pick(w.minSecond, 0);
-        if (hi == null || room < hi) { hi = room; }
+        # A view too small for both minimums (a small window at a large UI scale) shares what it has in proportion to
+        # them, instead of pushing the second pane out of the view.
+        var room = total - w.thickness;
+        if (lo + loSecond > room && lo + loSecond > 0) { var f = Processing_max(0, room) / (lo + loSecond); lo = lo * f; loSecond = loSecond * f; }
+        var most = room - loSecond;
+        if (hi == null || most < hi) { hi = most; }
     }
     if (hi != null && size > hi) { size = hi; }
-    return Processing_max(size, pick(w.min, 0));
+    return Processing_max(size, lo);
 };
 var splitSize = e => splitLimit(e, Hash.Get(e.data, "size", e.widget.size));
 var splitAxis = function(w) { if (w.direction == "column") { return "height"; } return "width"; };
@@ -965,9 +971,22 @@ var lightSplit = function(e) {
     var bar = e.children[1];
     if (Hash.Get(bar.data, "selected", false) != lit) { bar.data["selected"] = lit; restate(bar); }
 };
+# anchor "second": `size` and onResize are the second pane's length, which then stays as it is when the view grows or
+# shrinks (a side panel beside a main area); the first pane takes the rest. Inside, data["size"] is always the first
+# pane's length, so dragging works the same either way.
+var splitAnchored = w => w.anchor == "second";
+var splitFromSecond = function(e) {
+    var total = Hash.Get(e.data, "total", null);
+    var second = Hash.Get(e.data, "second", e.widget.size);
+    if (total == null) { return Hash.Get(e.data, "size", second); }
+    return total - e.widget.thickness - second;
+};
 kinds["SplitView"] = {"update": function(e, w) {
     var row = w.direction != "column";
-    if (Hash.Get(e.data, "given", null) != w.size) { e.data["given"] = w.size; e.data["size"] = w.size; }
+    if (Hash.Get(e.data, "given", null) != w.size) {
+        e.data["given"] = w.size;
+        if (splitAnchored(w)) { e.data["second"] = w.size; e.data["size"] = splitFromSecond(e); } else { e.data["size"] = w.size; }
+    }
     restyle(e, {"flexDirection": if (row) { "row"; } else { "column"; }, "flexGrow": 1, "alignSelf": "stretch", "minWidth": 0, "minHeight": 0},
         selectorsOf("SplitView", null, w.class), w.style);
     var shown = if (w.collapsed == true) { "none"; } else { "flex"; };
@@ -989,6 +1008,7 @@ kinds["SplitView"] = {"update": function(e, w) {
     var total = if (w.direction == "column") { e.node.GetComputedHeight(); } else { e.node.GetComputedWidth(); };
     if (total == Hash.Get(e.data, "total", null)) { return null; }
     e.data["total"] = total;
+    if (splitAnchored(w)) { e.data["size"] = splitFromSecond(e); }
     placeSplit(e, splitSize(e));
 }};
 kinds["SplitHandle"] = {"update": function(e, w) {
@@ -1012,7 +1032,13 @@ kinds["SplitHandle"] = {"update": function(e, w) {
     var split = e.parent;
     var size = splitSize(split);
     lightSplit(split);
-    if (size != Hash.Get(e.data, "from", size) && split.widget.onResize != null) { split.widget.onResize(size); split.surface.dirty = true; }
+    var reported = size;
+    if (splitAnchored(split.widget)) {
+        # The second pane's length is what an anchored view keeps and reports.
+        reported = Hash.Get(split.data, "total", size + split.widget.thickness) - split.widget.thickness - size;
+        split.data["second"] = reported;
+    }
+    if (size != Hash.Get(e.data, "from", size) && split.widget.onResize != null) { split.widget.onResize(reported); split.surface.dirty = true; }
 }};
 kinds["Text"] = {"update": function(e, w) {
     var base = {"maxLines": w.maxLines, "textAlign": w.align};
@@ -1917,11 +1943,20 @@ var CreateSurface = function(width, height, root, options) {
         s.dirty = true;
         s.force = true;
     };
-    # Scale: the surface lays out in logical pixels, `scale` host units each (a UI zoom, or the display's density when
-    # the host draws in device pixels). Resize, Feed, Wants, Paint and ImeRect speak host units; layout, widgets and
-    # handlers see logical pixels.
-    s.scale = 1;
-    if (options != null && options["scale"] != null && options["scale"] > 0) { s.scale = options["scale"]; }
+    # Display scaling. The surface lays out in logical (device-independent) pixels; each is `scale` host units, where
+    # scale = systemScale x userScale:
+    #   systemScale: what the display asks for in the host's units: a window that reports sizes and pointer positions
+    #     in physical pixels (Windows, X11) on a 250% monitor gives 2.5; a host already in logical units (Processing,
+    #     macOS points, the web's CSS pixels) gives 1. Hosts follow the window's content scale and call SetSystemScale
+    #     when it changes (the window moved to another monitor, the system setting changed).
+    #   userScale: the app's own zoom (a "UI scale" setting, Ctrl + = / Ctrl + -).
+    # Resize, Feed, Wants, Paint (one transform around the list) and ImeRect speak host units; layout, styles and
+    # handlers only ever see logical pixels, so the same layout holds at every scale.
+    s.systemScale = 1; s.userScale = 1;
+    if (options != null && options["systemScale"] != null && options["systemScale"] > 0) { s.systemScale = options["systemScale"]; }
+    if (options != null && options["scale"] != null && options["scale"] > 0) { s.userScale = options["scale"]; }
+    if (options != null && options["userScale"] != null && options["userScale"] > 0) { s.userScale = options["userScale"]; }
+    s.scale = s.systemScale * s.userScale;
     s.hostWidth = width; s.hostHeight = height;
     s.width = width / s.scale; s.height = height / s.scale;
     s.Resize = function(w, h) {
@@ -1929,13 +1964,21 @@ var CreateSurface = function(width, height, root, options) {
         var lw = w / s.scale; var lh = h / s.scale;
         if (lw != s.width || lh != s.height) { s.width = lw; s.height = lh; s.dirty = true; }
     };
-    s.SetScale = function(scale) {
-        if (scale == null || scale <= 0 || scale == s.scale) { return; }
+    var rescale = function() {
+        var scale = s.systemScale * s.userScale;
+        if (scale == s.scale) { return; }
         s.scale = scale;
         s.width = s.hostWidth / scale; s.height = s.hostHeight / scale;
+        # Text is measured again at the new size (a measurer may round to device pixels).
+        Saturn.ClearTextCache();
         s.dirty = true; s.force = true;
     };
+    s.SetSystemScale = function(scale) { if (scale != null && scale > 0) { s.systemScale = scale; rescale(); } };
+    s.SetUserScale = function(scale) { if (scale != null && scale > 0) { s.userScale = scale; rescale(); } };
+    s.SetScale = s.SetUserScale;
     s.Scale = function() { return s.scale; };
+    s.SystemScale = function() { return s.systemScale; };
+    s.UserScale = function() { return s.userScale; };
     s.Cursor = function() { if (s.autoscroll != null) { return "move"; } return s.cursor; };
     s.NeedsFrame = function() { return s.dirty || s.relayout || len(s.stale) > 0 || Saturn.Animating() || s.focus != null || s.tooltip != null || s.autoscroll != null; };
     # Whether a dropdown or menu is open: it takes the keyboard and the pointer until it closes.
@@ -2837,7 +2880,7 @@ var DockRemove = function(layout, panel) {
         if (g["active"] == panel) { g["active"] = if (len(keep) > 0) { keep[0]; } else { null; }; }
         if (len(keep) > 0) { return true; }
         var floating = Hash.Get(layout, "floating", []);
-        for (var f = 0; f < len(floating); f++) { if (floating[f]["group"] == g) { Array.Delete(floating, f, 1); return true; } }
+        for (var f = 0; f < len(floating); f++) { if (floating[f]["group"] == g) { Array.Delete(floating, f, f + 1); return true; } }
         var parent = dockParent(layout["root"], g);
         if (parent != null) { dockBecome(parent, if (parent["first"] == g) { parent["second"]; } else { parent["first"]; }); }
         return true;
@@ -2948,8 +2991,11 @@ var DockSpace = function(layout, panels, onLayout = null, onClose = null, key = 
                 return Box(key: "dock:" + id, class: "DockGroup", children: [Box(class: "DockStrip", children: strip), Box(class: "DockBody", child: body)]);
             };
             var tree = function(node) {
+                # A split's size is its first pane's; with "anchor": "second" it is the second pane's, which then keeps
+                # its size when the space grows or shrinks (a side panel beside the views).
                 if (Hash.Get(node, "split", null) != null) {
-                    return SplitView(direction: node["split"], size: node["size"], min: 80, minSecond: 80,
+                    return SplitView(direction: node["split"], size: node["size"], anchor: Hash.Get(node, "anchor", "first"),
+                        min: Hash.Get(node, "min", 80), minSecond: Hash.Get(node, "minSecond", 80),
                         first: tree(node["first"]), second: tree(node["second"]), onResize: v => { node["size"] = v; changed(); });
                 }
                 return group(node);
