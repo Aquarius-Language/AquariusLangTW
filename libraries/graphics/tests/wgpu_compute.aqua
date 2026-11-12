@@ -1,0 +1,74 @@
+# (needs a GPU device) WGPU compute shaders: CreateCompute with uniforms, read_write storage buffers, storage textures
+# written into a render target (2D) and into a volume (3D), a 3D texture read by a second compute shader and sampled by
+# a render shader, and Dispatch with 1, 2 and 3 workgroup counts.
+var gpu = import("WGPU");
+var device = gpu.CreateDevice();
+
+# 1. A storage buffer written by a compute shader with a uniform: out[i] = i * scale + offset.
+var fill = device.CreateCompute("struct UserUniforms { factors: vec4<f32>, }
+@group(1) @binding(0) var<uniform> u: UserUniforms;
+@group(2) @binding(9) var<storage, read_write> values: array<f32>;
+@compute @workgroup_size(64) fn cs_main(@builtin(global_invocation_id) id: vec3<u32>) {
+    if (id.x < arrayLength(&values)) { values[id.x] = f32(id.x) * u.factors.x + u.factors.y; }
+}");
+var buffer = device.CreateBuffer(Array.Make(100, 0.0d));
+fill.Set("factors", [3, 0.5d, 0, 0]);
+fill.SetBuffer("values", buffer);
+fill.Dispatch(2);
+var back = buffer.Read();
+print("buffer", back[0], back[1], back[99]);
+
+# 2. A 2D storage texture: a compute shader paints an rgba8unorm render target, read back as pixels.
+var target = device.CreateRenderTarget(8, 4, "rgba8unorm");
+var paint = device.CreateCompute("@group(2) @binding(0) var image: texture_storage_2d<rgba8unorm, write>;
+@compute @workgroup_size(8, 4) fn cs_main(@builtin(global_invocation_id) id: vec3<u32>) {
+    textureStore(image, vec2<i32>(id.xy), vec4<f32>(f32(id.x) / 7.0, f32(id.y) / 3.0, 1.0, 1.0));
+}");
+paint.SetStorage("image", target.GetTexture());
+paint.Dispatch(1, 1);
+var pixels = target.ReadPixels();
+# Packed ARGB pixels go above 2^31: split them with doubles.
+var channel = function(v, shift) { var high = Math.Floor(v / Math.Pow(2, shift)); return int(high - Math.Floor(high / 256) * 256); };
+print("texture", channel(pixels[0], 16), channel(pixels[0], 8), channel(pixels[7], 16), channel(pixels[3 * 8 + 7], 8), channel(pixels[3 * 8 + 7], 0));
+
+# 3. A volume: written by one compute shader (3D storage), read by another (texture_3d with textureLoad) into a buffer.
+var volume = device.CreateVolume(4, 4, 4, "rgba16float");
+var write3 = device.CreateCompute("@group(2) @binding(1) var cells: texture_storage_3d<rgba16float, write>;
+@compute @workgroup_size(4, 4, 4) fn cs_main(@builtin(global_invocation_id) id: vec3<u32>) {
+    textureStore(cells, vec3<i32>(id), vec4<f32>(f32(id.x), f32(id.y), f32(id.z), f32(id.x + id.y * 4u + id.z * 16u)));
+}");
+write3.SetStorage("cells", volume);
+write3.Dispatch(1, 1, 1);
+var read3 = device.CreateCompute("@group(2) @binding(0) var cells: texture_3d<f32>;
+@group(2) @binding(10) var<storage, read_write> sums: array<f32>;
+@compute @workgroup_size(1) fn cs_main(@builtin(global_invocation_id) id: vec3<u32>) {
+    var total = 0.0;
+    for (var z = 0; z < 4; z++) { for (var y = 0; y < 4; y++) { for (var x = 0; x < 4; x++) { total += textureLoad(cells, vec3<i32>(x, y, z), 0).w; } } }
+    sums[0] = total;
+    sums[1] = textureLoad(cells, vec3<i32>(3, 2, 1), 0).w;
+}");
+var sums = device.CreateBuffer([0, 0]);
+read3.SetTexture("cells", volume);
+read3.SetBuffer("sums", sums);
+read3.Dispatch(1);
+var s = sums.Read();
+print("volume", s[0], s[1]);
+
+# 4. A render shader samples the volume (texture_3d<f32>, filtered) at the middle of a cell.
+var show = device.CreateShader("@vertex fn vs_main(@builtin(vertex_index) i: u32) -> VertexOutput {
+    var o: VertexOutput;
+    let x = f32((i << 1u) & 2u); let y = f32(i & 2u);
+    o.position = vec4<f32>(x * 2.0 - 1.0, 1.0 - y * 2.0, 0.0, 1.0);
+    return o;
+}", "@group(2) @binding(0) var cells: texture_3d<f32>;
+@group(2) @binding(8) var linear: sampler;
+@fragment fn fs_main(@builtin(position) p: vec4<f32>) -> @location(0) vec4<f32> {
+    let v = textureSampleLevel(cells, linear, vec3<f32>(0.375, 0.125, 0.625), 0.0);
+    return vec4<f32>(v.x / 4.0, v.y / 4.0, v.z / 4.0, 1.0);
+}");
+show.SetTexture("cells", volume);
+var shown = device.CreateRenderTarget(2, 2, "rgba8unorm");
+shown.SetState({"blend": "replace", "depth": "none"});
+shown.DrawProcedural(show, 3);
+var sp = shown.ReadPixels();
+print("sampled", channel(sp[0], 16), channel(sp[0], 8), channel(sp[0], 0));

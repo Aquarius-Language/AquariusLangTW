@@ -108,6 +108,11 @@ gpu_texture *gpu_texture_attachment(gpu_device *device, int width, int height, W
 bool gpu_target_format_parse(const char *name, WGPUTextureFormat *format);
 /* Whether every GPU can filter (sample linearly) the format: all but r32float and rgba32float. */
 bool gpu_format_filterable(WGPUTextureFormat format);
+/* Formats compute shaders can write as storage textures: rgba8unorm, rgba16float, r32float, rgba32float. */
+bool gpu_format_storage(WGPUTextureFormat format);
+gpu_texture *gpu_texture_volume(gpu_device *device, int width, int height, int depth, WGPUTextureFormat format, char *error, size_t error_size);
+int gpu_texture_depth(const gpu_texture *texture);
+bool gpu_texture_volume_kind(const gpu_texture *texture);
 /* Fills mips 1.. of a color attachment from mip 0 (2x2 box filter); false for formats gpu_format_filterable rejects. */
 bool gpu_texture_generate_mipmaps(gpu_texture *texture);
 int gpu_texture_mip_levels(const gpu_texture *texture);
@@ -180,6 +185,12 @@ typedef void (*gpu_shader_done)(gpu_shader *shader, const char *error, void *dat
 /* Compiles vertex and fragment WGSL (the shared header is prepended); validation errors come back as
    "Shader compile failed: <diagnostic>". */
 void gpu_shader_create(gpu_device *device, const char *vertex, const char *fragment, gpu_shader_done done, void *data);
+/* Compute shaders (shader.c): one WGSL source with cs_main; uniforms, textures and buffers as render shaders, plus
+   read_write storage buffers, storage textures (2D / 3D) and 3D textures. */
+void gpu_compute_create(gpu_device *device, const char *source, gpu_shader_done done, void *data);
+bool gpu_shader_is_compute(const gpu_shader *shader);
+bool gpu_shader_set_storage(gpu_shader *shader, const char *name, gpu_texture *texture, char *error, size_t error_size);
+bool gpu_shader_dispatch(gpu_shader *shader, uint32_t x, uint32_t y, uint32_t z, char *error, size_t error_size);
 void gpu_shader_free(gpu_shader *shader);
 bool gpu_shader_released(const gpu_shader *shader);
 gpu_device *gpu_shader_device(const gpu_shader *shader);

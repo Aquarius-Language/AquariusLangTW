@@ -338,6 +338,30 @@ static void shader_SetBuffer(aqua_call *call) {
     bind(rt, s, name.data, aqua_arg(call, 1));
 }
 
+static void shader_SetStorage(aqua_call *call) {
+    shader_object *s = aqua_self(call);
+    aqua_runtime *rt = aqua_call_runtime(call);
+    if (!device_live(call, s->owner)) return;
+    texture_object *t = texture_data(rt, aqua_arg(call, 1));
+    if (!t || t->device != s->owner->device || texture_released(t)) { gfx_fail(call, "Expected a live texture (a target's GetTexture or a volume) from this device."); return; }
+    aqua_str name = gfx_text(call, 0);
+    if (aqua_failed(call)) return;
+    char error[512];
+    if (!gpu_shader_set_storage(s->shader, name.data, t->texture, error, sizeof error)) { gfx_fail(call, "%s", error); return; }
+    bind(rt, s, name.data, aqua_arg(call, 1));
+}
+
+static void shader_Dispatch(aqua_call *call) {
+    shader_object *s = aqua_self(call);
+    if (!shader_live(call, s)) return;
+    if (!gpu_shader_is_compute(s->shader)) { gfx_fail(call, "Dispatch runs compute shaders (CreateCompute)."); return; }
+    int x = gfx_int(call, 0), y = aqua_argc(call) > 1 ? gfx_int(call, 1) : 1, z = aqua_argc(call) > 2 ? gfx_int(call, 2) : 1;
+    if (aqua_failed(call)) return;
+    if (x < 1 || y < 1 || z < 1 || x > 65535 || y > 65535 || z > 65535) { gfx_fail(call, "Workgroup counts must be 1..65535."); return; }
+    char error[1024];
+    if (!gpu_shader_dispatch(s->shader, (uint32_t)x, (uint32_t)y, (uint32_t)z, error, sizeof error)) gfx_fail(call, "%s", error);
+}
+
 static void shader_Dispose(aqua_call *call) { gpu_shader_release_handles(((shader_object *)aqua_self(call))->shader); }
 
 /* ---- Render targets ---- */
@@ -731,6 +755,42 @@ static void device_CreateShader(aqua_call *call) {
     gfx_async_end(a);
 }
 
+/* (source with @compute fn cs_main) -> Shader: Set / SetInt / SetTexture / SetBuffer as render shaders, SetStorage for
+   storage textures, Dispatch(x, y, z) to run it. */
+static void device_CreateCompute(aqua_call *call) {
+    device_object *d = device_self(call);
+    if (!device_live(call, d)) return;
+    aqua_str source = gfx_text(call, 0);
+    if (aqua_failed(call)) return;
+    gfx_async *a = gfx_async_begin(call, sizeof(shader_request));
+    shader_request *request = gfx_async_data(a);
+    request->device = d;
+    request->device_ref = aqua_retain(aqua_call_runtime(call), aqua_self_value(call));
+    gpu_compute_create(d->device, source.data, shader_created, a);
+    gfx_async_end(a);
+}
+
+/* (width, height, depth, format = "rgba16float") -> Texture: a 3D texture compute shaders write (texture_storage_3d)
+   and any shader samples (texture_3d<f32>); starts zero-filled. */
+static void device_CreateVolume(aqua_call *call) {
+    device_object *d = device_self(call);
+    if (!device_live(call, d)) return;
+    int width = gfx_int(call, 0), height = gfx_int(call, 1), depth = gfx_int(call, 2);
+    if (aqua_failed(call)) return;
+    WGPUTextureFormat format = WGPUTextureFormat_RGBA16Float;
+    if (aqua_argc(call) >= 4) {
+        aqua_str name = gfx_text(call, 3);
+        if (aqua_failed(call)) return;
+        if (!gpu_target_format_parse(name.data, &format) || !gpu_format_storage(format)) {
+            gfx_fail(call, "Volume format must be rgba8unorm, rgba16float, r32float or rgba32float."); return;
+        }
+    }
+    char error[512];
+    gpu_texture *texture = gpu_texture_volume(d->device, width, height, depth, format, error, sizeof error);
+    if (!texture) { gfx_fail(call, "%s", error); return; }
+    aqua_return(call, gfx_texture_object_new(aqua_call_runtime(call), d->device, texture, NULL, aqua_self_value(call)));
+}
+
 static void device_CreateRenderTarget(aqua_call *call) {
     device_object *d = device_self(call);
     if (!device_live(call, d)) return;
@@ -1031,6 +1091,7 @@ void gfx_wgpu_destroy(wgpu_state *state) {
 #define DEVICE_MEMBERS(X) \
     X(device_CreateBuffer, "CreateBuffer|建立緩衝區", 1, 1) X(device_CreateRenderTarget, "CreateRenderTarget|建立繪圖目標", 2, 4) \
     X(device_CreateShader, "CreateShader|建立著色器", 2, 2) X(device_CreateVertexBuffer, "CreateVertexBuffer|建立頂點緩衝區", 1, 1) \
+    X(device_CreateCompute, "CreateCompute|建立運算著色器", 1, 1) X(device_CreateVolume, "CreateVolume|建立體積紋理", 3, 4) \
     X(device_Dispatch, "Dispatch|派送", 3, 3) X(device_Dispose, "Dispose|釋放", 0, 0) X(device_LoadTexture, "LoadTexture|載入紋理", 6, 6) \
     X(device_Poll, "Poll|輪詢", 0, 0) X(device_Present, "Present|呈現", 1, 1)
 #define BUFFER_MEMBERS(X) \
@@ -1038,7 +1099,8 @@ void gfx_wgpu_destroy(wgpu_state *state) {
     X(buffer_Write, "Write|寫入", 1, 1) X(buffer_WriteRange, "WriteRange|寫入範圍", 2, 2)
 #define SHADER_MEMBERS(X) \
     X(shader_Dispose, "Dispose|釋放", 0, 0) X(shader_Set, "Set|設定", 2, 2) X(shader_SetBuffer, "SetBuffer|設定緩衝區", 2, 2) \
-    X(shader_SetInt, "SetInt|設定整數", 2, 2) X(shader_SetTexture, "SetTexture|設定紋理", 2, 2)
+    X(shader_SetInt, "SetInt|設定整數", 2, 2) X(shader_SetTexture, "SetTexture|設定紋理", 2, 2) \
+    X(shader_SetStorage, "SetStorage|設定儲存紋理", 2, 2) X(shader_Dispatch, "Dispatch|派送", 1, 3)
 #define TARGET_MEMBERS(X) \
     X(target_Clear, "Clear|清除", 1, 1) X(target_Dispose, "Dispose|釋放", 0, 0) X(target_Draw, "Draw|繪製", 2, 2) \
     X(target_DrawBuffer, "DrawBuffer|繪製緩衝區", 2, 4) X(target_DrawProcedural, "DrawProcedural|程序化繪製", 2, 4) X(target_Flush, "Flush|送出", 0, 0) X(target_Prepare, "Prepare|準備", 1, 2) \

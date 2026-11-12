@@ -47,3 +47,21 @@ target: read it with `textureLoad`; sampling, `GenerateMipmaps` or presenting it
 repeating anisotropic sampler at binding 16; `UserUniforms` (4096 bytes) adds `array<vec4<f32>, N>` and
 `mat3x3<f32>`; `DrawProcedural` takes an optional scissor and `Flush()` submits, so long passes can be drawn in bands;
 `Prepare(shader)` compiles a pipeline ahead of the first draw, asynchronously on the web. Test: `tests/wgpu_targets.aqua`.
+
+## 運算著色器與體積紋理 / Compute shaders and volumes
+
+`device.CreateCompute(wgsl)` 編譯含 `@compute fn cs_main` 的運算著色器，回傳的 Shader 與繪圖著色器一樣使用 `Set`、`SetInt`、`SetTexture`、`SetBuffer`（群組 1 的 UserUniforms 與群組 2 的綁定），另有 `SetStorage(name, texture)` 綁定儲存紋理，`Dispatch(x, y = 1, z = 1)` 以工作群組數執行。運算著色器的群組 2 另外可宣告：
+
+- `var<storage, read_write>` 儲存緩衝區（綁定 9..15；繪圖著色器仍只能唯讀）；
+- `texture_storage_2d<格式, write | read_write>` 與 `texture_storage_3d<...>`，格式為 `rgba8unorm`、`rgba16float`、`r32float`、`rgba32float`（WebGPU 核心允許作為儲存紋理的格式），綁定在紋理位置 0..7 與 18..31；2D 儲存紋理是繪圖目標的 `GetTexture(i)`（單一 mip、上述格式），3D 則是體積；
+- `texture_3d<f32>`（繪圖著色器也可用）。
+
+`device.CreateVolume(w, h, d, 格式 = "rgba16float")` 建立 3D 紋理（初始為 0），運算著色器以儲存紋理寫入，任何著色器以 `texture_3d<f32>` 取樣或 `textureLoad`。每次 `Dispatch` 先送出寫入或讀取目標上已記錄的繪製，之後記錄的繪製與運算都會看到它的結果。群組 0 對運算著色器是空的。
+
+English summary: `device.CreateCompute(source)` compiles a compute shader (`cs_main`); it takes `Set`, `SetInt`,
+`SetTexture` and `SetBuffer` like render shaders, `SetStorage(name, texture)` for storage textures, and runs with
+`Dispatch(x, y, z)`. Compute shaders may also declare `read_write` storage buffers (9..15), storage textures
+(`texture_storage_2d` / `texture_storage_3d` in rgba8unorm, rgba16float, r32float or rgba32float, `write` or `read_write`:
+a render target's single-mip color texture or a volume) and `texture_3d<f32>` (render shaders too). `device.CreateVolume(w,
+h, d, format)` makes a zero-filled 3D texture. Draws recorded on the targets a dispatch uses are submitted before it;
+later work sees its writes. Test: `tests/wgpu_compute.aqua` (windows-x64 so far).

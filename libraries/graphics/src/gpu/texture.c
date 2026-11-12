@@ -11,8 +11,8 @@ struct gpu_texture {
     WGPUTexture handle;
     WGPUTextureView view, attachment_view; /* attachment_view: mip 0 of a mipmapped attachment, else NULL */
     WGPUTextureFormat format;
-    int width, height, mip_levels;
-    bool cube, sampled_rgba;
+    int width, height, depth, mip_levels;
+    bool cube, volume, sampled_rgba;
     gpu_target *source;
 };
 
@@ -62,6 +62,8 @@ static gpu_texture *create(gpu_device *device, const WGPUTextureDescriptor *desc
     t->view = wgpuTextureCreateView(t->handle, view);
     t->width = (int)descriptor->size.width;
     t->height = (int)descriptor->size.height;
+    t->depth = descriptor->dimension == WGPUTextureDimension_3D ? (int)descriptor->size.depthOrArrayLayers : 1;
+    t->volume = descriptor->dimension == WGPUTextureDimension_3D;
     t->format = descriptor->format;
     t->mip_levels = (int)descriptor->mipLevelCount;
     gpu_device_link(device, &t->link, GPU_TEXTURE);
@@ -136,6 +138,8 @@ gpu_texture *gpu_texture_attachment(gpu_device *device, int width, int height, W
     descriptor.usage = WGPUTextureUsage_RenderAttachment;
     bool color = format != WGPUTextureFormat_Depth24PlusStencil8;
     if (samples == 1 && color) descriptor.usage |= WGPUTextureUsage_TextureBinding | WGPUTextureUsage_CopySrc | WGPUTextureUsage_CopyDst;
+    /* Compute shaders write these formats as storage textures (WebGPU core allows storage for exactly them). */
+    if (samples == 1 && color && mip_levels == 1 && gpu_format_storage(format)) descriptor.usage |= WGPUTextureUsage_StorageBinding;
     gpu_texture *t = create(device, &descriptor, NULL);
     if (t && mip_levels > 1) {
         WGPUTextureViewDescriptor view = WGPU_TEXTURE_VIEW_DESCRIPTOR_INIT;
@@ -145,6 +149,33 @@ gpu_texture *gpu_texture_attachment(gpu_device *device, int width, int height, W
     }
     return t;
 }
+
+bool gpu_format_storage(WGPUTextureFormat format) {
+    return format == WGPUTextureFormat_RGBA8Unorm || format == WGPUTextureFormat_RGBA16Float || format == WGPUTextureFormat_R32Float ||
+           format == WGPUTextureFormat_RGBA32Float;
+}
+
+/* A 3D texture for compute work (written as a storage texture, sampled as texture_3d<f32>); zero-filled. */
+gpu_texture *gpu_texture_volume(gpu_device *device, int width, int height, int depth, WGPUTextureFormat format, char *error, size_t error_size) {
+    if (width < 1 || height < 1 || depth < 1 || width > 2048 || height > 2048 || depth > 2048) {
+        snprintf(error, error_size, "Volume sizes must be 1..2048."); return NULL;
+    }
+    if (!gpu_format_storage(format)) { snprintf(error, error_size, "Volume format must be rgba8unorm, rgba16float, r32float or rgba32float."); return NULL; }
+    uint64_t bytes = (uint64_t)width * height * depth * (format == WGPUTextureFormat_RGBA32Float ? 16 : format == WGPUTextureFormat_RGBA16Float ? 8 : 4);
+    if (bytes > 512u * 1024 * 1024) { snprintf(error, error_size, "Volume exceeds 512 MiB."); return NULL; }
+    WGPUTextureDescriptor descriptor = WGPU_TEXTURE_DESCRIPTOR_INIT;
+    descriptor.dimension = WGPUTextureDimension_3D;
+    descriptor.size.width = (uint32_t)width; descriptor.size.height = (uint32_t)height; descriptor.size.depthOrArrayLayers = (uint32_t)depth;
+    descriptor.format = format; descriptor.mipLevelCount = 1; descriptor.sampleCount = 1;
+    descriptor.usage = WGPUTextureUsage_TextureBinding | WGPUTextureUsage_StorageBinding | WGPUTextureUsage_CopyDst | WGPUTextureUsage_CopySrc;
+    gpu_texture *t = create(device, &descriptor, NULL);
+    if (!t) { snprintf(error, error_size, "wgpu volume creation failed."); return NULL; }
+    const char *failure = gpu_device_take_error(device);
+    if (failure) { snprintf(error, error_size, "%s", failure); gpu_texture_free(t); return NULL; }
+    return t;
+}
+int gpu_texture_depth(const gpu_texture *t) { return t->depth; }
+bool gpu_texture_volume_kind(const gpu_texture *t) { return t->volume; }
 
 bool gpu_format_filterable(WGPUTextureFormat format) {
     return format != WGPUTextureFormat_R32Float && format != WGPUTextureFormat_RGBA32Float;

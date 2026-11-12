@@ -4,6 +4,11 @@
    Group 2: textures at bindings 0..7 and 18..31, the linear clamp-to-edge sampler at 8, the linear repeating sampler
    (mipmapped, 8x anisotropic) at 16 when the shader declares it, read-only storage buffers at 9..15.
 
+   Compute shaders (gpu_compute_create: one source with cs_main) use the same groups 1 and 2, and may also declare
+   read_write storage buffers at 9..15, storage textures (texture_storage_2d / texture_storage_3d with rgba8unorm,
+   rgba16float, r32float or rgba32float, write or read_write) and 3D textures (texture_3d<f32>, also allowed in render
+   shaders) at the texture bindings. Group 0 is empty for them.
+
    A texture the shader only reads texel by texel (textureLoad, textureDimensions, textureNumLevels, textureNumLayers)
    is declared unfilterable, so every format binds to it, 32-bit float ones included. Any other use (sampling) needs a
    filterable format; r32float and rgba32float are not filterable on every GPU, so binding one there fails with an
@@ -17,8 +22,9 @@
 enum { FIELD_F32, FIELD_I32, FIELD_U32, FIELD_VECTOR, FIELD_MATRIX, FIELD_MATRIX3, FIELD_ARRAY };
 #define TEXTURE_SLOTS 22
 typedef struct uniform_field { char name[64]; int offset, count, type; } uniform_field;
-typedef struct texture_field { char name[64]; int binding; bool cube, filtered; gpu_texture *texture; } texture_field;
-typedef struct buffer_field { char name[64]; int binding; gpu_buffer *buffer; } buffer_field;
+/* dim: 0 2D, 1 cube, 2 3D. storage: a storage texture (compute), written (and read when read_write). */
+typedef struct texture_field { char name[64]; int binding, dim; bool cube, filtered, storage, read_write; WGPUTextureFormat storage_format; gpu_texture *texture; } texture_field;
+typedef struct buffer_field { char name[64]; int binding; bool writable; gpu_buffer *buffer; } buffer_field;
 typedef struct pipeline_entry {
     int mode, blend, depth, stencil, cull, colors; uint32_t samples; WGPUTextureFormat format; bool vertex_buffer;
     WGPURenderPipeline pipeline;
@@ -39,6 +45,12 @@ struct gpu_shader {
     WGPUBuffer user_buffer;
     WGPUBindGroup user_group, texture_group;
     pipeline_entry *pipelines; size_t pipeline_count, pipeline_capacity;
+    /* compute shaders */
+    bool compute;
+    WGPUShaderModule compute_module;
+    WGPUComputePipeline compute_pipeline;
+    WGPUBindGroupLayout empty_layout, user_layout;   /* group 0 (empty) and a compute-visible group 1 */
+    WGPUBindGroup empty_group;
     bool released;
     /* creation */
     gpu_shader_done done; void *done_data;
@@ -230,8 +242,10 @@ static bool parse_bindings(gpu_shader *s, const char *source, char *error, size_
             const char *r = identifier(skip_space(close + 1), name, sizeof name);
             if (!*name || *skip_space(r) != ':') continue;
             if (group != 2) continue;
-            if (binding < 9 || binding > 15 || (strcmp(space, "storage") != 0 && strcmp(space, "storage,read") != 0)) {
-                snprintf(error, error_size, "Group 2 storage buffers must be var<storage, read> at bindings 9..15.");
+            bool writable = strcmp(space, "storage,read_write") == 0;
+            if (binding < 9 || binding > 15 || (strcmp(space, "storage") != 0 && strcmp(space, "storage,read") != 0 && !(writable && s->compute))) {
+                snprintf(error, error_size, s->compute ? "Group 2 storage buffers must be var<storage, read> or var<storage, read_write> at bindings 9..15."
+                                                       : "Group 2 storage buffers must be var<storage, read> at bindings 9..15 (read_write is for compute shaders).");
                 return false;
             }
             if (used[binding]) { snprintf(error, error_size, "Duplicate texture group binding."); return false; }
@@ -240,7 +254,7 @@ static bool parse_bindings(gpu_shader *s, const char *source, char *error, size_
                 if (strcmp(s->buffers[i].name, name) == 0) { snprintf(error, error_size, "Duplicate storage buffer name."); return false; }
             buffer_field *b = &s->buffers[s->buffer_count++];
             snprintf(b->name, sizeof b->name, "%s", name);
-            b->binding = binding;
+            b->binding = binding; b->writable = writable;
         } else if (after != q) {
             char name[64];
             const char *r = identifier(after, name, sizeof name);
@@ -258,15 +272,39 @@ static bool parse_bindings(gpu_shader *s, const char *source, char *error, size_
             if (binding == 8 && strcmp(type, "sampler") == 0) continue;
             if (binding == 16 && strcmp(type, "sampler") == 0) { s->repeating = true; continue; }
             bool cube = strcmp(type, "texture_cube<f32>") == 0;
-            if (binding < 0 || (binding > 7 && binding < 18) || binding > 31 || (!cube && strcmp(type, "texture_2d<f32>") != 0)) {
-                snprintf(error, error_size, "Group 2 supports 2D/cube float textures at 0..7 and 18..31 and samplers at 8 and 16.");
+            int dim = cube ? 1 : strcmp(type, "texture_3d<f32>") == 0 ? 2 : 0;
+            bool storage = false, read_write = false;
+            WGPUTextureFormat storage_format = WGPUTextureFormat_Undefined;
+            if (strncmp(type, "texture_storage_2d<", 19) == 0 || strncmp(type, "texture_storage_3d<", 19) == 0) {
+                if (!s->compute) { snprintf(error, error_size, "Storage textures are for compute shaders."); return false; }
+                storage = true; dim = type[16] == '3' ? 2 : 0;
+                char inner[64];
+                const char *open = type + 19, *close = strchr(open, '>');
+                size_t m = close ? (size_t)(close - open) : 0;
+                if (m >= sizeof inner) m = sizeof inner - 1;
+                memcpy(inner, open, m); inner[m] = 0;
+                char *comma = strchr(inner, ',');
+                const char *access = comma ? comma + 1 : "write";
+                if (comma) *comma = 0;
+                if (strcmp(inner, "rgba8unorm") == 0) storage_format = WGPUTextureFormat_RGBA8Unorm;
+                else if (strcmp(inner, "rgba16float") == 0) storage_format = WGPUTextureFormat_RGBA16Float;
+                else if (strcmp(inner, "r32float") == 0) storage_format = WGPUTextureFormat_R32Float;
+                else if (strcmp(inner, "rgba32float") == 0) storage_format = WGPUTextureFormat_RGBA32Float;
+                else { snprintf(error, error_size, "Storage texture %s: format must be rgba8unorm, rgba16float, r32float or rgba32float.", name); return false; }
+                if (strcmp(access, "write") == 0) read_write = false;
+                else if (strcmp(access, "read_write") == 0) read_write = true;
+                else { snprintf(error, error_size, "Storage texture %s: access must be write or read_write.", name); return false; }
+            }
+            if (binding < 0 || (binding > 7 && binding < 18) || binding > 31 || (!cube && !storage && dim != 2 && strcmp(type, "texture_2d<f32>") != 0)) {
+                snprintf(error, error_size, "Group 2 supports 2D, cube and 3D float textures (and storage textures in compute shaders) at 0..7 and 18..31 and samplers at 8 and 16.");
                 return false;
             }
             for (int i = 0; i < s->texture_count; i++)
                 if (strcmp(s->textures[i].name, name) == 0) { snprintf(error, error_size, "Duplicate texture name."); return false; }
             texture_field *t = &s->textures[s->texture_count++];
             snprintf(t->name, sizeof t->name, "%s", name);
-            t->binding = binding; t->cube = cube; t->filtered = sampled(source, name);
+            t->binding = binding; t->cube = cube; t->dim = dim; t->storage = storage; t->read_write = read_write; t->storage_format = storage_format;
+            t->filtered = storage ? false : sampled(source, name);
         }
     }
     return true;
@@ -277,24 +315,33 @@ static bool parse_bindings(gpu_shader *s, const char *source, char *error, size_
 static void create_layouts(gpu_shader *s, gpu_device *device) {
     WGPUBindGroupLayoutEntry entries[TEXTURE_SLOTS + 9];
     int n = 0;
+    WGPUShaderStage stages = s->compute ? WGPUShaderStage_Compute : (WGPUShaderStage_Vertex | WGPUShaderStage_Fragment);
     for (int i = 0; i < s->texture_count; i++) {
+        texture_field *f = &s->textures[i];
         WGPUBindGroupLayoutEntry e = WGPU_BIND_GROUP_LAYOUT_ENTRY_INIT;
-        e.binding = (uint32_t)s->textures[i].binding;
-        e.visibility = WGPUShaderStage_Vertex | WGPUShaderStage_Fragment;
-        e.texture.sampleType = s->textures[i].filtered ? WGPUTextureSampleType_Float : WGPUTextureSampleType_UnfilterableFloat;
-        e.texture.viewDimension = s->textures[i].cube ? WGPUTextureViewDimension_Cube : WGPUTextureViewDimension_2D;
+        e.binding = (uint32_t)f->binding;
+        e.visibility = stages;
+        WGPUTextureViewDimension dimension = f->dim == 1 ? WGPUTextureViewDimension_Cube : f->dim == 2 ? WGPUTextureViewDimension_3D : WGPUTextureViewDimension_2D;
+        if (f->storage) {
+            e.storageTexture.access = f->read_write ? WGPUStorageTextureAccess_ReadWrite : WGPUStorageTextureAccess_WriteOnly;
+            e.storageTexture.format = f->storage_format;
+            e.storageTexture.viewDimension = dimension;
+        } else {
+            e.texture.sampleType = f->filtered ? WGPUTextureSampleType_Float : WGPUTextureSampleType_UnfilterableFloat;
+            e.texture.viewDimension = dimension;
+        }
         entries[n++] = e;
     }
     for (int i = 0; i < s->buffer_count; i++) {
         WGPUBindGroupLayoutEntry e = WGPU_BIND_GROUP_LAYOUT_ENTRY_INIT;
         e.binding = (uint32_t)s->buffers[i].binding;
-        e.visibility = WGPUShaderStage_Vertex | WGPUShaderStage_Fragment;
-        e.buffer.type = WGPUBufferBindingType_ReadOnlyStorage;
+        e.visibility = stages;
+        e.buffer.type = s->buffers[i].writable ? WGPUBufferBindingType_Storage : WGPUBufferBindingType_ReadOnlyStorage;
         entries[n++] = e;
     }
     WGPUBindGroupLayoutEntry sampler = WGPU_BIND_GROUP_LAYOUT_ENTRY_INIT;
     sampler.binding = 8;
-    sampler.visibility = WGPUShaderStage_Vertex | WGPUShaderStage_Fragment;
+    sampler.visibility = stages;
     sampler.sampler.type = WGPUSamplerBindingType_Filtering;
     entries[n++] = sampler;
     if (s->repeating) { sampler.binding = 16; entries[n++] = sampler; }
@@ -302,6 +349,20 @@ static void create_layouts(gpu_shader *s, gpu_device *device) {
     layout.entryCount = (size_t)n; layout.entries = entries;
     s->texture_layout = wgpuDeviceCreateBindGroupLayout(gpu_device_handle(device), &layout);
     WGPUBindGroupLayout layouts[3] = {gpu_device_drawing_layout(device), gpu_device_user_layout(device), s->texture_layout};
+    if (s->compute) {
+        WGPUBindGroupLayoutDescriptor empty = WGPU_BIND_GROUP_LAYOUT_DESCRIPTOR_INIT;
+        s->empty_layout = wgpuDeviceCreateBindGroupLayout(gpu_device_handle(device), &empty);
+        WGPUBindGroupDescriptor group = WGPU_BIND_GROUP_DESCRIPTOR_INIT;
+        group.layout = s->empty_layout;
+        s->empty_group = wgpuDeviceCreateBindGroup(gpu_device_handle(device), &group);
+        WGPUBindGroupLayoutEntry user = WGPU_BIND_GROUP_LAYOUT_ENTRY_INIT;
+        user.binding = 0; user.visibility = WGPUShaderStage_Compute;
+        user.buffer.type = WGPUBufferBindingType_Uniform; user.buffer.minBindingSize = GPU_USER_BYTES;
+        WGPUBindGroupLayoutDescriptor userLayout = WGPU_BIND_GROUP_LAYOUT_DESCRIPTOR_INIT;
+        userLayout.entryCount = 1; userLayout.entries = &user;
+        s->user_layout = wgpuDeviceCreateBindGroupLayout(gpu_device_handle(device), &userLayout);
+        layouts[0] = s->empty_layout; layouts[1] = s->user_layout;
+    }
     WGPUPipelineLayoutDescriptor pipeline = WGPU_PIPELINE_LAYOUT_DESCRIPTOR_INIT;
     pipeline.bindGroupLayoutCount = 3; pipeline.bindGroupLayouts = layouts;
     s->pipeline_layout = wgpuDeviceCreatePipelineLayout(gpu_device_handle(device), &pipeline);
@@ -332,7 +393,7 @@ static void complete(gpu_shader *s, const char *failure) {
     gpu_shader_done done = s->done;
     void *data = s->done_data;
     s->done = NULL;
-    if (failure || !s->vertex || !s->fragment) {
+    if (failure || (s->compute ? !s->compute_pipeline : (!s->vertex || !s->fragment))) {
         char message[2048];
         snprintf(message, sizeof message, "Shader compile failed: %s", failure ? failure : "wgpu did not complete validation.");
         gpu_shader_free(s);
@@ -414,6 +475,12 @@ void gpu_shader_release_handles(gpu_shader *s) {
     s->user_group = NULL; s->user_buffer = NULL; s->texture_group = NULL;
     if (s->vertex) wgpuShaderModuleRelease(s->vertex);
     if (s->fragment) wgpuShaderModuleRelease(s->fragment);
+    if (s->compute_pipeline) wgpuComputePipelineRelease(s->compute_pipeline);
+    if (s->compute_module) wgpuShaderModuleRelease(s->compute_module);
+    if (s->empty_group) wgpuBindGroupRelease(s->empty_group);
+    if (s->empty_layout) wgpuBindGroupLayoutRelease(s->empty_layout);
+    if (s->user_layout) wgpuBindGroupLayoutRelease(s->user_layout);
+    s->compute_pipeline = NULL; s->compute_module = NULL; s->empty_group = NULL; s->empty_layout = NULL; s->user_layout = NULL;
     if (s->pipeline_layout) wgpuPipelineLayoutRelease(s->pipeline_layout);
     if (s->texture_layout) wgpuBindGroupLayoutRelease(s->texture_layout);
     if (s->texture_sampler) wgpuSamplerRelease(s->texture_sampler);
@@ -474,7 +541,9 @@ bool gpu_shader_set_texture(gpu_shader *s, const char *name, gpu_texture *textur
     for (int i = 0; i < s->texture_count; i++) {
         texture_field *t = &s->textures[i];
         if (strcmp(t->name, name) != 0) continue;
-        if (gpu_texture_device(texture) != s->link.device || t->cube != gpu_texture_cube(texture)) break;
+        int dim = gpu_texture_volume_kind(texture) ? 2 : gpu_texture_cube(texture) ? 1 : 0;
+        if (t->storage) { snprintf(error, error_size, "%s is a storage texture: bind it with SetStorage.", name); return false; }
+        if (gpu_texture_device(texture) != s->link.device || t->dim != dim) break;
         if (t->filtered && !gpu_format_filterable(gpu_texture_format(texture))) {
             snprintf(error, error_size, "Texture %s is sampled, and 32-bit float textures cannot be filtered on every GPU: read it with textureLoad or use rgba16float.", name);
             return false;
@@ -501,6 +570,84 @@ bool gpu_shader_set_buffer(gpu_shader *s, const char *name, gpu_buffer *buffer, 
     return false;
 }
 
+/* A storage texture of a compute shader: a render target's color texture (one mip, a storage format) or a volume. */
+bool gpu_shader_set_storage(gpu_shader *s, const char *name, gpu_texture *texture, char *error, size_t error_size) {
+    if (s->released || gpu_texture_released(texture)) { snprintf(error, error_size, "Shader or texture is disposed."); return false; }
+    for (int i = 0; i < s->texture_count; i++) {
+        texture_field *t = &s->textures[i];
+        if (strcmp(t->name, name) != 0) continue;
+        if (!t->storage) { snprintf(error, error_size, "%s is not a storage texture: bind it with SetTexture.", name); return false; }
+        int dim = gpu_texture_volume_kind(texture) ? 2 : gpu_texture_cube(texture) ? 1 : 0;
+        if (gpu_texture_device(texture) != s->link.device || dim != t->dim) { snprintf(error, error_size, "%s: foreign device or the wrong dimension (2D or 3D).", name); return false; }
+        if (gpu_texture_format(texture) != t->storage_format) { snprintf(error, error_size, "%s: the texture's format differs from the shader's.", name); return false; }
+        if (!gpu_texture_volume_kind(texture) && gpu_texture_mip_levels(texture) != 1) { snprintf(error, error_size, "%s: render targets with mip levels cannot be storage textures.", name); return false; }
+        t->texture = texture;
+        forget_texture_group(s);
+        return true;
+    }
+    snprintf(error, error_size, "Unknown storage texture name.");
+    return false;
+}
+
+bool gpu_shader_is_compute(const gpu_shader *s) { return s && s->compute; }
+
+void gpu_compute_create(gpu_device *device, const char *source, gpu_shader_done done, void *data) {
+    gpu_shader *s = calloc(1, sizeof *s);
+    s->link.next = s->link.previous = &s->link;
+    s->user_version = -1;
+    s->compute = true;
+    s->done = done; s->done_data = data;
+    char error[512];
+    char *clean = strip_comments(source);
+    bool parsed = parse_uniforms(s, clean, error, sizeof error) && parse_bindings(s, clean, error, sizeof error);
+    free(clean);
+    if (!parsed) { free(s); done(NULL, error, data); return; }
+    gpu_device_link(device, &s->link, GPU_SHADER);
+    create_layouts(s, device);
+    WGPUDevice handle = gpu_device_handle(device);
+    wgpuDevicePushErrorScope(handle, WGPUErrorFilter_Validation);
+    s->compute_module = gpu_device_shader_module(device, source, strlen(source));
+    WGPUComputePipelineDescriptor descriptor = WGPU_COMPUTE_PIPELINE_DESCRIPTOR_INIT;
+    descriptor.layout = s->pipeline_layout; descriptor.compute.module = s->compute_module; descriptor.compute.entryPoint = gpu_text("cs_main");
+    s->compute_pipeline = wgpuDeviceCreateComputePipeline(handle, &descriptor);
+    WGPUPopErrorScopeCallbackInfo callback = WGPU_POP_ERROR_SCOPE_CALLBACK_INFO_INIT;
+    callback.mode = GPU_CALLBACK_MODE; callback.callback = on_scope; callback.userdata1 = s;
+#if defined(AQUA_OS_WEB)
+    wgpuDevicePopErrorScope(handle, callback);
+#else
+    s->waiting = true;
+    wgpuDevicePopErrorScope(handle, callback);
+    gpu_device_wait(device, &s->validated);
+    s->waiting = false;
+    if (!s->validated) { s->validated = true; s->failed = true; snprintf(s->failure, sizeof s->failure, "wgpu did not complete validation."); }
+    complete(s, s->failed ? s->failure : NULL);
+#endif
+}
+
+/* Runs cs_main over x * y * z workgroups with the shader's uniforms, textures, storage textures and buffers. Earlier
+   draws into targets it reads or writes are submitted first; its writes are visible to everything recorded later. */
+bool gpu_shader_dispatch(gpu_shader *s, uint32_t x, uint32_t y, uint32_t z, char *error, size_t error_size) {
+    if (!s->compute || s->released || !s->compute_pipeline) { snprintf(error, error_size, "Not a live compute shader."); return false; }
+    gpu_device *d = s->link.device;
+    WGPUBindGroup textures = gpu_shader_texture_group(s, NULL, error, error_size);
+    if (!textures) return false;
+    WGPUBindGroup user = gpu_shader_user_group(s);
+    gpu_device_flush(d);
+    WGPUCommandEncoder encoder = wgpuDeviceCreateCommandEncoder(gpu_device_handle(d), NULL);
+    WGPUComputePassEncoder pass = wgpuCommandEncoderBeginComputePass(encoder, NULL);
+    wgpuComputePassEncoderSetPipeline(pass, s->compute_pipeline);
+    wgpuComputePassEncoderSetBindGroup(pass, 0, s->empty_group, 0, NULL);
+    wgpuComputePassEncoderSetBindGroup(pass, 1, user, 0, NULL);
+    wgpuComputePassEncoderSetBindGroup(pass, 2, textures, 0, NULL);
+    wgpuComputePassEncoderDispatchWorkgroups(pass, x, y, z);
+    wgpuComputePassEncoderEnd(pass);
+    wgpuComputePassEncoderRelease(pass);
+    gpu_device_submit(d, encoder);
+    const char *failure = gpu_device_take_error(d);
+    if (failure) { snprintf(error, error_size, "%s", failure); return false; }
+    return true;
+}
+
 /* User uniforms are uploaded once per Set version and shared by later draws. */
 WGPUBindGroup gpu_shader_user_group(gpu_shader *s) {
     if (s->user_group && s->user_version == s->version) return s->user_group;
@@ -511,7 +658,7 @@ WGPUBindGroup gpu_shader_user_group(gpu_shader *s) {
     WGPUBindGroupEntry entry = WGPU_BIND_GROUP_ENTRY_INIT;
     entry.binding = 0; entry.buffer = s->user_buffer; entry.size = GPU_USER_BYTES;
     WGPUBindGroupDescriptor descriptor = WGPU_BIND_GROUP_DESCRIPTOR_INIT;
-    descriptor.layout = gpu_device_user_layout(d); descriptor.entryCount = 1; descriptor.entries = &entry;
+    descriptor.layout = s->user_layout ? s->user_layout : gpu_device_user_layout(d); descriptor.entryCount = 1; descriptor.entries = &entry;
     s->user_group = wgpuDeviceCreateBindGroup(gpu_device_handle(d), &descriptor);
     s->user_version = s->version;
     return s->user_group;
@@ -536,7 +683,8 @@ WGPUBindGroup gpu_shader_texture_group(gpu_shader *s, gpu_target *destination, c
     int n = 0;
     for (int i = 0; i < s->texture_count; i++) {
         WGPUBindGroupEntry e = WGPU_BIND_GROUP_ENTRY_INIT;
-        e.binding = (uint32_t)s->textures[i].binding; e.textureView = gpu_texture_view(s->textures[i].texture);
+        e.binding = (uint32_t)s->textures[i].binding;
+        e.textureView = s->textures[i].storage ? gpu_texture_attachment_view(s->textures[i].texture) : gpu_texture_view(s->textures[i].texture);
         entries[n++] = e;
     }
     for (int i = 0; i < s->buffer_count; i++) {
