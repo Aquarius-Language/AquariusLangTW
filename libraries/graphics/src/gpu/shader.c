@@ -633,8 +633,9 @@ bool gpu_shader_dispatch(gpu_shader *s, uint32_t x, uint32_t y, uint32_t z, char
     WGPUBindGroup textures = gpu_shader_texture_group(s, NULL, error, error_size);
     if (!textures) return false;
     WGPUBindGroup user = gpu_shader_user_group(s);
-    gpu_device_flush(d);
-    WGPUCommandEncoder encoder = wgpuDeviceCreateCommandEncoder(gpu_device_handle(d), NULL);
+    /* Earlier draws into targets are submitted first; this dispatch joins the pending compute encoder. */
+    gpu_device_flush_targets(d);
+    WGPUCommandEncoder encoder = gpu_device_compute_encoder(d);
     WGPUComputePassDescriptor pass_descriptor = WGPU_COMPUTE_PASS_DESCRIPTOR_INIT;
     WGPUPassTimestampWrites writes;
     pass_descriptor.timestampWrites = gpu_profile_pass(d, &writes);
@@ -647,7 +648,7 @@ bool gpu_shader_dispatch(gpu_shader *s, uint32_t x, uint32_t y, uint32_t z, char
     wgpuComputePassEncoderDispatchWorkgroups(pass, x, y, z);
     wgpuComputePassEncoderEnd(pass);
     wgpuComputePassEncoderRelease(pass);
-    gpu_device_submit(d, encoder);
+    (void)encoder;
     const char *failure = gpu_device_take_error(d);
     if (failure) { snprintf(error, error_size, "%s", failure); return false; }
     return true;
@@ -661,8 +662,9 @@ bool gpu_shader_dispatch_indirect(gpu_shader *s, gpu_buffer *arguments, uint64_t
     WGPUBindGroup textures = gpu_shader_texture_group(s, NULL, error, error_size);
     if (!textures) return false;
     WGPUBindGroup user = gpu_shader_user_group(s);
-    gpu_device_flush(d);
-    WGPUCommandEncoder encoder = wgpuDeviceCreateCommandEncoder(gpu_device_handle(d), NULL);
+    /* Earlier draws into targets are submitted first; this dispatch joins the pending compute encoder. */
+    gpu_device_flush_targets(d);
+    WGPUCommandEncoder encoder = gpu_device_compute_encoder(d);
     WGPUComputePassDescriptor pass_descriptor = WGPU_COMPUTE_PASS_DESCRIPTOR_INIT;
     WGPUPassTimestampWrites writes;
     pass_descriptor.timestampWrites = gpu_profile_pass(d, &writes);
@@ -675,7 +677,7 @@ bool gpu_shader_dispatch_indirect(gpu_shader *s, gpu_buffer *arguments, uint64_t
     wgpuComputePassEncoderDispatchWorkgroupsIndirect(pass, gpu_buffer_handle(arguments), offset);
     wgpuComputePassEncoderEnd(pass);
     wgpuComputePassEncoderRelease(pass);
-    gpu_device_submit(d, encoder);
+    (void)encoder;
     const char *failure = gpu_device_take_error(d);
     if (failure) { snprintf(error, error_size, "%s", failure); return false; }
     return true;

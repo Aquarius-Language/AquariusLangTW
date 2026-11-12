@@ -75,6 +75,7 @@ struct gpu_device {
     uint64_t frame;
     double period;
     uint64_t max_buffer_bytes;      /* what the device was created with (gpu_device_max_buffer_bytes) */
+    WGPUCommandEncoder pending;     /* compute dispatches not submitted yet (gpu_device_compute_encoder) */
     gpu_profile_entry results[PROFILE_LABELS]; int result_count; double result_span; uint64_t result_frame;
     /* creation */
     gpu_device_done done;
@@ -258,7 +259,20 @@ WGPUBuffer gpu_device_buffer(gpu_device *d, uint64_t size, WGPUBufferUsage usage
     return buffer;
 }
 
+WGPUCommandEncoder gpu_device_compute_encoder(gpu_device *d) {
+    if (!d->pending) d->pending = wgpuDeviceCreateCommandEncoder(d->device, NULL);
+    return d->pending;
+}
+void gpu_device_submit_pending(gpu_device *d) {
+    if (!d->pending) return;
+    WGPUCommandEncoder encoder = d->pending;
+    d->pending = NULL;
+    gpu_device_submit(d, encoder);
+}
+
 void gpu_device_submit(gpu_device *d, WGPUCommandEncoder encoder) {
+    /* Work recorded earlier goes first. */
+    if (d->pending && encoder != d->pending) gpu_device_submit_pending(d);
     double start = gpu_clock_ms();
     WGPUCommandBuffer commands = wgpuCommandEncoderFinish(encoder, NULL);
     wgpuQueueSubmit(d->queue, 1, &commands);
@@ -621,12 +635,21 @@ void gpu_device_release_retired(gpu_device *d) {
     d->retired_group_count = d->retired_buffer_count = 0;
 }
 
+void gpu_device_flush_targets(gpu_device *d) {
+    if (d->disposed) return;
+    for (gpu_resource *r = d->resources.next; r != &d->resources; r = r->next) {
+        gpu_counters.flush_scans++;
+        if (r->kind == GPU_TARGET) gpu_target_flush((gpu_target *)r);
+    }
+}
+
 void gpu_device_flush(gpu_device *d) {
     if (d->disposed) return;
     for (gpu_resource *r = d->resources.next; r != &d->resources; r = r->next) {
         gpu_counters.flush_scans++;
         if (r->kind == GPU_TARGET) gpu_target_flush((gpu_target *)r);
     }
+    gpu_device_submit_pending(d);
 }
 
 typedef struct poll_wait { volatile bool done; void (*callback)(void *, const char *); void *data; } poll_wait;
@@ -834,6 +857,7 @@ void gpu_device_dispose(gpu_device *d) {
         case GPU_BUFFER: gpu_buffer_release_handles((gpu_buffer *)r); break;
         }
     }
+    if (d->pending) { wgpuCommandEncoderRelease(d->pending); d->pending = NULL; }
     d->disposed = true;
     gpu_device_release_kernels(d);
     for (int i = 0; i < PROFILE_RING; i++) {

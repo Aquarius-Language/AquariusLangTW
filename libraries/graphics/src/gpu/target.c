@@ -129,6 +129,7 @@ void gpu_target_flush(gpu_target *t) {
 static void begin(gpu_target *t, const float *clear, bool clear_depth, bool clear_stencil) {
     if (t->pass) return;
     gpu_device *d = t->link.device;
+    gpu_device_submit_pending(d);   /* dispatches recorded before this pass run before it */
     t->encoder = wgpuDeviceCreateCommandEncoder(gpu_device_handle(d), NULL);
     WGPURenderPassColorAttachment colors[4];
     for (int i = 0; i < t->colors; i++) {

@@ -49,6 +49,8 @@ aqua_window *gpu_device_window(const gpu_device *device);
 const char *gpu_device_take_error(gpu_device *device);
 /* Submits every target's open pass, keeping recorded work in order before uploads, copies and readbacks. */
 void gpu_device_flush(gpu_device *device);
+/* Submits every target's open pass only (pending compute dispatches stay pending). */
+void gpu_device_flush_targets(gpu_device *device);
 /* Waits for submitted work (native) or starts waiting for it (web); `done` follows. */
 void gpu_device_poll(gpu_device *device, void (*done)(void *data, const char *error), void *data);
 /* Presents `target` scaled onto the device's window surface (sized to the window's framebuffer). */
@@ -79,6 +81,10 @@ void gpu_instance_wait(WGPUInstance instance, WGPUDevice device, const volatile 
 WGPUShaderModule gpu_device_shader_module(gpu_device *device, const char *source, size_t length);
 WGPUBuffer gpu_device_buffer(gpu_device *device, uint64_t size, WGPUBufferUsage usage, const void *data);
 void gpu_device_submit(gpu_device *device, WGPUCommandEncoder encoder);
+/* Consecutive compute dispatches record into one pending encoder, submitted once (gpu_device_submit_pending) before
+   any other submission, buffer or texture write, readback or flush, so they keep their order with everything else. */
+WGPUCommandEncoder gpu_device_compute_encoder(gpu_device *device);
+void gpu_device_submit_pending(gpu_device *device);
 /* The largest storage buffer this device binds, in bytes: the adapter's limit, at most 1 GiB (64 MiB before the device
    exists). */
 uint64_t gpu_device_max_buffer_bytes(const gpu_device *device);
