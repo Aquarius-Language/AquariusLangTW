@@ -1,0 +1,56 @@
+# (needs a GPU device) WGPU depth sharing: target.ShareDepth(other) draws with the other target's depth (a depth
+# pre-pass in one target, shading in another), its Clear keeps that depth, ClearDepth clears it, a target of another
+# size cannot share (it keeps its own), and ShareDepth(null) stops.
+var gpu = import("WGPU");
+var device = gpu.CreateDevice();
+var channel = function(v, shift) { var high = Math.Floor(v / Math.Pow(2, shift)); return int(high - Math.Floor(high / 256) * 256); };
+# A full-target triangle at depth u.at.x with colour u.at.yzw.
+var flat = device.CreateShader("struct UserUniforms { at: vec4<f32>, }
+@group(1) @binding(0) var<uniform> u: UserUniforms;
+@vertex fn vs_main(@builtin(vertex_index) i: u32) -> VertexOutput {
+    var o: VertexOutput;
+    let x = f32((i << 1u) & 2u); let y = f32(i & 2u);
+    o.position = vec4<f32>(x * 2.0 - 1.0, 1.0 - y * 2.0, u.at.x, 1.0);
+    return o;
+}", "struct UserUniforms { at: vec4<f32>, }
+@group(1) @binding(0) var<uniform> u: UserUniforms;
+@fragment fn fs_main(@builtin(position) p: vec4<f32>) -> @location(0) vec4<f32> { return vec4<f32>(u.at.y, u.at.z, u.at.w, 1.0); }");
+var draw = function(target, depth, colour) { flat.Set("at", [depth, colour[0], colour[1], colour[2]]); target.DrawProcedural(flat, 3); };
+var shown = function(target) { var p = target.ReadPixels(); return [channel(p[0], 16), channel(p[0], 8), channel(p[0], 0)]; };
+
+# 1. The pre-pass: depth 0.5 in its own target.
+var pre = device.CreateRenderTarget(4, 4, "r32float");
+pre.SetState({"depth": "less", "cull": "none", "blend": "replace"});
+pre.Clear([0, 0, 0, 0]);
+draw(pre, 0.5d, [1, 1, 1]);
+
+# 2. The shading target borrows it: a colour clear keeps the depth; behind (0.7) fails, in front (0.3) and equal pass.
+var scene = device.CreateRenderTarget(4, 4, "rgba8unorm");
+print("shared", scene.ShareDepth(pre));
+scene.Clear([0, 0, 0, 1]);
+scene.SetState({"depth": "read", "cull": "none", "blend": "replace"});
+draw(scene, 0.7d, [0, 1, 0]);
+print("behind", shown(scene));
+draw(scene, 0.5d, [0, 0, 1]);
+print("equal", shown(scene));
+draw(scene, 0.3d, [1, 0, 0]);
+print("in front", shown(scene));
+
+# 3. The pre-pass writes again (nearer, 0.2): the borrower sees the new depth.
+draw(pre, 0.2d, [1, 1, 1]);
+scene.Clear([0, 0, 0, 1]);
+draw(scene, 0.3d, [1, 0, 0]);
+print("after pre-pass moved", shown(scene));
+
+# 4. ClearDepth clears the shared depth (the pre-pass target sees it too).
+scene.ClearDepth();
+draw(scene, 0.9d, [0, 1, 0]);
+print("after ClearDepth", shown(scene));
+
+# 5. Another size cannot share; null stops sharing (the target's own depth, cleared by its colour clear).
+var small = device.CreateRenderTarget(2, 2, "rgba8unorm");
+print("other size", small.ShareDepth(pre));
+print("stopped", scene.ShareDepth(null));
+scene.Clear([0, 0, 0, 1]);
+draw(scene, 0.7d, [0, 1, 0]);
+print("own depth again", shown(scene));

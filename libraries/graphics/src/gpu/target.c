@@ -44,6 +44,9 @@ struct gpu_target {
     pending_draw pending;
     gpu_state state;
     bool released;
+    /* Depth sharing: this target draws with depth_source's depth attachment (same size, one sample); the source
+       knows its borrower so each submits before the other starts a pass that could change what it reads. */
+    gpu_target *depth_source, *depth_borrower;
 };
 
 static void begin(gpu_target *t, const float *clear, bool clear_depth, bool clear_stencil);
@@ -126,9 +129,23 @@ void gpu_target_flush(gpu_target *t) {
     t->uniforms.used = 0;
 }
 
+/* The depth attachment a pass uses: the source's while sharing works (same size and sample count), else its own. */
+static gpu_texture *pass_depth(gpu_target *t) {
+    gpu_target *s = t->depth_source;
+    if (s && !s->released && s->depth && s->samples == t->samples &&
+        gpu_texture_width(s->color) == gpu_texture_width(t->color) && gpu_texture_height(s->color) == gpu_texture_height(t->color)) return s->depth;
+    return t->depth;
+}
+
 static void begin(gpu_target *t, const float *clear, bool clear_depth, bool clear_stencil) {
     if (t->pass) return;
     gpu_device *d = t->link.device;
+    /* Ordering with a shared depth: the source's recorded pass runs before this one reads it, and this target's
+       pass runs before the source starts writing it again. */
+    if (t->depth_source) gpu_target_flush(t->depth_source);
+    if (t->depth_borrower) gpu_target_flush(t->depth_borrower);
+    gpu_texture *depth_texture = pass_depth(t);
+    bool borrowed = depth_texture != t->depth;
     gpu_device_submit_pending(d);   /* dispatches recorded before this pass run before it */
     t->encoder = wgpuDeviceCreateCommandEncoder(gpu_device_handle(d), NULL);
     WGPURenderPassColorAttachment colors[4];
@@ -145,11 +162,13 @@ static void begin(gpu_target *t, const float *clear, bool clear_depth, bool clea
         colors[i] = color;
     }
     WGPURenderPassDepthStencilAttachment depth = WGPU_RENDER_PASS_DEPTH_STENCIL_ATTACHMENT_INIT;
-    depth.view = gpu_texture_view(t->depth);
-    depth.depthLoadOp = clear || clear_depth ? WGPULoadOp_Clear : WGPULoadOp_Load;
+    depth.view = gpu_texture_view(depth_texture);
+    /* A borrowed depth is cleared only on request (ClearDepth), never by a color clear of the borrower. */
+    bool wipe = borrowed ? clear_depth : (clear || clear_depth);
+    depth.depthLoadOp = wipe ? WGPULoadOp_Clear : WGPULoadOp_Load;
     depth.depthStoreOp = WGPUStoreOp_Store;
     depth.depthClearValue = 1;
-    depth.stencilLoadOp = clear || clear_depth || clear_stencil ? WGPULoadOp_Clear : WGPULoadOp_Load;
+    depth.stencilLoadOp = wipe || clear_stencil ? WGPULoadOp_Clear : WGPULoadOp_Load;
     depth.stencilStoreOp = WGPUStoreOp_Store;
     WGPURenderPassDescriptor descriptor = WGPU_RENDER_PASS_DESCRIPTOR_INIT;
     descriptor.colorAttachmentCount = (size_t)t->colors; descriptor.colorAttachments = colors;
@@ -164,6 +183,26 @@ void gpu_target_clear(gpu_target *t, const float rgba[4]) {
     if (t->released) return;
     gpu_target_flush(t);
     begin(t, rgba, false, false);
+}
+
+void gpu_target_share_depth(gpu_target *t, gpu_target *source) {
+    if (t->released || source == t) return;
+    if (t->depth_source == source) return;
+    gpu_target_flush(t);
+    if (t->depth_source) { gpu_target_flush(t->depth_source); t->depth_source->depth_borrower = NULL; t->depth_source = NULL; }
+    if (!source || source->released) return;
+    if (source->depth_borrower && source->depth_borrower != t) { gpu_target_flush(source->depth_borrower); source->depth_borrower->depth_source = NULL; }
+    gpu_target_flush(source);
+    if (source->depth_source) { source->depth_source->depth_borrower = NULL; source->depth_source = NULL; }
+    t->depth_source = source; source->depth_borrower = t;
+}
+
+bool gpu_target_shares_depth(gpu_target *t) { return t && !t->released && pass_depth(t) != t->depth; }
+
+void gpu_target_clear_depth(gpu_target *t) {
+    if (t->released) return;
+    gpu_target_flush(t);
+    begin(t, NULL, true, false);
 }
 
 void gpu_target_clear_stencil(gpu_target *t) {
@@ -477,6 +516,8 @@ void gpu_target_release_handles(gpu_target *t) {
 
 void gpu_target_free(gpu_target *t) {
     if (!t) return;
+    if (t->depth_source) { t->depth_source->depth_borrower = NULL; t->depth_source = NULL; }
+    if (t->depth_borrower) { gpu_target_flush(t->depth_borrower); t->depth_borrower->depth_source = NULL; t->depth_borrower = NULL; }
     gpu_target_release_handles(t);
     gpu_texture_free(t->color); gpu_texture_free(t->depth); gpu_texture_free(t->msaa);
     for (int i = 1; i < t->colors; i++) gpu_texture_free(t->extra[i - 1]);

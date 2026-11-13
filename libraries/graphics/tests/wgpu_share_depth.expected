@@ -1,0 +1,9 @@
+shared 真
+behind [0, 0, 0]
+equal [0, 0, 255]
+in front [255, 0, 0]
+after pre-pass moved [0, 0, 0]
+after ClearDepth [0, 255, 0]
+other size 假
+stopped 假
+own depth again [0, 255, 0]

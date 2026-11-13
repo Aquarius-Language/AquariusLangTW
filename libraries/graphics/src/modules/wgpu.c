@@ -23,7 +23,7 @@ typedef struct device_object { gpu_device *device; wgpu_window *window; aqua_ref
 typedef struct buffer_object { device_object *owner; aqua_ref owner_ref; gpu_buffer *buffer; } buffer_object;
 typedef struct binding { char name[64]; aqua_ref ref; } binding;
 typedef struct shader_object { device_object *owner; aqua_ref owner_ref; gpu_shader *shader; binding bound[32]; int bound_count; } shader_object;
-typedef struct target_object { device_object *owner; aqua_ref owner_ref; gpu_target *target; } target_object;
+typedef struct target_object { device_object *owner; aqua_ref owner_ref; gpu_target *target; aqua_ref depth_ref; } target_object;
 typedef struct texture_object { gpu_device *device; aqua_ref keep; gpu_texture *texture; gpu_target *target; bool disposed; } texture_object;
 
 typedef struct window_snapshot {
@@ -385,6 +385,7 @@ static void shader_Dispose(aqua_call *call) { gpu_shader_release_handles(((shade
 static void target_finalize(aqua_runtime *rt, void *data) {
     target_object *t = data;
     gpu_target_free(t->target);
+    if (t->depth_ref) aqua_release(rt, t->depth_ref);
     aqua_release(rt, t->owner_ref);
     free(t);
 }
@@ -417,6 +418,32 @@ static void target_GenerateMipmaps(aqua_call *call) {
         }
     const char *failure = gpu_device_take_error(t->owner->device);
     if (failure) gfx_fail(call, "%s", failure);
+}
+
+/* target.ShareDepth(other or null): draws with the other target's depth (same size; a depth pre-pass in one target,
+   the shading pass in another tests against it). Its Clear keeps that depth; ClearDepth clears it. Returns whether
+   the depth is shared (false when the sizes differ). */
+static void target_ShareDepth(aqua_call *call) {
+    target_object *t = aqua_self(call);
+    if (!target_live(call, t)) return;
+    aqua_runtime *rt = aqua_call_runtime(call);
+    target_object *source = NULL;
+    if (aqua_argc(call) > 0 && !aqua_is_nullish(aqua_arg(call, 0))) {
+        source = aqua_object_data(rt, aqua_arg(call, 0), target_class);
+        if (!source) { gfx_fail(call, "ShareDepth takes a render target or null."); return; }
+        if (!target_live(call, source)) return;
+        if (source->owner != t->owner) { gfx_fail(call, "ShareDepth needs a render target of the same device."); return; }
+    }
+    if (t->depth_ref) { aqua_release(rt, t->depth_ref); t->depth_ref = 0; }
+    gpu_target_share_depth(t->target, source ? source->target : NULL);
+    if (source) t->depth_ref = aqua_retain(rt, aqua_arg(call, 0));
+    aqua_return_bool(call, source != NULL && gpu_target_shares_depth(t->target));
+}
+
+static void target_ClearDepth(aqua_call *call) {
+    target_object *t = aqua_self(call);
+    if (!target_live(call, t)) return;
+    gpu_target_clear_depth(t->target);
 }
 
 static void target_Clear(aqua_call *call) {
@@ -1250,7 +1277,7 @@ static void wgpu_Stats(aqua_call *call) {
     X(target_DrawBuffer, "DrawBuffer|繪製緩衝區", 2, 4) X(target_DrawProcedural, "DrawProcedural|程序化繪製", 2, 4) \
     X(target_DrawInstanced, "DrawInstanced|實例繪製", 3, 4) X(target_DrawIndirect, "DrawIndirect|間接繪製", 3, 4) X(target_Flush, "Flush|送出", 0, 0) X(target_Prepare, "Prepare|準備", 1, 2) \
     X(target_GenerateMipmaps, "GenerateMipmaps|產生多級紋理", 0, 0) X(target_GetTexture, "GetTexture|取得紋理", 0, 1) X(target_ReadPixels, "ReadPixels|讀取像素", 0, 0) X(target_Save, "Save|儲存", 1, 1) \
-    X(target_SetState, "SetState|設定狀態", 1, 1)
+    X(target_SetState, "SetState|設定狀態", 1, 1) X(target_ShareDepth, "ShareDepth|共用深度", 0, 1) X(target_ClearDepth, "ClearDepth|清除深度", 0, 0)
 #define TEXTURE_MEMBERS(X) X(texture_Dispose, "Dispose|釋放", 0, 0)
 #define VERTEX_MEMBERS(X) X(buffer_Dispose, "Dispose|釋放", 0, 0) X(vertex_Write, "Write|寫入", 1, 1) X(vertex_WriteRange, "WriteRange|寫入範圍", 2, 2)
 #define WINDOW_MEMBERS(X) \

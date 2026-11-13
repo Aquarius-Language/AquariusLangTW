@@ -189,6 +189,11 @@ gpu_texture *gpu_target_color_at(gpu_target *target, int index);
 void gpu_target_configure(gpu_target *target, int width, int height, bool smooth);
 void gpu_target_clear(gpu_target *target, const float rgba[4]);  /* straight RGBA, stored premultiplied */
 void gpu_target_clear_stencil(gpu_target *target);
+/* Draw with another target's depth/stencil attachment (same size, one sample; otherwise the target's own is used):
+   NULL stops. A borrower's color Clear keeps the shared depth; gpu_target_clear_depth clears it. */
+void gpu_target_share_depth(gpu_target *target, gpu_target *source);
+bool gpu_target_shares_depth(gpu_target *target);
+void gpu_target_clear_depth(gpu_target *target);
 void gpu_target_flush(gpu_target *target);                       /* submits the open pass */
 void gpu_target_set_state(gpu_target *target, gpu_state state);
 gpu_state gpu_target_state(const gpu_target *target);
