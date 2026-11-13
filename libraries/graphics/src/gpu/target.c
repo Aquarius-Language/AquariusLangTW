@@ -23,7 +23,7 @@ typedef struct pending_draw {
     int sampling;
     WGPUBuffer vertex_buffer;
     size_t vertex_offset;
-    uint32_t uniform_offset, stencil;
+    uint32_t uniform_offset, stencil, user_offset;
     const uint8_t *uniforms;            /* the snapshot in its arena (arenas stay allocated until the pass is submitted) */
     gpu_rect scissor;
 } pending_draw;
@@ -57,7 +57,7 @@ static void record_pending(gpu_target *t) {
     if (!p->bytes) return;
     wgpuRenderPassEncoderSetPipeline(t->pass, p->pipeline);
     wgpuRenderPassEncoderSetBindGroup(t->pass, 0, p->group, 1, &p->uniform_offset);
-    wgpuRenderPassEncoderSetBindGroup(t->pass, 1, p->user, 0, NULL);
+    wgpuRenderPassEncoderSetBindGroup(t->pass, 1, p->user, 1, &p->user_offset);
     wgpuRenderPassEncoderSetBindGroup(t->pass, 2, p->textures, 0, NULL);
     wgpuRenderPassEncoderSetStencilReference(t->pass, p->stencil == 2 ? 0u : 1u);
     wgpuRenderPassEncoderSetVertexBuffer(t->pass, 0, p->vertex_buffer, p->vertex_offset, p->bytes);
@@ -108,6 +108,7 @@ static void push_group(gpu_target *t, WGPUBindGroup group) {
 void gpu_target_flush(gpu_target *t) {
     if (!t->pass) return;
     gpu_device *d = t->link.device;
+    gpu_device_note_closed(d, t);
     record_pending(t);
     wgpuRenderPassEncoderEnd(t->pass);
     wgpuRenderPassEncoderRelease(t->pass);
@@ -177,6 +178,7 @@ static void begin(gpu_target *t, const float *clear, bool clear_depth, bool clea
     descriptor.timestampWrites = gpu_profile_pass(d, &writes);
     gpu_counters.render_passes++;
     t->pass = wgpuCommandEncoderBeginRenderPass(t->encoder, &descriptor);
+    gpu_device_note_open(d, t);
 }
 
 void gpu_target_clear(gpu_target *t, const float rgba[4]) {
@@ -337,6 +339,8 @@ bool gpu_target_draw(gpu_target *t, gpu_shader *shader, const float *vertices, s
     if (!textures) return false;
     WGPURenderPipeline pipeline = gpu_shader_pipeline(shader, mode, blend, depth_mode, t->samples, stencil, t->format, t->colors, cull, true, error, error_size);
     if (!pipeline) return false;
+    uint32_t user_offset = 0;
+    WGPUBindGroup user = gpu_shader_user_group(shader, &user_offset);   /* before the pass opens (a full ring flushes) */
     begin(t, NULL, false, false);
     if (!texture) sampling = 0;
     size_t vertex_offset, uniform_offset;
@@ -345,11 +349,10 @@ bool gpu_target_draw(gpu_target *t, gpu_shader *shader, const float *vertices, s
         return false;
     }
     if (model) transform_vertices(t->vertices.data + vertex_offset, floats / GPU_FLOATS_PER_VERTEX, model);
-    WGPUBindGroup user = gpu_shader_user_group(shader);
     WGPUTextureView view = gpu_texture_view(texture ? texture : gpu_device_white(d));
     gpu_rect r = scissor ? *scissor : (gpu_rect){0, 0, gpu_texture_width(t->color), gpu_texture_height(t->color)};
     pending_draw *p = &t->pending;
-    if (p->bytes && !stencil && !p->stencil && p->pipeline == pipeline && p->view == view && p->sampling == sampling && p->user == user && p->textures == textures &&
+    if (p->bytes && !stencil && !p->stencil && p->pipeline == pipeline && p->view == view && p->sampling == sampling && p->user == user && p->user_offset == user_offset && p->textures == textures &&
         p->vertex_buffer == t->vertices.buffer && p->vertex_offset + p->bytes == vertex_offset && memcmp(&p->scissor, &r, sizeof r) == 0 &&
         memcmp(p->uniforms, uniforms, GPU_UNIFORM_BYTES) == 0) {
         p->bytes += floats * 4;
@@ -361,7 +364,7 @@ bool gpu_target_draw(gpu_target *t, gpu_shader *shader, const float *vertices, s
         return false;
     }
     *p = (pending_draw){floats * 4, pipeline, drawing_group(t, texture, sampling), user, textures, view, sampling, t->vertices.buffer, vertex_offset,
-                        (uint32_t)uniform_offset, (uint32_t)stencil, t->uniforms.data + uniform_offset, r};
+                        (uint32_t)uniform_offset, (uint32_t)stencil, user_offset, t->uniforms.data + uniform_offset, r};
     const char *failure = gpu_device_take_error(d);
     if (failure) { snprintf(error, error_size, "%s", failure); return false; }
     return true;
@@ -383,13 +386,17 @@ bool gpu_target_draw_instances(gpu_target *t, gpu_shader *shader, gpu_buffer *ve
     if (!textures) return false;
     WGPURenderPipeline pipeline = gpu_shader_pipeline(shader, 4, t->state.blend, t->state.depth, t->samples, 0, t->format, t->colors, t->state.cull, vertices != NULL, error, error_size);
     if (!pipeline) return false;
+    /* The uniforms before the pass opens: a full uniform ring flushes everything. */
+    uint32_t user_offset = 0;
+    WGPUBindGroup user = gpu_shader_user_group(shader, &user_offset);
     begin(t, NULL, false, false);
     record_pending(t);
     uint32_t zero = 0;
     wgpuRenderPassEncoderSetPipeline(t->pass, pipeline);
     wgpuRenderPassEncoderSetBindGroup(t->pass, 0, gpu_device_identity_group(d), 1, &zero);
-    wgpuRenderPassEncoderSetBindGroup(t->pass, 1, gpu_shader_user_group(shader), 0, NULL);
+    wgpuRenderPassEncoderSetBindGroup(t->pass, 1, user, 1, &user_offset);
     wgpuRenderPassEncoderSetBindGroup(t->pass, 2, textures, 0, NULL);
+    gpu_buffer_mark_used(vertices); gpu_buffer_mark_used(indirect);
     if (vertices) wgpuRenderPassEncoderSetVertexBuffer(t->pass, 0, gpu_buffer_handle(vertices), 0, (uint64_t)gpu_buffer_length(vertices) * 4);
     gpu_rect r = scissor ? *scissor : (gpu_rect){0, 0, gpu_texture_width(t->color), gpu_texture_height(t->color)};
     wgpuRenderPassEncoderSetScissorRect(t->pass, (uint32_t)r.x, (uint32_t)r.y, (uint32_t)r.width, (uint32_t)r.height);
@@ -516,6 +523,7 @@ void gpu_target_release_handles(gpu_target *t) {
 
 void gpu_target_free(gpu_target *t) {
     if (!t) return;
+    if (t->link.device) gpu_device_note_closed(t->link.device, t);
     if (t->depth_source) { t->depth_source->depth_borrower = NULL; t->depth_source = NULL; }
     if (t->depth_borrower) { gpu_target_flush(t->depth_borrower); t->depth_borrower->depth_source = NULL; t->depth_borrower = NULL; }
     gpu_target_release_handles(t);

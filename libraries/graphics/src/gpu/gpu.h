@@ -78,6 +78,14 @@ void gpu_device_blit(gpu_device *device, WGPUTextureView source, WGPUTextureView
 /* Waits until *flag is set by a callback (native) or returns at once (web, where the callback comes later). */
 void gpu_device_wait(gpu_device *device, const volatile bool *flag);
 void gpu_device_process_events(gpu_device *device);   /* delivers finished callbacks without waiting */
+uint32_t gpu_device_ring_push(gpu_device *device, const void *data, size_t size);
+uint32_t gpu_device_ring_generation(gpu_device *device);
+WGPUBuffer gpu_device_ring_buffer(gpu_device *device);
+WGPUBindGroup gpu_device_ring_group(gpu_device *device);
+uint64_t gpu_device_use_epoch(gpu_device *device);
+void gpu_device_note_open(gpu_device *device, gpu_target *target);
+void gpu_device_note_closed(gpu_device *device, gpu_target *target);
+void gpu_buffer_mark_used(gpu_buffer *buffer);
 void gpu_instance_wait(WGPUInstance instance, WGPUDevice device, const volatile bool *flag);
 WGPUShaderModule gpu_device_shader_module(gpu_device *device, const char *source, size_t length);
 WGPUBuffer gpu_device_buffer(gpu_device *device, uint64_t size, WGPUBufferUsage usage, const void *data);
@@ -262,7 +270,7 @@ WGPURenderPipeline gpu_shader_pipeline(gpu_shader *shader, int mode, int blend, 
    on the web (off the browser's GPU thread), at once natively. `done` gets NULL or the failure. */
 void gpu_shader_prepare(gpu_shader *shader, int mode, int blend, int depth_mode, uint32_t samples, int stencil, WGPUTextureFormat format,
                         int colors, int cull, bool vertex_buffer, gpu_prepare_done done, void *data);
-WGPUBindGroup gpu_shader_user_group(gpu_shader *shader);
+WGPUBindGroup gpu_shader_user_group(gpu_shader *shader, uint32_t *offset);
 WGPUBindGroup gpu_shader_texture_group(gpu_shader *shader, gpu_target *destination, char *error, size_t error_size);
 
 /* ---- Buffers and compute (buffer.c) ------------------------------------------------------------------------- */

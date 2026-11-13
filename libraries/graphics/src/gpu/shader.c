@@ -43,6 +43,8 @@ struct gpu_shader {
     buffer_field buffers[15]; int buffer_count;
     uint8_t user[GPU_USER_BYTES];
     int version, user_version;
+    uint32_t user_offset, user_generation;
+    WGPUBindGroup ring_group;           /* compute shaders: their group 1 over the device's uniform ring */
     WGPUBuffer user_buffer;
     WGPUBindGroup user_group, texture_group;
     pipeline_entry *pipelines; size_t pipeline_count, pipeline_capacity;
@@ -359,7 +361,7 @@ static void create_layouts(gpu_shader *s, gpu_device *device) {
         s->empty_group = wgpuDeviceCreateBindGroup(gpu_device_handle(device), &group);
         WGPUBindGroupLayoutEntry user = WGPU_BIND_GROUP_LAYOUT_ENTRY_INIT;
         user.binding = 0; user.visibility = WGPUShaderStage_Compute;
-        user.buffer.type = WGPUBufferBindingType_Uniform; user.buffer.minBindingSize = GPU_USER_BYTES;
+        user.buffer.type = WGPUBufferBindingType_Uniform; user.buffer.minBindingSize = GPU_USER_BYTES; user.buffer.hasDynamicOffset = true;
         WGPUBindGroupLayoutDescriptor userLayout = WGPU_BIND_GROUP_LAYOUT_DESCRIPTOR_INIT;
         userLayout.entryCount = 1; userLayout.entries = &user;
         s->user_layout = wgpuDeviceCreateBindGroupLayout(gpu_device_handle(device), &userLayout);
@@ -467,14 +469,16 @@ void gpu_shader_release_handles(gpu_shader *s) {
     s->pipeline_count = 0;
     if (s->link.device && !gpu_device_disposed(s->link.device)) {
         gpu_device_retire_group(s->link.device, s->user_group);
+        gpu_device_retire_group(s->link.device, s->ring_group);
         gpu_device_retire_buffer(s->link.device, s->user_buffer);
         gpu_device_retire_group(s->link.device, s->texture_group);
     } else {
         if (s->user_group) wgpuBindGroupRelease(s->user_group);
+        if (s->ring_group) wgpuBindGroupRelease(s->ring_group);
         if (s->user_buffer) wgpuBufferRelease(s->user_buffer);
         if (s->texture_group) wgpuBindGroupRelease(s->texture_group);
     }
-    s->user_group = NULL; s->user_buffer = NULL; s->texture_group = NULL;
+    s->user_group = NULL; s->user_buffer = NULL; s->texture_group = NULL; s->ring_group = NULL;
     if (s->vertex) wgpuShaderModuleRelease(s->vertex);
     if (s->fragment) wgpuShaderModuleRelease(s->fragment);
     if (s->compute_pipeline) wgpuComputePipelineRelease(s->compute_pipeline);
@@ -633,7 +637,8 @@ bool gpu_shader_dispatch(gpu_shader *s, uint32_t x, uint32_t y, uint32_t z, char
     gpu_device *d = s->link.device;
     WGPUBindGroup textures = gpu_shader_texture_group(s, NULL, error, error_size);
     if (!textures) return false;
-    WGPUBindGroup user = gpu_shader_user_group(s);
+    uint32_t user_offset = 0;
+    WGPUBindGroup user = gpu_shader_user_group(s, &user_offset);
     /* Earlier draws into targets are submitted first; this dispatch joins the pending compute encoder. */
     gpu_device_flush_targets(d);
     WGPUCommandEncoder encoder = gpu_device_compute_encoder(d);
@@ -644,7 +649,7 @@ bool gpu_shader_dispatch(gpu_shader *s, uint32_t x, uint32_t y, uint32_t z, char
     WGPUComputePassEncoder pass = wgpuCommandEncoderBeginComputePass(encoder, &pass_descriptor);
     wgpuComputePassEncoderSetPipeline(pass, s->compute_pipeline);
     wgpuComputePassEncoderSetBindGroup(pass, 0, s->empty_group, 0, NULL);
-    wgpuComputePassEncoderSetBindGroup(pass, 1, user, 0, NULL);
+    wgpuComputePassEncoderSetBindGroup(pass, 1, user, 1, &user_offset);
     wgpuComputePassEncoderSetBindGroup(pass, 2, textures, 0, NULL);
     wgpuComputePassEncoderDispatchWorkgroups(pass, x, y, z);
     wgpuComputePassEncoderEnd(pass);
@@ -662,7 +667,8 @@ bool gpu_shader_dispatch_indirect(gpu_shader *s, gpu_buffer *arguments, uint64_t
     gpu_device *d = s->link.device;
     WGPUBindGroup textures = gpu_shader_texture_group(s, NULL, error, error_size);
     if (!textures) return false;
-    WGPUBindGroup user = gpu_shader_user_group(s);
+    uint32_t user_offset = 0;
+    WGPUBindGroup user = gpu_shader_user_group(s, &user_offset);
     /* Earlier draws into targets are submitted first; this dispatch joins the pending compute encoder. */
     gpu_device_flush_targets(d);
     WGPUCommandEncoder encoder = gpu_device_compute_encoder(d);
@@ -673,8 +679,9 @@ bool gpu_shader_dispatch_indirect(gpu_shader *s, gpu_buffer *arguments, uint64_t
     WGPUComputePassEncoder pass = wgpuCommandEncoderBeginComputePass(encoder, &pass_descriptor);
     wgpuComputePassEncoderSetPipeline(pass, s->compute_pipeline);
     wgpuComputePassEncoderSetBindGroup(pass, 0, s->empty_group, 0, NULL);
-    wgpuComputePassEncoderSetBindGroup(pass, 1, user, 0, NULL);
+    wgpuComputePassEncoderSetBindGroup(pass, 1, user, 1, &user_offset);
     wgpuComputePassEncoderSetBindGroup(pass, 2, textures, 0, NULL);
+    gpu_buffer_mark_used(arguments);
     wgpuComputePassEncoderDispatchWorkgroupsIndirect(pass, gpu_buffer_handle(arguments), offset);
     wgpuComputePassEncoderEnd(pass);
     wgpuComputePassEncoderRelease(pass);
@@ -684,21 +691,26 @@ bool gpu_shader_dispatch_indirect(gpu_shader *s, gpu_buffer *arguments, uint64_t
     return true;
 }
 
-/* User uniforms are uploaded once per Set version and shared by later draws. */
-WGPUBindGroup gpu_shader_user_group(gpu_shader *s) {
-    if (s->user_group && s->user_version == s->version) return s->user_group;
+/* User uniforms: each Set version is copied once into the device's uniform ring (until the ring starts over) and
+   bound with its dynamic offset. */
+WGPUBindGroup gpu_shader_user_group(gpu_shader *s, uint32_t *offset) {
     gpu_device *d = s->link.device;
-    gpu_device_retire_group(d, s->user_group);
-    gpu_device_retire_buffer(d, s->user_buffer);
-    s->user_buffer = gpu_device_buffer(d, GPU_USER_BYTES, WGPUBufferUsage_Uniform, s->user);
-    WGPUBindGroupEntry entry = WGPU_BIND_GROUP_ENTRY_INIT;
-    entry.binding = 0; entry.buffer = s->user_buffer; entry.size = GPU_USER_BYTES;
-    WGPUBindGroupDescriptor descriptor = WGPU_BIND_GROUP_DESCRIPTOR_INIT;
-    descriptor.layout = s->user_layout ? s->user_layout : gpu_device_user_layout(d); descriptor.entryCount = 1; descriptor.entries = &entry;
-    s->user_group = wgpuDeviceCreateBindGroup(gpu_device_handle(d), &descriptor);
-    gpu_counters.bind_groups++;
-    s->user_version = s->version;
-    return s->user_group;
+    if (s->user_version != s->version || s->user_generation != gpu_device_ring_generation(d) || !gpu_device_ring_buffer(d)) {
+        s->user_offset = gpu_device_ring_push(d, s->user, GPU_USER_BYTES);
+        s->user_generation = gpu_device_ring_generation(d);
+        s->user_version = s->version;
+    }
+    *offset = s->user_offset;
+    if (!s->user_layout) return gpu_device_ring_group(d);
+    if (!s->ring_group) {
+        WGPUBindGroupEntry entry = WGPU_BIND_GROUP_ENTRY_INIT;
+        entry.binding = 0; entry.buffer = gpu_device_ring_buffer(d); entry.size = GPU_USER_BYTES;
+        WGPUBindGroupDescriptor descriptor = WGPU_BIND_GROUP_DESCRIPTOR_INIT;
+        descriptor.layout = s->user_layout; descriptor.entryCount = 1; descriptor.entries = &entry;
+        s->ring_group = wgpuDeviceCreateBindGroup(gpu_device_handle(d), &descriptor);
+        gpu_counters.bind_groups++;
+    }
+    return s->ring_group;
 }
 
 WGPUBindGroup gpu_shader_texture_group(gpu_shader *s, gpu_target *destination, char *error, size_t error_size) {
@@ -714,6 +726,7 @@ WGPUBindGroup gpu_shader_texture_group(gpu_shader *s, gpu_target *destination, c
     for (int i = 0; i < s->buffer_count; i++) {
         buffer_field *b = &s->buffers[i];
         if (!b->buffer || gpu_buffer_released(b->buffer)) { snprintf(error, error_size, "Missing or disposed shader storage buffer: %s", b->name); return NULL; }
+        gpu_buffer_mark_used(b->buffer);
     }
     if (s->texture_group) return s->texture_group;
     WGPUBindGroupEntry entries[TEXTURE_SLOTS + 17];

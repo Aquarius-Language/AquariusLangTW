@@ -10,7 +10,9 @@ struct gpu_buffer {
     WGPUBuffer handle;
     int length;
     bool vertex, released;
+    uint64_t used;           /* use epoch + 1 of the last unsubmitted work that read or wrote it (0: none) */
 };
+void gpu_buffer_mark_used(gpu_buffer *b) { if (b) b->used = gpu_device_use_epoch(b->link.device) + 1; }
 
 gpu_buffer *gpu_buffer_create(gpu_device *device, const float *values, int length, bool vertex, char *error, size_t error_size) {
     uint64_t size = (uint64_t)length * 4;
@@ -57,7 +59,9 @@ WGPUBuffer gpu_buffer_handle(const gpu_buffer *b) { return b->handle; }
 void gpu_buffer_write(gpu_buffer *b, int offset, const float *values, int count) {
     if (b->released) return;
     gpu_device *d = b->link.device;
-    gpu_device_flush(d); /* draws recorded earlier read the previous contents */
+    /* Draws and dispatches recorded earlier but not submitted read the previous contents: submit them first, only if
+       one of them uses this buffer. */
+    if (b->used == gpu_device_use_epoch(d) + 1) gpu_device_flush(d);
     wgpuQueueWriteBuffer(gpu_device_queue(d), b->handle, (uint64_t)offset * 4, values, (size_t)count * 4);
     gpu_counters.writes++; gpu_counters.write_bytes += (uint64_t)count * 4;
 }

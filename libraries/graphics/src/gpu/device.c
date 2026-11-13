@@ -60,6 +60,19 @@ struct gpu_device {
     WGPUBuffer *retired_buffers;
     size_t retired_group_count, retired_group_capacity, retired_buffer_count, retired_buffer_capacity;
     gpu_resource resources;  /* list head */
+    /* User uniforms (group 1) of every Set version go into one ring buffer bound with dynamic offsets, instead of a
+       buffer and a bind group per version. Bytes are uploaded before each submit; the ring empties when nothing
+       recorded is left unsubmitted (a full flush). */
+    WGPUBuffer uring;
+    uint8_t *ring_data;
+    size_t ring_used, ring_uploaded;
+    uint32_t ring_generation;
+    WGPUBindGroup ring_group;
+    /* Buffers record the epoch in which unsubmitted work used them; a full flush starts a new epoch, so a script write
+       to a buffer nothing pending reads needs no flush. */
+    uint64_t use_epoch;
+    /* Targets with a recorded pass not submitted yet (a flush visits only these). */
+    gpu_target **open; size_t open_count, open_capacity;
     bool has_error;
     char error[1024], taken[1024];
     char backend[32];
@@ -267,6 +280,49 @@ WGPUBuffer gpu_device_buffer(gpu_device *d, uint64_t size, WGPUBufferUsage usage
     return buffer;
 }
 
+#define GPU_RING_BYTES (16u * 1024u * 1024u)
+static void ring_upload(gpu_device *d) {
+    if (d->uring && d->ring_used > d->ring_uploaded) {
+        wgpuQueueWriteBuffer(d->queue, d->uring, d->ring_uploaded, d->ring_data + d->ring_uploaded, d->ring_used - d->ring_uploaded);
+        gpu_counters.writes++; gpu_counters.write_bytes += d->ring_used - d->ring_uploaded;
+        d->ring_uploaded = d->ring_used;
+    }
+}
+uint32_t gpu_device_ring_generation(gpu_device *d) { return d->ring_generation; }
+WGPUBuffer gpu_device_ring_buffer(gpu_device *d) { return d->uring; }
+/* Appends a copy of size bytes (256-aligned) and returns its offset; a full ring flushes everything first. */
+uint32_t gpu_device_ring_push(gpu_device *d, const void *data, size_t size) {
+    if (!d->uring) {
+        d->uring = gpu_device_buffer(d, GPU_RING_BYTES, WGPUBufferUsage_Uniform, NULL);
+        d->ring_data = malloc(GPU_RING_BYTES);
+        WGPUBindGroupEntry entry = WGPU_BIND_GROUP_ENTRY_INIT;
+        entry.binding = 0; entry.buffer = d->uring; entry.size = GPU_USER_BYTES;
+        WGPUBindGroupDescriptor descriptor = WGPU_BIND_GROUP_DESCRIPTOR_INIT;
+        descriptor.layout = d->user_layout; descriptor.entryCount = 1; descriptor.entries = &entry;
+        d->ring_group = wgpuDeviceCreateBindGroup(d->device, &descriptor);
+        gpu_counters.bind_groups++;
+    }
+    size_t step = (size + 255) & ~(size_t)255;
+    if (d->ring_used + step > GPU_RING_BYTES) gpu_device_flush(d);
+    size_t at = d->ring_used;
+    memcpy(d->ring_data + at, data, size);
+    d->ring_used += step;
+    return (uint32_t)at;
+}
+WGPUBindGroup gpu_device_ring_group(gpu_device *d) { return d->ring_group; }
+uint64_t gpu_device_use_epoch(gpu_device *d) { return d->use_epoch; }
+void gpu_device_note_open(gpu_device *d, gpu_target *t) {
+    for (size_t i = 0; i < d->open_count; i++) if (d->open[i] == t) return;
+    if (d->open_count == d->open_capacity) {
+        d->open_capacity = d->open_capacity ? d->open_capacity * 2 : 16;
+        d->open = realloc(d->open, d->open_capacity * sizeof *d->open);
+    }
+    d->open[d->open_count++] = t;
+}
+void gpu_device_note_closed(gpu_device *d, gpu_target *t) {
+    for (size_t i = 0; i < d->open_count; i++) if (d->open[i] == t) { d->open[i] = d->open[--d->open_count]; return; }
+}
+
 WGPUCommandEncoder gpu_device_compute_encoder(gpu_device *d) {
     if (!d->pending) d->pending = wgpuDeviceCreateCommandEncoder(d->device, NULL);
     return d->pending;
@@ -281,6 +337,7 @@ void gpu_device_submit_pending(gpu_device *d) {
 void gpu_device_submit(gpu_device *d, WGPUCommandEncoder encoder) {
     /* Work recorded earlier goes first. */
     if (d->pending && encoder != d->pending) gpu_device_submit_pending(d);
+    ring_upload(d);
     double start = gpu_clock_ms();
     WGPUCommandBuffer commands = wgpuCommandEncoderFinish(encoder, NULL);
     wgpuQueueSubmit(d->queue, 1, &commands);
@@ -430,6 +487,7 @@ static bool create_shared(gpu_device *d) {
     user.binding = 0;
     user.visibility = WGPUShaderStage_Vertex | WGPUShaderStage_Fragment;
     user.buffer.type = WGPUBufferBindingType_Uniform;
+    user.buffer.hasDynamicOffset = true;
     user.buffer.minBindingSize = GPU_USER_BYTES;
     layout.entryCount = 1; layout.entries = &user;
     d->user_layout = wgpuDeviceCreateBindGroupLayout(d->device, &layout);
@@ -645,19 +703,19 @@ void gpu_device_release_retired(gpu_device *d) {
 
 void gpu_device_flush_targets(gpu_device *d) {
     if (d->disposed) return;
-    for (gpu_resource *r = d->resources.next; r != &d->resources; r = r->next) {
-        gpu_counters.flush_scans++;
-        if (r->kind == GPU_TARGET) gpu_target_flush((gpu_target *)r);
-    }
+    /* Targets close (and leave the list) as they flush; flush from the end. */
+    while (d->open_count) { gpu_target *t = d->open[--d->open_count]; gpu_counters.flush_scans++; gpu_target_flush(t); }
 }
 
 void gpu_device_flush(gpu_device *d) {
     if (d->disposed) return;
-    for (gpu_resource *r = d->resources.next; r != &d->resources; r = r->next) {
-        gpu_counters.flush_scans++;
-        if (r->kind == GPU_TARGET) gpu_target_flush((gpu_target *)r);
-    }
+    gpu_device_flush_targets(d);
     gpu_device_submit_pending(d);
+    /* Nothing recorded is left: the ring starts over and buffers become free to write without a flush. */
+    ring_upload(d);
+    d->ring_used = d->ring_uploaded = 0;
+    d->ring_generation++;
+    d->use_epoch++;
 }
 
 typedef struct poll_wait { volatile bool done; void (*callback)(void *, const char *); void *data; } poll_wait;
@@ -882,6 +940,10 @@ void gpu_device_dispose(gpu_device *d) {
     for (size_t i = 0; i < d->retired_group_count; i++) wgpuBindGroupRelease(d->retired_groups[i]);
     for (size_t i = 0; i < d->retired_buffer_count; i++) wgpuBufferRelease(d->retired_buffers[i]);
     d->retired_group_count = d->retired_buffer_count = 0;
+    if (d->ring_group) wgpuBindGroupRelease(d->ring_group);
+    if (d->uring) wgpuBufferRelease(d->uring);
+    free(d->ring_data); free(d->open);
+    d->ring_group = NULL; d->uring = NULL; d->ring_data = NULL; d->open = NULL; d->open_count = d->open_capacity = 0;
     if (d->identity_group) wgpuBindGroupRelease(d->identity_group);
     if (d->identity_buffer) wgpuBufferRelease(d->identity_buffer);
     d->identity_group = NULL; d->identity_buffer = NULL;
