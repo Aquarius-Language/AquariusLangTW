@@ -244,9 +244,10 @@ static bool parse_bindings(gpu_shader *s, const char *source, char *error, size_
             if (!*name || *skip_space(r) != ':') continue;
             if (group != 2) continue;
             bool writable = strcmp(space, "storage,read_write") == 0;
-            if (!((binding >= 9 && binding <= 15) || (binding >= 32 && binding <= 39)) || (strcmp(space, "storage") != 0 && strcmp(space, "storage,read") != 0 && !(writable && s->compute))) {
-                snprintf(error, error_size, s->compute ? "Group 2 storage buffers must be var<storage, read> or var<storage, read_write> at bindings 9..15 and 32..39."
-                                                       : "Group 2 storage buffers must be var<storage, read> at bindings 9..15 and 32..39 (read_write is for compute shaders).");
+            /* read_write also in render shaders: those buffers are visible to the fragment stage only (atomics into
+               per-pixel buffers, as a visibility buffer's hardware path does); the vertex stage cannot write storage. */
+            if (!((binding >= 9 && binding <= 15) || (binding >= 32 && binding <= 39)) || (strcmp(space, "storage") != 0 && strcmp(space, "storage,read") != 0 && !writable)) {
+                snprintf(error, error_size, "Group 2 storage buffers must be var<storage, read> or var<storage, read_write> at bindings 9..15 and 32..39.");
                 return false;
             }
             if (used[binding]) { snprintf(error, error_size, "Duplicate texture group binding."); return false; }
@@ -336,7 +337,7 @@ static void create_layouts(gpu_shader *s, gpu_device *device) {
     for (int i = 0; i < s->buffer_count; i++) {
         WGPUBindGroupLayoutEntry e = WGPU_BIND_GROUP_LAYOUT_ENTRY_INIT;
         e.binding = (uint32_t)s->buffers[i].binding;
-        e.visibility = stages;
+        e.visibility = s->buffers[i].writable && !s->compute ? WGPUShaderStage_Fragment : stages;
         e.buffer.type = s->buffers[i].writable ? WGPUBufferBindingType_Storage : WGPUBufferBindingType_ReadOnlyStorage;
         entries[n++] = e;
     }

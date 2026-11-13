@@ -1,0 +1,43 @@
+# (needs a GPU device) WGPU render shaders may write storage buffers from the fragment stage (var<storage, read_write>):
+# two full-target triangles at depths 0.75 and 0.25 count their fragments with an atomic and keep the nearest depth of
+# each pixel with atomicMax (a visibility buffer's hardware path does this).
+var gpu = import("WGPU");
+var device = gpu.CreateDevice();
+var shader = device.CreateShader("struct UserUniforms { at: vec4<f32>, }
+@group(1) @binding(0) var<uniform> u: UserUniforms;
+@vertex fn vs_main(@builtin(vertex_index) i: u32) -> VertexOutput {
+    var o: VertexOutput;
+    let x = f32((i << 1u) & 2u); let y = f32(i & 2u);
+    o.position = vec4<f32>(x * 2.0 - 1.0, 1.0 - y * 2.0, u.at.x, 1.0);
+    return o;
+}", "struct UserUniforms { at: vec4<f32>, }
+@group(1) @binding(0) var<uniform> u: UserUniforms;
+@group(2) @binding(9) var<storage, read_write> counter: array<atomic<u32>>;
+@group(2) @binding(10) var<storage, read_write> nearest: array<atomic<u32>>;
+@fragment fn fs_main(@builtin(position) p: vec4<f32>) -> @location(0) vec4<f32> {
+    atomicAdd(&counter[0], 1u);
+    atomicMax(&nearest[u32(p.y) * 4u + u32(p.x)], u32((1.0 - p.z) * 1000.0 + 0.5));
+    return vec4<f32>(1.0);
+}");
+var counter = device.CreateBuffer([0]);
+var nearest = device.CreateBuffer(Array.Make(16, 0));
+shader.SetBuffer("counter", counter);
+shader.SetBuffer("nearest", nearest);
+var target = device.CreateRenderTarget(4, 4, "rgba8unorm");
+target.SetState({"depth": "none", "cull": "none", "blend": "replace"});
+shader.Set("at", [0.75, 0, 0, 0]);
+target.DrawProcedural(shader, 3);
+shader.Set("at", [0.25, 0, 0, 0]);
+target.DrawProcedural(shader, 3);
+target.Flush();
+# The u32 results as floats.
+var convert = device.CreateCompute("@group(2) @binding(9) var<storage, read_write> counter: array<u32>;
+@group(2) @binding(10) var<storage, read_write> nearest: array<u32>;
+@group(2) @binding(11) var<storage, read_write> out: array<f32>;
+@compute @workgroup_size(1) fn cs_main() { out[0] = f32(counter[0]); out[1] = f32(nearest[0]); out[2] = f32(nearest[15]); }");
+var out = device.CreateBuffer([0, 0, 0]);
+convert.SetBuffer("counter", counter); convert.SetBuffer("nearest", nearest); convert.SetBuffer("out", out);
+convert.Dispatch(1);
+var values = out.Read();
+print("fragments", values[0]);
+print("nearest", values[1], values[2]);
