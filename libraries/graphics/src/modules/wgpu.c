@@ -20,7 +20,7 @@ static aqua_class *device_class, *buffer_class, *vertex_class, *shader_class_w, 
 
 typedef struct wgpu_window wgpu_window;
 typedef struct device_object { gpu_device *device; wgpu_window *window; aqua_ref window_ref; } device_object;
-typedef struct buffer_object { device_object *owner; aqua_ref owner_ref; gpu_buffer *buffer; } buffer_object;
+typedef struct buffer_object { device_object *owner; aqua_ref owner_ref; gpu_buffer *buffer; gpu_readback *pending; } buffer_object;
 typedef struct binding { char name[64]; aqua_ref ref; } binding;
 typedef struct shader_object { device_object *owner; aqua_ref owner_ref; gpu_shader *shader; binding bound[32]; int bound_count; } shader_object;
 typedef struct target_object { device_object *owner; aqua_ref owner_ref; gpu_target *target; aqua_ref depth_ref; } target_object;
@@ -158,6 +158,7 @@ static void texture_Dispose(aqua_call *call) { gfx_texture_object_dispose(aqua_c
 
 static void buffer_finalize(aqua_runtime *rt, void *data) {
     buffer_object *b = data;
+    if (b->pending) { gpu_readback_free(b->pending); b->pending = NULL; }
     gpu_buffer_free(b->buffer);
     aqua_release(rt, b->owner_ref);
     free(b);
@@ -229,6 +230,34 @@ static void buffer_ReadRange(aqua_call *call) {
     int offset = gfx_int(call, 0), count = gfx_int(call, 1);
     if (aqua_failed(call) || !storage_live(call, b) || !range_valid(call, gpu_buffer_length(b->buffer), offset, count)) return;
     read_floats(call, b->buffer, offset, count);
+}
+
+/* buffer.RequestRead(): starts reading the buffer back without waiting (one read at a time; false while one is
+   pending); TakeRead() returns its values once the GPU has reached the copy, null before. A frame loop reads what an
+   earlier frame wrote this way without stalling on the GPU. */
+static void buffer_RequestRead(aqua_call *call) {
+    buffer_object *b = aqua_self(call);
+    if (!device_live(call, b->owner) || !storage_live(call, b)) return;
+    if (b->pending) { aqua_return_bool(call, false); return; }
+    b->pending = gpu_buffer_read_async(b->buffer, 0, gpu_buffer_length(b->buffer));
+    aqua_return_bool(call, b->pending != NULL);
+}
+
+static void buffer_TakeRead(aqua_call *call) {
+    buffer_object *b = aqua_self(call);
+    if (!device_live(call, b->owner)) return;
+    if (!b->pending) { aqua_return_null(call); return; }
+    int state = gpu_readback_poll(b->pending);
+    if (state == 0) { aqua_return_null(call); return; }
+    int count = 0;
+    const float *values = gpu_readback_values(b->pending, &count);
+    if (state < 0 || !values) { gpu_readback_free(b->pending); b->pending = NULL; gfx_fail(call, "wgpu buffer readback failed."); return; }
+    double *numbers = malloc((size_t)(count ? count : 1) * sizeof *numbers);
+    for (int i = 0; i < count; i++) numbers[i] = values[i];
+    aqua_value array = gfx_doubles(aqua_call_runtime(call), numbers, (uint32_t)count);
+    free(numbers);
+    gpu_readback_free(b->pending); b->pending = NULL;
+    aqua_return(call, array);
 }
 
 static void buffer_Dispose(aqua_call *call) { gpu_buffer_release_handles(((buffer_object *)aqua_self(call))->buffer); }
@@ -1267,7 +1296,7 @@ static void wgpu_Stats(aqua_call *call) {
     X(device_ProfileSupported, "ProfileSupported|支援效能分析", 0, 0)
 #define BUFFER_MEMBERS(X) \
     X(buffer_Dispose, "Dispose|釋放", 0, 0) X(buffer_Read, "Read|讀取", 0, 0) X(buffer_ReadRange, "ReadRange|讀取範圍", 2, 2) \
-    X(buffer_Write, "Write|寫入", 1, 1) X(buffer_WriteRange, "WriteRange|寫入範圍", 2, 2)
+    X(buffer_Write, "Write|寫入", 1, 1) X(buffer_WriteRange, "WriteRange|寫入範圍", 2, 2)     X(buffer_RequestRead, "RequestRead|請求讀取", 0, 0) X(buffer_TakeRead, "TakeRead|取得讀取", 0, 0)
 #define SHADER_MEMBERS(X) \
     X(shader_Dispose, "Dispose|釋放", 0, 0) X(shader_Set, "Set|設定", 2, 2) X(shader_SetBuffer, "SetBuffer|設定緩衝區", 2, 2) \
     X(shader_SetInt, "SetInt|設定整數", 2, 2) X(shader_SetTexture, "SetTexture|設定紋理", 2, 2) \

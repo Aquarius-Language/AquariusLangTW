@@ -208,6 +208,14 @@ void gpu_instance_wait(WGPUInstance instance, WGPUDevice device, const volatile 
 }
 
 void gpu_device_wait(gpu_device *d, const volatile bool *flag) { gpu_instance_wait(d->instance, d->device, flag); }
+void gpu_device_process_events(gpu_device *d) {
+#if !defined(AQUA_OS_WEB)
+    wgpuDevicePoll(d->device, false, NULL);
+    wgpuInstanceProcessEvents(d->instance);
+#else
+    (void)d;
+#endif
+}
 
 /* ---- Creation ---- */
 

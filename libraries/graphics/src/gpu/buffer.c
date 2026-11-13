@@ -119,6 +119,75 @@ void gpu_buffer_read(gpu_buffer *b, int offset, int count, gpu_floats_done done,
 #endif
 }
 
+/* ---- Readback without waiting ---- */
+
+/* A copy of the buffer into a staging buffer is queued after the work submitted so far and mapped when the GPU
+   reaches it; gpu_readback_poll looks without blocking (on the web the browser delivers the map by itself). */
+struct gpu_readback {
+    WGPUBuffer staging;
+    gpu_device *device;
+    int count;
+    volatile bool finished;
+    bool ok;
+    float *values;
+};
+
+static void on_readback_mapped(WGPUMapAsyncStatus status, WGPUStringView message, void *user, void *unused) {
+    (void)message; (void)unused;
+    gpu_readback *r = user;
+    r->ok = status == WGPUMapAsyncStatus_Success;
+    if (r->ok) {
+        const float *values = wgpuBufferGetConstMappedRange(r->staging, 0, (size_t)r->count * 4);
+        r->values = malloc((size_t)r->count * 4 + 4);
+        if (values) memcpy(r->values, values, (size_t)r->count * 4); else r->ok = false;
+        wgpuBufferUnmap(r->staging);
+    }
+    r->finished = true;
+}
+
+gpu_readback *gpu_buffer_read_async(gpu_buffer *b, int offset, int count) {
+    if (b->released || count <= 0) return NULL;
+    gpu_device *d = b->link.device;
+    gpu_device_flush(d);
+    gpu_readback *r = calloc(1, sizeof *r);
+    r->device = d; r->count = count;
+    WGPUBufferDescriptor descriptor = WGPU_BUFFER_DESCRIPTOR_INIT;
+    descriptor.size = (uint64_t)count * 4;
+    descriptor.usage = WGPUBufferUsage_CopyDst | WGPUBufferUsage_MapRead;
+    r->staging = wgpuDeviceCreateBuffer(gpu_device_handle(d), &descriptor);
+    WGPUCommandEncoder encoder = wgpuDeviceCreateCommandEncoder(gpu_device_handle(d), NULL);
+    wgpuCommandEncoderCopyBufferToBuffer(encoder, b->handle, (uint64_t)offset * 4, r->staging, 0, descriptor.size);
+    gpu_device_submit(d, encoder);
+    WGPUBufferMapCallbackInfo callback = WGPU_BUFFER_MAP_CALLBACK_INFO_INIT;
+    callback.mode = GPU_CALLBACK_MODE; callback.callback = on_readback_mapped; callback.userdata1 = r;
+    wgpuBufferMapAsync(r->staging, WGPUMapMode_Read, 0, (size_t)descriptor.size, callback);
+    gpu_counters.readbacks++;
+    return r;
+}
+
+int gpu_readback_poll(gpu_readback *r) {
+    if (!r) return -1;
+#if !defined(AQUA_OS_WEB)
+    if (!r->finished) gpu_device_process_events(r->device);
+#endif
+    if (!r->finished) return 0;
+    return r->ok ? 1 : -1;
+}
+
+const float *gpu_readback_values(const gpu_readback *r, int *count) { if (count) *count = r ? r->count : 0; return r && r->ok ? r->values : NULL; }
+
+void gpu_readback_free(gpu_readback *r) {
+    if (!r) return;
+    /* A copy still in flight keeps its callback: wait for it so the callback never sees freed memory. */
+#if !defined(AQUA_OS_WEB)
+    if (!r->finished) gpu_device_wait(r->device, &r->finished);
+#endif
+    if (!r->finished) return;   /* the web delivers it later: leak the small record rather than free it under the callback */
+    if (r->staging) wgpuBufferRelease(r->staging);
+    free(r->values);
+    free(r);
+}
+
 /* ---- Compute ---- */
 
 typedef struct kernel { char *source; WGPUBindGroupLayout layout; WGPUComputePipeline pipeline; } kernel;

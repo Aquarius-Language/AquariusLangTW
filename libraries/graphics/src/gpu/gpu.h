@@ -77,6 +77,7 @@ void gpu_device_retire_buffer(gpu_device *device, WGPUBuffer buffer);
 void gpu_device_blit(gpu_device *device, WGPUTextureView source, WGPUTextureView destination, WGPUTextureFormat format, uint32_t samples);
 /* Waits until *flag is set by a callback (native) or returns at once (web, where the callback comes later). */
 void gpu_device_wait(gpu_device *device, const volatile bool *flag);
+void gpu_device_process_events(gpu_device *device);   /* delivers finished callbacks without waiting */
 void gpu_instance_wait(WGPUInstance instance, WGPUDevice device, const volatile bool *flag);
 WGPUShaderModule gpu_device_shader_module(gpu_device *device, const char *source, size_t length);
 WGPUBuffer gpu_device_buffer(gpu_device *device, uint64_t size, WGPUBufferUsage usage, const void *data);
@@ -189,6 +190,13 @@ gpu_texture *gpu_target_color_at(gpu_target *target, int index);
 void gpu_target_configure(gpu_target *target, int width, int height, bool smooth);
 void gpu_target_clear(gpu_target *target, const float rgba[4]);  /* straight RGBA, stored premultiplied */
 void gpu_target_clear_stencil(gpu_target *target);
+/* Reading a buffer back without waiting: the copy is queued after the work submitted so far; poll returns 1 when the
+   values are there, 0 while the GPU has not reached it, -1 on failure. */
+typedef struct gpu_readback gpu_readback;
+gpu_readback *gpu_buffer_read_async(gpu_buffer *buffer, int offset, int count);
+int gpu_readback_poll(gpu_readback *readback);
+const float *gpu_readback_values(const gpu_readback *readback, int *count);
+void gpu_readback_free(gpu_readback *readback);
 /* Draw with another target's depth/stencil attachment (same size, one sample; otherwise the target's own is used):
    NULL stops. A borrower's color Clear keeps the shared depth; gpu_target_clear_depth clears it. */
 void gpu_target_share_depth(gpu_target *target, gpu_target *source);

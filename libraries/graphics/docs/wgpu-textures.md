@@ -78,6 +78,14 @@ first vertex, first instance), so GPU culling can decide how many instances are 
 as a second parameter: `fn vs_main(input: VertexInput, @builtin(instance_index) instance: u32)`. Storage buffers are
 created with the indirect usage for this.
 
+### 不等待的讀回 / Reading back without waiting
+
+`buffer.RequestRead()` 在目前已送出的工作之後排入一次複製並立即返回（同時只能有一個，進行中時回傳 false）；`buffer.TakeRead()` 在 GPU 完成該複製後回傳數值陣列，之前回傳 null。每幀迴圈可藉此讀取前一幀寫入的資料而不使 GPU 停頓（`Read()` 會等待所有已送出的工作）。
+English: `buffer.RequestRead()` queues a copy after the work submitted so far and returns at once (one at a time:
+false while one is pending); `buffer.TakeRead()` returns the values once the GPU has reached it, null before. A frame
+loop reads what an earlier frame wrote without stalling (`Read()` waits for all submitted work). Test:
+`tests/wgpu_async_read.aqua`.
+
 ## 效能分析與裝置限制 / Profiling and device limits
 
 - `WGPU.Stats(reset = true)`: what the module did since the last reset: `submits`, `renderPasses`, `computePasses`,

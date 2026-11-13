@@ -1,0 +1,7 @@
+nothing pending 真
+started 真
+one at a time 假
+values [1, 2, 3, 4]
+nothing pending again 真
+in order [10, 20, 30, 40]
+now [100, 200, 300, 400]

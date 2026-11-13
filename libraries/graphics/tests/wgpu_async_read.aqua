@@ -1,0 +1,26 @@
+# (needs a GPU device) WGPU reading a buffer back without waiting: RequestRead() queues a copy after the work submitted
+# so far, TakeRead() returns the values once the GPU has reached it (null before, and when no read is pending); one read
+# at a time; work submitted after the request does not show in it.
+var gpu = import("WGPU");
+var device = gpu.CreateDevice();
+var buffer = device.CreateBuffer([1, 2, 3, 4]);
+print("nothing pending", buffer.TakeRead() == null);
+print("started", buffer.RequestRead());
+print("one at a time", buffer.RequestRead());
+var take = function() {
+    var values = null;
+    for (var polls = 0; values == null && polls < 1000000; polls++) { values = buffer.TakeRead(); }
+    return values;
+};
+print("values", take());
+print("nothing pending again", buffer.TakeRead() == null);
+
+# A compute shader multiplies by ten: the read requested between two dispatches sees the first one only.
+var times = device.CreateCompute("@group(2) @binding(9) var<storage, read_write> v: array<f32>;
+@compute @workgroup_size(4) fn cs_main(@builtin(global_invocation_id) id: vec3<u32>) { v[id.x] = v[id.x] * 10.0; }");
+times.SetBuffer("v", buffer);
+times.Dispatch(1);
+buffer.RequestRead();
+times.Dispatch(1);
+print("in order", take());
+print("now", buffer.Read());
