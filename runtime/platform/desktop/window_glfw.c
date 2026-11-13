@@ -56,6 +56,7 @@ struct aqua_window {
     WNDPROC previous;
     RECT caret;
     aqua_window_message_hook hooks[8]; void *hook_data[8]; uint32_t hook_count;
+    uint32_t fit_tries;     /* corrections of a maximized window in a row (fit_maximized) */
 #endif
 };
 
@@ -216,8 +217,64 @@ static void end_composition(aqua_window *w) {
     emit_text(w, AQUA_EVENT_COMPOSITION_END, "", 0);
 }
 
+/* A maximized window must cover its monitor's work area and nothing more. Windows sizes it so when it is maximized,
+   but a later change can leave it wrong while it still counts as maximized: moving it to a monitor of another DPI
+   (GLFW keeps the content's pixel size across DPI changes, WM_GETDPISCALEDSIZE), a resize or a move asked for while it
+   was maximized, the task bar or the display changing. Then its bottom went under the task bar or past the screen. So
+   after each of those the maximized window is checked against its monitor and put back where Windows puts a maximized
+   window: the work area, with the side and bottom borders outside it and the caption inside. */
+#ifndef WM_DPICHANGED
+#define WM_DPICHANGED 0x02E0
+#endif
+#define AQUA_WM_FIT_MAXIMIZED (WM_APP + 0x3a1)
+typedef UINT (WINAPI *dpi_for_window_fn)(HWND);
+typedef BOOL (WINAPI *adjust_for_dpi_fn)(LPRECT, DWORD, BOOL, DWORD, UINT);
+static void maximized_frame(HWND hwnd, RECT *frame) {
+    static dpi_for_window_fn dpi_for_window; static adjust_for_dpi_fn adjust_for_dpi; static bool looked;
+    if (!looked) {
+        HMODULE user = GetModuleHandleW(L"user32.dll");
+        if (user) {
+            dpi_for_window = (dpi_for_window_fn)(void (*)(void))GetProcAddress(user, "GetDpiForWindow");
+            adjust_for_dpi = (adjust_for_dpi_fn)(void (*)(void))GetProcAddress(user, "AdjustWindowRectExForDpi");
+        }
+        looked = true;
+    }
+    memset(frame, 0, sizeof *frame);
+    DWORD style = (DWORD)GetWindowLongW(hwnd, GWL_STYLE), ex = (DWORD)GetWindowLongW(hwnd, GWL_EXSTYLE);
+    if (dpi_for_window && adjust_for_dpi) adjust_for_dpi(frame, style, FALSE, ex, dpi_for_window(hwnd));
+    else AdjustWindowRectEx(frame, style, FALSE, ex);
+}
+static void fit_maximized(aqua_window *w) {
+    HWND hwnd = w->hwnd;
+    if (!IsZoomed(hwnd) || IsIconic(hwnd) || glfwGetWindowMonitor(w->glfw)) { w->fit_tries = 0; return; }
+    MONITORINFO info; memset(&info, 0, sizeof info); info.cbSize = sizeof info;
+    if (!GetMonitorInfoW(MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST), &info)) return;
+    RECT work = info.rcWork, client, frame, now;
+    GetClientRect(hwnd, &client);
+    POINT corner = {0, 0};
+    ClientToScreen(hwnd, &corner);
+    OffsetRect(&client, corner.x, corner.y);
+    /* As Windows maximizes it: the client fills the work area's width and reaches its bottom, inside it. */
+    bool inside = client.left >= work.left && client.top >= work.top && client.right <= work.right && client.bottom <= work.bottom;
+    bool fills = client.left - work.left <= 2 && work.right - client.right <= 2 && work.bottom - client.bottom <= 2;
+    if (inside && fills) { w->fit_tries = 0; return; }
+    if (w->fit_tries >= 3) return;   /* the system keeps another size: leave it rather than fight it */
+    w->fit_tries++;
+    maximized_frame(hwnd, &frame);
+    GetWindowRect(hwnd, &now);
+    RECT want = {work.left + frame.left, work.top - frame.bottom, work.right + frame.right, work.bottom + frame.bottom};
+    if (EqualRect(&now, &want)) return;
+    SetWindowPos(hwnd, NULL, want.left, want.top, want.right - want.left, want.bottom - want.top,
+                 SWP_NOZORDER | SWP_NOOWNERZORDER | SWP_NOACTIVATE);
+}
+
 static LRESULT CALLBACK window_proc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam) {
     aqua_window *w = GetPropW(hwnd, property_name);
+    if (message == AQUA_WM_FIT_MAXIMIZED) { fit_maximized(w); return 0; }
+    /* Checked once the change is done (posted: it runs after GLFW and Windows have finished with the message). */
+    if (message == WM_DPICHANGED || message == WM_DISPLAYCHANGE || message == WM_SIZE ||
+        (message == WM_SETTINGCHANGE && wparam == SPI_SETWORKAREA) || (message == WM_WINDOWPOSCHANGED && IsZoomed(hwnd)))
+        PostMessageW(hwnd, AQUA_WM_FIT_MAXIMIZED, 0, 0);
     for (uint32_t i = 0; i < w->hook_count; i++) {
         bool handled = false;
         intptr_t result = w->hooks[i](w, message, (uintptr_t)wparam, (intptr_t)lparam, &handled, w->hook_data[i]);
@@ -509,6 +566,9 @@ int32_t aqua_window_monitor(aqua_window *w) {
     return best;
 }
 int32_t aqua_window_display_mode(aqua_window *w) { return w->display_mode; }
+bool aqua_window_maximized(aqua_window *w) {
+    return !w->remote && w->glfw && !glfwGetWindowMonitor(w->glfw) && glfwGetWindowAttrib(w->glfw, GLFW_MAXIMIZED) != 0;
+}
 bool aqua_window_set_display_mode(aqua_window *w, int32_t mode, int32_t monitor, int32_t x, int32_t y, int32_t width, int32_t height, int32_t refresh_hz) {
     if (w->remote) return false;
     if (monitor < 0) monitor = aqua_window_monitor(w);
@@ -517,6 +577,9 @@ bool aqua_window_set_display_mode(aqua_window *w, int32_t mode, int32_t monitor,
     if (!current) return false;
     int mx = 0, my = 0;
     glfwGetMonitorPos(m, &mx, &my);
+    /* A maximized window is restored first: a size or position given to it while it stays maximized left it
+       maximized at a size other than its monitor's work area (its bottom under the task bar). */
+    if (!glfwGetWindowMonitor(w->glfw) && glfwGetWindowAttrib(w->glfw, GLFW_MAXIMIZED)) glfwRestoreWindow(w->glfw);
     if (mode == AQUA_DISPLAY_FULLSCREEN) {
         int fw = width > 0 ? width : current->width, fh = height > 0 ? height : current->height;
         glfwSetWindowAttrib(w->glfw, GLFW_AUTO_ICONIFY, GLFW_TRUE);

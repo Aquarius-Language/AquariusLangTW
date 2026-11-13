@@ -403,3 +403,4 @@ bool aqua_window_set_display_mode(aqua_window *w, int32_t mode, int32_t monitor,
     (void)w; (void)mode; (void)monitor; (void)x; (void)y; (void)width; (void)height; (void)refresh_hz; return false;
 }
 int32_t aqua_window_display_mode(aqua_window *w) { (void)w; return 0; }
+bool aqua_window_maximized(aqua_window *w) { (void)w; return false; }

@@ -73,6 +73,8 @@ void aqua_window_position(aqua_window *window, int32_t *x, int32_t *y);
 enum { AQUA_DISPLAY_WINDOWED = 0, AQUA_DISPLAY_BORDERLESS = 1, AQUA_DISPLAY_FULLSCREEN = 2 };
 bool aqua_window_set_display_mode(aqua_window *window, int32_t mode, int32_t monitor, int32_t x, int32_t y, int32_t width, int32_t height, int32_t refresh_hz);
 int32_t aqua_window_display_mode(aqua_window *window);
+/* Whether the window is maximized (a desktop window the user or the system maximized; false elsewhere). */
+bool aqua_window_maximized(aqua_window *window);
 
 
 /* Processes pending OS events of every window, dispatching them to listeners. Frame drivers call it once per frame. */

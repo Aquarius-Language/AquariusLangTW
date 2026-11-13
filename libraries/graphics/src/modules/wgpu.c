@@ -1256,6 +1256,12 @@ static void window_get_DisplayMode(aqua_call *call) {
     aqua_return(call, aqua_cstring(aqua_call_runtime(call), names[mode >= 0 && mode < 3 ? mode : 0]));
 }
 
+/* window.Maximized: whether the user (or the system) maximized the window. */
+static void window_get_Maximized(aqua_call *call) {
+    wgpu_window *w = window_self(call);
+    aqua_return_bool(call, w && w->window && aqua_window_maximized(w->window));
+}
+
 #define WINDOW_FIELD(name, kind, expression) \
     static void window_get_##name(aqua_call *call) { wgpu_window *w = window_self(call); aqua_return_##kind(call, expression); }
 WINDOW_FIELD(Width, int, w->state.width)
@@ -1492,5 +1498,5 @@ void gfx_wgpu_register(aqua_library *library) {
     WINDOW_PROPERTY(Width) WINDOW_PROPERTY(Height) WINDOW_PROPERTY(PixelWidth) WINDOW_PROPERTY(PixelHeight) WINDOW_PROPERTY(ContentScale)
     WINDOW_PROPERTY(MouseX) WINDOW_PROPERTY(MouseY) WINDOW_PROPERTY(MouseDeltaX) WINDOW_PROPERTY(MouseDeltaY)
     WINDOW_PROPERTY(Wheel) WINDOW_PROPERTY(Focused) WINDOW_PROPERTY(PointerLocked) WINDOW_PROPERTY(ShouldClose)
-    WINDOW_PROPERTY(Resized) WINDOW_PROPERTY(PlatformWindow) WINDOW_PROPERTY(DisplayMode)
+    WINDOW_PROPERTY(Resized) WINDOW_PROPERTY(PlatformWindow) WINDOW_PROPERTY(DisplayMode) WINDOW_PROPERTY(Maximized)
 }
