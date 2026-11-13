@@ -55,6 +55,10 @@ void gpu_device_flush_targets(gpu_device *device);
 void gpu_device_poll(gpu_device *device, void (*done)(void *data, const char *error), void *data);
 /* Presents `target` scaled onto the device's window surface (sized to the window's framebuffer). */
 bool gpu_device_present(gpu_device *device, gpu_target *target, char *error, size_t error_size);
+/* Presentation waits for the display (Fifo, the default) or not (Mailbox, else Immediate); false when the surface
+   cannot present that way (it stays as it was). */
+bool gpu_device_set_vsync(gpu_device *device, bool on);
+
 /* Releases GPU objects whose last draws were submitted (bind groups and buffers replaced during a frame). */
 void gpu_device_release_retired(gpu_device *device);
 

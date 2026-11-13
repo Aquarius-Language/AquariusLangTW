@@ -1165,6 +1165,97 @@ static void window_Close(aqua_call *call) {
 
 static void window_Dispose(aqua_call *call) { window_close_now(state_of(call), window_self(call)); }
 
+/* ---- Monitors and display modes ---- */
+static aqua_value monitor_value(aqua_runtime *rt, int32_t index) {
+    aqua_monitor_info info;
+    if (!aqua_monitor_info_at(rt, index, &info)) return aqua_null();
+    aqua_value m = aqua_hash_new(rt, 12);
+    aqua_hash_set_field(rt, m, "index", aqua_int(index));
+    aqua_hash_set_field(rt, m, "name", aqua_cstring(rt, info.name));
+    aqua_hash_set_field(rt, m, "primary", aqua_bool(info.primary));
+    aqua_hash_set_field(rt, m, "x", aqua_int(info.x)); aqua_hash_set_field(rt, m, "y", aqua_int(info.y));
+    aqua_hash_set_field(rt, m, "width", aqua_int(info.width)); aqua_hash_set_field(rt, m, "height", aqua_int(info.height));
+    aqua_hash_set_field(rt, m, "refreshRate", aqua_int(info.refresh_hz));
+    aqua_hash_set_field(rt, m, "contentScale", aqua_double(info.content_scale));
+    aqua_value work = aqua_array_new(rt, 0);
+    aqua_array_push(rt, work, aqua_int(info.work_x)); aqua_array_push(rt, work, aqua_int(info.work_y));
+    aqua_array_push(rt, work, aqua_int(info.work_width)); aqua_array_push(rt, work, aqua_int(info.work_height));
+    aqua_hash_set_field(rt, m, "workArea", work);
+    aqua_display_mode modes[256];
+    int32_t count = aqua_monitor_modes(rt, index, modes, 256);
+    if (count > 256) count = 256;
+    aqua_value list = aqua_array_new(rt, 0);
+    for (int32_t i = 0; i < count; i++) {
+        aqua_value mode = aqua_hash_new(rt, 3);
+        aqua_hash_set_field(rt, mode, "width", aqua_int(modes[i].width));
+        aqua_hash_set_field(rt, mode, "height", aqua_int(modes[i].height));
+        aqua_hash_set_field(rt, mode, "refreshRate", aqua_int(modes[i].refresh_hz));
+        aqua_array_push(rt, list, mode);
+    }
+    aqua_hash_set_field(rt, m, "modes", list);
+    return m;
+}
+/* WGPU.Monitors(): [{"index", "name", "primary", "x", "y", "width", "height", "refreshRate", "contentScale",
+   "workArea": [x, y, w, h], "modes": [{"width", "height", "refreshRate"}]}]; empty where there are none (web, mobile,
+   no display). */
+static void wgpu_Monitors(aqua_call *call) {
+    aqua_runtime *rt = aqua_call_runtime(call);
+    aqua_value list = aqua_array_new(rt, 0);
+    for (int32_t i = 0, n = aqua_monitor_count(rt); i < n; i++) { aqua_value m = monitor_value(rt, i); if (m.type != AQUA_NULL) aqua_array_push(rt, list, m); }
+    aqua_return(call, list);
+}
+/* window.Monitor(): the monitor the window is on (see WGPU.Monitors), or null. */
+static void window_Monitor(aqua_call *call) {
+    wgpu_window *w = window_self(call);
+    if (!window_live(call, w)) return;
+    int32_t index = aqua_window_monitor(w->window);
+    if (index < 0) { aqua_return_null(call); return; }
+    aqua_return(call, monitor_value(aqua_call_runtime(call), index));
+}
+/* window.Position(): [x, y] of the window's top-left in screen coordinates. */
+static void window_Position(aqua_call *call) {
+    wgpu_window *w = window_self(call);
+    if (!window_live(call, w)) return;
+    aqua_runtime *rt = aqua_call_runtime(call);
+    int32_t x = 0, y = 0;
+    aqua_window_position(w->window, &x, &y);
+    aqua_value pair = aqua_array_new(rt, 0);
+    aqua_array_push(rt, pair, aqua_int(x)); aqua_array_push(rt, pair, aqua_int(y));
+    aqua_return(call, pair);
+}
+static int32_t option_int(aqua_runtime *rt, aqua_value options, const char *name, int32_t fallback) {
+    aqua_value v;
+    if (options.type != AQUA_HASH || !aqua_hash_field(rt, options, name, &v) || !aqua_is_number(v)) return fallback;
+    return (int32_t)v.number;
+}
+/* window.SetDisplayMode(mode, options = null): "windowed" ({"width", "height"} in screen coordinates, "x", "y"; left
+   out: kept, a new size is centred on the monitor), "borderless" (covers the monitor at its desktop mode) or
+   "fullscreen" (exclusive, {"width", "height", "refreshRate"}, the monitor's current mode when left out). "monitor": an
+   index of WGPU.Monitors() (default: the one the window is on). Returns false where the platform has no such modes. */
+static void window_SetDisplayMode(aqua_call *call) {
+    wgpu_window *w = window_self(call);
+    if (!window_live(call, w)) return;
+    aqua_str name = gfx_text(call, 0);
+    if (aqua_failed(call)) return;
+    aqua_runtime *rt = aqua_call_runtime(call);
+    aqua_value options = aqua_argc(call) > 1 ? aqua_arg(call, 1) : aqua_null();
+    int32_t mode = -1;
+    if (strcmp(name.data, "windowed") == 0) mode = AQUA_DISPLAY_WINDOWED;
+    else if (strcmp(name.data, "borderless") == 0) mode = AQUA_DISPLAY_BORDERLESS;
+    else if (strcmp(name.data, "fullscreen") == 0) mode = AQUA_DISPLAY_FULLSCREEN;
+    if (mode < 0) { gfx_fail(call, "Display mode must be \"windowed\", \"borderless\" or \"fullscreen\"."); return; }
+    bool done = aqua_window_set_display_mode(w->window, mode, option_int(rt, options, "monitor", -1), option_int(rt, options, "x", INT32_MIN),
+                                             option_int(rt, options, "y", INT32_MIN), option_int(rt, options, "width", 0),
+                                             option_int(rt, options, "height", 0), option_int(rt, options, "refreshRate", 0));
+    aqua_return_bool(call, done);
+}
+static void window_get_DisplayMode(aqua_call *call) {
+    wgpu_window *w = window_self(call);
+    static const char *const names[] = {"windowed", "borderless", "fullscreen"};
+    int32_t mode = w && w->window ? aqua_window_display_mode(w->window) : 0;
+    aqua_return(call, aqua_cstring(aqua_call_runtime(call), names[mode >= 0 && mode < 3 ? mode : 0]));
+}
+
 #define WINDOW_FIELD(name, kind, expression) \
     static void window_get_##name(aqua_call *call) { wgpu_window *w = window_self(call); aqua_return_##kind(call, expression); }
 WINDOW_FIELD(Width, int, w->state.width)
@@ -1253,6 +1344,16 @@ static void device_ProfileFrame(aqua_call *call) {
 /* WGPU.NativeMs(): milliseconds spent inside WGPU members so far (never reset), for profilers that measure scopes. */
 static void wgpu_NativeMs(aqua_call *call) { aqua_return_double(call, native_total_ms); }
 static void device_ProfileSupported(aqua_call *call) { aqua_return_bool(call, gpu_profile_supported(device_self(call)->device)); }
+/* device.SetVSync(on): presentation waits for the display's refresh (true, the default) or not (false: "mailbox"
+   where the surface has it, else "immediate"). Returns whether the surface now presents that way. */
+static void device_SetVSync(aqua_call *call) {
+    device_object *d = device_self(call);
+    if (!device_live(call, d)) return;
+    bool on = gfx_bool(call, 0);
+    if (aqua_failed(call)) return;
+    aqua_return_bool(call, gpu_device_set_vsync(d->device, on));
+}
+
 
 static const char *call_name(int index);
 static int call_name_count(void);
@@ -1289,7 +1390,8 @@ static void wgpu_Stats(aqua_call *call) {
     aqua_return(call, result);
 }
 
-#define WGPU_MODULE(X) X(wgpu_CreateDevice, "CreateDevice|建立裝置", 0, 1) X(wgpu_CreateWindow, "CreateWindow|建立視窗", 3, 4) X(wgpu_Stats, "Stats|統計", 0, 1) X(wgpu_NativeMs, "NativeMs|原生毫秒", 0, 0)
+#define WGPU_MODULE(X) X(wgpu_CreateDevice, "CreateDevice|建立裝置", 0, 1) X(wgpu_CreateWindow, "CreateWindow|建立視窗", 3, 4) X(wgpu_Stats, "Stats|統計", 0, 1) X(wgpu_NativeMs, "NativeMs|原生毫秒", 0, 0) \
+    X(wgpu_Monitors, "Monitors|螢幕清單", 0, 0)
 #define DEVICE_MEMBERS(X) \
     X(device_CreateBuffer, "CreateBuffer|建立緩衝區", 1, 1) X(device_CreateRenderTarget, "CreateRenderTarget|建立繪圖目標", 2, 4) \
     X(device_CreateShader, "CreateShader|建立著色器", 2, 2) X(device_CreateVertexBuffer, "CreateVertexBuffer|建立頂點緩衝區", 1, 1) \
@@ -1297,7 +1399,7 @@ static void wgpu_Stats(aqua_call *call) {
     X(device_Dispatch, "Dispatch|派送", 3, 3) X(device_Dispose, "Dispose|釋放", 0, 0) X(device_LoadTexture, "LoadTexture|載入紋理", 6, 6) \
     X(device_Poll, "Poll|輪詢", 0, 0) X(device_Present, "Present|呈現", 1, 1) \
     X(device_Profile, "Profile|效能分析", 1, 1) X(device_ProfileScope, "ProfileScope|分析範圍", 1, 1) X(device_ProfileFrame, "ProfileFrame|分析畫格", 0, 0) \
-    X(device_ProfileSupported, "ProfileSupported|支援效能分析", 0, 0)
+    X(device_ProfileSupported, "ProfileSupported|支援效能分析", 0, 0) X(device_SetVSync, "SetVSync|設定垂直同步", 1, 1)
 #define BUFFER_MEMBERS(X) \
     X(buffer_Dispose, "Dispose|釋放", 0, 0) X(buffer_Read, "Read|讀取", 0, 0) X(buffer_ReadRange, "ReadRange|讀取範圍", 2, 2) \
     X(buffer_Write, "Write|寫入", 1, 1) X(buffer_WriteRange, "WriteRange|寫入範圍", 2, 2)     X(buffer_RequestRead, "RequestRead|請求讀取", 0, 0) X(buffer_TakeRead, "TakeRead|取得讀取", 0, 0)
@@ -1318,7 +1420,8 @@ static void wgpu_Stats(aqua_call *call) {
     X(window_KeyPressed, "KeyPressed|按鍵按下", 1, 1) X(window_KeyReleased, "KeyReleased|按鍵放開", 1, 1) \
     X(window_MouseDown, "MouseDown|滑鼠按住", 1, 1) X(window_MousePressed, "MousePressed|滑鼠按下", 1, 1) \
     X(window_MouseReleased, "MouseReleased|滑鼠放開", 1, 1) X(window_Poll, "Poll|輪詢", 0, 0) \
-    X(window_SetPointerLock, "SetPointerLock|設定指標鎖定", 1, 1) X(window_SetTitle, "SetTitle|設定標題", 1, 1)
+    X(window_SetPointerLock, "SetPointerLock|設定指標鎖定", 1, 1) X(window_SetTitle, "SetTitle|設定標題", 1, 1) \
+    X(window_Monitor, "Monitor|螢幕", 0, 0) X(window_Position, "Position|位置", 0, 0) X(window_SetDisplayMode, "SetDisplayMode|設定顯示模式", 1, 2)
 
 /* Each member runs through a wrapper naming it for failures ("Dispatch: ..."); members shared by classes get one. The
    wrapper also adds the member's native time to call_times (WGPU.Stats). */
@@ -1389,5 +1492,5 @@ void gfx_wgpu_register(aqua_library *library) {
     WINDOW_PROPERTY(Width) WINDOW_PROPERTY(Height) WINDOW_PROPERTY(PixelWidth) WINDOW_PROPERTY(PixelHeight) WINDOW_PROPERTY(ContentScale)
     WINDOW_PROPERTY(MouseX) WINDOW_PROPERTY(MouseY) WINDOW_PROPERTY(MouseDeltaX) WINDOW_PROPERTY(MouseDeltaY)
     WINDOW_PROPERTY(Wheel) WINDOW_PROPERTY(Focused) WINDOW_PROPERTY(PointerLocked) WINDOW_PROPERTY(ShouldClose)
-    WINDOW_PROPERTY(Resized) WINDOW_PROPERTY(PlatformWindow)
+    WINDOW_PROPERTY(Resized) WINDOW_PROPERTY(PlatformWindow) WINDOW_PROPERTY(DisplayMode)
 }

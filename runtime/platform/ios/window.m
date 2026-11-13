@@ -393,3 +393,13 @@ bool aqua_clipboard_set_text(aqua_runtime *rt, const char *utf8) {
     return true;
 }
 void *aqua_window_native(aqua_window *w) { (void)w; return (__bridge void *)main_view; }
+/* Monitors and display modes: none on this platform (see aqua/window.h). */
+int32_t aqua_monitor_count(aqua_runtime *rt) { (void)rt; return 0; }
+bool aqua_monitor_info_at(aqua_runtime *rt, int32_t index, aqua_monitor_info *info) { (void)rt; (void)index; (void)info; return false; }
+int32_t aqua_monitor_modes(aqua_runtime *rt, int32_t index, aqua_display_mode *modes, int32_t capacity) { (void)rt; (void)index; (void)modes; (void)capacity; return 0; }
+int32_t aqua_window_monitor(aqua_window *w) { (void)w; return -1; }
+void aqua_window_position(aqua_window *w, int32_t *x, int32_t *y) { (void)w; *x = 0; *y = 0; }
+bool aqua_window_set_display_mode(aqua_window *w, int32_t mode, int32_t monitor, int32_t x, int32_t y, int32_t width, int32_t height, int32_t refresh_hz) {
+    (void)w; (void)mode; (void)monitor; (void)x; (void)y; (void)width; (void)height; (void)refresh_hz; return false;
+}
+int32_t aqua_window_display_mode(aqua_window *w) { (void)w; return 0; }

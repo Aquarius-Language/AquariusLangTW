@@ -47,6 +47,7 @@ struct gpu_device {
     WGPUSurface surface;
     WGPUSurfaceConfiguration config;
     bool configured;
+    bool no_vsync;           /* gpu_device_set_vsync(false): Mailbox or Immediate instead of Fifo */
     WGPUBindGroupLayout drawing_layout, user_layout, blit_layout;
     WGPUPipelineLayout blit_pipeline_layout;
     WGPUShaderModule blit_module;
@@ -559,6 +560,11 @@ static void configure_surface_format(gpu_device *d) {
     config.usage = WGPUTextureUsage_RenderAttachment;
     config.alphaMode = caps.alphaModeCount ? caps.alphaModes[0] : WGPUCompositeAlphaMode_Auto;
     config.presentMode = WGPUPresentMode_Fifo;
+    if (d->no_vsync) {
+        /* Mailbox (no tearing, newest frame wins) before Immediate. */
+        for (size_t i = 0; i < caps.presentModeCount; i++) if (caps.presentModes[i] == WGPUPresentMode_Immediate) config.presentMode = WGPUPresentMode_Immediate;
+        for (size_t i = 0; i < caps.presentModeCount; i++) if (caps.presentModes[i] == WGPUPresentMode_Mailbox) config.presentMode = WGPUPresentMode_Mailbox;
+    }
     d->config = config;
     wgpuSurfaceCapabilitiesFreeMembers(caps);
 }
@@ -825,6 +831,18 @@ static void configure(gpu_device *d) {
     wgpuSurfaceConfigure(d->surface, &d->config);
     d->configured = true;
 }
+
+bool gpu_device_set_vsync(gpu_device *d, bool on) {
+    d->no_vsync = !on;
+    if (!d->surface || d->frames) return on;   /* applied when the surface is configured; remote frames are not paced */
+    uint32_t width = d->config.width, height = d->config.height;
+    bool was = d->configured;
+    configure_surface_format(d);
+    d->config.width = width; d->config.height = height;
+    if (was && width > 0 && height > 0) configure(d);
+    return on ? d->config.presentMode == WGPUPresentMode_Fifo : d->config.presentMode != WGPUPresentMode_Fifo;
+}
+
 
 typedef struct frame_delivery { gpu_device *device; bool done; } frame_delivery;
 static void deliver_frame(void *data, const uint8_t *rgba, int width, int height, const char *error) {

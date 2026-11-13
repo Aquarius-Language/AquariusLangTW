@@ -45,6 +45,7 @@ struct aqua_window {
     bool text_enabled, composing;
     int32_t keypad[11];     /* the key each held keypad key pressed (host_keypad_key), so its release matches */
     remote_window *remote;  /* a window a viewer shows (then glfw is NULL, or a hidden window holding an OpenGL context) */
+    int32_t display_mode;   /* AQUA_DISPLAY_* (aqua_window_set_display_mode) */
     uint8_t *readback;      /* a remote OpenGL window's last frame, read on swap */
     aqua_window *next;
 #if defined(__APPLE__)
@@ -428,9 +429,129 @@ bool aqua_window_set_fullscreen(aqua_window *w, bool fullscreen) {
     if (fullscreen) glfwSetWindowAttrib(w->glfw, GLFW_AUTO_ICONIFY, GLFW_FALSE);
     if (fullscreen) glfwSetWindowMonitor(w->glfw, monitor, 0, 0, mode->width, mode->height, mode->refreshRate);
     else glfwSetWindowMonitor(w->glfw, NULL, mode->width / 4, mode->height / 4, mode->width / 2, mode->height / 2, 0);
+    w->display_mode = fullscreen ? AQUA_DISPLAY_FULLSCREEN : AQUA_DISPLAY_WINDOWED;
     return true;
+
 }
 bool aqua_window_focused(aqua_window *w) { return w->remote ? remote_focused(w->remote) : glfwGetWindowAttrib(w->glfw, GLFW_FOCUSED) != 0; }
+
+/* ---- Monitors and display modes ---- */
+static GLFWmonitor *monitor_at(int32_t index) {
+    if (remote_enabled()) return NULL;
+    ensure_glfw();
+    if (!initialized || index < 0) return NULL;
+    int count = 0;
+    GLFWmonitor **list = glfwGetMonitors(&count);
+    return list && index < count ? list[index] : NULL;
+}
+int32_t aqua_monitor_count(aqua_runtime *rt) {
+    (void)rt;
+    if (remote_enabled()) return 0;
+    ensure_glfw();
+    if (!initialized) return 0;
+    int count = 0;
+    glfwGetMonitors(&count);
+    return count;
+}
+bool aqua_monitor_info_at(aqua_runtime *rt, int32_t index, aqua_monitor_info *info) {
+    (void)rt;
+    GLFWmonitor *m = monitor_at(index);
+    const GLFWvidmode *mode = m ? glfwGetVideoMode(m) : NULL;
+    if (!mode) return false;
+    memset(info, 0, sizeof *info);
+    const char *name = glfwGetMonitorName(m);
+    snprintf(info->name, sizeof info->name, "%s", name ? name : "");
+    glfwGetMonitorPos(m, &info->x, &info->y);
+    info->width = mode->width; info->height = mode->height; info->refresh_hz = mode->refreshRate;
+    glfwGetMonitorWorkarea(m, &info->work_x, &info->work_y, &info->work_width, &info->work_height);
+    float sx = 1, sy = 1;
+    glfwGetMonitorContentScale(m, &sx, &sy);
+    info->content_scale = sx > 0 ? sx : 1;
+    info->primary = m == glfwGetPrimaryMonitor();
+    return true;
+}
+int32_t aqua_monitor_modes(aqua_runtime *rt, int32_t index, aqua_display_mode *modes, int32_t capacity) {
+    (void)rt;
+    GLFWmonitor *m = monitor_at(index);
+    if (!m) return 0;
+    int count = 0;
+    const GLFWvidmode *list = glfwGetVideoModes(m, &count);
+    if (!list) return 0;
+    for (int i = 0; i < count && i < capacity; i++) { modes[i].width = list[i].width; modes[i].height = list[i].height; modes[i].refresh_hz = list[i].refreshRate; }
+    return count;
+}
+void aqua_window_position(aqua_window *w, int32_t *x, int32_t *y) {
+    *x = 0; *y = 0;
+    if (!w->remote) glfwGetWindowPos(w->glfw, x, y);
+}
+int32_t aqua_window_monitor(aqua_window *w) {
+    if (w->remote) return -1;
+    int count = 0;
+    GLFWmonitor **list = glfwGetMonitors(&count);
+    if (!list || count == 0) return -1;
+    GLFWmonitor *own = glfwGetWindowMonitor(w->glfw);
+    int best = -1; long long best_area = -1;
+    int wx = 0, wy = 0, ww = 0, wh = 0;
+    glfwGetWindowPos(w->glfw, &wx, &wy);
+    glfwGetWindowSize(w->glfw, &ww, &wh);
+    for (int i = 0; i < count; i++) {
+        if (own && list[i] == own) return i;
+        const GLFWvidmode *mode = glfwGetVideoMode(list[i]);
+        if (!mode) continue;
+        int mx = 0, my = 0;
+        glfwGetMonitorPos(list[i], &mx, &my);
+        int left = wx > mx ? wx : mx, top = wy > my ? wy : my;
+        int right = wx + ww < mx + mode->width ? wx + ww : mx + mode->width;
+        int bottom = wy + wh < my + mode->height ? wy + wh : my + mode->height;
+        long long area = right > left && bottom > top ? (long long)(right - left) * (bottom - top) : 0;
+        if (area > best_area) { best_area = area; best = i; }
+    }
+    return best;
+}
+int32_t aqua_window_display_mode(aqua_window *w) { return w->display_mode; }
+bool aqua_window_set_display_mode(aqua_window *w, int32_t mode, int32_t monitor, int32_t x, int32_t y, int32_t width, int32_t height, int32_t refresh_hz) {
+    if (w->remote) return false;
+    if (monitor < 0) monitor = aqua_window_monitor(w);
+    GLFWmonitor *m = monitor_at(monitor < 0 ? 0 : monitor);
+    const GLFWvidmode *current = m ? glfwGetVideoMode(m) : NULL;
+    if (!current) return false;
+    int mx = 0, my = 0;
+    glfwGetMonitorPos(m, &mx, &my);
+    if (mode == AQUA_DISPLAY_FULLSCREEN) {
+        int fw = width > 0 ? width : current->width, fh = height > 0 ? height : current->height;
+        glfwSetWindowAttrib(w->glfw, GLFW_AUTO_ICONIFY, GLFW_TRUE);
+        glfwSetWindowMonitor(w->glfw, m, 0, 0, fw, fh, refresh_hz > 0 ? refresh_hz : GLFW_DONT_CARE);
+    } else if (mode == AQUA_DISPLAY_BORDERLESS) {
+        /* An undecorated window exactly over the monitor, at the desktop's mode: other windows can come in front of
+           it without it minimizing, and switching to it changes no display mode. */
+        if (glfwGetWindowMonitor(w->glfw)) glfwSetWindowMonitor(w->glfw, NULL, mx, my, current->width, current->height, 0);
+        glfwSetWindowAttrib(w->glfw, GLFW_DECORATED, GLFW_FALSE);
+        glfwSetWindowPos(w->glfw, mx, my);
+        glfwSetWindowSize(w->glfw, current->width, current->height);
+    } else if (mode == AQUA_DISPLAY_WINDOWED) {
+        int cw = 0, ch = 0, cx = 0, cy = 0;
+        glfwGetWindowSize(w->glfw, &cw, &ch);
+        glfwGetWindowPos(w->glfw, &cx, &cy);
+        int nw = width > 0 ? width : cw, nh = height > 0 ? height : ch;
+        int nx = cx, ny = cy;
+        if (!(x == INT32_MIN && y == INT32_MIN)) { nx = x; ny = y; }
+        else if (w->display_mode != AQUA_DISPLAY_WINDOWED || nw != cw || nh != ch) {
+            /* Centred in the monitor's work area. */
+            int ax = mx, ay = my, aw = current->width, ah = current->height;
+            glfwGetMonitorWorkarea(m, &ax, &ay, &aw, &ah);
+            nx = ax + (aw - nw) / 2; ny = ay + (ah - nh) / 2;
+            if (nx < ax) nx = ax;
+            if (ny < ay + 32) ny = ay + 32;
+        }
+        if (glfwGetWindowMonitor(w->glfw)) glfwSetWindowMonitor(w->glfw, NULL, nx, ny, nw, nh, 0);
+        glfwSetWindowAttrib(w->glfw, GLFW_DECORATED, GLFW_TRUE);
+        glfwSetWindowSize(w->glfw, nw, nh);
+        glfwSetWindowPos(w->glfw, nx, ny);
+    } else return false;
+    w->display_mode = mode;
+    return true;
+}
+
 bool aqua_display_size(aqua_runtime *rt, int32_t *width, int32_t *height) {
     (void)rt;
     if (remote_enabled()) return false;   /* the viewer's screen is not this machine's */

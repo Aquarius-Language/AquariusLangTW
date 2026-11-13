@@ -48,6 +48,33 @@ bool aqua_window_focused(aqua_window *window);
 /* The primary display's size in pixels; false when unknown. */
 bool aqua_display_size(aqua_runtime *rt, int32_t *width, int32_t *height);
 
+/* Monitors (desktop platforms; elsewhere there are none). Positions and sizes are in the desktop's screen coordinates
+   (pixels on Windows with per-monitor DPI awareness), modes in pixels. */
+typedef struct aqua_display_mode { int32_t width, height, refresh_hz; } aqua_display_mode;
+typedef struct aqua_monitor_info {
+    char name[128];
+    int32_t x, y, width, height;                       /* the monitor's area and its current mode's size */
+    int32_t work_x, work_y, work_width, work_height;   /* the area without task bars */
+    int32_t refresh_hz;                                /* the current mode's refresh rate */
+    float content_scale;                               /* 1 at 96 dpi, 2.5 at 250% */
+    bool primary;
+} aqua_monitor_info;
+int32_t aqua_monitor_count(aqua_runtime *rt);
+bool aqua_monitor_info_at(aqua_runtime *rt, int32_t index, aqua_monitor_info *info);
+/* The monitor's video modes, smallest first; returns how many there are (fills at most capacity). */
+int32_t aqua_monitor_modes(aqua_runtime *rt, int32_t index, aqua_display_mode *modes, int32_t capacity);
+/* The monitor the window is on (the one it overlaps most, or its full-screen monitor); -1 when unknown. */
+int32_t aqua_window_monitor(aqua_window *window);
+void aqua_window_position(aqua_window *window, int32_t *x, int32_t *y);
+/* Display modes: AQUA_DISPLAY_WINDOWED (a decorated window; x, y, width and height in screen coordinates, the size
+   kept when width is 0 and the position kept when x and y are both INT32_MIN), AQUA_DISPLAY_BORDERLESS (an undecorated
+   window covering the monitor at its desktop mode) and AQUA_DISPLAY_FULLSCREEN (exclusive full screen on the monitor
+   at width x height and refresh_hz; 0 for the monitor's current mode). monitor -1 is the one the window is on. */
+enum { AQUA_DISPLAY_WINDOWED = 0, AQUA_DISPLAY_BORDERLESS = 1, AQUA_DISPLAY_FULLSCREEN = 2 };
+bool aqua_window_set_display_mode(aqua_window *window, int32_t mode, int32_t monitor, int32_t x, int32_t y, int32_t width, int32_t height, int32_t refresh_hz);
+int32_t aqua_window_display_mode(aqua_window *window);
+
+
 /* Processes pending OS events of every window, dispatching them to listeners. Frame drivers call it once per frame. */
 void aqua_windows_poll(aqua_runtime *rt);
 /* Seconds since the window system started (GLFW.GetTime). */
