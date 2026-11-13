@@ -798,7 +798,10 @@ void gpu_device_blit(gpu_device *d, WGPUTextureView source, WGPUTextureView dest
     WGPUBindGroupDescriptor group_descriptor = WGPU_BIND_GROUP_DESCRIPTOR_INIT;
     group_descriptor.layout = d->blit_layout; group_descriptor.entryCount = 2; group_descriptor.entries = entries;
     WGPUBindGroup group = wgpuDeviceCreateBindGroup(d->device, &group_descriptor);
-    WGPUCommandEncoder encoder = wgpuDeviceCreateCommandEncoder(d->device, NULL);
+    /* Into the device's encoder in order (mip chains no longer submit once per level); presenting submits. */
+    gpu_device_flush_targets(d);
+    gpu_device_end_compute(d);
+    WGPUCommandEncoder encoder = gpu_device_compute_encoder(d);
     WGPURenderPassColorAttachment attachment = WGPU_RENDER_PASS_COLOR_ATTACHMENT_INIT;
     attachment.view = destination;
     attachment.loadOp = WGPULoadOp_Clear;
@@ -814,7 +817,7 @@ void gpu_device_blit(gpu_device *d, WGPUTextureView source, WGPUTextureView dest
     wgpuRenderPassEncoderDraw(pass, 3, 1, 0, 0);
     wgpuRenderPassEncoderEnd(pass);
     wgpuRenderPassEncoderRelease(pass);
-    gpu_device_submit(d, encoder);
+    (void)encoder;
     wgpuBindGroupRelease(group);
 }
 
@@ -901,6 +904,7 @@ bool gpu_device_present(gpu_device *d, gpu_target *target, char *error, size_t e
     }
     WGPUTextureView view = wgpuTextureCreateView(frame.texture, NULL);
     gpu_device_blit(d, gpu_texture_view(gpu_target_color(target)), view, d->config.format, 1);
+    gpu_device_submit_pending(d);
 #if !defined(AQUA_OS_WEB)
     double presenting = gpu_clock_ms();
     wgpuSurfacePresent(d->surface); /* the browser presents when the task yields */

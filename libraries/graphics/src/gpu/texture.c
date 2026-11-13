@@ -14,7 +14,9 @@ struct gpu_texture {
     int width, height, depth, mip_levels;
     bool cube, volume, sampled_rgba;
     gpu_target *source;
+    uint64_t serial;
 };
+uint64_t gpu_texture_serial(const gpu_texture *t) { return t ? t->serial : 0; }
 
 static int bytes_per_pixel(gpu_format format) { return format == GPU_RGBA16FLOAT ? 8 : format == GPU_R8UNORM ? 1 : 4; }
 static WGPUTextureFormat wgpu_format(gpu_format format) {
@@ -57,6 +59,7 @@ size_t gpu_texture_bytes(const gpu_texture_desc *d, char *error, size_t error_si
 static gpu_texture *create(gpu_device *device, const WGPUTextureDescriptor *descriptor, const WGPUTextureViewDescriptor *view) {
     gpu_texture *t = calloc(1, sizeof *t);
     t->link.next = t->link.previous = &t->link;
+    t->serial = gpu_next_serial();
     t->handle = wgpuDeviceCreateTexture(gpu_device_handle(device), descriptor);
     if (!t->handle) { free(t); return NULL; }
     t->view = wgpuTextureCreateView(t->handle, view);

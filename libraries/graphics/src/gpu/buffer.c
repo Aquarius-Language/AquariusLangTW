@@ -11,7 +11,10 @@ struct gpu_buffer {
     int length;
     bool vertex, released;
     uint64_t used;           /* use epoch + 1 of the last unsubmitted work that read or wrote it (0: none) */
+    uint64_t serial;
 };
+uint64_t gpu_buffer_serial(const gpu_buffer *b) { return b ? b->serial : 0; }
+uint64_t gpu_next_serial(void) { static uint64_t next = 1; return next++; }
 void gpu_buffer_mark_used(gpu_buffer *b) { if (b) b->used = gpu_device_use_epoch(b->link.device) + 1; }
 
 gpu_buffer *gpu_buffer_create(gpu_device *device, const float *values, int length, bool vertex, char *error, size_t error_size) {
@@ -19,6 +22,7 @@ gpu_buffer *gpu_buffer_create(gpu_device *device, const float *values, int lengt
     uint64_t limit = gpu_device_max_buffer_bytes(device);
     if (length < 1 || size > limit) { snprintf(error, error_size, "wgpu buffer size must be 1..%llu MiB on this device.", (unsigned long long)(limit >> 20)); return NULL; }
     gpu_buffer *b = calloc(1, sizeof *b);
+    b->serial = gpu_next_serial();
     b->link.next = b->link.previous = &b->link;
     b->length = length;
     b->vertex = vertex;

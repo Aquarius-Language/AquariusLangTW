@@ -646,9 +646,13 @@ static void target_Prepare(aqua_call *call) {
     gfx_async_end(a);
 }
 
+/* target.Flush(): ends the target's pass and submits everything recorded so far (frames drawn without presenting,
+   long passes drawn in bands). */
 static void target_Flush(aqua_call *call) {
     target_object *t = aqua_self(call);
-    if (target_live(call, t)) gpu_target_flush(t->target);
+    if (!target_live(call, t)) return;
+    gpu_target_flush(t->target);
+    gpu_device_submit_pending(t->owner->device);
 }
 
 static void pixels_read(void *data, const uint8_t *rgba, int width, int height, const char *error) {

@@ -22,6 +22,7 @@
 
 enum { FIELD_F32, FIELD_I32, FIELD_U32, FIELD_VECTOR, FIELD_MATRIX, FIELD_MATRIX3, FIELD_ARRAY };
 #define TEXTURE_SLOTS 22
+#define GROUP_CACHE 128
 typedef struct uniform_field { char name[64]; int offset, count, type; } uniform_field;
 /* dim: 0 2D, 1 cube, 2 3D. storage: a storage texture (compute), written (and read when read_write). */
 typedef struct texture_field { char name[64]; int binding, dim; bool cube, filtered, storage, read_write; WGPUTextureFormat storage_format; gpu_texture *texture; } texture_field;
@@ -45,6 +46,10 @@ struct gpu_shader {
     int version, user_version;
     uint32_t user_offset, user_generation;
     WGPUBindGroup ring_group;           /* compute shaders: their group 1 over the device's uniform ring */
+    /* Group 2 for bindings used before: draw loops switch a shader between the same few sets of buffers and textures
+       every frame. Keyed by serial numbers (and buffer lengths); oldest first out. */
+    struct { uint64_t key[(TEXTURE_SLOTS + 17) * 2]; int length; WGPUBindGroup group; } group_cache[GROUP_CACHE];
+    int group_cache_count, group_cache_next;
     WGPUBuffer user_buffer;
     WGPUBindGroup user_group, texture_group;
     pipeline_entry *pipelines; size_t pipeline_count, pipeline_capacity;
@@ -481,14 +486,14 @@ void gpu_shader_release_handles(gpu_shader *s) {
         gpu_device_retire_group(s->link.device, s->user_group);
         gpu_device_retire_group(s->link.device, s->ring_group);
         gpu_device_retire_buffer(s->link.device, s->user_buffer);
-        gpu_device_retire_group(s->link.device, s->texture_group);
+        for (int i = 0; i < s->group_cache_count; i++) gpu_device_retire_group(s->link.device, s->group_cache[i].group);
     } else {
         if (s->user_group) wgpuBindGroupRelease(s->user_group);
         if (s->ring_group) wgpuBindGroupRelease(s->ring_group);
         if (s->user_buffer) wgpuBufferRelease(s->user_buffer);
-        if (s->texture_group) wgpuBindGroupRelease(s->texture_group);
+        for (int i = 0; i < s->group_cache_count; i++) if (s->group_cache[i].group) wgpuBindGroupRelease(s->group_cache[i].group);
     }
-    s->user_group = NULL; s->user_buffer = NULL; s->texture_group = NULL; s->ring_group = NULL;
+    s->user_group = NULL; s->user_buffer = NULL; s->texture_group = NULL; s->ring_group = NULL; s->group_cache_count = 0; s->group_cache_next = 0;
     if (s->vertex) wgpuShaderModuleRelease(s->vertex);
     if (s->fragment) wgpuShaderModuleRelease(s->fragment);
     if (s->compute_pipeline) wgpuComputePipelineRelease(s->compute_pipeline);
@@ -548,7 +553,7 @@ bool gpu_shader_set_int(gpu_shader *s, const char *name, int32_t value, char *er
 }
 
 static void forget_texture_group(gpu_shader *s) {
-    if (s->texture_group && s->link.device) gpu_device_retire_group(s->link.device, s->texture_group);
+    /* The group stays in the cache (released when it falls out). */
     s->texture_group = NULL;
 }
 
@@ -747,8 +752,24 @@ WGPUBindGroup gpu_shader_texture_group(gpu_shader *s, gpu_target *destination, c
     if (s->repeating) { sampler.binding = 16; sampler.sampler = s->repeat_sampler; entries[n++] = sampler; }
     WGPUBindGroupDescriptor descriptor = WGPU_BIND_GROUP_DESCRIPTOR_INIT;
     descriptor.layout = s->texture_layout; descriptor.entryCount = (size_t)n; descriptor.entries = entries;
+    uint64_t key[(TEXTURE_SLOTS + 17) * 2]; int length = 0;
+    for (int i = 0; i < s->texture_count; i++) { key[length++] = gpu_texture_serial(s->textures[i].texture) * 2 + (s->textures[i].storage ? 1 : 0); key[length++] = 0; }
+    for (int i = 0; i < s->buffer_count; i++) { key[length++] = gpu_buffer_serial(s->buffers[i].buffer); key[length++] = (uint64_t)gpu_buffer_length(s->buffers[i].buffer); }
+    for (int i = 0; i < s->group_cache_count; i++) {
+        if (s->group_cache[i].length == length && memcmp(s->group_cache[i].key, key, (size_t)length * sizeof *key) == 0) {
+            s->texture_group = s->group_cache[i].group;
+            return s->texture_group;
+        }
+    }
     s->texture_group = wgpuDeviceCreateBindGroup(gpu_device_handle(s->link.device), &descriptor);
     gpu_counters.bind_groups++;
+    int slot = s->group_cache_count < GROUP_CACHE ? s->group_cache_count++ : s->group_cache_next;
+    if (s->group_cache_count == GROUP_CACHE && slot == s->group_cache_next) {
+        if (s->group_cache[slot].group) gpu_device_retire_group(s->link.device, s->group_cache[slot].group);
+        s->group_cache_next = (s->group_cache_next + 1) % GROUP_CACHE;
+    }
+    memcpy(s->group_cache[slot].key, key, (size_t)length * sizeof *key);
+    s->group_cache[slot].length = length; s->group_cache[slot].group = s->texture_group;
     return s->texture_group;
 }
 
