@@ -89,6 +89,8 @@ void gpu_device_note_open(gpu_device *device, gpu_target *target);
 void gpu_device_note_closed(gpu_device *device, gpu_target *target);
 void gpu_buffer_mark_used(gpu_buffer *buffer);
 uint64_t gpu_next_serial(void);
+uint64_t gpu_release_generation(void);
+void gpu_note_release(void);
 uint64_t gpu_buffer_serial(const gpu_buffer *buffer);
 uint64_t gpu_texture_serial(const gpu_texture *texture);
 void gpu_instance_wait(WGPUInstance instance, WGPUDevice device, const volatile bool *flag);

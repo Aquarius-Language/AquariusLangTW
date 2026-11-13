@@ -15,6 +15,10 @@ struct gpu_buffer {
 };
 uint64_t gpu_buffer_serial(const gpu_buffer *b) { return b ? b->serial : 0; }
 uint64_t gpu_next_serial(void) { static uint64_t next = 1; return next++; }
+/* Bumped whenever a buffer or texture is released: shaders drop their cached bind groups, which would keep it alive. */
+static uint64_t released_generation = 1;
+uint64_t gpu_release_generation(void) { return released_generation; }
+void gpu_note_release(void) { released_generation++; }
 void gpu_buffer_mark_used(gpu_buffer *b) { if (b) b->used = gpu_device_use_epoch(b->link.device) + 1; }
 
 gpu_buffer *gpu_buffer_create(gpu_device *device, const float *values, int length, bool vertex, char *error, size_t error_size) {
@@ -41,6 +45,7 @@ gpu_buffer *gpu_buffer_create(gpu_device *device, const float *values, int lengt
 }
 
 void gpu_buffer_release_handles(gpu_buffer *b) {
+    gpu_note_release();
     if (b->handle) wgpuBufferRelease(b->handle);
     b->handle = NULL;
     b->released = true;

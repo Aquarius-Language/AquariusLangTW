@@ -221,6 +221,7 @@ void gpu_texture_upload(gpu_texture *t, const uint8_t *rgba, bool unused) {
 }
 
 void gpu_texture_release_handles(gpu_texture *t) {
+    if (t->handle) gpu_note_release();
     if (t->view) wgpuTextureViewRelease(t->view);
     if (t->attachment_view) wgpuTextureViewRelease(t->attachment_view);
     if (t->handle) wgpuTextureRelease(t->handle);

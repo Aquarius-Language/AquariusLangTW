@@ -50,6 +50,7 @@ struct gpu_shader {
        every frame. Keyed by serial numbers (and buffer lengths); oldest first out. */
     struct { uint64_t key[(TEXTURE_SLOTS + 17) * 2]; int length; WGPUBindGroup group; } group_cache[GROUP_CACHE];
     int group_cache_count, group_cache_next;
+    uint64_t group_cache_generation;
     WGPUBuffer user_buffer;
     WGPUBindGroup user_group, texture_group;
     pipeline_entry *pipelines; size_t pipeline_count, pipeline_capacity;
@@ -752,6 +753,12 @@ WGPUBindGroup gpu_shader_texture_group(gpu_shader *s, gpu_target *destination, c
     if (s->repeating) { sampler.binding = 16; sampler.sampler = s->repeat_sampler; entries[n++] = sampler; }
     WGPUBindGroupDescriptor descriptor = WGPU_BIND_GROUP_DESCRIPTOR_INIT;
     descriptor.layout = s->texture_layout; descriptor.entryCount = (size_t)n; descriptor.entries = entries;
+    /* A buffer or texture was released since: the cached groups could hold it; they go. */
+    if (s->group_cache_generation != gpu_release_generation()) {
+        for (int i = 0; i < s->group_cache_count; i++) if (s->group_cache[i].group) gpu_device_retire_group(s->link.device, s->group_cache[i].group);
+        s->group_cache_count = 0; s->group_cache_next = 0;
+        s->group_cache_generation = gpu_release_generation();
+    }
     uint64_t key[(TEXTURE_SLOTS + 17) * 2]; int length = 0;
     for (int i = 0; i < s->texture_count; i++) { key[length++] = gpu_texture_serial(s->textures[i].texture) * 2 + (s->textures[i].storage ? 1 : 0); key[length++] = 0; }
     for (int i = 0; i < s->buffer_count; i++) { key[length++] = gpu_buffer_serial(s->buffers[i].buffer); key[length++] = (uint64_t)gpu_buffer_length(s->buffers[i].buffer); }
