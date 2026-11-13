@@ -71,6 +71,9 @@ struct gpu_device {
     /* Buffers record the epoch in which unsubmitted work used them; a full flush starts a new epoch, so a script write
        to a buffer nothing pending reads needs no flush. */
     uint64_t use_epoch;
+    /* Consecutive dispatches share one compute pass (WebGPU orders and synchronizes dispatches inside a pass); it ends
+       when a render pass begins, at a submit, or when the profiler's scope changes. */
+    WGPUComputePassEncoder compute_pass; int compute_scope;
     /* Targets with a recorded pass not submitted yet (a flush visits only these). */
     gpu_target **open; size_t open_count, open_capacity;
     bool has_error;
@@ -323,12 +326,31 @@ void gpu_device_note_closed(gpu_device *d, gpu_target *t) {
     for (size_t i = 0; i < d->open_count; i++) if (d->open[i] == t) { d->open[i] = d->open[--d->open_count]; return; }
 }
 
+void gpu_device_end_compute(gpu_device *d) {
+    if (!d->compute_pass) return;
+    wgpuComputePassEncoderEnd(d->compute_pass);
+    wgpuComputePassEncoderRelease(d->compute_pass);
+    d->compute_pass = NULL;
+}
+WGPUComputePassEncoder gpu_device_compute_pass(gpu_device *d) {
+    if (d->compute_pass && (!d->profiling || d->compute_scope == d->scope)) return d->compute_pass;
+    gpu_device_end_compute(d);
+    WGPUComputePassDescriptor descriptor = WGPU_COMPUTE_PASS_DESCRIPTOR_INIT;
+    WGPUPassTimestampWrites writes;
+    descriptor.timestampWrites = gpu_profile_pass(d, &writes);
+    gpu_counters.compute_passes++;
+    d->compute_pass = wgpuCommandEncoderBeginComputePass(gpu_device_compute_encoder(d), &descriptor);
+    d->compute_scope = d->scope;
+    return d->compute_pass;
+}
 WGPUCommandEncoder gpu_device_compute_encoder(gpu_device *d) {
     if (!d->pending) d->pending = wgpuDeviceCreateCommandEncoder(d->device, NULL);
     return d->pending;
 }
 void gpu_device_submit_pending(gpu_device *d) {
     if (!d->pending) return;
+    gpu_device_flush_targets(d);   /* passes open on the shared encoder end first */
+    gpu_device_end_compute(d);
     WGPUCommandEncoder encoder = d->pending;
     d->pending = NULL;
     gpu_device_submit(d, encoder);
@@ -923,6 +945,7 @@ void gpu_device_dispose(gpu_device *d) {
         case GPU_BUFFER: gpu_buffer_release_handles((gpu_buffer *)r); break;
         }
     }
+    if (d->compute_pass) { wgpuComputePassEncoderRelease(d->compute_pass); d->compute_pass = NULL; }
     if (d->pending) { wgpuCommandEncoderRelease(d->pending); d->pending = NULL; }
     d->disposed = true;
     gpu_device_release_kernels(d);

@@ -79,6 +79,8 @@ void gpu_device_blit(gpu_device *device, WGPUTextureView source, WGPUTextureView
 void gpu_device_wait(gpu_device *device, const volatile bool *flag);
 void gpu_device_process_events(gpu_device *device);   /* delivers finished callbacks without waiting */
 uint32_t gpu_device_ring_push(gpu_device *device, const void *data, size_t size);
+WGPUComputePassEncoder gpu_device_compute_pass(gpu_device *device);
+void gpu_device_end_compute(gpu_device *device);
 uint32_t gpu_device_ring_generation(gpu_device *device);
 WGPUBuffer gpu_device_ring_buffer(gpu_device *device);
 WGPUBindGroup gpu_device_ring_group(gpu_device *device);

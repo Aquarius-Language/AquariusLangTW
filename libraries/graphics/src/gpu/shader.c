@@ -252,6 +252,10 @@ static bool parse_bindings(gpu_shader *s, const char *source, char *error, size_
                 snprintf(error, error_size, "Group 2 storage buffers must be var<storage, read> or var<storage, read_write> at bindings 9..15 and 32..39.");
                 return false;
             }
+            /* The vertex and fragment sources are joined: a buffer both stages declare (same binding, same name) is one. */
+            bool again = false;
+            for (int i = 0; i < s->buffer_count; i++) if (s->buffers[i].binding == binding && strcmp(s->buffers[i].name, name) == 0) again = true;
+            if (again) continue;
             if (used[binding]) { snprintf(error, error_size, "Duplicate texture group binding."); return false; }
             used[binding] = true;
             for (int i = 0; i < s->buffer_count; i++)
@@ -271,6 +275,12 @@ static bool parse_bindings(gpu_shader *s, const char *source, char *error, size_
             memcpy(type, r + 1, n); type[n] = 0;
             remove_space(type);
             if (group != 2) continue;
+            /* Declared by both stages (same binding and name, or the same sampler): one binding. */
+            if (binding < 64 && used[binding]) {
+                bool again = (binding == 8 || binding == 16) && strcmp(type, "sampler") == 0;
+                for (int i = 0; i < s->texture_count; i++) if (s->textures[i].binding == binding && strcmp(s->textures[i].name, name) == 0) again = true;
+                if (again) continue;
+            }
             if (binding < 64 && used[binding]) { snprintf(error, error_size, "Duplicate texture group binding."); return false; }
             if (binding < 64) used[binding] = true;
             if (binding == 8 && strcmp(type, "sampler") == 0) continue;
@@ -641,20 +651,14 @@ bool gpu_shader_dispatch(gpu_shader *s, uint32_t x, uint32_t y, uint32_t z, char
     WGPUBindGroup user = gpu_shader_user_group(s, &user_offset);
     /* Earlier draws into targets are submitted first; this dispatch joins the pending compute encoder. */
     gpu_device_flush_targets(d);
-    WGPUCommandEncoder encoder = gpu_device_compute_encoder(d);
-    WGPUComputePassDescriptor pass_descriptor = WGPU_COMPUTE_PASS_DESCRIPTOR_INIT;
-    WGPUPassTimestampWrites writes;
-    pass_descriptor.timestampWrites = gpu_profile_pass(d, &writes);
-    gpu_counters.compute_passes++; gpu_counters.dispatches++;
-    WGPUComputePassEncoder pass = wgpuCommandEncoderBeginComputePass(encoder, &pass_descriptor);
+    gpu_counters.dispatches++;
+    WGPUComputePassEncoder pass = gpu_device_compute_pass(d);
     wgpuComputePassEncoderSetPipeline(pass, s->compute_pipeline);
     wgpuComputePassEncoderSetBindGroup(pass, 0, s->empty_group, 0, NULL);
     wgpuComputePassEncoderSetBindGroup(pass, 1, user, 1, &user_offset);
     wgpuComputePassEncoderSetBindGroup(pass, 2, textures, 0, NULL);
     wgpuComputePassEncoderDispatchWorkgroups(pass, x, y, z);
-    wgpuComputePassEncoderEnd(pass);
-    wgpuComputePassEncoderRelease(pass);
-    (void)encoder;
+    (void)pass;
     const char *failure = gpu_device_take_error(d);
     if (failure) { snprintf(error, error_size, "%s", failure); return false; }
     return true;
@@ -671,21 +675,15 @@ bool gpu_shader_dispatch_indirect(gpu_shader *s, gpu_buffer *arguments, uint64_t
     WGPUBindGroup user = gpu_shader_user_group(s, &user_offset);
     /* Earlier draws into targets are submitted first; this dispatch joins the pending compute encoder. */
     gpu_device_flush_targets(d);
-    WGPUCommandEncoder encoder = gpu_device_compute_encoder(d);
-    WGPUComputePassDescriptor pass_descriptor = WGPU_COMPUTE_PASS_DESCRIPTOR_INIT;
-    WGPUPassTimestampWrites writes;
-    pass_descriptor.timestampWrites = gpu_profile_pass(d, &writes);
-    gpu_counters.compute_passes++; gpu_counters.dispatches++;
-    WGPUComputePassEncoder pass = wgpuCommandEncoderBeginComputePass(encoder, &pass_descriptor);
+    gpu_counters.dispatches++;
+    WGPUComputePassEncoder pass = gpu_device_compute_pass(d);
     wgpuComputePassEncoderSetPipeline(pass, s->compute_pipeline);
     wgpuComputePassEncoderSetBindGroup(pass, 0, s->empty_group, 0, NULL);
     wgpuComputePassEncoderSetBindGroup(pass, 1, user, 1, &user_offset);
     wgpuComputePassEncoderSetBindGroup(pass, 2, textures, 0, NULL);
     gpu_buffer_mark_used(arguments);
     wgpuComputePassEncoderDispatchWorkgroupsIndirect(pass, gpu_buffer_handle(arguments), offset);
-    wgpuComputePassEncoderEnd(pass);
-    wgpuComputePassEncoderRelease(pass);
-    (void)encoder;
+    (void)pass;
     const char *failure = gpu_device_take_error(d);
     if (failure) { snprintf(error, error_size, "%s", failure); return false; }
     return true;

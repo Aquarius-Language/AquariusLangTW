@@ -117,10 +117,12 @@ void gpu_target_flush(gpu_target *t) {
     for (size_t i = 0; i < t->spent_count; i++) if (t->spent[i].used) { wgpuQueueWriteBuffer(queue, t->spent[i].buffer, 0, t->spent[i].data, (t->spent[i].used + 3) & ~(size_t)3); gpu_counters.writes++; gpu_counters.write_bytes += t->spent[i].used; }
     if (t->vertices.used) { wgpuQueueWriteBuffer(queue, t->vertices.buffer, 0, t->vertices.data, (t->vertices.used + 3) & ~(size_t)3); gpu_counters.writes++; gpu_counters.write_bytes += t->vertices.used; }
     if (t->uniforms.used) { wgpuQueueWriteBuffer(queue, t->uniforms.buffer, 0, t->uniforms.data, t->uniforms.used); gpu_counters.writes++; gpu_counters.write_bytes += t->uniforms.used; }
-    WGPUCommandEncoder encoder = t->encoder;
     t->encoder = NULL;
-    gpu_device_submit(d, encoder);
-    /* The recorded pass held the bind groups and replaced arenas; release them now that it is submitted. */
+    /* The pass stays in the device's encoder. The encoder keeps what it uses alive, so the bind groups and arenas can be
+       released now; the arenas written above are replaced (the next pass gets fresh ones) so their bytes stay as
+       written until the submit. */
+    if (t->vertices.used) { wgpuBufferRelease(t->vertices.buffer); free(t->vertices.data); t->vertices.buffer = NULL; t->vertices.data = NULL; t->vertices.capacity = 0; }
+    if (t->uniforms.used) { wgpuBufferRelease(t->uniforms.buffer); free(t->uniforms.data); t->uniforms.buffer = NULL; t->uniforms.data = NULL; t->uniforms.capacity = 0; }
     for (size_t i = 0; i < t->group_count; i++) wgpuBindGroupRelease(t->groups[i]);
     t->group_count = 0;
     t->cache_count = 0;
@@ -147,8 +149,11 @@ static void begin(gpu_target *t, const float *clear, bool clear_depth, bool clea
     if (t->depth_borrower) gpu_target_flush(t->depth_borrower);
     gpu_texture *depth_texture = pass_depth(t);
     bool borrowed = depth_texture != t->depth;
-    gpu_device_submit_pending(d);   /* dispatches recorded before this pass run before it */
-    t->encoder = wgpuDeviceCreateCommandEncoder(gpu_device_handle(d), NULL);
+    /* Every pass and dispatch goes into the device's one encoder in the order recorded; it is submitted when something
+       needs the work done (presenting, a readback, a write to a buffer recorded work uses). */
+    gpu_device_flush_targets(d);   /* one encoder: another target's open pass ends before this one begins */
+    gpu_device_end_compute(d);
+    t->encoder = gpu_device_compute_encoder(d);
     WGPURenderPassColorAttachment colors[4];
     for (int i = 0; i < t->colors; i++) {
         WGPURenderPassColorAttachment color = WGPU_RENDER_PASS_COLOR_ATTACHMENT_INIT;
