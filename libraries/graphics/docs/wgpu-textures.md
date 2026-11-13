@@ -40,6 +40,7 @@ shader.setTexture("probe", probe);
 - `UserUniforms` 上限 4096 位元組，另支援 `array<vec4<f32>, N>`（`Set` 傳 4N 個值）與 `mat3x3<f32>`（`Set` 傳 9 個行優先值）。
 - `DrawProcedural(shader, count, first, [x, y, w, h])` 只繪製剪裁矩形內的像素；`Flush()` 立即送出目前的繪製。長時間的全螢幕通道可分帶繪製並逐帶送出，避免 GPU 看門狗重設裝置。
 - `Prepare(shader)` 預先編譯此目標繪製該 shader 所用的管線；網頁上非同步編譯，不會阻塞瀏覽器的 GPU 執行緒（大型 shader 在 Chrome/D3D12 可能需要一分鐘以上）。
+- 共用深度：`target.ShareDepth(other)` 讓此目標以另一個同尺寸目標的深度附件繪製（例如在一個目標做深度預先通道，在另一個目標以 `"depth": "read"` 著色），回傳是否成功共用（尺寸不同時回傳 false 並使用自己的深度）；此時 `Clear(color)` 保留共用深度，`ClearDepth()` 才清除；`ShareDepth(null)` 停止共用。兩個目標的繪製依序送出，彼此看得到對方寫入的深度。
 
 English summary: render targets take `r16float`, `r32float` and `rgba32float` (32-bit float is unfilterable on every
 target: read it with `textureLoad`; sampling, `GenerateMipmaps` or presenting it fails clearly, use `rgba16float` to filter) besides `rgba8unorm`/`rgba16float`; `{"attachments": n, "mipLevels": m}` gives several outputs
@@ -47,6 +48,9 @@ target: read it with `textureLoad`; sampling, `GenerateMipmaps` or presenting it
 repeating anisotropic sampler at binding 16; `UserUniforms` (4096 bytes) adds `array<vec4<f32>, N>` and
 `mat3x3<f32>`; `DrawProcedural` takes an optional scissor and `Flush()` submits, so long passes can be drawn in bands;
 `Prepare(shader)` compiles a pipeline ahead of the first draw, asynchronously on the web. Test: `tests/wgpu_targets.aqua`.
+`target.ShareDepth(other)` draws with another same-size target's depth (a depth pre-pass in one target, shading with
+`"depth": "read"` in another) and returns whether it shares (false for another size: it keeps its own); its `Clear`
+then keeps the shared depth and `ClearDepth()` clears it; `ShareDepth(null)` stops. Test: `tests/wgpu_share_depth.aqua`.
 
 ## 運算著色器與體積紋理 / Compute shaders and volumes
 
