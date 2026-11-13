@@ -24,6 +24,8 @@ static void emit(int stream) {
     __android_log_write(stream ? ANDROID_LOG_WARN : ANDROID_LOG_INFO, "Aquarius", lines[stream]);
     line_length[stream] = 0;
 }
+/* Output goes to the browser console or the system log: plain text. */
+bool platform_terminal_colors(int stream) { (void)stream; return false; }
 void platform_write(int stream, const char *utf8, size_t length) {
     int s = stream == 2 ? 1 : 0;
     for (size_t written = 0; written < length;) {

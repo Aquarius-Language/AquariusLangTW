@@ -25,6 +25,10 @@ static void write_all(int fd, const char *data, size_t length) {
     }
 }
 void platform_flush(void) { if (output_length) write_all(1, output, output_length); output_length = 0; }
+bool platform_terminal_colors(int stream) {
+    const char *term = getenv("TERM");
+    return isatty(stream == 2 ? 2 : 1) && !(term && strcmp(term, "dumb") == 0);
+}
 void platform_write(int stream, const char *utf8, size_t length) {
     if (stream == 2) { platform_flush(); write_all(2, utf8, length); return; }
     if (output_length + length > sizeof output) platform_flush();

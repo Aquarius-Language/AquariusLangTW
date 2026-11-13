@@ -269,6 +269,19 @@ namespace AquariusLang.parser {
         }
 
         private IStatement parseStatement() {
+            int start = currToken.Start;
+            IStatement statement = parseStatementCore();
+            // Statements end at their last token (a declaration's value; a closing semicolon is not part of it).
+            SourceRanges.Set(statement, start, lastEnd());
+            return statement;
+        }
+        // The end offset of the current token, or of the one before when the current one is a semicolon.
+        private int lastEnd() {
+            var token = currToken.Type == TokenType.SEMICOLON && previousToken.Length > 0 ? previousToken : currToken;
+            return token.Start + token.Length;
+        }
+
+        private IStatement parseStatementCore() {
             switch (currToken.Type) {
                 case TokenType.LET:
                     return parseLetStatement();
@@ -484,7 +497,10 @@ namespace AquariusLang.parser {
                 return null;
             }
 
+            int start = currToken.Start;
             IExpression leftExp = prefixParseFn();
+            // Every expression records its extent, from its first token to its last (runtime errors underline it).
+            SourceRanges.Set(leftExp, start, currToken.Start + currToken.Length);
 
             // Console.WriteLine($"leftExp: {leftExp.String()}");
 
@@ -501,6 +517,7 @@ namespace AquariusLang.parser {
                  * These two functions are the current only ones bound to infixParseFns.
                  */
                 leftExp = infixParseFn(leftExp);
+                SourceRanges.Set(leftExp, start, currToken.Start + currToken.Length);
             }
 
             return leftExp;

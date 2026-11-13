@@ -5,6 +5,16 @@ One version covers the language, the compiler, the CLI, the language server and 
 
 ## 0.1.8
 
+Runtime errors:
+
+- A runtime error now shows where it happened: `file:line:column`, the source line with the failing part underlined
+  (`~~~`, aligned for tabs and Chinese characters, multi-line expressions marked) and the call stack with function names,
+  for every kind of error the runtime raises (in imported modules and native-tier functions too). The first line stays
+  `ERROR: <message>` on standard output; the rest goes to standard error, coloured on terminals (not with `NO_COLOR` or
+  redirected output). Compile errors show the source line too. Nothing is recorded while a program runs normally: the
+  compiler writes an `aquarius.debug` section (sources and line tables) and compiled code stores the failing instruction
+  only on the error path. `aqua build --no-debug-info` leaves the section out. See [runtime errors](docs/runtime-errors.md).
+
 Targets:
 
 - Targets come from one table, `targets.list` in `scripts/toolchain.json`. The scripts and CMake toolchain files read it

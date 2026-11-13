@@ -16,6 +16,8 @@ WEB_IMPORT(environment) char *web_environment(const char *name);
 static aqua_runtime *runtime;
 
 double platform_now_ms(void) { return web_now(); }
+/* Output goes to the browser console or the system log: plain text. */
+bool platform_terminal_colors(int stream) { (void)stream; return false; }
 void platform_write(int stream, const char *utf8, size_t length) { web_write(stream, utf8, length); }
 void *platform_lock_create(void) { return (void *)1; }
 void platform_lock(void *lock) { (void)lock; }

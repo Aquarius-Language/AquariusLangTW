@@ -270,8 +270,13 @@ internal sealed class WasmBodyEmitter
     private void Checked()
     {
         Get(F); LoadI32(FrameExecution); LoadI32(ExecutionStatus); I32(StatusFailed); Op(0x46);
-        If(); ShadowWriteBack(); I32(-1); Return(); End();
+        If(); ShadowWriteBack(); FailedAt(); I32(-1); Return(); End();
     }
+    /// <summary>Only on the error path: the failing instruction, so the host can name its source line (the debug
+    /// section's line table). Bit 31 tells it from a continuation (a block index) stored by a suspension.</summary>
+    private void FailedAt() { Get(F); I32(unchecked((int)(0x80000000u | (uint)pc))); StoreI32(FramePc); }
+    /// <summary>A native region or JIT loop raised the error: the execution holds its site (rt_nativeFailure).</summary>
+    private void FailedInNative() { Get(F); I32(-1); StoreI32(FramePc); }
     private void Resume(int continuation) { I32(continuation); Return(); }
 
     /// <summary>Runtime helper protocol: every live operand is in memory and the frame sp is exact.</summary>
@@ -683,7 +688,7 @@ internal sealed class WasmBodyEmitter
         InvalidateAddresses();
         Get(G); Set(PC); w.Write((byte)0x0c); U(count - block + nest);
         End();
-        Get(G); I32(-3); Op(0x46); If(); I32(-1); Return(); End();
+        Get(G); I32(-3); Op(0x46); If(); FailedInNative(); I32(-1); Return(); End();
         Get(G); I32(-2); Op(0x46); If(); I32(1); Set(region.Disabled); End();
         End();
     }
@@ -703,7 +708,7 @@ internal sealed class WasmBodyEmitter
         InvalidateAddresses();
         Get(G); Set(PC); w.Write((byte)0x0c); U(count - block + nest);
         End();
-        Get(G); I32(-3); Op(0x46); If(); I32(-1); Return(); End();
+        Get(G); I32(-3); Op(0x46); If(); FailedInNative(); I32(-1); Return(); End();
         Get(G); I32(-2); Op(0x46); If(); Get(F); I32(jit.Loop); Call("jitRequest"); GlobalSet(jit.Slot); End();
         Else();
         GlobalGet(jit.Slot); Op(0x45); If();
@@ -878,7 +883,7 @@ internal sealed class WasmBodyEmitter
             }
             case IrOperation.Return:
                 ShadowWriteBack(); SpillAll(d); StoreSp(d); Get(F); I32(1); StoreI32(FrameReturned); Resume(-1); return true;
-            case IrOperation.Error: Helper("error", n, d, 0, false); Resume(-1); return true;
+            case IrOperation.Error: Helper("error", n, d, 0, false); FailedAt(); Resume(-1); return true;
             case IrOperation.Call:
                 ShadowWriteBack(); SpillAll(d); StoreSp(d); Get(F); I32(n); Call("call");
                 If(); WriteBack(); Resume(BlockOf(pc + 1)); End(); Forget(d - n - 1); InvalidateAddresses();

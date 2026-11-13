@@ -61,7 +61,9 @@ typedef struct Frame {
        frame again (1 = entry, 2+ = a loop head); native_closure: its closure. */
     u32 native_site; struct Closure *native_closure; Value values[];
 } Frame;
-struct Execution { Execution *next; Frame *current; Value result; u32 budget, status; Function *numeric_depth_disabled; u32 poll; Closure *numeric_closure; Frame *numeric_innermost; };
+/* error_function (index + 1) and error_pc: where a native (fully typed) function raised an error; it has no frame of
+   its own, so the host's call stack starts there. 0 when the error was raised by generic code. */
+struct Execution { Execution *next; Frame *current; Value result; u32 budget, status; Function *numeric_depth_disabled; u32 poll; Closure *numeric_closure; Frame *numeric_innermost; u32 error_function, error_pc; };
 _Static_assert(offsetof(Frame, values)==64, "Compiler frame ABI mismatch");
 _Static_assert(offsetof(Execution, status)==28 && offsetof(Execution, budget)==24 && offsetof(Execution, poll)==36 && offsetof(Execution, numeric_closure)==40, "Compiler execution ABI mismatch");
 _Static_assert(sizeof(Function)==40, "Function layout mismatch");
@@ -516,7 +518,8 @@ static int run_callee(Frame*f) {
         if(e->status||native_depth>=NATIVE_CALL_DEPTH)return 1;
         if(callee->native_site&&native_resume(e,callee)){if(e->status)return 1;continue;}
         native_depth++;int next=((int(*)(Frame*))(uintptr_t)callee->function->table)(callee);native_depth--;
-        if(e->status==3)return 1;
+        /* A failed frame keeps its position: the call it was in (its continuation) for the host's call stack. */
+        if(e->status==3){if(next>=0)callee->pc=(u32)next;return 1;}
         if(next>=0){suspended(callee,next);return 1;}
         complete_frame(e,callee);if(e->status)return 1;
     }
@@ -579,7 +582,7 @@ u32 aqua_run(u32 ptr,u32 budget) {
     while(e->current){Frame*f=e->current;
         if(f->native_site&&native_resume(e,f)){if(e->status)return e->status;continue;}
         int next=((int(*)(Frame*))(uintptr_t)f->function->table)(f);
-        if(e->status==3)return 3;
+        if(e->status==3){if(next>=0)f->pc=(u32)next;return 3;}
         if(next<0){Value result=f->sp>f->function->locals?pop(f):empty;Frame*parent=f->parent;if(!(f->function->flags&PROMOTED_SCOPE))dispose_scope(f->scope);release_frame(f);e->current=parent;if(!parent){e->result=result;e->status=4;return 4;}push(parent,result);}
         else suspended(f,next);
         if(e->status==2)return 2;if(e->status==1)return 1;
@@ -751,8 +754,9 @@ int rt_nativeFrame(Execution*e,int closure,int pc,int depth) {
     f->pc=(u32)pc;f->sp=fn->locals+(u32)depth;if(!e->numeric_innermost)e->numeric_innermost=f;return (int)address(f);
 }
 /* A language error raised inside a native function, with the generic runtime's message; the native code then
-   returns status 5 through every native activation. */
-int rt_nativeFailure(Execution*e,int code) {
+   returns status 5 through every native activation. function and pc: where (the body's index and instruction). */
+int rt_nativeFailure(Execution*e,int code,int function,int pc) {
+    e->error_function=(u32)function+1;e->error_pc=(u32)pc;
     static const char *const messages[]={"Integer division by zero / 整數不能除以零。","Integer remainder by zero / 整數不能對零取餘數。",
         "Array index is out of bounds / 陣列索引超出範圍。","Array assignment index is out of bounds.",
         "Cannot access member of NULL","Cannot assign a member of NULL","Array length exceeds the Wasm array limit.",

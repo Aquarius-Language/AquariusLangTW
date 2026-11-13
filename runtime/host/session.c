@@ -412,6 +412,7 @@ void runtime_destroy(aqua_runtime *rt) {
     platform_lock_destroy(rt->post_lock);
     for (uint32_t i = 0; i < rt->app.asset_count; i++) free(rt->asset_files[i]);
     free(rt->asset_files);
+    diagnostics_free(rt);
     application_free(&rt->app);
     free(rt->contexts); free(rt->launch); free(rt->handles); free(rt->states); free(rt->state_order);
     free(rt->application_directory); free(rt->materialized);

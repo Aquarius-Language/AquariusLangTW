@@ -22,6 +22,8 @@ static void emit(int s) {
     while (n) { ssize_t w = write(s ? 2 : 1, p, n); if (w < 0 && errno == EINTR) continue; if (w <= 0) break; p += w; n -= (size_t)w; }
     line_length[s] = 0;
 }
+/* Output goes to the browser console or the system log: plain text. */
+bool platform_terminal_colors(int stream) { (void)stream; return false; }
 void platform_write(int stream, const char *utf8, size_t length) {
     int s = stream == 2 ? 1 : 0;
     pthread_mutex_lock(&output_lock);

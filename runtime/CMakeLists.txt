@@ -42,7 +42,7 @@ foreach(folder IN LISTS library_folders)
     add_subdirectory("${AQUA_LIBRARY_ROOT}/${folder}" "libraries/${folder}")
 endforeach()
 
-set(host_sources host/api.c host/application.c host/calls.c host/core.c host/format.c host/guest.c host/image.c
+set(host_sources host/api.c host/application.c host/calls.c host/core.c host/format.c host/diagnostics.c host/guest.c host/image.c
     host/promise.c host/registry.c host/scheduler.c host/session.c host/values.c host/window_object.c)
 
 # The default libraries the host registers at startup, as X(name) entries for host/session.c.

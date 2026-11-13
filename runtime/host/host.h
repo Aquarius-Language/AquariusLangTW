@@ -47,6 +47,7 @@ typedef struct application {
     bool external_assets;
     app_import *imports; uint32_t import_count;   /* ABI 4: Aquarius-source library modules by import name */
     char **libraries; uint32_t library_count;     /* ABI 4: native libraries the application needs */
+    size_t debug_offset, debug_length;  /* the aquarius.debug section's payload (0 length: none), read after errors */
 } application;
 bool application_parse(application *app, uint8_t *bytes, size_t length, char **error);
 void application_free(application *app);
@@ -186,6 +187,9 @@ struct aqua_runtime {
     char **asset_files;              /* materialized path per asset, created on first request */
     void *platform;                  /* platform layer data */
     void *threads;                   /* Thread library state */
+    /* The call stack of the last runtime error (diagnostics.c): function index and position per frame, innermost first. */
+    struct trace_entry { uint32_t function, position; } *trace; uint32_t trace_count, trace_error;
+    struct debug_info *debug;        /* the debug section, parsed after the first error that needs it */
 };
 
 /* ---- Guest access helpers (runtime/host/guest.c). --------------------------------------------------------------- */
@@ -226,6 +230,11 @@ void promise_settle_pending(aqua_runtime *rt, struct promise *p, aqua_value resu
 bool promise_follow(aqua_runtime *rt, aqua_value value, aqua_done done, void *data);
 int32_t function_arity(aqua_runtime *rt, aqua_value function); /* through async wrappers too; -1 for natives */ /* done once a returned promise settles */
 char *format_value(aqua_runtime *rt, aqua_value v);
+/* Runtime error diagnostics (diagnostics.c): record a failed execution's call stack before it is released; print an
+   application's final error (or any value) like format_value, plus its source location and call stack. */
+void diagnostics_capture(aqua_runtime *rt, uint32_t execution, aqua_value error);
+void diagnostics_report(aqua_runtime *rt, aqua_value result);
+void diagnostics_free(aqua_runtime *rt);
 void format_number(char *buffer, size_t size, double n, aqua_type type);
 
 /* Runs an execution until it finishes, yields to other work or waits; returns its status. */
@@ -268,6 +277,7 @@ void platform_runtime_closing(aqua_runtime *rt);
 const uint8_t *platform_asset(aqua_runtime *rt, const char *name, size_t *length);
 double platform_now_ms(void);
 void platform_write(int stream, const char *utf8, size_t length); /* 1 stdout, 2 stderr */
+bool platform_terminal_colors(int stream); /* the stream is a terminal that shows ANSI colours (enabled if needed) */
 void *platform_lock_create(void);
 void platform_lock(void *lock);
 void platform_unlock(void *lock);

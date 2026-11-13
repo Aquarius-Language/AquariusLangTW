@@ -59,12 +59,16 @@ public static class Repl
         string source = string.Concat(session.Select(s => s + "\n")) + $"印出(\"{marker}\");\n" + entry + "\n";
         string script = Path.Combine(directory, "repl.aqua"), wasm = Path.Combine(directory, "repl.wasm");
         File.WriteAllText(script, source, new UTF8Encoding(false));
+        // Positions would count the replayed session's lines: runtime errors show their message alone, like compile errors.
+        bool debugInfo = AquariusLang.Wasm.WasmCompiler.DebugInfo;
+        AquariusLang.Wasm.WasmCompiler.DebugInfo = false;
         try { WasmApplication.Compile([script], wasm, directory); }
         catch (CompilationException e) {
             // Positions would count the replayed session's lines: show the messages alone.
             output.WriteLine(e.Diagnostics.Count > 0 ? string.Join("\n", e.Diagnostics.Select(d => d.Message)) : e.Message.Replace(script + ": ", ""));
             return false;
         }
+        finally { AquariusLang.Wasm.WasmCompiler.DebugInfo = debugInfo; }
         var start = NativeRuntime.StartInfo(wasm);
         start.RedirectStandardOutput = true; start.RedirectStandardError = true;
         start.StandardOutputEncoding = Encoding.UTF8; start.StandardErrorEncoding = Encoding.UTF8;

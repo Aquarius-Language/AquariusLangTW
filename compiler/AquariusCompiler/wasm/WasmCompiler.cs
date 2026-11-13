@@ -29,6 +29,11 @@ public sealed class WasmCompiler
     private static readonly System.Threading.AsyncLocal<Action<string>?> tierDiagnostics = new();
     private static readonly Action<string>? environmentDiagnostics =
         System.Environment.GetEnvironmentVariable("AQUARIUS_WASM_TIER_DIAGNOSTICS") == "1" ? Console.Error.WriteLine : null;
+    /// <summary>Whether compiled applications carry the <c>aquarius.debug</c> section (sources and line tables for runtime
+    /// error locations and call stacks; see <see cref="WasmDebugInfo"/>). On by default; <c>aqua build --no-debug-info</c>
+    /// turns it off for the current execution context.</summary>
+    public static bool DebugInfo { get => !noDebugInfo.Value; set => noDebugInfo.Value = !value; }
+    private static readonly System.Threading.AsyncLocal<bool> noDebugInfo = new();
     private static void Diagnose(int function, string tier, string reason) => TierDiagnostics?.Invoke($"function {function}: {tier}: {reason}");
     /// <summary>Array kernels that call back into Aquarius (runtime/guest/arrays.h): their functions in the guest prelude
     /// (runtime/guest/prelude.aqua), numbered in source order, which the guest runtime finds by Function.flags bits 8..15.</summary>
@@ -61,7 +66,15 @@ public sealed class WasmCompiler
             }
             return id;
         }
-        var exports = modules.ToDictionary(p => p.Key, p => Add(p.Value), StringComparer.OrdinalIgnoreCase);
+        // The module each body belongs to (its index in moduleList), for the debug section; the prelude's have none.
+        var moduleList = new List<(string Path, LoweredProgram Program)>();
+        var moduleOf = new Dictionary<int, int>();
+        var exports = modules.ToDictionary(p => p.Key, p => {
+            int before = bodies.Count, id = Add(p.Value);
+            for (int b = before; b < bodies.Count; b++) moduleOf[b] = moduleList.Count;
+            moduleList.Add((p.Key, p.Value));
+            return id;
+        }, StringComparer.OrdinalIgnoreCase);
         // The guest prelude's functions follow the program's bodies, only when a body names one of their kernels.
         var prelude = new Dictionary<int, int>();
         if (bodies.Any(b => b.Constants.Any(c => c is string name && PreludeKernels.Contains(name))))
@@ -285,6 +298,7 @@ public sealed class WasmCompiler
             { U(w, 0); w.Write((byte)0x41); S(w, WasmRuntimeImage.ProgramAddress); w.Write((byte)0x0b); var payload = data.Bytes; U(w, payload.Length); w.Write(payload); });
         foreach (var section in runtime.Sections.OrderBy(p => p.Key)) Section(section.Key, w => w.Write(section.Value));
         if (stencils.Count > 0) Section(0, w => WasmJit.WriteSection(w, stencils, runtime, name => texts[name]));
+        if (DebugInfo) Section(0, w => WasmDebugInfo.Write(w, moduleList, bodies, moduleOf, plans));
         // Native library outputs read the entry module's exports (docs/native-libraries.md); programs without any have none.
         if (modules.TryGetValue(entry, out var entryModule) && entryModule.Exports is { } exported)
             Section(0, w => { w.Write(ExportTable.SectionName); w.Write(exported.InModule(entry).Encode()); });

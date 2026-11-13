@@ -55,6 +55,13 @@ public sealed class LoweredProgram {
     /// <summary>The module's <c>匯出</c> / <c>export</c> declarations; null when it has none. Only the entry module's are
     /// written into the application (<see cref="ExportTable"/>).</summary>
     public ExportTable? Exports { get; internal set; }
+    /// <summary>The source range of each instruction (runtime errors and call stacks), parallel to <see cref="Instructions"/>.</summary>
+    internal SourceRange[] Spans { get; init; } = System.Array.Empty<SourceRange>();
+    /// <summary>A module's source text (null for function bodies and programs lowered from a tree).</summary>
+    public string? Source { get; internal set; }
+    /// <summary>The name a function body's literal is bound to, when it has one.</summary>
+    public string? Name { get; internal set; }
+    internal SourceRange SpanAt(int pc) => pc >= 0 && pc < Spans.Length ? Spans[pc] : SourceRange.None;
 
     internal LoweredProgram(Instruction[] code, object[] constants, bool wrapReturn, (int, int, int, NativeSignature?)[]? loops = null) {
         Code = code; Pool = constants; WrapReturn = wrapReturn; Loops = loops ?? System.Array.Empty<(int, int, int, NativeSignature?)>();
@@ -91,12 +98,13 @@ internal sealed class FunctionCode {
     /// <summary>The literal and, when it is fully typed, its native-tier signature.</summary>
     internal FunctionLiteral Literal { get; }
     internal NativeSignature? Native { get; }
-    internal FunctionCode(FunctionLiteral function, TypeChecker? types = null) {
+    internal FunctionCode(FunctionLiteral function, TypeChecker? types = null, string? name = null) {
         Literal = function;
         Native = types != null && types.Natives.TryGetValue(function, out var native) ? native : null;
         Parameters = function.Parameters;
         Body = function.Body;
         BodyCode = new LoweringCompiler(types).CompileFunction(function);
+        BodyCode.Name = name;
         if (Native != null) BodyCode.Function = (Native, System.Array.ConvertAll(function.Parameters ?? System.Array.Empty<Identifier>(), p => p.Value));
     }
 }

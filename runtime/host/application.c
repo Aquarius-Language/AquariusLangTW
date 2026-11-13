@@ -122,6 +122,8 @@ bool application_parse(application *app, uint8_t *bytes, size_t length, char **e
         if (section_named(&s, "aquarius.application")) {
             if (has_metadata) return fail(error, "Duplicate Aquarius metadata.");
             metadata = s; has_metadata = true;
+        } else if (section_named(&s, "aquarius.debug")) {
+            app->debug_offset = s.payload; app->debug_length = s.end - s.payload;
         } else if (section_named(&s, "aquarius.assets")) {
             if (has_assets) return fail(error, "Duplicate Aquarius assets.");
             assets = s; has_assets = true;

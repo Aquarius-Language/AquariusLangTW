@@ -35,10 +35,7 @@ void task_finish(aqua_runtime *rt, task *t, bool ok, aqua_value result) {
     if (t->done && !(t->follow && ok && promise_follow(rt, result, t->done, t->data))) t->done(rt, ok, result, t->data);
     else if (!ok && !rt->finished) {
         /* A failing callback nobody waits for ends the application, like a failing script. */
-        char *text = format_value(rt, result);
-        platform_write(1, text, strlen(text));
-        platform_write(1, "\n", 1);
-        free(text);
+        diagnostics_report(rt, result);
         rt->exit_code = 1; rt->exiting = true;
     }
     aqua_release(rt, keep);
@@ -60,7 +57,12 @@ uint32_t run_slice(aqua_runtime *rt, task *t) {
     case G_STATUS_Yielded:
         if (guest(rt, GUEST_collection_due, 0, 0, 0, 0)) { guest(rt, GUEST_collect, 0, 0, 0, 0); handles_sweep(rt); }
         break;
-    case G_STATUS_Failed: task_finish(rt, t, false, execution_result(rt, t->execution)); break;
+    case G_STATUS_Failed: {
+        aqua_value error = execution_result(rt, t->execution);
+        diagnostics_capture(rt, t->execution, error);
+        task_finish(rt, t, false, error);
+        break;
+    }
     case G_STATUS_Completed: task_finish(rt, t, true, execution_result(rt, t->execution)); break;
     }
     return status;
@@ -254,12 +256,7 @@ void aqua_schedule(aqua_runtime *rt, double delay_ms, aqua_tick tick, void *data
 static void main_done(aqua_runtime *rt, bool ok, aqua_value result, void *data) {
     (void)data;
     /* The script's final value is shown like print shows it; nothing for a final declaration or print. */
-    if (result.type != AQUA_VOID) {
-        char *text = format_value(rt, result);
-        platform_write(1, text, strlen(text));
-        platform_write(1, "\n", 1);
-        free(text);
-    }
+    if (result.type != AQUA_VOID) diagnostics_report(rt, result);
     if (!ok) { rt->exit_code = 1; rt->exiting = true; }
     rt->finished = true;
 }

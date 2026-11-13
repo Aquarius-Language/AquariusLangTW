@@ -40,6 +40,13 @@ void platform_flush(void) {
     if (output_length) write_handle(GetStdHandle(STD_OUTPUT_HANDLE), output, output_length);
     output_length = 0;
 }
+/* A console shows ANSI colours once virtual terminal processing is on (Windows 10 and later); a pipe or file does not. */
+bool platform_terminal_colors(int stream) {
+    HANDLE h = GetStdHandle(stream == 2 ? STD_ERROR_HANDLE : STD_OUTPUT_HANDLE);
+    DWORD mode = 0;
+    if (h == INVALID_HANDLE_VALUE || !h || !GetConsoleMode(h, &mode)) return false;
+    return (mode & ENABLE_VIRTUAL_TERMINAL_PROCESSING) || SetConsoleMode(h, mode | ENABLE_VIRTUAL_TERMINAL_PROCESSING);
+}
 void platform_write(int stream, const char *utf8, size_t length) {
     if (stream == 2) { platform_flush(); write_handle(GetStdHandle(STD_ERROR_HANDLE), utf8, length); return; }
     if (output_length + length > sizeof output) platform_flush();

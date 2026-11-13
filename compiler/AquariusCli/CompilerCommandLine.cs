@@ -18,6 +18,7 @@ public static class CompilerCommandLine {
         "aqua build (main.aqua ... | app.wasm) --target ios -o App.app [--simulator true|false] [--bundle-id org.example.app] [--app-name Name] [--signing-identity ID --provisioning-profile file]\n" +
         "aqua build (main.aqua ... | app.wasm) --target android -o app.apk [--entry main.aqua] [--application-id org.example.app] [--app-name Name] [--keystore file --key-alias name]\n" +
         "aqua build [aqua.toml|project-directory] [--target PLATFORM] [--platform PLATFORM] [-o output] [--locked] [--offline]\n" +
+        "aqua build ... --no-debug-info   (any build: leave out the sources and line tables runtime errors use for their location and call stack)\n" +
         "aqua build (project | main.aqua ... | app.wasm) --target windows|linux|android|web --kind shared[,static,object] -o dist   (native libraries of the 匯出 / export functions; --kind executable builds the usual artifact)\n" +
         "aqua export header (project | main.aqua ... | app.wasm) [-o file.h]\n" +
         "aqua run (app.wasm | main.aqua | project-directory) [--entry main.aqua] [argument ...]\n" +
@@ -65,6 +66,8 @@ public static class CompilerCommandLine {
             if (!positional && arg == "--") { positional = true; continue; }
             if (!positional && arg.StartsWith('-')) {
                 if (arg is "--locked" or "--offline") { if (!flags.Add(arg)) throw new ArgumentException($"Specify {arg} only once."); continue; }
+                // Leaves out the aquarius.debug section: runtime errors then show their message only (no source line or call stack).
+                if (arg == "--no-debug-info") { AquariusLang.Wasm.WasmCompiler.DebugInfo = false; continue; }
                 if (!SharedOptions.Contains(arg) && !targets.OptionNames.Contains(arg)) throw new ArgumentException($"Unknown option: {arg}");
                 if (++i == args.Length || args[i].StartsWith('-') || string.IsNullOrWhiteSpace(args[i])) throw new ArgumentException($"Missing value for {arg}.");
                 if (arg == "--assets") assets.Add(args[i]);

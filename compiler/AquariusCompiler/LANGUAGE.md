@@ -232,7 +232,9 @@ Default value inspection still prints booleans as `真` / `假` and null as `nul
 - Imported script modules expose their environment through `ModuleObj`.
   Module member calls evaluate arguments in the caller's environment and execute
   function bodies in their captured environment.
-- Runtime failures produce `ErrorObj` and stop execution before later side effects.
+- Runtime failures produce `ErrorObj` and stop execution before later side effects. They are reported with their file,
+  line and column, the source line with the failing part underlined and the call stack; see
+  [runtime errors](../../docs/runtime-errors.md).
   Compiler syntax failures raise `CompilationException`; `CompiledEvaluator` converts
   them to `ErrorObj` for hosts using its evaluation APIs.
 

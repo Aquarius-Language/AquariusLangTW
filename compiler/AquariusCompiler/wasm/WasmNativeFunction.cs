@@ -1138,7 +1138,10 @@ internal sealed partial class WasmNativeFunction
             Op(Br); U(w, Label(c => c.End == int.MaxValue) + 1); // Every site sits in one if.
         }
         void ToHandler(int kind, int block, int[] operands, int message) => ToSite(Site(kind, block, operands, message));
-        void Fail(int message) => ToHandler(ErrorSite, 0, Array.Empty<int>(), message);
+        // Where each error site is (the body and instruction being emitted), for rt_nativeFailure's call stack entry.
+        var failAt = new Dictionary<int, (int Body, int Pc)>(); int emittingPc = 0;
+        void Fail(int message) { failAt[sites.Count] = (cur.Body, emittingPc); ToHandler(ErrorSite, 0, Array.Empty<int>(), message); }
+        void FailureCall(int k, int message) { Execution(); I(w, message); I(w, failAt[k].Body); I(w, failAt[k].Pc); Op(Call); U(w, runtime["rt_nativeFailure"]); }
 
         // An element of an array of any values (operand k) as the generic value it is.
         void StoreAny(int offset, int k) {
@@ -1388,7 +1391,7 @@ internal sealed partial class WasmNativeFunction
             int depth = stack.Length, top = depth - 1, below = depth - 2;
             if (inlineReturn == null && region && pc == Stop) { RegionExit(BlockOf(Stop), Stop); break; }
             if (pc == n) { Exit(stack[top], top); break; }
-            var op = code[pc]; int operand = op.Operand;
+            var op = code[pc]; int operand = op.Operand; emittingPc = pc;
             int TopType(int k = 1) => stack[depth - k];
             switch (op.Code) {
                 case IrOperation.Constant:
@@ -1920,8 +1923,8 @@ internal sealed partial class WasmNativeFunction
             Op(End);
             var (kind, block, operands, message) = sites[k];
             if (kind == ErrorSite) SaveOuter();
-            if (kind == ErrorSite && region) { Execution(); I(w, message); Op(Call); U(w, runtime["rt_nativeFailure"]); Op(Drop); I(w, -3); Op(Return); continue; }
-            if (kind == ErrorSite) { Raise(() => { Execution(); I(w, message); Op(Call); U(w, runtime["rt_nativeFailure"]); }); continue; }
+            if (kind == ErrorSite && region) { FailureCall(k, message); Op(Drop); I(w, -3); Op(Return); continue; }
+            if (kind == ErrorSite) { int at = k; Raise(() => FailureCall(at, message)); continue; }
             if (kind == IndexSite && region) { WriteOperands(operands); RegionExit(block, message); continue; }
             if (kind == IndexSite) { SaveBudget(); SaveOuter(); Materialize(block, message, operands); Raise(() => Get(w, frame)); continue; }
             if (region) { RegionExit(block, message); continue; } // A loop head: the generic body continues there and yields.

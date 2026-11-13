@@ -10,7 +10,9 @@ using AquariusLang.parser;
 namespace AquariusLang.Compiler;
 
 /// <summary>Where a compile error is: 1-based line and column (in UTF-16 units) of the source it was found in.</summary>
-public sealed record CompileDiagnostic(string Message, int Line, int Column);
+/// <param name="LineText">The text of that line (without its line break), when the source was known.</param>
+/// <param name="Length">The length of the offending text (UTF-16 units; 0 when unknown).</param>
+public sealed record CompileDiagnostic(string Message, int Line, int Column, string? LineText = null, int Length = 0);
 
 public sealed class CompilationException : Exception {
     /// <summary>The errors with their positions, when the source text was known (empty otherwise).</summary>
@@ -23,17 +25,24 @@ public sealed class CompilationException : Exception {
     /// positions are known, else <c>file: message</c>.</summary>
     public CompilationException InFile(string file) {
         if (Diagnostics.Count == 0) return new CompilationException($"{file}: {Message}");
-        return new CompilationException(string.Join("\n", Diagnostics.Select(d => $"{file}:{d.Line}:{d.Column}: {d.Message}")), Diagnostics);
+        // The first line of each error stays `file:line:column: message` (editors and tools read it); the source line with
+        // the offending text underlined follows, like runtime errors show it (runtime/host/diagnostics.c).
+        return new CompilationException(string.Join("\n", Diagnostics.Select(d => $"{file}:{d.Line}:{d.Column}: {d.Message}"
+            + (d.LineText != null ? "\n" + SourceSnippet.Render(d.LineText, d.Line, d.Column - 1, d.Length) : ""))), Diagnostics);
     }
 
-    internal static CompilationException At(string source, IEnumerable<(string Message, int Offset)> errors) {
+    internal static CompilationException At(string source, IEnumerable<(string Message, int Offset)> errors) =>
+        At(source, errors.Select(e => (e.Message, e.Offset, 0)));
+    internal static CompilationException At(string source, IEnumerable<(string Message, int Offset, int Length)> errors) {
         var list = new List<CompileDiagnostic>();
-        foreach (var (message, offset) in errors) {
-            int line = 1, column = 1, end = Math.Clamp(offset, 0, source.Length);
+        foreach (var (message, offset, length) in errors) {
+            int line = 1, column = 1, end = Math.Clamp(offset, 0, source.Length), start = 0;
             for (int i = 0; i < end; i++) {
-                if (source[i] == '\n') { line++; column = 1; } else column++;
+                if (source[i] == '\n') { line++; column = 1; start = i + 1; } else column++;
             }
-            list.Add(new CompileDiagnostic(message, line, column));
+            int stop = source.IndexOf('\n', start); if (stop < 0) stop = source.Length;
+            string text = source[start..stop].TrimEnd('\r');
+            list.Add(new CompileDiagnostic(message, line, column, text, length));
         }
         return new CompilationException(list);
     }
@@ -42,6 +51,11 @@ public sealed class CompilationException : Exception {
 /// <summary>Translates syntax trees into compiler IR for subsequent WebAssembly emission.</summary>
 public sealed class LoweringCompiler {
     private readonly List<Instruction> code = new();
+    // The source range of each instruction (runtime errors and call stacks point there), and the range being lowered.
+    private readonly List<SourceRange> spans = new();
+    private SourceRange site = SourceRange.None;
+    // The name a function literal about to be lowered is bound to (var f = function..., f = ..., object.f = ..., "f": ...).
+    private string? pendingName;
     private readonly List<object> constants = new();
     private readonly Dictionary<string, int> names = new();
     private readonly Stack<List<int>> breaks = new();
@@ -59,14 +73,15 @@ public sealed class LoweringCompiler {
         var parser = Parser.NewInstance(lexer);
         var tree = ExportTable.WithConstructors(parser.ParseAST());
         if (lexer.Errors.Count > 0 || parser.Errors.Count > 0)
-            throw CompilationException.At(source, lexer.Errors.Select(e => (e.Message, e.Start)).Concat(parser.Diagnostics.Select(e => (e.Message, e.Token.Start))));
+            throw CompilationException.At(source, lexer.Errors.Select(e => (e.Message, e.Start, e.Length)).Concat(parser.Diagnostics.Select(e => (e.Message, e.Token.Start, e.Token.Length))));
         if (types == null) {
             // Checked here rather than in Compile(tree) so its errors carry their positions.
             var checker = TypeChecker.Check(tree);
-            if (checker.Errors.Count > 0) throw CompilationException.At(source, checker.Errors.Select(e => (e.Message, e.Token.Start)));
+            if (checker.Errors.Count > 0) throw CompilationException.At(source, checker.Errors.Select(e => (e.Message, e.Token.Start, e.Token.Length)));
             types = checker;
         }
         var program = Compile(tree);
+        program.Source = source;
         var exports = ExportTable.Build(tree, source);
         if (!exports.IsEmpty) program.Exports = exports;
         return program;
@@ -74,22 +89,23 @@ public sealed class LoweringCompiler {
 
     public LoweredProgram Compile(INode node) {
         if (node == null) throw new ArgumentNullException(nameof(node));
-        code.Clear(); constants.Clear(); names.Clear(); breaks.Clear(); continues.Clear(); loops.Clear();
+        code.Clear(); spans.Clear(); constants.Clear(); names.Clear(); breaks.Clear(); continues.Clear(); loops.Clear();
         if (node is AbstractSyntaxTree tree && types == null) {
             var checker = TypeChecker.Check(tree);
             if (checker.Errors.Count > 0) throw new CompilationException(string.Join("\n", checker.Errors.Select(e => e.Message)));
             types = checker;
         }
         Node(node);
-        return new LoweredProgram(code.ToArray(), constants.ToArray(), !(node is AbstractSyntaxTree), loops.ToArray());
+        return new LoweredProgram(code.ToArray(), constants.ToArray(), !(node is AbstractSyntaxTree), loops.ToArray()) { Spans = spans.ToArray() };
     }
 
     /// <summary>A function body: typed parameters are checked on entry and the implicit result like a return.</summary>
     internal LoweredProgram CompileFunction(FunctionLiteral function) {
-        code.Clear(); constants.Clear(); names.Clear(); breaks.Clear(); continues.Clear(); loops.Clear();
+        code.Clear(); spans.Clear(); constants.Clear(); names.Clear(); breaks.Clear(); continues.Clear(); loops.Clear();
         // A parameter left out of the call holds the missing marker (rt_isMissing) until its default replaces it.
         foreach (var parameter in function.Parameters ?? Array.Empty<Identifier>()) {
             if (parameter.Default == null) continue;
+            site = SourceRanges.Of(parameter);
             Emit(IrOperation.Load, Name(parameter.Value));
             Emit(IrOperation.IsMissing);
             int given = Emit(IrOperation.JumpIfFalse);
@@ -101,6 +117,7 @@ public sealed class LoweringCompiler {
         }
         foreach (var parameter in function.Parameters ?? Array.Empty<Identifier>()) {
             if (parameter.Type == null) continue;
+            site = SourceRanges.Of(parameter);
             // Assign consumes the target's loaded value below the new value, like `p = p`.
             Emit(IrOperation.Load, Name(parameter.Value));
             Emit(IrOperation.Load, Name(parameter.Value));
@@ -108,9 +125,10 @@ public sealed class LoweringCompiler {
             Emit(IrOperation.Assign, Name(parameter.Value));
             Emit(IrOperation.Pop);
         }
+        site = SourceRanges.Of(function);
         Node(function.Body);
         Check(function);
-        return new LoweredProgram(code.ToArray(), constants.ToArray(), true, loops.ToArray());
+        return new LoweredProgram(code.ToArray(), constants.ToArray(), true, loops.ToArray()) { Spans = spans.ToArray() };
     }
 
     // The subject shares the name constant: emitters identify a binding by its first name constant.
@@ -124,7 +142,12 @@ public sealed class LoweringCompiler {
         Emit(IrOperation.CheckStruct, Constant($"{check.Code >> 6}\u0001{check.Subject}\u0001{TypeChecker.Name(check.Code)}"));
     }
 
-    private int Emit(IrOperation op, int operand = 0) { code.Add(new Instruction(op, operand)); return code.Count - 1; }
+    private int Emit(IrOperation op, int operand = 0) { code.Add(new Instruction(op, operand)); spans.Add(site); return code.Count - 1; }
+    /// <summary>Lowers <paramref name="emit"/> with its instructions at <paramref name="node"/>'s range.</summary>
+    private void At(INode? node, Action emit) {
+        var saved = site; var range = SourceRanges.Of(node); if (range.IsKnown) site = range;
+        emit(); site = saved;
+    }
     private void Patch(int instruction) => code[instruction] = new Instruction(code[instruction].Code, code.Count);
     private int Constant(object value) { constants.Add(value); return constants.Count - 1; }
     private int Name(string name) {
@@ -148,6 +171,15 @@ public sealed class LoweringCompiler {
     }
 
     private void Node(INode node) {
+        var saved = site; var range = SourceRanges.Of(node);
+        if (range.IsKnown) site = range;
+        // A pending name belongs to the function literal it was set for (through the async wrapper), nothing else.
+        if (node is not (FunctionLiteral or AsyncFunctionExpression)) pendingName = null;
+        try { NodeCore(node); } finally { site = saved; }
+    }
+    private void Named(string name, INode value) { pendingName = name; Node(value); pendingName = null; }
+
+    private void NodeCore(INode node) {
         switch (node) {
             case AbstractSyntaxTree tree: Statements(tree.Statements); break;
             case BlockStatement block: Statements(block.Statements, true); break;
@@ -155,7 +187,7 @@ public sealed class LoweringCompiler {
             case LetStatement declaration:
                 if (declaration.Alias != null && (!(declaration.Value is FunctionLiteral or AsyncFunctionExpression) || declaration.Alias.Value == declaration.Name.Value))
                     throw new CompilationException("Two distinct names require a function literal.");
-                Node(declaration.Value);
+                Named(declaration.Name.Value, declaration.Value);
                 Check(declaration);
                 if (declaration.Alias != null) Emit(IrOperation.Duplicate);
                 Emit(IrOperation.Declare, Name(declaration.Name.Value));
@@ -214,16 +246,24 @@ public sealed class LoweringCompiler {
             case InfixExpression infix: Infix(infix); break;
             case IfExpression conditional: Conditional(conditional); break;
             case ForLoopLiteral loop: Loop(loop); break;
-            case FunctionLiteral function: Emit(IrOperation.Closure, Constant(new FunctionCode(function, types))); break;
+            case FunctionLiteral function: {
+                string? name = pendingName; pendingName = null;
+                Emit(IrOperation.Closure, Constant(new FunctionCode(function, types, name)));
+                break;
+            }
             case CallExpression call:
-                Node(call.Function); Arguments(call.Arguments);
+                if (call is AsyncFunctionExpression) { string? name = pendingName; Node(call.Function); pendingName = name; Arguments(call.Arguments); pendingName = null; }
+                else { Node(call.Function); Arguments(call.Arguments); }
                 if (call.ArgumentNames != null) Emit(IrOperation.CallNamed, Constant(string.Join("\u0001", call.ArgumentNames)));
                 else Emit(IrOperation.Call, call.Arguments.Length);
                 break;
             case ArrayLiteral array when array.Elements.Any(e => e is SpreadElement or CollectionIf or CollectionFor): Collection(array); break;
             case ArrayLiteral array: Arguments(array.Elements); Emit(IrOperation.Array, array.Elements.Length); break;
             case HashLiteral hash:
-                foreach (var pair in hash.Pairs) { Node(pair.Key); Emit(IrOperation.CheckHashKey); Node(pair.Value); }
+                foreach (var pair in hash.Pairs) {
+                    Node(pair.Key); At(pair.Key, () => Emit(IrOperation.CheckHashKey));
+                    if (pair.Key is StringLiteral key) Named(key.Value, pair.Value); else Node(pair.Value);
+                }
                 Emit(IrOperation.Hash, hash.Pairs.Count); break;
             case IndexExpression index: Node(index.Left); Node(index.Index); Emit(IrOperation.Index); break;
             default: throw new CompilationException($"Unsupported syntax node: {node.GetType().Name}");
@@ -263,7 +303,8 @@ public sealed class LoweringCompiler {
         string op = expression.Operator;
         if (expression.Left is InfixExpression { Operator: "." } target && target.Right is Identifier field
             && Operators.IsAssignment(op)) {
-            Node(target.Left); Node(expression.Right);
+            Node(target.Left);
+            if (op == "=") Named(field.Value, expression.Right); else Node(expression.Right);
             if (op == "=") Emit(IrOperation.SetMember, Name(field.Value));
             else Emit(IrOperation.CompoundMember, Constant(new Assignment(field.Value, BinaryCode(Operators.Compound(op)))));
             return;
@@ -279,10 +320,11 @@ public sealed class LoweringCompiler {
         Node(expression.Left);
         if (op == ".") {
             // The parser rebuilds index chains on a member (`模組.表["鍵"]`) as indexing the member.
-            if (expression.Right is Identifier member) Emit(IrOperation.Member, Name(member.Value));
+            // A missing member is reported at its name: `String.Length` underlines Length.
+            if (expression.Right is Identifier member) At(member, () => Emit(IrOperation.Member, Name(member.Value)));
             else if (expression.Right is CallExpression call) {
-                if (call.Function is Identifier function) Emit(IrOperation.MemberFunction, Name(function.Value));
-                else Emit(IrOperation.ResolveMemberFunction, Constant(new LoweringCompiler(types).Compile(call.Function)));
+                if (call.Function is Identifier function) At(function, () => Emit(IrOperation.MemberFunction, Name(function.Value)));
+                else At(call.Function, () => Emit(IrOperation.ResolveMemberFunction, Constant(new LoweringCompiler(types).Compile(call.Function))));
                 Arguments(call.Arguments);
                 // Named arguments construct the member's struct type (`ui.Column(gap: 8)`), as for a plain name.
                 if (call.ArgumentNames != null) Emit(IrOperation.CallNamed, Constant(string.Join("\u0001", call.ArgumentNames)));
@@ -290,7 +332,7 @@ public sealed class LoweringCompiler {
             } else throw new CompilationException("成員存取的右側必須是名稱或呼叫 / The right side of a member access must be a name or a call.");
             return;
         }
-        Node(expression.Right);
+        if (op == "=" && expression.Left is Identifier assigned) Named(assigned.Value, expression.Right); else Node(expression.Right);
         if (Operators.IsAssignment(op)) {
             if (!(expression.Left is Identifier variable)) {
                 throw new CompilationException($"{op} 的左側必須是變數、欄位或索引 / The left side of {op} must be a variable, a field or an index.");
@@ -330,11 +372,11 @@ public sealed class LoweringCompiler {
     private void Conditional(IfExpression expression) {
         var endings = new List<int>();
         Node(expression.Condition);
-        int next = Emit(IrOperation.JumpIfFalse);
+        int next = 0; At(expression.Condition, () => next = Emit(IrOperation.JumpIfFalse));
         Node(expression.Consequence); endings.Add(Emit(IrOperation.Jump)); Patch(next);
         if (expression.AlternativeConditions != null) {
             for (int i = 0; i < expression.AlternativeConditions.Length; i++) {
-                Node(expression.AlternativeConditions[i]); next = Emit(IrOperation.JumpIfFalse);
+                Node(expression.AlternativeConditions[i]); At(expression.AlternativeConditions[i], () => next = Emit(IrOperation.JumpIfFalse));
                 Node(expression.Alternatives[i]); endings.Add(Emit(IrOperation.Jump)); Patch(next);
             }
         }
@@ -349,7 +391,7 @@ public sealed class LoweringCompiler {
         int condition = code.Count;
         // A loop without a condition runs until 中斷 / break.
         if (loop.ConditionalExpression != null) Node(loop.ConditionalExpression); else Value(RepeatedPrimitives.TRUE);
-        int end = Emit(IrOperation.LoopCondition);
+        int end = 0; At(loop.ConditionalExpression, () => end = Emit(IrOperation.LoopCondition));
         breaks.Push(new List<int>()); continues.Push(new List<int>());
         if (body != null) { body(); Emit(IrOperation.Pop); }
         else if (loop.Body != null) { Node(loop.Body); breaks.Peek().Add(Emit(IrOperation.JumpIfBreak)); Emit(IrOperation.Pop); }
