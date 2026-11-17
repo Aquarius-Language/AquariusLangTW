@@ -2,7 +2,7 @@
 
 AquariusLang has one version number, a [semantic version](https://semver.org) `MAJOR.MINOR.PATCH`. The language, its
 compiler, the `aqua` CLI, the language server and the VS Code extension always share it: an editor using the server of
-release 0.1.8 understands exactly the syntax that the 0.1.8 compiler accepts.
+release 0.1.9-alpha understands exactly the syntax that the 0.1.9-alpha compiler accepts.
 
 星泉只有一個版本號（語意化版本 `主.次.修訂`）。語言、編譯器、`aqua` 命令列、語言伺服器與 VS Code 擴充功能永遠使用同一個版本，
 因此編輯器顯示的語法與同版本編譯器接受的語法完全一致。
@@ -14,7 +14,7 @@ release 0.1.8 understands exactly the syntax that the 0.1.8 compiler accepts.
 | `<Version>` in [`compiler/Directory.Build.props`](../compiler/Directory.Build.props) | The single source: every compiler assembly, `AquariusVersion.Current`, `aqua --version`, the language server's `serverInfo.version` |
 | `version` in `editors/vscode/package.json` and `package-lock.json`, the VSIX name in its `package` script | Must equal the props version; tests fail otherwise |
 
-`aqua --version` prints `AquariusLang 0.1.8`. The VS Code extension compares the server's `serverInfo.version` with its
+`aqua --version` prints `AquariusLang 0.1.9-alpha`. The VS Code extension compares the server's `serverInfo.version` with its
 own and warns when `aquarius.serverPath` points at a server from another release.
 
 ## Requiring a version / 指定需要的版本
@@ -38,6 +38,11 @@ message instead of confusing parse errors. Leave it out to accept every version.
 ## What a new version means / 版本號的意義
 
 - **PATCH** (0.1.7 → 0.1.8): fixes and additions that keep every working program working the same way.
+- **Prerelease** (0.1.9-alpha, called "0.1.9a" in prose): a release before 0.1.9 itself, written with semver's
+  `-alpha` (then `-alpha.2`, `-beta`, ...), never as `0.1.9a`, which no semantic version reader accepts. It sorts
+  before 0.1.9 and after 0.1.8. The compiler's own version meets a project's `aquarius` range by precedence alone, so
+  `aquarius = ">= 0.1.4, < 0.2"` accepts 0.1.9-alpha; a dependency's prerelease is still chosen only when a constraint
+  names that prerelease.
 - **MINOR** while the major version is 0 (0.1 → 0.2): anything that can change or break an existing program: a new
   reserved word, a changed meaning, a removed feature. From 1.0 on, such changes need a new **MAJOR** version and
   MINOR is for compatible additions.

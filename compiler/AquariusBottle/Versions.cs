@@ -44,8 +44,10 @@ public sealed class VersionRequirement {
             clauses.Add((match.Groups[1].Success ? match.Groups[1].Value : "=", BottleVersion.Parse(match.Groups[2].Value, true)));
         }
     }
-    public bool Matches(BottleVersion version) =>
-        // Prereleases are opt-in and must refer to the same core version.
-        (version.PreRelease.Length == 0 || clauses.Any(c => c.Version.PreRelease.Length > 0 && c.Version.Major == version.Major && c.Version.Minor == version.Minor && c.Version.Patch == version.Patch)) &&
+    /// <summary>Whether the version meets every clause. A dependency's prerelease is opt-in and must refer to the same
+    /// core version; <paramref name="byPrecedence"/> compares a prerelease by precedence alone, as the compiler's own
+    /// version is checked against a project's `aquarius` range (0.1.9-alpha meets "&gt;= 0.1.4, &lt; 0.2").</summary>
+    public bool Matches(BottleVersion version, bool byPrecedence = false) =>
+        (byPrecedence || version.PreRelease.Length == 0 || clauses.Any(c => c.Version.PreRelease.Length > 0 && c.Version.Major == version.Major && c.Version.Minor == version.Minor && c.Version.Patch == version.Patch)) &&
         clauses.All(c => c.Operator switch { ">" => version.CompareTo(c.Version) > 0, ">=" => version.CompareTo(c.Version) >= 0, "<" => version.CompareTo(c.Version) < 0, "<=" => version.CompareTo(c.Version) <= 0, _ => version.CompareTo(c.Version) == 0 });
 }

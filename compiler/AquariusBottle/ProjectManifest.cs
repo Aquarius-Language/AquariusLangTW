@@ -126,7 +126,7 @@ public sealed class ProjectManifest {
         if (Aquarius != null) {
             VersionRequirement? requirement = null;
             try { requirement = new VersionRequirement(Aquarius); } catch (InvalidDataException e) { Fail("aquarius", e.Message); }
-            if (!requirement!.Matches(BottleVersion.Parse(AquariusVersion.Current)))
+            if (!requirement!.Matches(BottleVersion.Parse(AquariusVersion.Current), byPrecedence: true))
                 Fail("aquarius", $"{Name} 需要 AquariusLang {Aquarius}，目前為 {AquariusVersion.Current} / {Name} needs AquariusLang {Aquarius}; this is {AquariusVersion.Current}.");
         }
         var dependencies = new Dictionary<string, BottleDependency>(StringComparer.OrdinalIgnoreCase);

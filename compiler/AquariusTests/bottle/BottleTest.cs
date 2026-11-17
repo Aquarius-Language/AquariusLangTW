@@ -38,6 +38,14 @@ public class BottleTest {
     [InlineData("= 1.0.0", "1.0.0+foo", true)]
     public void SemanticVersionsRespectRangesAndPrereleaseOptIn(string requirement, string version, bool expected) => Assert.Equal(expected, new VersionRequirement(requirement).Matches(BottleVersion.Parse(version)));
 
+    // The compiler's own prerelease version (0.1.9-alpha) meets a project's `aquarius` range by precedence alone.
+    [Theory]
+    [InlineData(">= 0.1.4, < 0.2", "0.1.9-alpha", true)]
+    [InlineData(">= 0.1", "0.1.9-alpha", true)]
+    [InlineData(">= 0.1.9", "0.1.9-alpha", false)]
+    [InlineData("< 0.1.9", "0.1.9-alpha", true)]
+    public void ThePrereleaseCompilerMeetsRangesByPrecedence(string requirement, string version, bool expected) => Assert.Equal(expected, new VersionRequirement(requirement).Matches(BottleVersion.Parse(version), byPrecedence: true));
+
     [Theory]
     [InlineData("[project]\nname='has space'\ntype='executable'", "whitespace")]
     [InlineData("[project]\nname='lib'\ntype='library'", "version")]

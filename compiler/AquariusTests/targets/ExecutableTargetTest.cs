@@ -338,7 +338,7 @@ public class ExecutableTargetTest
         Assert.DoesNotContain(ExecutableTarget.HideTerminalOption, targets.Resolve("linux").OptionNames);
         Assert.Equal([NativeLibraryOutput.KindOption], targets.Resolve("web").OptionNames);
         Assert.Equal([AndroidTarget.ApplicationIdOption, AndroidTarget.NameOption, AndroidTarget.KeystoreOption, AndroidTarget.KeyAliasOption,
-            NativeLibraryOutput.KindOption],
+            AndroidTarget.OrientationOption, NativeLibraryOutput.KindOption],
             targets.Resolve("android").OptionNames);
         Assert.Throws<ArgumentException>(() => new BuildTargets([new WebTarget(), new WebTarget()]));
     }

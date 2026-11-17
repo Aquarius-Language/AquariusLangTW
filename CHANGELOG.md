@@ -3,7 +3,20 @@
 One version covers the language, the compiler, the CLI, the language server and the VS Code extension; see
 [versioning](docs/versioning.md).
 
-## 0.1.8
+## 0.1.9-alpha
+
+The first alpha of 0.1.9 (written "0.1.9a" in prose; `0.1.9-alpha` wherever a semantic version is read). A project's
+`aquarius = ">= 0.1.4, < 0.2"` accepts it: the compiler's own version is compared by precedence, so its prerelease
+tag never makes a manifest fail.
+
+Language:
+
+- `匯出` / `export` (a contextual keyword) marks top-level `var`, `const` and `struct` declarations of the entry module
+  as the exports of a native library, optionally with a public name: `export("distance") var distance = ...`.
+  Exported functions are function literals (not async) whose parameters and result are annotated with exportable
+  types (`int`, `long`, `float`, `double`, `bool`, `string`, typed number and Boolean arrays, exported structs with
+  ASCII scalar or string fields). Elsewhere `export` is an ordinary name, and programs without it compile to the same
+  bytes. Structs may declare a second name, like variables (`struct 點, Point { ... }`).
 
 Runtime errors:
 
@@ -14,6 +27,40 @@ Runtime errors:
   redirected output). Compile errors show the source line too. Nothing is recorded while a program runs normally: the
   compiler writes an `aquarius.debug` section (sources and line tables) and compiled code stores the failing instruction
   only on the error path. `aqua build --no-debug-info` leaves the section out. See [runtime errors](docs/runtime-errors.md).
+
+Native library outputs:
+
+- Any project or `[library]` can also be built into a native library for other languages: `aqua build . --target
+  <platform> --kind shared,static,object` (or an `[export]` table in `aqua.toml`), and `aqua export header` writes the
+  C header alone. Windows and Linux build `.dll`/`.so`, static libraries and (Linux) objects with C, C++ and Rust
+  bindings; Android an `.aar` per ABI with a Java binding (usable from Kotlin); the web a `.wasm` loaded by the glue's
+  `loadLibrary()` with a `.d.ts`; macOS dylibs or frameworks and iOS xcframeworks with a Swift binding (built, but not
+  verified on a Mac yet). Default libraries without windows link in; projects that import window libraries cannot be
+  exported yet. See [native library outputs](docs/native-libraries.md).
+
+Libraries:
+
+- `graphics` (WGPU): compute shaders (`CreateCompute`, `Dispatch`, `DispatchIndirect`), read-write storage buffers
+  (also in fragment shaders), storage textures and 3D volumes (`CreateVolume`), `DrawInstanced` and `DrawIndirect`,
+  `buffer.RequestRead` / `TakeRead` (read back without waiting), render targets that share another target's depth
+  (`ShareDepth`, `ClearDepth`), profiling (`WGPU.Stats`, `WGPU.NativeMs`, `device.Profile` / `ProfileScope` /
+  `ProfileFrame` with GPU timestamps), the adapter's storage limits, monitors (`WGPU.Monitors`, `window.Monitor`),
+  `window.Position`, `window.SetDisplayMode` / `DisplayMode` (windowed, borderless, exclusive full screen),
+  `window.Maximized`, `window.ContentScale`, `CreateWindow` options `fullscreen` and `scaleToMonitor`, and
+  `device.SetVSync`. All targets and dispatches record into one command encoder, user uniforms live in one ring
+  buffer and bind groups are cached, so frames submit far less work.
+- `saturn`: surfaces take a scale (UI zoom and device-pixel hosts), `TreeView` (a virtualized hierarchy with
+  selection and drag and drop), `DockSpace` (tab groups that split, join and float, layouts kept as plain data,
+  `DockRemove` / `DockInsert`), SplitView's `anchor: "second"`, and editor icons. Moving onto an `Immediate` widget
+  ends the hover of what the pointer left.
+
+Targets:
+
+- Windows: the runtime is per-monitor DPI aware, and a maximized window stays inside its monitor's work area.
+- Android: `aqua build --target android --orientation landscape|portrait|any` (default `any`).
+- Web: graphics builds again (the device clock reads WASI's monotonic clock).
+
+## 0.1.8
 
 Targets:
 
