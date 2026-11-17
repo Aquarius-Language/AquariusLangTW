@@ -16,7 +16,7 @@ public static class CompilerCommandLine {
         "aqua build (main.aqua ... | app.wasm) --target linux -o app [--entry main.aqua] [--onnx-cuda true|false] [--optimize true|false]\n" +
         "aqua build (main.aqua ... | app.wasm) --target macos -o App.app [--entry main.aqua] [--optimize true|false]\n" +
         "aqua build (main.aqua ... | app.wasm) --target ios -o App.app [--simulator true|false] [--bundle-id org.example.app] [--app-name Name] [--signing-identity ID --provisioning-profile file]\n" +
-        "aqua build (main.aqua ... | app.wasm) --target android -o app.apk [--entry main.aqua] [--application-id org.example.app] [--app-name Name] [--keystore file --key-alias name]\n" +
+        "aqua build (main.aqua ... | app.wasm) --target android -o app.apk [--entry main.aqua] [--application-id org.example.app] [--app-name Name] [--orientation landscape|portrait|any] [--keystore file --key-alias name]\n" +
         "aqua build [aqua.toml|project-directory] [--target PLATFORM] [--platform PLATFORM] [-o output] [--locked] [--offline]\n" +
         "aqua build ... --no-debug-info   (any build: leave out the sources and line tables runtime errors use for their location and call stack)\n" +
         "aqua build (project | main.aqua ... | app.wasm) --target windows|linux|android|web --kind shared[,static,object] -o dist   (native libraries of the 匯出 / export functions; --kind executable builds the usual artifact)\n" +

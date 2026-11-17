@@ -12,10 +12,8 @@
 #endif
 #if defined(AQUA_OS_WINDOWS)
 #include <windows.h>
-#elif !defined(AQUA_OS_WEB)
-#include <time.h>
 #else
-#include <emscripten.h>
+#include <time.h>
 #endif
 
 typedef struct blit_pipeline { WGPUTextureFormat format; uint32_t samples; WGPURenderPipeline pipeline; } blit_pipeline;
@@ -115,10 +113,8 @@ double gpu_clock_ms(void) {
     LARGE_INTEGER now;
     QueryPerformanceCounter(&now);
     return (double)now.QuadPart * 1000.0 / (double)frequency.QuadPart;
-#elif defined(AQUA_OS_WEB)
-    return emscripten_get_now();
 #else
-    struct timespec t;
+    struct timespec t;   /* the web target (wasm32-wasip1) reads WASI's monotonic clock, performance.now() in the glue */
     clock_gettime(CLOCK_MONOTONIC, &t);
     return (double)t.tv_sec * 1000.0 + (double)t.tv_nsec / 1e6;
 #endif

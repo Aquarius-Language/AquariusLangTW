@@ -20,10 +20,13 @@ public sealed class AndroidTarget : IWasmBuildTarget
 {
     public const string ApplicationIdOption = "--application-id", NameOption = "--app-name";
     public const string KeystoreOption = "--keystore", KeyAliasOption = "--key-alias";
+    // --orientation landscape | portrait | any (the default): the activity's screen orientation, following the sensor
+    // within it (a landscape game turns with the phone between its two landscape sides).
+    public const string OrientationOption = "--orientation";
     public static readonly string[] Abis = ["arm64-v8a", "x86_64"];
     public string Name => "android";
     public string ArtifactDescription => "Android application";
-    public IReadOnlyCollection<string> OptionNames => [ApplicationIdOption, NameOption, KeystoreOption, KeyAliasOption, Libraries.NativeLibraryOutput.KindOption];
+    public IReadOnlyCollection<string> OptionNames => [ApplicationIdOption, NameOption, KeystoreOption, KeyAliasOption, OrientationOption, Libraries.NativeLibraryOutput.KindOption];
 
     public void Build(WasmBuildRequest request)
     {
@@ -37,6 +40,10 @@ public sealed class AndroidTarget : IWasmBuildTarget
         if (!Regex.IsMatch(id, @"\A[a-zA-Z][a-zA-Z0-9_]*(\.[a-zA-Z][a-zA-Z0-9_]*)+\z")) throw new ArgumentException("Invalid Android application ID.");
         string label = request.Option(NameOption) ?? Path.GetFileNameWithoutExtension(entry);
         if (string.IsNullOrWhiteSpace(label) || label.Length > 128) throw new ArgumentException("The Android app name must be 1 to 128 characters.");
+        string orientation = (request.Option(OrientationOption) ?? "any") switch {
+            "any" => "", "landscape" => "sensorLandscape", "portrait" => "sensorPortrait",
+            var other => throw new ArgumentException($"{OrientationOption} is landscape, portrait or any, not {other}."),
+        };
         string? keystore = request.Option(KeystoreOption), alias = request.Option(KeyAliasOption);
         if ((keystore == null) != (alias == null)) throw new ArgumentException($"{KeystoreOption} and {KeyAliasOption} go together.");
 
@@ -63,6 +70,9 @@ public sealed class AndroidTarget : IWasmBuildTarget
             string manifest = File.ReadAllText(template).Replace("@PACKAGE@", id).Replace("@LABEL@", System.Security.SecurityElement.Escape(label))
                 .Replace("@VERSION_CODE@", "1").Replace("@VERSION_NAME@", "1.0")
                 .Replace("@PERMISSIONS@", string.Join("\n", permissions.Select(p => $"    <uses-permission android:name=\"{p}\" />")));
+            if (orientation.Length > 0)
+                manifest = manifest.Replace("android:name=\"org.aquariuslang.runtime.AquariusActivity\"",
+                    $"android:name=\"org.aquariuslang.runtime.AquariusActivity\" android:screenOrientation=\"{orientation}\"");
             File.WriteAllText(Path.Combine(work, "AndroidManifest.xml"), manifest, new UTF8Encoding(false));
             string linked = Path.Combine(work, "linked.apk");
             Output.Run(tools.Aapt2, ["link", "-o", linked, "--manifest", Path.Combine(work, "AndroidManifest.xml"), "-I", tools.AndroidJar], tools.Environment);

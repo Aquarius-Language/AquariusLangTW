@@ -20,6 +20,9 @@ aqua build app.wasm --target android -o dist/demo.apk --application-id tw.exampl
 的 manifest，以及 `assets/aquarius/` 下的 `program.wasm` 與資源。預設以 `~/.aquarius/android/debug.keystore` 簽章；
 正式發佈請用 `--keystore` / `--key-alias`（密碼來自 `AQUARIUS_KEYSTORE_PASSWORD` / `AQUARIUS_KEY_PASSWORD`）。
 
+`--orientation landscape`（或 `portrait`）把 activity 固定為橫向（直向），在兩個橫向之間仍隨感測器轉動；預設 `any` 跟隨裝置。
+`--orientation landscape` (or `portrait`) keeps the activity in landscape (portrait), still turning between the two sides with the sensor; the default `any` follows the device.
+
 建置需要 `ANDROID_HOME`（Android SDK Platform 36、Build Tools 36.0.0）與 JDK（`scripts/install-toolchain.ps1` 安裝鎖定的
 Temurin 21）。最低 Android 10（API 29），需要 Vulkan 裝置才能使用圖學。
 
